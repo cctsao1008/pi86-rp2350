@@ -42,8 +42,14 @@ static uint32_t data_hi_lut[256];
 typedef struct {
     uint32_t t1_sample;
     uint32_t control_sample;
+    uint32_t drive_sample;
+    uint32_t data_clock1_sample;
+    uint32_t data_clock2_sample;
     uint32_t address;
     uint16_t data;
+    uint16_t drive_readback;
+    uint16_t data_clock1_readback;
+    uint16_t data_clock2_readback;
     uint8_t a0;
     uint8_t bhe;
     uint8_t iom;
@@ -56,6 +62,7 @@ typedef enum {
     GATE4_FAIL_NO_ALE,
     GATE4_FAIL_UNSUPPORTED_LANE,
     GATE4_FAIL_NOT_MEMORY_READ,
+    GATE4_FAIL_DATA_READBACK,
 } gate4_fail_t;
 
 static gate4_trace_entry_t trace_entries[GATE4_TRACE_CAPACITY];
@@ -196,13 +203,15 @@ static const char *fail_reason_string(gate4_fail_t reason) {
             return "cycle is not an aligned 16-bit word access (A0=0, BHE=0)";
         case GATE4_FAIL_NOT_MEMORY_READ:
             return "cycle is not a normal memory read (IO/M=1, DT/R=0, INTA=1)";
+        case GATE4_FAIL_DATA_READBACK:
+            return "AD pad readback did not match the requested data word";
         default:
             return "unknown";
     }
 }
 
 static void print_banner(void) {
-    printf("\npi86-rp2350 Gate 4 aligned-word memory read%s\n",
+    printf("\npi86-rp2350 Gate 4 aligned-word memory read%s - AD readback instrumentation\n",
            GATE4_SMOKE_MODE ? " smoke test" : " test");
     printf("Host: Waveshare RP2350-PiZero\n");
     printf("HAT: original Pi86/Homebrew8088 V20/V30 HAT\n");
@@ -214,14 +223,16 @@ static void print_banner(void) {
     printf("Internal deterministic test ROM:\n");
     printf("  0xFFFF0 -> 0xFEEB  (bytes EB FE = JMP SHORT -2)\n");
     printf("  other aligned reads -> 0x9090 filler\n");
-    printf("No PSRAM is required or accessed by this target.\n\n");
+    printf("No PSRAM is required or accessed by this target.\n");
+    printf("AD instrumentation records GPIO pad readback immediately after OE enable,\n");
+    printf("after the first data-phase clock, and after the second data-phase clock.\n\n");
 
     if (GATE4_SMOKE_MODE) {
         printf("PASS condition: service the reset-vector read at least %u times\n",
                GATE4_SMOKE_REQUIRED_FFFF0_READS);
-        printf("without seeing an unsupported lane or non-memory-read cycle.\n\n");
+        printf("with matching AD readback and no unsupported lane/control cycle.\n\n");
     } else {
-        printf("PASS condition: service %u aligned word memory reads without error.\n\n",
+        printf("PASS condition: service %u aligned word memory reads with matching AD readback.\n\n",
                GATE4_GENERIC_TARGET_READS);
     }
 
@@ -230,21 +241,33 @@ static void print_banner(void) {
 
 static void print_trace_entry(uint index, const gate4_trace_entry_t *entry) {
     printf("READ #%u\n", index);
-    printf("  T1 raw            = 0x%08lX\n",
+    printf("  T1 raw                  = 0x%08lX\n",
            (unsigned long)entry->t1_sample);
-    printf("  address           = 0x%05lX\n",
+    printf("  address                 = 0x%05lX\n",
            (unsigned long)entry->address);
-    printf("  A0 / BHE          = %u / %u\n",
+    printf("  A0 / BHE                = %u / %u\n",
            entry->a0,
            entry->bhe);
-    printf("  control raw       = 0x%08lX\n",
+    printf("  control raw             = 0x%08lX\n",
            (unsigned long)entry->control_sample);
-    printf("  IO/M / DT/R / INTA= %u / %u / %u\n",
+    printf("  IO/M / DT/R / INTA      = %u / %u / %u\n",
            entry->iom,
            entry->dtr,
            entry->inta);
-    printf("  data driven       = 0x%04X\n",
+    printf("  data requested          = 0x%04X\n",
            entry->data);
+    printf("  AD after OE raw         = 0x%08lX\n",
+           (unsigned long)entry->drive_sample);
+    printf("  AD after OE readback    = 0x%04X\n",
+           entry->drive_readback);
+    printf("  AD after data clk #1 raw= 0x%08lX\n",
+           (unsigned long)entry->data_clock1_sample);
+    printf("  AD after data clk #1    = 0x%04X\n",
+           entry->data_clock1_readback);
+    printf("  AD after data clk #2 raw= 0x%08lX\n",
+           (unsigned long)entry->data_clock2_sample);
+    printf("  AD after data clk #2    = 0x%04X\n",
+           entry->data_clock2_readback);
 }
 
 int main(void) {
@@ -338,15 +361,35 @@ int main(void) {
 
         /*
          * CLK is stalled LOW at the end of T2. Prepare the complete word,
-         * enable the AD output drivers, then advance through T3 and T4.
+         * enable the AD output drivers, then read the actual GPIO pad state.
+         * Keep the same word driven while advancing through the two following
+         * data-phase clock steps, sampling the pads again after each step.
          */
         drive_ad_word(entry.data);
-        (void)clock_step(pio, clk_sm); /* T3 */
-        (void)clock_step(pio, clk_sm); /* T4 */
+
+        entry.drive_sample = sio_hw->gpio_in;
+        entry.drive_readback = decode_ad(entry.drive_sample);
+
+        entry.data_clock1_sample = clock_step(pio, clk_sm);
+        entry.data_clock1_readback = decode_ad(entry.data_clock1_sample);
+
+        entry.data_clock2_sample = clock_step(pio, clk_sm);
+        entry.data_clock2_readback = decode_ad(entry.data_clock2_sample);
+
         release_ad_bus();
 
         trace_entries[trace_count] = entry;
         ++trace_count;
+
+        const bool readback_ok =
+            entry.drive_readback == entry.data &&
+            entry.data_clock1_readback == entry.data &&
+            entry.data_clock2_readback == entry.data;
+
+        if (!readback_ok) {
+            fail_reason = GATE4_FAIL_DATA_READBACK;
+            break;
+        }
 
         if (entry.address == GATE4_RESET_VECTOR) {
             ++reset_vector_reads;
