@@ -63,20 +63,40 @@ The original HAT uses a scattered Raspberry Pi GPIO mapping. Performance work wi
 
 ## Build prerequisites
 
-- Raspberry Pi Pico SDK
+- Raspberry Pi Pico SDK **2.3.0 or newer**
 - CMake
 - Arm GNU Toolchain supported by the installed Pico SDK
+
+Pico SDK 2.3.0 added the official board configuration:
+
+```text
+waveshare_rp2350_pizero
+```
+
+That definition selects the RP2350B package and the board's 16 MB flash configuration, so this project no longer uses `pico2` as a bootstrap substitute.
 
 Set `PICO_SDK_PATH` to your Pico SDK checkout before configuring.
 
 Example:
 
 ```bash
-cmake -S . -B build -DPICO_BOARD=pico2
+cmake -S . -B build -DPICO_BOARD=waveshare_rp2350_pizero
 cmake --build build --parallel
 ```
 
-`PICO_BOARD=pico2` is currently used only as the bootstrap RP2350 SDK configuration for Gate 0/1, where only GPIO0-GPIO27 and native USB stdio are exercised. Board-specific support for the RP2350B peripherals used later (DVI, MicroSD, PSRAM, higher-numbered GPIOs) must be validated before those features are enabled.
+The root `CMakeLists.txt` also defaults `PICO_BOARD` to `waveshare_rp2350_pizero`, so the shorter form is valid when no other board is selected:
+
+```bash
+cmake -S . -B build
+cmake --build build --parallel
+```
+
+Expected initial outputs include:
+
+```text
+build/firmware/pi86_rp2350.uf2
+build/tests/gpio_test/gpio_test.uf2
+```
 
 ## Initial executables
 
