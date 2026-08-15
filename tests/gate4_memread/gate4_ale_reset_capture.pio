@@ -23,6 +23,5 @@ sample:
     mov isr, null
     in pins, 28
     push block
-    nop
     jmp sample
 .wrap
