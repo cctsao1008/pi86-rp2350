@@ -6,8 +6,17 @@
 
 .program gate3_capture
 .wrap_target
+    ; Do not accept any ALE activity while RESET is asserted.
+    ; RESET is active HIGH, so wait until the host releases it LOW.
+    wait 0 gpio 16
+
+    ; Capture the first ALE assertion after RESET release.
     wait 1 gpio 12
     mov isr, pins
     push block
+
+    ; Finish the pulse before re-arming. The Gate 3 host stops after the
+    ; first sample, but keeping the program edge-oriented is useful for
+    ; diagnostics and later extensions.
     wait 0 gpio 12
 .wrap
