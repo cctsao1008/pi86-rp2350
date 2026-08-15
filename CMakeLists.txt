@@ -42,3 +42,4 @@ pico_sdk_init()
 
 add_subdirectory(firmware)
 add_subdirectory(tests/gpio_test)
+add_subdirectory(tests/gate2_preflight)
