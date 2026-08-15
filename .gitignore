@@ -23,7 +23,6 @@
 *.dll
 *.so.*
 
-
 # Fortran module files
 *.mod
 *.smod
@@ -39,6 +38,14 @@
 *.out
 *.app
 
+# Pico / embedded build artifacts
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+*.dis
+
 # Build directories
 build/
 Build/
@@ -52,11 +59,17 @@ Makefile
 install_manifest.txt
 compile_commands.json
 
+# IDE / editor metadata
+.vscode/
+.idea/
+*.code-workspace
+
 # Temporary files
 *.tmp
 *.log
 *.bak
 *.swp
+*~
 
 # vcpkg
 vcpkg_installed/
@@ -67,3 +80,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+
+# OS metadata
+.DS_Store
+Thumbs.db
