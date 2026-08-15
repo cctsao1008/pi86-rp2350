@@ -14,9 +14,11 @@
 #define STEP_PIO_CLOCK_HZ 2000000u
 #define PI86_RESET_CLOCKS 8u
 #define PI86_MAX_IDLE_STEPS 64u
-#define LOOP_READS_REQUIRED 16u
+#define MAX_BUS_READS 64u
+#define RESET_VECTOR_HITS_REQUIRED 3u
 #define RESET_VECTOR 0xFFFF0u
 #define LOOP_WORD 0xFEEBu
+#define FILL_WORD 0x9090u
 
 static const uint8_t ad_gpio[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -54,10 +56,10 @@ static void release_ad_bus(void) {
 }
 
 static void init_data_luts(void) {
-    for (uint32_t value = 0; value < 256u; ++value) {
+    for (uint32_t value = 0u; value < 256u; ++value) {
         uint32_t lo_mask = 0u;
         uint32_t hi_mask = 0u;
-        for (uint bit = 0; bit < 8u; ++bit) {
+        for (uint bit = 0u; bit < 8u; ++bit) {
             if ((value >> bit) & 1u) {
                 lo_mask |= 1u << ad_gpio[bit];
                 hi_mask |= 1u << ad_gpio[bit + 8u];
@@ -70,7 +72,7 @@ static void init_data_luts(void) {
 
 static uint16_t decode_ad(uint32_t sample) {
     uint16_t value = 0u;
-    for (uint bit = 0; bit < 16u; ++bit) {
+    for (uint bit = 0u; bit < 16u; ++bit) {
         value |= (uint16_t)(sample_bit(sample, ad_gpio[bit]) << bit);
     }
     return value;
@@ -82,13 +84,17 @@ static uint32_t decode_address(uint32_t sample) {
     address |= sample_bit(sample, V30_PIN_A17) << 17;
     address |= sample_bit(sample, V30_PIN_A18) << 18;
     address |= sample_bit(sample, V30_PIN_A19) << 19;
-    return address & 0xfffffu;
+    return address & 0xFFFFFu;
+}
+
+static uint16_t rom_word(uint32_t address) {
+    return address == RESET_VECTOR ? LOOP_WORD : FILL_WORD;
 }
 
 static void drive_ad_word(uint16_t word) {
     const uint32_t encoded =
-        data_lo_lut[word & 0xffu] |
-        data_hi_lut[(word >> 8) & 0xffu];
+        data_lo_lut[word & 0xFFu] |
+        data_hi_lut[(word >> 8) & 0xFFu];
     sio_hw->gpio_clr = V30_AD_BUS_MASK;
     sio_hw->gpio_set = encoded;
     sio_hw->gpio_oe_set = V30_AD_BUS_MASK;
@@ -115,7 +121,7 @@ static uint32_t pi86_clk(PIO pio, uint sm) {
 static void safe_halt(PIO pio, uint sm) {
     release_ad_bus();
     drive_cpu_input(V30_PIN_RESET, true);
-    for (uint i = 0; i < PI86_RESET_CLOCKS; ++i) {
+    for (uint i = 0u; i < PI86_RESET_CLOCKS; ++i) {
         (void)pi86_clk(pio, sm);
     }
     pio_sm_set_enabled(pio, sm, false);
@@ -137,13 +143,14 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
 
-    printf("\nGate 4 pi86 repeated reset-vector loop smoke test\n");
+    printf("\nGate 4 pi86 prefetch-aware reset-vector loop smoke test\n");
     printf("RESET=1 for %u CLK() calls, then pi86-style stepped bus service.\n",
            PI86_RESET_CLOCKS);
-    printf("Expected repeated fetch: 0x%05X -> 0x%04X (EB FE = JMP SHORT -2).\n",
-           RESET_VECTOR, LOOP_WORD);
-    printf("Required consecutive successful reads: %u.\n\n",
-           LOOP_READS_REQUIRED);
+    printf("ROM: 0x%05X -> 0x%04X (EB FE = JMP SHORT -2); other aligned reads -> 0x%04X.\n",
+           RESET_VECTOR, LOOP_WORD, FILL_WORD);
+    printf("PASS: observe 0x%05X at least %u times within %u valid aligned memory reads,\n",
+           RESET_VECTOR, RESET_VECTOR_HITS_REQUIRED, MAX_BUS_READS);
+    printf("with correct data pad readback on every serviced cycle.\n\n");
     fflush(stdout);
 
     PIO pio = pio0;
@@ -151,15 +158,17 @@ int main(void) {
     const uint offset = pio_add_program(pio, &gate4_step_clk_program);
     init_step_clock(pio, sm, offset);
 
-    for (uint i = 0; i < PI86_RESET_CLOCKS; ++i) {
+    for (uint i = 0u; i < PI86_RESET_CLOCKS; ++i) {
         (void)pi86_clk(pio, sm);
     }
     drive_cpu_input(V30_PIN_RESET, false);
 
     bool pass = true;
-    uint reads_completed = 0u;
+    uint bus_reads = 0u;
+    uint reset_vector_hits = 0u;
 
-    while (reads_completed < LOOP_READS_REQUIRED) {
+    while (bus_reads < MAX_BUS_READS &&
+           reset_vector_hits < RESET_VECTOR_HITS_REQUIRED) {
         bool saw_ale = false;
         uint32_t t1 = 0u;
         uint idle_steps = 0u;
@@ -173,8 +182,8 @@ int main(void) {
         }
 
         if (!saw_ale) {
-            printf("READ #%u FAIL: ALE not observed within %u CLK() calls.\n",
-                   reads_completed, PI86_MAX_IDLE_STEPS);
+            printf("BUS #%u FAIL: ALE not observed within %u CLK() calls.\n",
+                   bus_reads, PI86_MAX_IDLE_STEPS);
             pass = false;
             break;
         }
@@ -188,9 +197,8 @@ int main(void) {
         const uint32_t dtr = sample_bit(control, V30_PIN_DTR);
         const uint32_t inta = sample_bit(control, V30_PIN_INTA);
 
-        if (address != RESET_VECTOR || a0 != 0u || bhe != 0u ||
-            iom != 1u || dtr != 0u || inta != 1u) {
-            printf("READ #%u FAIL: address/control mismatch.\n", reads_completed);
+        if (a0 != 0u || bhe != 0u || iom != 1u || dtr != 0u || inta != 1u) {
+            printf("BUS #%u FAIL: unsupported/non-memory-read cycle.\n", bus_reads);
             printf("  idle CLK() calls = %u\n", idle_steps + 1u);
             printf("  address          = 0x%05lX\n", (unsigned long)address);
             printf("  A0/BHE           = %lu/%lu\n",
@@ -203,36 +211,48 @@ int main(void) {
             break;
         }
 
-        drive_ad_word(LOOP_WORD);
+        const uint16_t word = rom_word(address);
+        drive_ad_word(word);
         const uint32_t data_clk1 = pi86_clk(pio, sm);
         const uint32_t data_clk2 = pi86_clk(pio, sm);
         const uint16_t readback1 = decode_ad(data_clk1);
         const uint16_t readback2 = decode_ad(data_clk2);
         release_ad_bus();
 
-        if (readback1 != LOOP_WORD || readback2 != LOOP_WORD) {
-            printf("READ #%u FAIL: data readback mismatch.\n", reads_completed);
-            printf("  CLK#1 = 0x%04X, CLK#2 = 0x%04X\n",
-                   readback1, readback2);
+        if (readback1 != word || readback2 != word) {
+            printf("BUS #%u FAIL: data readback mismatch at 0x%05lX.\n",
+                   bus_reads, (unsigned long)address);
+            printf("  requested=0x%04X CLK#1=0x%04X CLK#2=0x%04X\n",
+                   word, readback1, readback2);
             pass = false;
             break;
         }
 
-        printf("READ #%u PASS: idle=%u address=0x%05lX data=0x%04X/0x%04X\n",
-               reads_completed,
+        if (address == RESET_VECTOR) {
+            ++reset_vector_hits;
+        }
+
+        printf("BUS #%u PASS: idle=%u address=0x%05lX data=0x%04X/0x%04X%s\n",
+               bus_reads,
                idle_steps + 1u,
                (unsigned long)address,
                readback1,
-               readback2);
-        ++reads_completed;
+               readback2,
+               address == RESET_VECTOR ? "  <RESET VECTOR>" : "");
+        ++bus_reads;
     }
 
     safe_halt(pio, sm);
 
-    printf("\nCompleted reads = %u/%u\n",
-           reads_completed, LOOP_READS_REQUIRED);
+    const bool final_pass =
+        pass && reset_vector_hits >= RESET_VECTOR_HITS_REQUIRED;
+
+    printf("\nServiced aligned memory reads = %u/%u max\n",
+           bus_reads, MAX_BUS_READS);
+    printf("Reset-vector hits            = %u/%u required\n",
+           reset_vector_hits, RESET_VECTOR_HITS_REQUIRED);
     printf("GATE 4 PI86 LOOP SMOKE RESULT: %s\n",
-           pass && reads_completed == LOOP_READS_REQUIRED ? "PASS" : "FAIL");
+           final_pass ? "PASS" : "FAIL");
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
     fflush(stdout);
 
