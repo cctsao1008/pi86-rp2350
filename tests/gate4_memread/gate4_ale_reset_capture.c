@@ -20,8 +20,8 @@
 #define CAPTURE_PIO_CLOCK_HZ       8000000u
 #define RESET_HOLD_CLOCKS               20u
 #define CAPTURE_PRE_RESET_CLOCKS         2u
-#define CAPTURE_POST_RESET_CLOCKS        9u
-#define CAPTURE_SAMPLES                192u
+#define CAPTURE_POST_RESET_CLOCKS       14u
+#define CAPTURE_SAMPLES                384u
 #define SAMPLE_INTERVAL_US              0.5
 #define RESET_VECTOR                0xFFFF0u
 
@@ -138,9 +138,9 @@ static void print_capture(bool rx_stall) {
     uint ale_rises = 0;
     uint ale_falls = 0;
 
-    printf("\n=== DMA reset/ALE capture ===\n");
-    printf("PIO samples continuously; no WAIT instruction is used for RESET or ALE.\n");
-    printf("DMA drains the PIO RX FIFO so CPU print/drain timing cannot pace sampling.\n");
+    printf("\n=== Finite DMA reset/ALE capture ===\n");
+    printf("PIO samples continuously with no RESET/ALE WAIT; exact sample count is enforced in PIO.\n");
+    printf("DMA drains RX FIFO; after the final sample PIO stalls on TX PULL and cannot create post-capture RXSTALL.\n");
     printf("Nominal sample interval = %.1f us. AD bus is high-Z throughout.\n\n",
            SAMPLE_INTERVAL_US);
     printf(" IDX   us   RST CLK ALE IOM DTR BHE INTA  AD     A19:16 ADDR   AD4 AD7  MARK\n");
@@ -213,9 +213,11 @@ static void print_capture(bool rx_stall) {
     if (reset_fall_idx < 0) {
         printf("  RESULT: INVALID - RESET falling edge was not captured.\n");
     } else if (rx_stall) {
-        printf("  RESULT: INVALID - capture cadence was disturbed by RX FIFO stall.\n");
+        printf("  RESULT: INVALID - RX FIFO stalled before the exact finite capture completed.\n");
+    } else if (first_ffff0_idx < 0) {
+        printf("  RESULT: VALID CAPTURE, NO FFFF0 - measurement is valid but reset-vector ALE was not observed in the window.\n");
     } else {
-        printf("  RESULT: VALID CAPTURE - interpret ALE only from the recorded transitions above.\n");
+        printf("  RESULT: VALID CAPTURE - interpret ALE/ASTB from the recorded transitions above.\n");
     }
 }
 
@@ -231,9 +233,10 @@ int main(void) {
         sleep_ms(10);
     }
 
-    printf("\npi86-rp2350 Gate 4 DMA reset/ALE capture\n");
+    printf("\npi86-rp2350 Gate 4 finite DMA reset/ALE capture\n");
     printf("Purpose: verify RESET and ALE/ASTB transitions without assuming an ALE trigger.\n");
-    printf("Capture path: free-running PIO -> DMA -> RAM. CPU does not drain samples in real time.\n");
+    printf("Capture path: finite-count PIO -> DMA -> RAM. CPU does not drain samples in real time.\n");
+    printf("The PIO itself stops producing RX words after exactly %u samples.\n", CAPTURE_SAMPLES);
     printf("The capture begins while RESET is HIGH, includes RESET falling edge, then continues post-release.\n");
     printf("AD bus remains high-Z for the entire capture. No PSRAM is used.\n\n");
 
@@ -275,10 +278,13 @@ int main(void) {
         CAPTURE_SAMPLES,
         false);
 
-    /* Clear sticky FIFO-debug flags so RXSTALL is meaningful for this run only. */
+    /* Clear sticky FIFO-debug flags so RXSTALL belongs to this finite run only. */
     cap_pio->fdebug = 0xffffffffu;
     pio_sm_clear_fifos(cap_pio, cap_sm);
     pio_sm_restart(cap_pio, cap_sm);
+
+    /* Preload exact sample count before enabling. The first PIO PULL consumes it. */
+    pio_sm_put(cap_pio, cap_sm, CAPTURE_SAMPLES - 1u);
 
     /* DMA is armed before the sampler starts; PIO therefore never relies on CPU draining. */
     dma_start_channel_mask(1u << (uint)dma_chan);
@@ -296,6 +302,8 @@ int main(void) {
     }
 
     dma_channel_wait_for_finish_blocking(dma_chan);
+
+    /* PIO has already produced exactly CAPTURE_SAMPLES words and is stalled on PULL. */
     pio_sm_set_enabled(cap_pio, cap_sm, false);
 
     const bool rx_stall =
@@ -321,7 +329,7 @@ int main(void) {
     uint32_t heartbeat = 0;
     while (true) {
         if (stdio_usb_connected()) {
-            printf("Gate 4 DMA ALE heartbeat %lu | RESET=1 CLK=0 AD=Hi-Z\n",
+            printf("Gate 4 finite DMA ALE heartbeat %lu | RESET=1 CLK=0 AD=Hi-Z\n",
                    (unsigned long)heartbeat++);
             fflush(stdout);
         }
