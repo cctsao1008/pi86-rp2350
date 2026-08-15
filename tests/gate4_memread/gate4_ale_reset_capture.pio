@@ -1,0 +1,28 @@
+.program gate4_ale_reset_capture
+
+; Continuous passive GPIO sampler for Gate 4 reset/ALE validation.
+;
+; Design goals:
+; - No WAIT on RESET or ALE: the capture must not assume the signal behavior
+;   that it is intended to verify.
+; - No GPIO direction/output changes: this state machine is observation-only.
+; - Fixed sample cadence independent of host FIFO draining. A DMA channel
+;   drains RX FIFO in the companion C test.
+;
+; Host configuration:
+; - IN base = GPIO0
+; - shift-right, no autopush
+; - state-machine clock = 8 MHz
+;
+; Four PIO instructions are executed per sample, so the nominal sample
+; interval is 0.5 us. `in pins, 28` places GPIO0..GPIO27 in ISR[31:4]
+; with shift-right; firmware shifts the DMA word right by four bits.
+
+.wrap_target
+sample:
+    mov isr, null
+    in pins, 28
+    push block
+    nop
+    jmp sample
+.wrap
