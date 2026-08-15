@@ -354,6 +354,7 @@ static void run_matrix_trial(PIO pio,
     result->status = MATRIX_TRIAL_OK;
 
 done:
+    ;
     /* Return to a reset/quiescent state before the next pattern. */
     uint32_t ignored_reset_sample = 0;
     (void)reset_and_arm_first_ale(pio,
