@@ -12,13 +12,14 @@
 #include "v30/v30_pins.h"
 #include "gate4_step_clock.pio.h"
 
-#define GATE4_CPU_CLOCK_HZ          100000u
-#define GATE4_PIO_CLOCK_HZ         2000000u
-#define GATE4_RESET_CLOCKS              20u
-#define GATE4_RESET_HALT_CLOCKS          6u
-#define GATE4_ALE_SEARCH_CLOCKS          64u
-#define GATE4_PAD_SETTLE_US               2u
-#define GATE4_RESET_VECTOR          0xFFFF0u
+#define GATE4_CPU_CLOCK_HZ              100000u
+#define GATE4_PIO_CLOCK_HZ             2000000u
+#define GATE4_RESET_CLOCKS                  20u
+#define GATE4_RESET_HALT_CLOCKS              6u
+#define GATE4_RESET_ALE_LOW_SEARCH_CLOCKS   64u
+#define GATE4_ALE_SEARCH_CLOCKS              64u
+#define GATE4_PAD_SETTLE_US                   2u
+#define GATE4_RESET_VECTOR              0xFFFF0u
 
 static const uint16_t matrix_patterns[] = {
     0x0000u, /* all AD bits low */
@@ -52,6 +53,7 @@ static uint32_t data_hi_lut[256];
 
 typedef enum {
     MATRIX_TRIAL_OK = 0,
+    MATRIX_TRIAL_RESET_NOT_QUIESCENT,
     MATRIX_TRIAL_NO_ALE,
     MATRIX_TRIAL_WRONG_ADDRESS,
     MATRIX_TRIAL_UNSUPPORTED_LANE,
@@ -63,6 +65,7 @@ typedef struct {
     uint32_t turnaround_us;
     matrix_trial_status_t status;
 
+    uint32_t reset_sample;
     uint32_t t1_sample;
     uint32_t control_sample;
     uint32_t predrive_sample;
@@ -189,19 +192,60 @@ static void stop_clock_low(PIO pio, uint sm) {
     gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
 }
 
-static void assert_reset_with_clocks(PIO pio, uint sm, uint clocks) {
+/*
+ * Assert hardware RESET and establish an ALE=LOW baseline before release.
+ *
+ * The first matrix revision only held RESET for N clocks and then level-tested
+ * ALE after release. After the first trial, a reset-time/stale ALE=HIGH level
+ * could therefore be mistaken for the next reset-vector T1. Gate 3 already
+ * demonstrated why the first post-reset capture must be edge-qualified.
+ *
+ * This helper keeps clocking with RESET asserted until ALE is observed LOW.
+ * The caller may then treat the first ALE=HIGH observation after RESET release
+ * as a genuine low-to-high transition from the reset baseline.
+ */
+static bool reset_and_arm_first_ale(PIO pio,
+                                    uint sm,
+                                    uint minimum_clocks,
+                                    uint32_t *baseline_sample) {
     release_ad_bus();
     drive_cpu_input(V30_PIN_RESET, true);
 
-    for (uint i = 0; i < clocks; ++i) {
-        (void)clock_step(pio, sm);
+    uint32_t sample = 0;
+    for (uint i = 0; i < minimum_clocks; ++i) {
+        sample = clock_step(pio, sm);
     }
+
+    if (sample_bit(sample, V30_PIN_ALE) != 0u) {
+        bool found_low = false;
+        for (uint i = 0; i < GATE4_RESET_ALE_LOW_SEARCH_CLOCKS; ++i) {
+            sample = clock_step(pio, sm);
+            if (sample_bit(sample, V30_PIN_ALE) == 0u) {
+                found_low = true;
+                break;
+            }
+        }
+
+        if (!found_low) {
+            if (baseline_sample != NULL) {
+                *baseline_sample = sample;
+            }
+            return false;
+        }
+    }
+
+    if (baseline_sample != NULL) {
+        *baseline_sample = sample;
+    }
+    return true;
 }
 
 static const char *status_string(matrix_trial_status_t status) {
     switch (status) {
         case MATRIX_TRIAL_OK:
             return "OK";
+        case MATRIX_TRIAL_RESET_NOT_QUIESCENT:
+            return "RST_ALE";
         case MATRIX_TRIAL_NO_ALE:
             return "NO_ALE";
         case MATRIX_TRIAL_WRONG_ADDRESS:
@@ -226,17 +270,24 @@ static void run_matrix_trial(PIO pio,
     result->status = MATRIX_TRIAL_NO_ALE;
 
     /*
-     * Every trial starts from a fresh hardware RESET sequence. This keeps the
-     * first bus cycle deterministic even though arbitrary diagnostic patterns
-     * are presented as the reset-vector data word.
+     * Every trial starts from a fresh hardware RESET sequence and an explicit
+     * ALE-low baseline. Arbitrary test data from the previous trial therefore
+     * cannot make a stale ALE level look like the next reset-vector address.
      */
-    assert_reset_with_clocks(pio, sm, GATE4_RESET_CLOCKS);
+    if (!reset_and_arm_first_ale(pio,
+                                 sm,
+                                 GATE4_RESET_CLOCKS,
+                                 &result->reset_sample)) {
+        result->status = MATRIX_TRIAL_RESET_NOT_QUIESCENT;
+        goto done;
+    }
+
     drive_cpu_input(V30_PIN_RESET, false);
 
     bool found_ale = false;
     for (uint step = 0; step < GATE4_ALE_SEARCH_CLOCKS; ++step) {
         result->t1_sample = clock_step(pio, sm);
-        if (sample_bit(result->t1_sample, V30_PIN_ALE)) {
+        if (sample_bit(result->t1_sample, V30_PIN_ALE) != 0u) {
             found_ale = true;
             break;
         }
@@ -303,20 +354,25 @@ static void run_matrix_trial(PIO pio,
     result->status = MATRIX_TRIAL_OK;
 
 done:
-    /* Immediately return the CPU to RESET before starting the next pattern. */
-    assert_reset_with_clocks(pio, sm, GATE4_RESET_HALT_CLOCKS);
+    /* Return to a reset/quiescent state before the next pattern. */
+    uint32_t ignored_reset_sample = 0;
+    (void)reset_and_arm_first_ale(pio,
+                                  sm,
+                                  GATE4_RESET_HALT_CLOCKS,
+                                  &ignored_reset_sample);
 }
 
 static void print_banner(void) {
-    printf("\npi86-rp2350 Gate 4 reset-vector turnaround/pattern matrix\n");
+    printf("\npi86-rp2350 Gate 4 reset-vector turnaround/pattern matrix v2\n");
     printf("Host: Waveshare RP2350-PiZero\n");
     printf("HAT: original Pi86/Homebrew8088 V20/V30 HAT\n");
     printf("CPU: NEC V30 D70116C-8\n\n");
 
     printf("Clock pulse: nominal %u Hz, host-stepped with CLK stalled LOW.\n",
            GATE4_CPU_CLOCK_HZ);
-    printf("Each trial performs a fresh hardware RESET sequence and captures only\n");
-    printf("the first aligned memory read at 0xFFFF0. No PSRAM is used.\n");
+    printf("Each trial performs a fresh hardware RESET sequence, establishes an\n");
+    printf("ALE-low reset baseline, then captures the first ALE-high/T1 at 0xFFFF0.\n");
+    printf("No PSRAM is used.\n");
     printf("Turnaround delays: 0, 1, 2, 5, 10, 20 us before AD OE enable.\n");
     printf("Patterns: 0000 FFFF AAAA 5555 0080 FF7F FEEB.\n");
     printf("A fixed %u us pad-settle sample is also taken after OE enable.\n\n",
@@ -326,8 +382,8 @@ static void print_banner(void) {
 
 static void print_matrix(void) {
     printf("\nMatrix columns:\n");
-    printf("  PAT  DLY  OUT   OE PAD0  PAD2  CLK1  CLK2  AD7[O/E/P2/C1] STATUS\n");
-    printf("  ---- --- ---- ---- ----  ----  ----  ----  ------------- ------\n");
+    printf("  PAT  DLY ADDR  R OUT   OE PAD0  PAD2  CLK1  CLK2  AD7[O/E/P2/C1] STATUS\n");
+    printf("  ---- --- ----- - ---- ---- ----  ----  ----  ----  ------------- ------\n");
 
     uint setup_ok = 0;
     uint out_ok = 0;
@@ -335,6 +391,9 @@ static void print_matrix(void) {
     uint pad2_ok = 0;
     uint clk1_ok = 0;
     uint clk2_ok = 0;
+    uint16_t pad2_mismatch_or = 0;
+    uint16_t clk1_mismatch_or = 0;
+    uint16_t clk2_mismatch_or = 0;
 
     for (uint i = 0; i < MATRIX_TRIAL_COUNT; ++i) {
         const matrix_trial_t *r = &matrix_results[i];
@@ -353,9 +412,17 @@ static void print_matrix(void) {
         clk1_ok += clk1_match ? 1u : 0u;
         clk2_ok += clk2_match ? 1u : 0u;
 
-        printf("  %04X %3lu %04X  %c  %04X  %04X  %04X  %04X     %lu/%lu/%lu/%lu   %s\n",
+        if (trial_ok) {
+            pad2_mismatch_or |= (uint16_t)(r->settled_readback ^ r->pattern);
+            clk1_mismatch_or |= (uint16_t)(r->data_clock1_readback ^ r->pattern);
+            clk2_mismatch_or |= (uint16_t)(r->data_clock2_readback ^ r->pattern);
+        }
+
+        printf("  %04X %3lu %05lX %lu %04X  %c  %04X  %04X  %04X  %04X     %lu/%lu/%lu/%lu   %s\n",
                r->pattern,
                (unsigned long)r->turnaround_us,
+               (unsigned long)r->address,
+               (unsigned long)sample_bit(r->reset_sample, V30_PIN_ALE),
                r->out_readback,
                oe_match ? 'Y' : 'N',
                r->after_oe_readback,
@@ -376,6 +443,44 @@ static void print_matrix(void) {
     printf("  pad match after %u us   = %u\n", GATE4_PAD_SETTLE_US, pad2_ok);
     printf("  pad match after clk #1  = %u\n", clk1_ok);
     printf("  pad match after clk #2  = %u\n", clk2_ok);
+    printf("  pad2 mismatch OR mask   = 0x%04X\n", pad2_mismatch_or);
+    printf("  clk1 mismatch OR mask   = 0x%04X\n", clk1_mismatch_or);
+    printf("  clk2 mismatch OR mask   = 0x%04X\n", clk2_mismatch_or);
+
+    printf("\nPer-delay match summary (each delay has %u patterns):\n",
+           (unsigned)MATRIX_PATTERN_COUNT);
+    printf("  DLY SETUP OUT OE PAD2 CLK1 CLK2\n");
+    for (uint d = 0; d < MATRIX_DELAY_COUNT; ++d) {
+        uint setup = 0;
+        uint out = 0;
+        uint oe = 0;
+        uint pad2 = 0;
+        uint clk1 = 0;
+        uint clk2 = 0;
+
+        for (uint p = 0; p < MATRIX_PATTERN_COUNT; ++p) {
+            const matrix_trial_t *r =
+                &matrix_results[p * MATRIX_DELAY_COUNT + d];
+            const bool trial_ok = r->status == MATRIX_TRIAL_OK;
+            setup += trial_ok ? 1u : 0u;
+            out += (trial_ok && r->out_readback == r->pattern) ? 1u : 0u;
+            oe += (trial_ok &&
+                   ((r->oe_sample & V30_AD_BUS_MASK) == V30_AD_BUS_MASK))
+                      ? 1u : 0u;
+            pad2 += (trial_ok && r->settled_readback == r->pattern) ? 1u : 0u;
+            clk1 += (trial_ok && r->data_clock1_readback == r->pattern) ? 1u : 0u;
+            clk2 += (trial_ok && r->data_clock2_readback == r->pattern) ? 1u : 0u;
+        }
+
+        printf("  %3lu   %u   %u  %u   %u    %u    %u\n",
+               (unsigned long)matrix_turnaround_us[d],
+               setup,
+               out,
+               oe,
+               pad2,
+               clk1,
+               clk2);
+    }
 
     printf("\nMATRIX RESULT: %s\n",
            setup_ok == MATRIX_TRIAL_COUNT ? "COMPLETE" : "INCOMPLETE");
