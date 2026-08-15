@@ -8,10 +8,14 @@
 ; At 8 MHz, the four-instruction inner loop below gives one sample every
 ; 0.5 us. Three chunks of 32 samples cover roughly 48 us, enough to span
 ; about five nominal 100 kHz V30 clocks once the first ALE window begins.
+;
+; Pi86 HAT mapping used here:
+;   RESET: RPi physical pin 36 -> RP2350-PiZero GPIO16
+;   ALE:   RPi physical pin 32 -> RP2350-PiZero GPIO9
 
 .wrap_target
     wait 0 gpio 16          ; RESET released
-    wait 1 gpio 12          ; first observed ALE high
+    wait 1 gpio 9           ; first observed ALE high
     set y, 2                ; 3 chunks total
 chunk:
     set x, 31               ; 32 samples per chunk
