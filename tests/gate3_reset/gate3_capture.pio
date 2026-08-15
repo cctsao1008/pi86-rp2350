@@ -1,0 +1,13 @@
+.program gate3_clk
+.wrap_target
+    set pins, 1
+    set pins, 0
+.wrap
+
+.program gate3_capture
+.wrap_target
+    wait 1 gpio 12
+    mov isr, pins
+    push block
+    wait 0 gpio 12
+.wrap
