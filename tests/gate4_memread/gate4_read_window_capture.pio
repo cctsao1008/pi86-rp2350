@@ -1,0 +1,24 @@
+.program gate4_read_window_capture
+
+; Passive one-shot sampler for the first post-RESET ALE window.
+; The host configures IN base = GPIO0 and shift-right mode.
+; Each pushed word contains GPIO0..GPIO27 in bits 31..4; firmware shifts >> 4.
+; No pin direction or output value is changed by this state machine.
+;
+; At 8 MHz, the four-instruction inner loop below gives one sample every
+; 0.5 us. Three chunks of 32 samples cover roughly 48 us, enough to span
+; about five nominal 100 kHz V30 clocks once the first ALE window begins.
+
+.wrap_target
+    wait 0 gpio 16          ; RESET released
+    wait 1 gpio 12          ; first observed ALE high
+    set y, 2                ; 3 chunks total
+chunk:
+    set x, 31               ; 32 samples per chunk
+sample:
+    mov isr, null
+    in pins, 28             ; GPIO0..GPIO27 -> ISR[31:4] with shift-right
+    push block
+    jmp x-- sample
+    jmp y-- chunk
+.wrap
