@@ -4,7 +4,9 @@
 
 Waveshare RP2350-PiZero.
 
-The project uses the Raspberry Pi-compatible 40-pin header. GPIO0-GPIO27 are the interface to the original Pi86 HAT.
+The project uses the Raspberry Pi-compatible 40-pin header. RP2350 GPIO0-GPIO27 are distributed across that header and form the interface to the original Pi86 HAT.
+
+**Important:** Raspberry Pi compatibility here is a physical-header compatibility statement. The RP2350 GPIO number present at a given 40-pin header position is not always numerically equal to the Raspberry Pi BCM GPIO number at that same position. Pi86 signal mapping must therefore translate through the physical header pin. See `docs/pin_mapping.md`.
 
 Primary board references:
 
@@ -14,14 +16,14 @@ Primary board references:
 
 The RP2350-PiZero resource split relevant to this project is:
 
-- GPIO0-GPIO27: Raspberry Pi-compatible 40-pin HAT interface.
+- GPIO0-GPIO27: exposed across the Raspberry Pi-compatible 40-pin HAT interface.
 - GPIO28-GPIO29: PIO-USB.
 - GPIO30-GPIO31 and GPIO40-GPIO43: onboard MicroSD.
 - GPIO32-GPIO39 and GPIO44-GPIO46: onboard DVI-related signals.
 - GPIO47: PSRAM chip select.
 - Native USB uses the RP2350 dedicated USB D+/D- interface rather than GPIO0-GPIO27.
 
-The physical board silkscreen and Waveshare documentation both corroborate the GPIO0-GPIO27 40-pin-header allocation.
+The physical board pinout is authoritative for translating Raspberry Pi physical header positions to RP2350 GPIO numbers.
 
 ## CPU
 
@@ -79,9 +81,16 @@ For current-source inspection, use this order:
 
 The legacy `Single Chip.sch` explicitly contains the note `This does not match PCB`; it must not override the current PCB source.
 
-### Confirmed current-PCB electrical routing
+### HAT physical routing vs host GPIO numbering
 
-The current `Single Chip.kicad_pcb` corroborates the project GPIO mapping and directly routes Raspberry Pi header signals to the CPU/HAT nets; no level-shifter stage is present in the documented interface path.
+The upstream Pi86 PCB sources are useful for identifying which **Raspberry Pi physical header pin** carries each HAT signal. They do not define the RP2350-PiZero GPIO number used by the replacement host.
+
+The RP2350 firmware mapping is therefore established in two steps:
+
+1. Pi86 HAT signal -> Raspberry Pi physical 40-pin header position.
+2. That physical position -> RP2350-PiZero GPIO number using the Waveshare board pinout.
+
+This distinction is critical because several physical positions use different BCM and RP2350 GPIO numbers.
 
 Power and fixed control straps in the current PCB source:
 
@@ -102,7 +111,7 @@ The two-pin FAN connector is therefore a separate 5 V/GND auxiliary load; the cu
 
 The physical HAT in this project is marked Copyright 2021 EMM, while the current GitHub KiCad PCB carries 2023 silkscreen/revision data and the repository history includes the 2023 `switched back to socket` update.
 
-The current PCB is therefore a strong electrical/mapping corroboration, but it is not assumed to be an exact revision-identical representation of the physical 2021 board. Gate 2 continuity and voltage measurements remain required.
+The current PCB is therefore a strong physical-routing corroboration, but it is not assumed to be an exact revision-identical representation of the physical 2021 board.
 
 ## Temporary GPIO test board
 
@@ -110,7 +119,7 @@ The Gate 1 fixture is a `Pi ALL GPIO TEST BOARD (A)` Raspberry Pi 40-pin GPIO LE
 
 Confirmed from the physical fixture and product documentation:
 
-- Covers GPIO0-GPIO27, including physical pins 27/28 (`GPIO0`/`GPIO1`).
+- Covers the Raspberry Pi 40-pin GPIO positions used by the project.
 - Uses per-channel LED/resistor networks.
 - Observed resistor markings include `01B` and `102`; both decode to approximately 1 kOhm.
 - LED polarity/active state should be verified empirically during Gate 1 rather than assumed from photographs.
