@@ -8,13 +8,14 @@
 .wrap_target
     ; RESET is active HIGH. Do not accept any bus activity until the host
     ; releases RESET LOW.
+    ; RPi physical pin 36 -> RP2350-PiZero GPIO16.
     wait 0 gpio 16
 
-    ; Capture several points across the first post-reset ALE pulse instead
-    ; of sampling immediately at the assertion edge. The capture SM is run
-    ; at 2 MHz by the host, so each PIO instruction is approximately 0.5 us.
-    ; This lets us see the address settle during T1.
-    wait 1 gpio 12
+    ; Capture several points across the first post-reset ALE/ASTB pulse.
+    ; Pi86 HAT ALE is on RPi physical pin 32, which is RP2350-PiZero GPIO9
+    ; (not BCM12). The capture SM is run at 2 MHz by the host, so each PIO
+    ; instruction is approximately 0.5 us.
+    wait 1 gpio 9
 
     ; ~0.5 us after ALE-high is observed.
     mov isr, pins
@@ -32,7 +33,7 @@
     ; to latch address information, so this sample is useful as a boundary
     ; diagnostic even though the primary acceptance samples are the three
     ; ALE-high samples above.
-    wait 0 gpio 12
+    wait 0 gpio 9
     mov isr, pins
     push block
 
