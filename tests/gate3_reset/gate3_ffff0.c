@@ -37,6 +37,14 @@ static uint32_t sample_bit(uint32_t sample, uint gpio) {
     return (sample >> gpio) & 1u;
 }
 
+static uint32_t snapshot_gpio0_31(void) {
+    uint32_t sample = 0;
+    for (uint gpio = 0; gpio < 32; ++gpio) {
+        sample |= (uint32_t)gpio_get(gpio) << gpio;
+    }
+    return sample;
+}
+
 static uint16_t decode_ad(uint32_t sample) {
     uint16_t value = 0;
     value |= (uint16_t)(sample_bit(sample, V30_PIN_AD0)  << 0);
@@ -65,6 +73,23 @@ static uint32_t decode_address(uint32_t sample) {
     address |= sample_bit(sample, V30_PIN_A18) << 18;
     address |= sample_bit(sample, V30_PIN_A19) << 19;
     return address;
+}
+
+static void print_bus_sample(const char *title, uint32_t sample) {
+    const uint16_t ad = decode_ad(sample);
+    const uint32_t address = decode_address(sample);
+
+    printf("%s\n", title);
+    printf("  raw GPIO snapshot = 0x%08lX\n", (unsigned long)sample);
+    printf("  RESET             = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_RESET));
+    printf("  CLK               = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_CLK));
+    printf("  ALE               = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_ALE));
+    printf("  IO/M              = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_IOM));
+    printf("  BHE               = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_BHE));
+    printf("  AD15..AD0         = 0x%04X\n", ad);
+    printf("  A19..A16          = 0x%lX\n",
+           (unsigned long)((address >> 16) & 0xFu));
+    printf("  decoded value     = 0x%05lX\n", (unsigned long)address);
 }
 
 static void init_clock_sm(PIO pio, uint sm, uint offset) {
@@ -96,14 +121,15 @@ static void stop_clock_low(PIO pio, uint sm) {
 }
 
 static void print_banner(void) {
-    printf("\npi86-rp2350 Gate 3 RESET / first-fetch capture\n");
+    printf("\npi86-rp2350 Gate 3 RESET / first-fetch capture v2\n");
     printf("Host: Waveshare RP2350-PiZero\n");
     printf("HAT: original Pi86/Homebrew8088 V20/V30 HAT\n");
     printf("CPU: NEC V30 D70116C-8\n\n");
     printf("Test clock: %u Hz on GPIO%u\n", GATE3_CLOCK_HZ, V30_PIN_CLK);
     printf("RESET GPIO%u starts asserted HIGH.\n", V30_PIN_RESET);
-    printf("PIO waits for the first ALE HIGH and snapshots GPIO0..GPIO31.\n");
+    printf("PIO is now gated by RESET=LOW before it can accept ALE.\n");
     printf("Expected first physical address: 0x%05X\n\n", GATE3_EXPECTED_ADDRESS);
+    printf("A diagnostic GPIO snapshot is printed while RESET is still HIGH.\n");
     printf("No memory data is driven in this test. After the first ALE capture,\n");
     printf("RESET is reasserted and CLK is stopped LOW.\n\n");
     fflush(stdout);
@@ -141,14 +167,25 @@ int main(void) {
     init_capture_sm(pio, capture_sm, capture_offset);
     init_clock_sm(pio, clk_sm, clk_offset);
 
-    /* Arm capture before any clock reaches the CPU. */
+    /*
+     * Capture SM may run now because its first instruction explicitly waits
+     * for RESET to become LOW. This prevents any RESET-high ALE level or
+     * transient from being mistaken for the first post-reset address phase.
+     */
     pio_sm_set_enabled(pio, capture_sm, true);
     pio_sm_set_enabled(pio, clk_sm, true);
 
     /* RESET must remain asserted for at least four clocks; use a generous margin. */
     sleep_us(GATE3_RESET_CLOCK_US);
 
-    printf("RESET release: HIGH -> LOW\n");
+    const uint32_t pre_release_sample = snapshot_gpio0_31();
+    printf("\n");
+    print_bus_sample("RESET-high diagnostic sample:", pre_release_sample);
+
+    /* Remove any impossible stale FIFO content before releasing RESET. */
+    pio_sm_clear_fifos(pio, capture_sm);
+
+    printf("\nRESET release: HIGH -> LOW\n");
     fflush(stdout);
     drive_cpu_input(V30_PIN_RESET, false);
 
@@ -157,7 +194,7 @@ int main(void) {
         tight_loop_contents();
     }
 
-    bool captured = !pio_sm_is_rx_fifo_empty(pio, capture_sm);
+    const bool captured = !pio_sm_is_rx_fifo_empty(pio, capture_sm);
     uint32_t sample = 0;
     if (captured) {
         sample = pio_sm_get(pio, capture_sm);
@@ -170,22 +207,18 @@ int main(void) {
     pio_sm_set_enabled(pio, capture_sm, false);
 
     if (!captured) {
-        printf("\nGATE 3 RESULT: FAIL - no ALE capture within %u ms.\n",
+        printf("\nGATE 3 RESULT: FAIL - no post-reset ALE capture within %u ms.\n",
                GATE3_CAPTURE_TIMEOUT_MS);
         printf("CPU returned to RESET=HIGH, CLK=LOW.\n");
     } else {
-        const uint16_t ad = decode_ad(sample);
         const uint32_t address = decode_address(sample);
 
-        printf("\nFirst ALE capture:\n");
-        printf("  raw GPIO snapshot = 0x%08lX\n", (unsigned long)sample);
-        printf("  ALE               = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_ALE));
-        printf("  IO/M              = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_IOM));
-        printf("  BHE               = %lu\n", (unsigned long)sample_bit(sample, V30_PIN_BHE));
-        printf("  AD15..AD0         = 0x%04X\n", ad);
-        printf("  A19..A16          = 0x%lX\n",
-               (unsigned long)((address >> 16) & 0xFu));
-        printf("  physical address  = 0x%05lX\n", (unsigned long)address);
+        printf("\n");
+        print_bus_sample("First post-reset ALE capture:", sample);
+
+        if (sample == pre_release_sample) {
+            printf("  NOTE: capture exactly matches the RESET-high diagnostic sample.\n");
+        }
 
         if (address == GATE3_EXPECTED_ADDRESS) {
             printf("\nGATE 3 RESULT: PASS - first fetch is 0xFFFF0.\n");
