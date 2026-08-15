@@ -1,16 +1,14 @@
+#include <stdbool.h>
 #include <stdio.h>
 
+#include "pico/stdio_usb.h"
 #include "pico/stdlib.h"
 
 #include "board/rp2350_pizero.h"
 #include "v30/v30_pins.h"
 
-int main(void) {
-    stdio_init_all();
-
-    sleep_ms(1500);
-
-    printf("pi86-rp2350\n");
+static void print_banner(void) {
+    printf("\npi86-rp2350\n");
     printf("Host: Waveshare RP2350-PiZero\n");
     printf("CPU target: NEC V30 D70116C-8\n");
     printf("HAT: original Pi86/Homebrew8088 V20/V30 HAT\n");
@@ -22,8 +20,30 @@ int main(void) {
     printf("V30 CLK GPIO: %u, RESET GPIO: %u\n",
            V30_PIN_CLK,
            V30_PIN_RESET);
+    printf("USB CDC connected. Gate 0 firmware is alive.\n\n");
+    fflush(stdout);
+}
+
+int main(void) {
+    stdio_init_all();
+
+    bool was_connected = false;
+    uint32_t heartbeat = 0;
 
     while (true) {
-        tight_loop_contents();
+        const bool connected = stdio_usb_connected();
+
+        if (connected && !was_connected) {
+            print_banner();
+            heartbeat = 0;
+        }
+
+        if (connected) {
+            printf("Gate 0 heartbeat %lu\n", (unsigned long)heartbeat++);
+            fflush(stdout);
+        }
+
+        was_connected = connected;
+        sleep_ms(1000);
     }
 }
