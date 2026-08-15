@@ -21,37 +21,55 @@ function Invoke-Checked {
     }
 }
 
-if (-not $env:PICO_SDK_PATH) {
-    throw "PICO_SDK_PATH is not set. Point it to a Raspberry Pi Pico SDK 2.3.0+ checkout."
+$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$SdkPath = Join-Path $RepoRoot "third_party/pico-sdk"
+$SdkInit = Join-Path $SdkPath "pico_sdk_init.cmake"
+$ResolvedBuildDir = if ([System.IO.Path]::IsPathRooted($BuildDir)) {
+    $BuildDir
+} else {
+    Join-Path $RepoRoot $BuildDir
 }
 
-$sdkImport = Join-Path $env:PICO_SDK_PATH "external/pico_sdk_import.cmake"
-if (-not (Test-Path $sdkImport)) {
-    throw "PICO_SDK_PATH does not look valid: $env:PICO_SDK_PATH"
+if (-not (Test-Path $SdkInit)) {
+    throw @"
+Pico SDK submodule is missing or incomplete:
+  $SdkPath
+
+Run from the repository root:
+  git submodule update --init --recursive
+"@
 }
 
-if ($Clean -and (Test-Path $BuildDir)) {
-    Write-Host "Removing $BuildDir"
-    Remove-Item -Recurse -Force $BuildDir
+if ($Clean -and (Test-Path $ResolvedBuildDir)) {
+    Write-Host "Removing $ResolvedBuildDir"
+    Remove-Item -Recurse -Force $ResolvedBuildDir
 }
 
-Write-Host "PICO_SDK_PATH = $env:PICO_SDK_PATH"
+Write-Host "Repository    = $RepoRoot"
+Write-Host "Pico SDK      = $SdkPath"
 Write-Host "PICO_BOARD    = waveshare_rp2350_pizero"
-Write-Host "BuildDir      = $BuildDir"
+Write-Host "BuildDir      = $ResolvedBuildDir"
 
-Invoke-Checked cmake `
-    -S . `
-    -B $BuildDir `
-    -DPICO_BOARD=waveshare_rp2350_pizero
+Push-Location $RepoRoot
+try {
+    Invoke-Checked cmake `
+        -S . `
+        -B $ResolvedBuildDir `
+        -DPICO_BOARD=waveshare_rp2350_pizero `
+        -DCMAKE_BUILD_TYPE=Release
 
-$buildArgs = @("--build", $BuildDir, "--parallel")
-if ($Target) {
-    $buildArgs += @("--target", $Target)
+    $buildArgs = @("--build", $ResolvedBuildDir, "--parallel")
+    if ($Target) {
+        $buildArgs += @("--target", $Target)
+    }
+
+    Invoke-Checked cmake @buildArgs
 }
-
-Invoke-Checked cmake @buildArgs
+finally {
+    Pop-Location
+}
 
 Write-Host ""
 Write-Host "Generated UF2 files:"
-Get-ChildItem -Path $BuildDir -Filter *.uf2 -Recurse -ErrorAction SilentlyContinue |
+Get-ChildItem -Path $ResolvedBuildDir -Filter *.uf2 -Recurse -ErrorAction SilentlyContinue |
     ForEach-Object { Write-Host "  $($_.FullName)" }

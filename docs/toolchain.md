@@ -2,80 +2,105 @@
 
 ## Baseline
 
-This project targets the official Pico SDK board definition:
+This project uses the official Pico SDK board definition:
 
 ```text
 waveshare_rp2350_pizero
 ```
 
-Use Raspberry Pi Pico SDK **2.3.0 or newer**. SDK 2.3.0 added the board definition for the Waveshare RP2350-PiZero, including the RP2350B package selection and 16 MB onboard flash configuration.
+Pico SDK **2.3.0** is tracked as the Git submodule:
 
-## Required tools
+```text
+third_party/pico-sdk
+```
+
+The repository pins the submodule to commit:
+
+```text
+98a542c1a62fb549ffb5d66a3e5892b06276b670
+```
+
+That is the Pico SDK `2.3.0` tag. SDK 2.3.0 includes the official Waveshare RP2350-PiZero board definition, including RP2350B package selection and the board's 16 MB flash configuration.
+
+The SDK itself contains nested submodules such as TinyUSB, so always initialize dependencies recursively.
+
+## Dependency policy
+
+Source dependencies required to reproduce the firmware belong in the repository as pinned Git submodules when practical. Host build tools remain host-installed.
+
+For the current baseline:
+
+- Pico SDK: `third_party/pico-sdk` Git submodule, pinned to 2.3.0.
+- CMake: host tool.
+- Arm GNU Toolchain: host toolchain.
+- Ninja: optional host build tool.
+- Pi86 upstream source: not imported yet; licensing must be reviewed first.
+- ArduinoX86: reference only, not a build dependency.
+
+Normal builds do **not** require the `PICO_SDK_PATH` environment variable. The root CMake configuration uses the repository submodule by default. An explicit `-DPICO_SDK_PATH=...` may be supplied only when intentionally testing another SDK checkout.
+
+## Required host tools
 
 - Git
 - CMake
-- Arm GNU Toolchain supported by the installed Pico SDK
-- Raspberry Pi Pico SDK 2.3.0+
+- Arm GNU Toolchain supported by Pico SDK 2.3.0
+- Ninja, optional but recommended
 
-Ninja is optional but recommended when available.
+## Clone with dependencies
 
-## Obtain Pico SDK
+Preferred new clone:
 
-Example:
-
-```powershell
-git clone --branch 2.3.0 --recursive https://github.com/raspberrypi/pico-sdk.git C:\pico\pico-sdk
+```bash
+git clone --recursive git@github.com:cctsao1008/pi86-rp2350.git
+cd pi86-rp2350
 ```
 
-If the SDK is already cloned:
+For an existing clone:
 
-```powershell
-cd C:\pico\pico-sdk
-git fetch --tags
-git checkout 2.3.0
+```bash
+git pull
 git submodule update --init --recursive
 ```
 
-A newer compatible SDK release may also be used.
+Verify the dependency state:
 
-## Set `PICO_SDK_PATH`
-
-For the current PowerShell session:
-
-```powershell
-$env:PICO_SDK_PATH = "C:\pico\pico-sdk"
+```bash
+git submodule status --recursive
 ```
 
-Verify:
+The first line should show `third_party/pico-sdk` at the repository-pinned commit. Nested Pico SDK submodules should also be populated.
 
-```powershell
-Test-Path "$env:PICO_SDK_PATH\external\pico_sdk_import.cmake"
+## Linux / WSL build
+
+The repository includes `scripts/build.sh`.
+
+Full build:
+
+```bash
+./scripts/build.sh
 ```
 
-Expected result:
+Clean build:
 
-```text
-True
+```bash
+./scripts/build.sh --clean
 ```
 
-## Clone and build this project
+Build only the Gate 0 firmware:
 
-```powershell
-git clone https://github.com/cctsao1008/pi86-rp2350.git
-cd pi86-rp2350
-
-cmake -S . -B build -DPICO_BOARD=waveshare_rp2350_pizero
-cmake --build build --parallel
+```bash
+./scripts/build.sh --target pi86_rp2350
 ```
 
-The root `CMakeLists.txt` defaults to `waveshare_rp2350_pizero`, so this is also valid:
+Build only the GPIO test:
 
-```powershell
-cmake -S . -B build
-cmake --build build --parallel
+```bash
+./scripts/build.sh --target gpio_test
 ```
 
-## PowerShell helper
+The script validates that `third_party/pico-sdk` is initialized before configuring CMake.
+
+## PowerShell build
 
 The repository includes `scripts/build.ps1`.
 
@@ -103,16 +128,44 @@ Build only the GPIO test:
 .\scripts\build.ps1 -Target gpio_test
 ```
 
+The PowerShell helper also validates the repository submodule and does not require `PICO_SDK_PATH`.
+
+## Manual CMake build
+
+From the repository root:
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+```
+
+The root CMake configuration defaults to:
+
+```text
+PICO_SDK_PATH=<repo>/third_party/pico-sdk
+PICO_BOARD=waveshare_rp2350_pizero
+```
+
+For a deliberate SDK experiment, an explicit override remains possible:
+
+```bash
+cmake -S . -B build-test \
+    -DPICO_SDK_PATH=/path/to/another/pico-sdk \
+    -DPICO_BOARD=waveshare_rp2350_pizero
+```
+
+Do not use an alternate SDK as the project baseline without updating the pinned submodule and documenting the change.
+
 ## Expected initial UF2 files
 
 After a successful full build, expect files equivalent to:
 
 ```text
-build\firmware\pi86_rp2350.uf2
-build\tests\gpio_test\gpio_test.uf2
+build/firmware/pi86_rp2350.uf2
+build/tests/gpio_test/gpio_test.uf2
 ```
 
-Exact auxiliary files may vary with the SDK/toolchain.
+Exact auxiliary files may vary with the host toolchain.
 
 ## Gate 0 flashing
 

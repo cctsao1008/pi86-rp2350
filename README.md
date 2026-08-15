@@ -36,10 +36,23 @@ The project preserves Pi86 system behavior while replacing Raspberry Pi/Linux/Wi
 
 The original HAT uses a scattered Raspberry Pi GPIO mapping. Performance work will use direct SIO access, masks, and lookup tables rather than per-pin high-level GPIO calls.
 
+## Dependency model
+
+The Raspberry Pi Pico SDK is a repository dependency, not a machine-global prerequisite.
+
+- Pico SDK is tracked as the Git submodule `third_party/pico-sdk`.
+- The submodule is pinned to Pico SDK **2.3.0**, commit `98a542c1a62fb549ffb5d66a3e5892b06276b670`.
+- Pico SDK contains its own nested submodules, so dependency initialization must use `--recursive`.
+- Normal builds do **not** require a `PICO_SDK_PATH` environment variable.
+- An explicit CMake `-DPICO_SDK_PATH=...` remains available only as an intentional local override.
+
+This makes a project commit resolve to an exact SDK commit and keeps historical builds reproducible.
+
 ## Repository layout
 
 ```text
 .
+├── .gitmodules
 ├── CMakeLists.txt
 ├── firmware/
 │   ├── CMakeLists.txt
@@ -56,40 +69,90 @@ The original HAT uses a scattered Raspberry Pi GPIO mapping. Performance work wi
 │   ├── architecture.md
 │   ├── hardware.md
 │   ├── pin_mapping.md
-│   └── bringup.md
+│   ├── bringup.md
+│   └── toolchain.md
+├── scripts/
+│   ├── build.sh
+│   └── build.ps1
+├── third_party/
+│   └── pico-sdk/          # Git submodule, pinned to Pico SDK 2.3.0
 └── references/
     └── README.md
 ```
 
+## Clone
+
+New clone:
+
+```bash
+git clone --recursive git@github.com:cctsao1008/pi86-rp2350.git
+cd pi86-rp2350
+```
+
+Existing clone after pulling a commit that adds or changes dependencies:
+
+```bash
+git pull
+git submodule update --init --recursive
+```
+
+Verify the pinned dependency:
+
+```bash
+git submodule status --recursive
+```
+
 ## Build prerequisites
 
-- Raspberry Pi Pico SDK **2.3.0 or newer**
-- CMake
-- Arm GNU Toolchain supported by the installed Pico SDK
+Host tools:
 
-Pico SDK 2.3.0 added the official board configuration:
+- Git
+- CMake
+- Arm GNU Toolchain supported by Pico SDK 2.3.0
+- Ninja is optional but recommended
+
+The project uses the official Pico SDK board definition:
 
 ```text
 waveshare_rp2350_pizero
 ```
 
-That definition selects the RP2350B package and the board's 16 MB flash configuration, so this project no longer uses `pico2` as a bootstrap substitute.
+That board definition selects the RP2350B package and the board's 16 MB flash configuration.
 
-Set `PICO_SDK_PATH` to your Pico SDK checkout before configuring.
-
-Example:
+### Linux / WSL
 
 ```bash
-cmake -S . -B build -DPICO_BOARD=waveshare_rp2350_pizero
+./scripts/build.sh --clean
+```
+
+Build a single target:
+
+```bash
+./scripts/build.sh --target pi86_rp2350
+./scripts/build.sh --target gpio_test
+```
+
+### PowerShell
+
+```powershell
+.\scripts\build.ps1 -Clean
+```
+
+Build a single target:
+
+```powershell
+.\scripts\build.ps1 -Target pi86_rp2350
+.\scripts\build.ps1 -Target gpio_test
+```
+
+### Manual CMake
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The root `CMakeLists.txt` also defaults `PICO_BOARD` to `waveshare_rp2350_pizero`, so the shorter form is valid when no other board is selected:
-
-```bash
-cmake -S . -B build
-cmake --build build --parallel
-```
+The root `CMakeLists.txt` defaults to both the repository-pinned Pico SDK submodule and `PICO_BOARD=waveshare_rp2350_pizero`.
 
 Expected initial outputs include:
 
@@ -97,6 +160,8 @@ Expected initial outputs include:
 build/firmware/pi86_rp2350.uf2
 build/tests/gpio_test/gpio_test.uf2
 ```
+
+See [`docs/toolchain.md`](docs/toolchain.md) for detailed setup and troubleshooting.
 
 ## Initial executables
 
@@ -122,7 +187,7 @@ RESET -> first bus fetch -> 0xFFFF0
 
 ## Source and documentation policy
 
-- GitHub contains source code, build files, hardware-interface documentation, issues, and version history.
+- GitHub contains source code, build files, pinned source dependencies, hardware-interface documentation, issues, and version history.
 - Google Drive is used for proposal documents, original manuals/datasheets, hardware photos, bring-up logs, scope captures, benchmarks, and DOS boot evidence.
 - NEC documentation is the normative source for V30 electrical and bus timing requirements.
 - Original Pi86 source/HAT mapping is the compatibility reference.
