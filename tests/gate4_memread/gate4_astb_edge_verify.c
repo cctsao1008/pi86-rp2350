@@ -104,12 +104,23 @@ int main(void) {
     release_ad_bus();
 
     stdio_init_all();
-    sleep_ms(1500);
+
+    /*
+     * Keep the V30 safely halted until the host has opened the USB CDC
+     * interface.  This makes the serial connection the explicit test trigger:
+     * no RESET release and no test clocks occur before CDC is connected.
+     */
+    while (!stdio_usb_connected()) {
+        sleep_ms(10);
+    }
+    sleep_ms(100);
 
     printf("\npi86-rp2350 Gate 4 minimal ASTB edge verifier\n");
+    printf("USB CDC connected: starting hardware test now.\n");
     printf("Independent method: four PIO state machines count ASTB/CLK rise/fall edges directly.\n");
     printf("No DMA, no AD decode, no address decode, no ALE trigger, no PSRAM.\n");
     printf("AD bus remains high-Z for the entire test.\n\n");
+    fflush(stdout);
 
     PIO step_pio = pio0;
     const uint step_sm = pio_claim_unused_sm(step_pio, true);
