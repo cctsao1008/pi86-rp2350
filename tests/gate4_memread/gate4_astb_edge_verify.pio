@@ -1,0 +1,19 @@
+.program gate4_edge_rise_counter
+
+; Minimal edge counter. Host sets IN base to the signal under test.
+; X is initialized by TX FIFO before enable. No RX traffic occurs while counting.
+.wrap_target
+    wait 0 pin 0
+    wait 1 pin 0
+    jmp x-- wrap_target
+.wrap
+
+.program gate4_edge_fall_counter
+
+; Minimal falling-edge counter. Host sets IN base to the signal under test.
+; X is initialized by TX FIFO before enable. No RX traffic occurs while counting.
+.wrap_target
+    wait 1 pin 0
+    wait 0 pin 0
+    jmp x-- wrap_target
+.wrap
