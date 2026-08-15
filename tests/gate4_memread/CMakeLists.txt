@@ -27,9 +27,9 @@ function(add_gate4_memread_target target_name smoke_mode)
     pico_add_extra_outputs(${target_name})
 endfunction()
 
-function(add_gate4_matrix_target target_name)
+function(add_gate4_matrix_target target_name source_file)
     add_executable(${target_name}
-        gate4_memread_matrix.c
+        ${source_file}
     )
 
     target_include_directories(${target_name} PRIVATE
@@ -54,4 +54,5 @@ endfunction()
 
 add_gate4_memread_target(gate4_memread 0)
 add_gate4_memread_target(gate4_memread_smoke 1)
-add_gate4_matrix_target(gate4_memread_matrix)
+add_gate4_matrix_target(gate4_memread_matrix gate4_memread_matrix.c)
+add_gate4_matrix_target(gate4_memread_matrix_v3 gate4_memread_matrix_v3.c)
