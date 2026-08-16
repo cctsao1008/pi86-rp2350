@@ -4,9 +4,19 @@ Port of Pi86 to the Waveshare RP2350-PiZero using the original Pi86 V20/V30 HAT 
 
 ## Project status
 
-**Phase:** hardware bring-up
+**Phase:** hardware bring-up transitioning into reusable bus/memory architecture
 
-**Current milestone:** validate the RP2350-PiZero host, then drive RESET and verify the V30's first bus fetch at physical address `0xFFFF0`.
+**Validated functional chain:**
+
+- Gate 0: RP2350-PiZero SDK / USB CDC baseline — PASS
+- Gate 1: GPIO0-GPIO27 host validation — PASS
+- Gate 2: V30 HAT electrical/preflight baseline — PASS
+- Gate 3: RESET -> first physical fetch `0xFFFF0` — PASS
+- Gate 4: aligned 16-bit memory read + prefetch-aware execution — PASS
+- Gate 5: SRAM-backed executable ROM + far jump to physical `0xF0000` — PASS
+- Gate 6: aligned RAM write/readback + CPU compare/branch verification — PASS
+
+The current validated scope is aligned 16-bit memory read/write with an RP2350 internal-SRAM backend. Byte lanes, odd-address accesses, general I/O, interrupts, PSRAM, BIOS/DOS compatibility and final clock-rate optimization remain separate future milestones.
 
 ## Locked hardware baseline
 
@@ -16,13 +26,34 @@ Port of Pi86 to the Waveshare RP2350-PiZero using the original Pi86 V20/V30 HAT 
 - CPU HAT: original Homebrew8088 Pi86 V20/V30 (8088/8086) HAT
 - Mechanical interface: HAT plugs directly into the RP2350-PiZero 40-pin Raspberry Pi-compatible header
 - HAT PCB redesign: **not planned**
-- Original Pi86 GPIO/HAT mapping: **preserved**
+- Original Pi86 HAT physical-header assignment: **preserved**
 - Planned external RAM: APS6404L-class 8 MB PSRAM on the RP2350-PiZero PSRAM footprint
 - Storage target: onboard MicroSD
 - Display target: onboard DVI using Pi86 virtual CGA memory
 - Debug target: native USB CDC
 
 > The installed `D70116C-8` is nominally a 5 V part. The original HAT is marked for 3.3 V V20/V30 operation. Treat 3.3 V operation of this specific CPU as a project-specific empirical condition, not as the nominal NEC rating.
+
+## Hardware-interface rule
+
+The Raspberry Pi **physical 40-pin header position** is the cross-platform hardware ABI.
+
+Always translate:
+
+```text
+V30 signal
+  -> Raspberry Pi physical header pin
+  -> RP2350-PiZero board routing
+  -> RP2350 GPIO
+```
+
+Do not conflate:
+
+```text
+WiringPi number != BCM GPIO != physical header pin != RP2350 GPIO
+```
+
+See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and permanent review rules.
 
 ## Architecture direction
 
@@ -34,7 +65,19 @@ The project preserves Pi86 system behavior while replacing Raspberry Pi/Linux/Wi
 - **Bring-up memory:** RP2350 internal SRAM
 - **Full system memory:** external PSRAM backend
 
-The original HAT uses a scattered Raspberry Pi GPIO mapping. Performance work will use direct SIO access, masks, and lookup tables rather than per-pin high-level GPIO calls.
+The original HAT uses a scattered Raspberry Pi physical-header mapping. Performance work will use direct SIO access, masks, and lookup tables rather than per-pin high-level GPIO calls.
+
+## Engineering knowledge and decision records
+
+Important project knowledge is deliberately version-controlled rather than left only in chat history:
+
+- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract and source hierarchy.
+- [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map.
+- [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — architectural decision explaining why physical header position is canonical.
+- [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up postmortem, root cause, superseded diagnostic paths and permanent corrective actions.
+- [GitHub Issue #14](https://github.com/cctsao1008/pi86-rp2350/issues/14) — Gate 4 debugging archaeology and root-cause resolution history.
+
+A key retrospective lesson is that signal identity must be proven before signal behavior is interpreted. Earlier diagnostics performed under an incorrect BCM-to-RP2350 translation are retained as history but are explicitly superseded where their signal interpretation depended on the wrong mapping.
 
 ## Dependency model
 
@@ -62,15 +105,22 @@ This makes a project commit resolve to an exact SDK commit and keeps historical 
 │   └── v30/
 │       └── v30_pins.h
 ├── tests/
-│   └── gpio_test/
-│       ├── CMakeLists.txt
-│       └── gpio_test.c
+│   ├── gpio_test/
+│   ├── gate2_preflight/
+│   ├── gate3_reset/
+│   ├── gate4_memread/
+│   └── gate5_minrom/
 ├── docs/
 │   ├── architecture.md
 │   ├── hardware.md
+│   ├── hardware_contract.md
 │   ├── pin_mapping.md
 │   ├── bringup.md
-│   └── toolchain.md
+│   ├── toolchain.md
+│   ├── adr/
+│   │   └── 0001-use-rpi-physical-pin-as-hardware-abi.md
+│   └── retrospectives/
+│       └── 2026-08-rp2350-pi86-bringup-retrospective.md
 ├── scripts/
 │   ├── build.sh
 │   └── build.ps1
@@ -154,43 +204,24 @@ cmake --build build --parallel
 
 The root `CMakeLists.txt` defaults to both the repository-pinned Pico SDK submodule and `PICO_BOARD=waveshare_rp2350_pizero`.
 
-Expected initial outputs include:
-
-```text
-build/firmware/pi86_rp2350.uf2
-build/tests/gpio_test/gpio_test.uf2
-```
-
-See [`docs/toolchain.md`](docs/toolchain.md) for detailed setup and troubleshooting.
-
-## Initial executables
-
-### `pi86_rp2350`
-
-Minimal firmware sanity target. It initializes USB stdio and reports the locked hardware baseline. It does **not** drive the V30 bus yet.
-
-### `gpio_test`
-
-Gate 1 test target. It drives GPIO0-GPIO27 one at a time for use with the temporary Raspberry Pi GPIO test board.
-
-**Do not run `gpio_test` with the V30 HAT installed.**
-
 ## Bring-up gates
 
 See [`docs/bringup.md`](docs/bringup.md).
 
-The first critical V30 milestone is:
+The first critical V30 milestone was:
 
 ```text
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
+That milestone and subsequent aligned memory read, executable ROM, and aligned RAM write/readback gates are now validated. Future gates should extend capability without invalidating the physical-header hardware contract.
+
 ## Source and documentation policy
 
-- GitHub contains source code, build files, pinned source dependencies, hardware-interface documentation, issues, and version history.
-- Google Drive is used for proposal documents, original manuals/datasheets, hardware photos, bring-up logs, scope captures, benchmarks, and DOS boot evidence.
+- GitHub contains source code, build files, pinned source dependencies, hardware-interface documentation, ADRs, retrospectives, issues, and version history.
+- Google Drive is the evidence vault for original manuals/datasheets, hardware photos, bring-up logs, scope captures, benchmarks, long-form reports, and DOS boot evidence.
 - NEC documentation is the normative source for V30 electrical and bus timing requirements.
-- Original Pi86 source/HAT mapping is the compatibility reference.
+- Original Pi86 source/HAT behavior is the compatibility reference.
 - ArduinoX86 is a related implementation reference for physical x86/V20/V30 bus-control and validation concepts.
 
 ## License
