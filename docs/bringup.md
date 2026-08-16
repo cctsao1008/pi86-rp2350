@@ -112,6 +112,95 @@ GATE 7 BYTE-LANE RESULT        = PASS
 
 Inactive byte lanes are intentionally high-Z during byte reads. Full 16-bit GPIO snapshots of such reads may therefore contain unrelated values on the inactive half; only the selected lane is part of the functional acceptance criterion.
 
+## Gate 8 — I/O-space byte transactions
+
+Goal: validate V30 `OUT`/`IN` cycles against a deterministic synthetic I/O backend before introducing real PC peripheral semantics.
+
+Test semantics:
+
+```text
+OUT 80h,5Ah -> LOW lane
+IN  80h     -> 5Ah
+CMP AL,5Ah
+
+OUT 81h,A5h -> HIGH lane
+IN  81h     -> A5h
+CMP AL,A5h
+
+SUCCESS / FAIL branch
+```
+
+Acceptance criteria:
+
+- `IO/M=0` I/O-space cycles are classified separately from memory
+- even port `80h` uses LOW lane
+- odd port `81h` uses HIGH lane
+- backend stores and returns `5A` / `A5`
+- CPU consumes the returned values and reaches SUCCESS at `0xF0040`
+- FAIL at `0xF0050` is not observed
+
+**Status: PASS**
+
+Hardware result:
+
+```text
+Even port 80h LOW OUT/IN        = YES / YES
+Odd port 81h HIGH OUT/IN        = YES / YES
+I/O backend final [80h,81h]     = 5A A5
+Success-loop hits F0040         = 3/3
+Fail-loop F0050 observed        = NO
+GATE 8 I/O RESULT               = PASS
+```
+
+As with Gate 7, the inactive byte lane is high-Z during a byte read; only the selected lane is functionally meaningful.
+
+## Gate 9 — Maskable interrupt acknowledge and vector entry
+
+Goal: validate the physical V30 maskable interrupt path with a synthetic interrupt source before implementing an 8259-compatible PIC model.
+
+Test setup:
+
+```text
+INT vector = 20h
+IVT[20h] at physical 00080h:
+  offset  = 0100h
+  segment = F000h
+ISR       = F000:0100
+marker    = byte [0300] <- 5Ah
+```
+
+Acceptance criteria:
+
+- INT is asserted only after the CPU reaches a stable wait loop
+- exactly two interrupt-acknowledge cycles are observed
+- acknowledge #1 carries no vector
+- acknowledge #2 supplies vector `20h`
+- V30 reads IVT entries at `00080h` and `00082h`
+- interrupt entry stack saves are observed at `7FFEh`, `7FFCh`, and `7FFAh`
+- CPU fetches ISR code at physical `F0100h`
+- ISR writes marker `5A` to physical `00300h`
+- CPU reaches SUCCESS at `F0040` at least three times
+- FAIL at `F0050` is not observed
+
+**Status: PASS**
+
+Hardware result:
+
+```text
+INT asserted / deasserted       = YES / YES
+INTAK cycles observed           = 2/2
+INTAK #1 / #2                   = YES / YES
+Stack saves 7FFA/7FFC/7FFE      = YES / YES / YES
+IVT offset/segment reads        = YES / YES
+ISR fetch F0100                 = YES
+ISR marker [0300]               = 5A
+Success-loop hits F0040         = 3/3
+Fail-loop F0050 observed        = NO
+GATE 9 INTERRUPT RESULT         = PASS
+```
+
+This establishes the complete CPU-semantic interrupt-entry chain: external INT request -> two acknowledge cycles -> external vector acquisition -> IVT resolution -> state save -> ISR execution.
+
 ## Current capability boundary
 
 Validated:
@@ -123,36 +212,41 @@ Validated:
 - odd-address 16-bit memory accesses split by the V30 across two byte cycles
 - reusable V30 bus transaction layer
 - byte-addressed RP2350 SRAM ROM/RAM backend
+- byte I/O-space `IN`/`OUT` on even and odd ports
+- physical V30 maskable interrupt entry through two INTAK cycles, IVT lookup and ISR execution
 - V30 control-flow execution including far jump, short jump, compare and conditional branch
 
 Not yet validated:
 
-- general I/O-space `IN`/`OUT` transactions
-- INTR/INTA behavior
-- PIC/PIT behavior
+- 8259-compatible PIC register/priority/mask semantics
+- PIT behavior and timer-driven IRQ0
 - PSRAM backend timing and integrity
 - BIOS/system services
-- MicroSD disk images
+- keyboard path
+- MicroSD disk images / boot storage path
 - DOS boot
 - virtual CGA -> DVI
 - performance toward 4.77 MHz and beyond
 
-## Next development boundary — Gate 8
+## Next development boundary — PIC regression before PIT
 
-Gate 8 adds only one new architectural capability: V30 I/O-space transactions.
+The next architectural step should preserve Gate 9's proven interrupt behavior while replacing the synthetic one-shot interrupt source with a minimal reusable 8259-compatible PIC backend.
 
-Planned semantic test:
+Initial PIC scope should remain deliberately narrow:
 
 ```text
-CPU OUT -> RP2350 I/O backend
-CPU IN  <- same backend
-CPU CMP returned value
-SUCCESS / FAIL branch
+one interrupt input
+mask / unmask
+pending request
+INT output
+first INTA acknowledge
+second INTA returns vector
+end-of-interrupt sufficient for repeated testing
 ```
 
-The first I/O gate should use a deterministic synthetic port backend rather than introducing a real PC peripheral at the same time. PIC/PIT/keyboard/device semantics remain later gates.
+Do not add PIT timing in the same first validation. First prove that the reusable PIC backend reproduces the Gate 9 interrupt-entry postconditions; only then use PIT output as the source for IRQ0.
 
-See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the dependency-driven route from I/O-space support toward BIOS and DOS boot.
+See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the dependency-driven route toward BIOS and DOS boot.
 
 ## Retrospective and evidence
 
