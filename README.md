@@ -36,7 +36,7 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 
 ## Project status
 
-**Phase:** reusable bus/memory architecture with byte-addressed memory validated; I/O-space bring-up next
+**Phase:** reusable V30 bus/memory/I/O architecture validated through maskable interrupt entry; PIC/PIT compatibility is the next subsystem boundary
 
 **Validated functional chain:**
 
@@ -49,8 +49,10 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 - Gate 6: aligned RAM write/readback + CPU compare/branch verification — PASS
 - Gate 6R: reusable `v30_bus` + byte-addressed memory refactor regression — PASS
 - Gate 7: low/high byte lanes + odd-address 16-bit memory split/readback — PASS
+- Gate 8: byte I/O-space `OUT`/`IN` on even/odd ports + CPU compare/branch — PASS
+- Gate 9: maskable `INT` + two INTAK cycles + vector injection + IVT/ISR execution — PASS
 
-The current validated memory scope is byte-addressed 8/16-bit memory read/write, including odd-address 16-bit accesses split by the V30 across HIGH/LOW byte lanes. General I/O, interrupts, PSRAM, BIOS/DOS compatibility and final clock-rate optimization remain separate future milestones.
+The current validated scope includes byte-addressed 8/16-bit memory, odd-address word splitting, byte I/O-space transactions, and complete synthetic maskable interrupt entry through ISR execution on the physical V30. A real 8259-compatible PIC model, PIT, PSRAM, BIOS/DOS compatibility and final clock-rate optimization remain separate future milestones.
 
 ## Locked hardware baseline
 
@@ -248,7 +250,7 @@ The first critical V30 milestone was:
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
-That milestone and subsequent memory-read, executable-ROM, RAM write/readback, and byte-lane/odd-address gates are now validated. Future gates should extend capability without invalidating the physical-header hardware contract.
+That milestone and the subsequent memory, I/O-space, and maskable-interrupt gates are now validated. Future gates should extend compatibility without invalidating the physical-header hardware contract or the established regression chain.
 
 ## Source and documentation policy
 
