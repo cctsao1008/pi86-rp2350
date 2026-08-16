@@ -1,0 +1,66 @@
+; PC1-B hardware-assisted D2/H2 event sources for DMA.
+;
+; Three independent state machines observe the same V30 ALE/CLK pins:
+;   start  : emits one RX FIFO word at D2 (next fresh falling CLK after ALE fall)
+;   release: emits one RX FIFO word at H2 (two additional falling edges)
+;   stage  : emits one RX FIFO word immediately after H2 for next-cycle GPIO_OUT
+;
+; Each emitted word comes from the SM TX FIFO. DMA drains the corresponding RX
+; FIFO and writes the word directly to a fixed SIO register. No M33 IRQ is in
+; the timing-critical path.
+;
+; Physical pins on Waveshare RP2350-PiZero + Pi86 HAT:
+;   ALE = GPIO9
+;   CLK = GPIO21
+;
+.program pc1b_dma_start
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+    ; D2: next fresh falling edge.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    pull block
+    mov isr, osr
+    push block
+.wrap
+
+.program pc1b_dma_release
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+    ; D2.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H1.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H2.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    pull block
+    mov isr, osr
+    push block
+.wrap
+
+.program pc1b_dma_stage
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+    ; D2.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H1.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H2; release SM has reached the same edge. The stage DMA updates only the
+    ; SIO output latch; AD ownership is controlled independently by OE DMA.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    pull block
+    mov isr, osr
+    push block
+.wrap
