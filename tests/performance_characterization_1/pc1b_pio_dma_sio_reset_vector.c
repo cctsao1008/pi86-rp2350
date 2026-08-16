@@ -8,11 +8,17 @@
  *   PIO1 start SM   -> RX DREQ -> DMA -> SIO GPIO_OE_SET at D2
  *   PIO1 release SM -> RX DREQ -> DMA -> SIO GPIO_OE_CLR at H2
  *   PIO1 stage SM   -> RX DREQ -> DMA -> SIO GPIO_OUT after H2
+ *   PIO0 observer SM-> passive ALE address capture
  *
  * The AD output latch is preloaded with 00EA before RESET release. After each
  * H2 edge, the stage path prepares the next reset-vector word while AD is
  * transitioning back to high-Z. The CPU performs no per-cycle polling and no
  * IRQ service during the experiment.
+ *
+ * The passive observer intentionally runs on PIO0, alongside the tiny clock
+ * generator, so PIO1 instruction memory is reserved for the three DMA timing
+ * programs. This avoids the invalid instrumentation/resource overlap seen in
+ * the first DMA diagnostic revision.
  *
  * Reset-vector words:
  *   FFFF0 -> 00EA
@@ -56,15 +62,6 @@ static uint32_t pc1b_dma_encode_word(uint16_t value) {
            data_hi_lut[(value >> 8) & 0xFFu];
 }
 
-static void pc1b_dma_sm_init(pc1b_dma_sm_t *s,
-                             const struct pio_program *program,
-                             pio_sm_config config) {
-    s->pio = pio1;
-    s->sm = pio_claim_unused_sm(s->pio, true);
-    s->offset = pio_add_program(s->pio, program);
-    pio_sm_init(s->pio, s->sm, s->offset, &config);
-}
-
 static void pc1b_dma_start_sm_init(pc1b_dma_sm_t *s) {
     s->pio = pio1;
     s->sm = pio_claim_unused_sm(s->pio, true);
@@ -90,7 +87,12 @@ static void pc1b_dma_stage_sm_init(pc1b_dma_sm_t *s) {
 }
 
 static void pc1b_dma_observer_sm_init(pc1b_dma_sm_t *s) {
-    s->pio = pio1;
+    /*
+     * Keep the observer off PIO1. The three DMA event programs occupy PIO1's
+     * timing/instruction resources; PIO0 has ample room beside the 2-instruction
+     * continuous clock program and gives independent passive evidence.
+     */
+    s->pio = pio0;
     s->sm = pio_claim_unused_sm(s->pio, true);
     s->offset = pio_add_program(s->pio, &perf_ale_observer_program);
     pio_sm_config c = perf_ale_observer_program_get_default_config(s->offset);
@@ -153,13 +155,15 @@ int main(void) {
     sleep_ms(100);
 
     printf("\nPC1-B PIO->DMA->SIO reset-vector prototype - 0.300 MHz\n");
-    printf("Clock             : continuous PIO free-run\n");
+    printf("Clock             : continuous PIO0 free-run\n");
     printf("D2/H2 timing      : PIO1 state machines\n");
     printf("Critical response : PIO RX DREQ -> DMA -> SIO registers\n");
     printf("M33 per-cycle work: none (no polling, no IRQ)\n");
     printf("Start action      : DMA writes GPIO_OE_SET at D2\n");
     printf("Release action    : DMA writes GPIO_OE_CLR at H2\n");
     printf("Next-word stage   : DMA writes GPIO_OUT after H2\n");
+    printf("Observer          : passive ALE capture on PIO0\n");
+    printf("PIO1 resources    : start/release/stage only\n");
     printf("Reset-vector code : EA 00 00 00 F0 90\n");
     printf("PASS discriminator: FFFF0 -> FFFF2 -> FFFF4 -> F0000\n");
     printf("Canonical gate    : unchanged\n\n");
@@ -275,10 +279,10 @@ int main(void) {
     printf("\nExpected control-flow sequence = FFFF0 -> FFFF2 -> FFFF4 -> F0000\n");
     printf("PC1-B PIO->DMA->SIO RESULT     = %s\n", pass ? "PASS" : "FAIL");
     if (!pass) {
-        printf("Interpretation                    = CPU exception latency is removed;\n");
-        printf("                                    a remaining failure requires checking\n");
-        printf("                                    D2/H2 timing, DMA/SIO ordering, or\n");
-        printf("                                    physical V30 read sampling directly.\n");
+        printf("Interpretation                    = observer is now isolated on PIO0;\n");
+        printf("                                    a valid remaining failure points next to\n");
+        printf("                                    release/stage DMA ordering, D2/H2 timing,\n");
+        printf("                                    or physical V30 read sampling.\n");
     }
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
     fflush(stdout);
