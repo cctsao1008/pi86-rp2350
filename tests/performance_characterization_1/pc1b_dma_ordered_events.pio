@@ -1,0 +1,67 @@
+; PC1-B ordered DMA event sources.
+;
+; Start and release timing are unchanged from pc1b_dma_events.pio:
+;   start   -> D2 falling edge
+;   release -> H2 falling edge
+;
+; The only controlled change is stage timing. Instead of staging the next
+; GPIO_OUT word at the same H2 edge as OE_CLR, stage waits for the next CLK
+; rising edge. This gives the release DMA a half-cycle ordering margin before
+; the output latch changes.
+;
+; Physical pins:
+;   ALE = GPIO9
+;   CLK = GPIO21
+
+.program pc1b_dma_ordered_start
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+    ; D2: next fresh falling edge after ALE falls.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    pull block
+    mov isr, osr
+    push block
+.wrap
+
+.program pc1b_dma_ordered_release
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+    ; D2.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H1.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H2: release AD ownership here.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    pull block
+    mov isr, osr
+    push block
+.wrap
+
+.program pc1b_dma_ordered_stage
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+    ; D2.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H1.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; H2.
+    wait 1 gpio 21
+    wait 0 gpio 21
+    ; Controlled ordering delay: stage only after the next CLK rising edge.
+    wait 1 gpio 21
+    pull block
+    mov isr, osr
+    push block
+.wrap
