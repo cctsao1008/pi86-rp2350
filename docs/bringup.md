@@ -239,9 +239,108 @@ Acceptance criteria:
 - CPU reaches `F0040` SUCCESS at least three times
 - `F0050` FAIL is not observed
 
-**Status: PENDING HARDWARE VALIDATION**
+**Status: PASS**
 
 Target: `gate9r_pic`
+
+Hardware result:
+
+```text
+Serviced bus cycles             = 36/256 max
+First reset-vector WORD read    = PASS
+PIC IRQ raised / cleared        = YES / YES
+INTAK cycles observed           = 2/2
+INTAK #1 / #2                   = YES / YES
+Stack saves 7FFA/7FFC/7FFE      = YES / YES / YES
+IVT offset/segment reads        = YES / YES
+ISR fetch F0100                 = YES
+ISR marker [0300]               = 5A (expected 5A)
+Success-loop hits F0040         = 3/3 required
+Fail-loop F0050 observed        = NO
+GATE 9R PIC REGRESSION RESULT   = PASS
+```
+
+The decisive acknowledge sequence on physical hardware was:
+
+```text
+INTA #1: no vector, PIC_INTR=1
+INTA #2: vector=20h, PIC_INTR=0
+```
+
+The V30 then read IVT vector `20h` at `00080h/00082h`, saved FLAGS/CS/IP at `7FFEh/7FFCh/7FFAh`, fetched the ISR at `F0100h`, wrote marker `5A` to `00300h`, and reached the `F0040h` SUCCESS loop three times without entering `F0050h` FAIL.
+
+This closes the reusable interrupt-controller regression boundary: `pi86_pic` is now hardware-regression-validated as the backend abstraction for the already-proven V30 interrupt-entry behavior.
+
+## Gate 10 — 8259A-compatible initialization, masking, IRQ0 and EOI
+
+Goal: extend the validated `pi86_pic` backend into the minimum programmable 8259A-compatible subset needed to support an IBM PC/XT-style master PIC path, without introducing PIT timing yet.
+
+Initial scope:
+
+```text
+I/O ports 20h / 21h
+ICW1 / ICW2 / ICW3 / ICW4 initialization sequence
+interrupt mask register (IMR)
+interrupt request register (IRR)
+in-service register (ISR)
+IRQ0 request input
+fixed-priority resolution
+INTA #1 / INTA #2 sequencing
+vector = programmed ICW2 base + IRQ number
+non-specific EOI
+```
+
+Explicitly deferred:
+
+```text
+rotating priority
+special mask mode
+poll mode
+special fully nested mode
+buffered mode
+full cascade behavior beyond the minimum master-PIC contract
+PIT timing / channel programming / IRQ0 generation
+```
+
+Planned CPU-visible test semantics:
+
+```text
+OUT 20h,11h       ; ICW1: initialize, ICW4 follows
+OUT 21h,20h       ; ICW2: vector base 20h
+OUT 21h,00h       ; ICW3: single/master test value for this gate
+OUT 21h,01h       ; ICW4: 8086/8088 mode
+OUT 21h,FEh       ; unmask IRQ0 only
+
+synthetic backend raises IRQ0
+V30 performs two INTA cycles
+INTA #2 supplies vector 20h
+ISR writes marker [0300] = 5Ah
+ISR issues non-specific EOI to port 20h
+CPU reaches SUCCESS
+```
+
+Acceptance criteria:
+
+- CPU I/O writes at ports `20h/21h` drive the PIC through the expected ICW sequence
+- programmed vector base becomes `20h`
+- IMR value `FEh` leaves IRQ0 unmasked and masks IRQ1..IRQ7
+- a synthetic IRQ0 request sets the corresponding IRR state and asserts INT only when unmasked
+- fixed-priority resolver selects IRQ0
+- exactly two INTA cycles are observed
+- INTA #1 does not drive a vector
+- INTA #2 drives vector `20h`
+- accepted IRQ0 moves from IRR to ISR at the defined acknowledge point
+- V30 performs IVT lookup and ISR entry for vector `20h`
+- ISR marker `[0300]` becomes `5A`
+- non-specific EOI clears the in-service IRQ0 state
+- CPU reaches `F0040` SUCCESS at least three times
+- `F0050` FAIL is not observed
+
+**Status: IMPLEMENTATION / HARDWARE VALIDATION PENDING**
+
+Target name: `gate10_8259a`.
+
+Gate 10 must preserve Gate 9R behavior as a regression invariant. PIT behavior is not permitted into this gate; timer-driven IRQ0 belongs to the next dependency boundary after the programmable PIC contract passes on hardware.
 
 ## Current capability boundary
 
@@ -256,12 +355,12 @@ Validated:
 - byte-addressed RP2350 SRAM ROM/RAM backend
 - byte I/O-space `IN`/`OUT` on even and odd ports
 - physical V30 maskable interrupt entry through two INTAK cycles, IVT lookup and ISR execution
+- reusable `pi86_pic` interrupt-controller backend reproducing the Gate 9 CPU-semantic interrupt chain on physical hardware
 - V30 control-flow execution including far jump, short jump, compare and conditional branch
 
 Not yet validated:
 
-- reusable interrupt-controller regression (`Gate 9R`)
-- full 8259A-compatible programming/mask/priority/EOI semantics
+- programmable 8259A-compatible initialization/mask/priority/EOI semantics (`Gate 10`)
 - PIT behavior and timer-driven IRQ0
 - PSRAM backend timing and integrity
 - BIOS/system services
@@ -273,9 +372,11 @@ Not yet validated:
 
 ## Next development boundary
 
-Do not add PIT behavior until Gate 9R has reproduced Gate 9 on real hardware.
+Gate 10 is the active development boundary.
 
-After Gate 9R passes, choose the next gate according to the minimum BIOS/DOS dependency needed at that point. A one-shot PIT-to-interrupt test can build on the reusable controller core, while true IBM PC/XT BIOS compatibility will eventually require the broader 8259A programming contract listed above.
+Do not add PIT behavior until the programmable 8259A-compatible PIC subset has passed on real hardware. Gate 10 should first prove CPU-visible ICW programming, IMR masking, IRQ0 arbitration, the existing two-INTA contract, vector derivation from ICW2, IRR/ISR state movement, and EOI clearing.
+
+After Gate 10 passes, the next dependency boundary may introduce a one-shot PIT channel that raises IRQ0 through the validated PIC, followed by the broader timer behavior needed for BIOS compatibility.
 
 See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the dependency-driven route toward BIOS and DOS boot.
 
