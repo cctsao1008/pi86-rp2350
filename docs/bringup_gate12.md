@@ -46,6 +46,28 @@ Explicitly excluded:
 - BIOS time-of-day services
 - timer calibration / final clock-rate optimization
 
+## Core Validation
+
+Target: `gate12_pit_core`
+
+The PIT/PIC controller-state path has passed deterministic core validation:
+
+```text
+PIT control 43h = 30h
+PIT channel 0 reload = 0004h
+no terminal-count event before the final tick
+terminal count produces exactly one event
+terminal count -> pi86_pic IRQ0
+PIC IRR = 01h
+PIC INTR asserted
+IRQ0 two-cycle acknowledge -> vector 20h
+PIC ISR = 01h
+non-specific EOI
+final PIC ISR = 00h, INTR deasserted
+```
+
+This validates the PIT state machine and PIT-to-PIC integration only. It does not close Gate 12.
+
 ## Proposed CPU-Visible Test
 
 1. Initialize PIC with vector base `20h`.
@@ -96,10 +118,10 @@ This preserves the Gate 10/11 PIC contract as a regression invariant.
 - `IRET` returns to the interrupted execution path.
 - final PIC state is `IRR=00h`, `ISR=00h`, `INTR=0`.
 - CPU reaches SUCCESS and never reaches FAIL.
-- Gate 9R, Gate 10, Gate 11 PIC preflight, and Gate 11 physical targets remain build regressions.
+- Gate 9R, Gate 10, Gate 11 PIC core, and Gate 11 physical targets remain build regressions.
 
 ## Status
 
-**DEFINED — implementation and physical validation pending.**
+**PIT/PIC CORE VALIDATION PASS — physical V30 validation pending.**
 
 Gate 12 must pass on physical V30 hardware before periodic timer behavior or BIOS timing services are introduced.
