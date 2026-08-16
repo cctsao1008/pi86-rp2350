@@ -1,6 +1,14 @@
 # pi86-rp2350
 
-Port of Pi86 to the Waveshare RP2350-PiZero using the original Pi86 V20/V30 HAT and a physical NEC V30 CPU.
+`pi86-rp2350` re-architects the original Pi86 physical V20/V30 computer around the Waveshare RP2350-PiZero as a deterministic real-time bus and peripheral host.
+
+The goal is not merely to port Pi86 from Raspberry Pi 2/3 to another board. The project preserves the original physical NEC V20/V30 CPU architecture while replacing Linux/WiringPi GPIO bit-banging with a bare-metal RP2350 design using deterministic GPIO service, PIO/SIO, and eventually DMA where it provides measurable benefit.
+
+The central engineering question is:
+
+> How far can a modern deterministic microcontroller replace the chipset, memory, and peripheral infrastructure around a real NEC V20/V30 CPU while maintaining practical PC-class performance?
+
+A primary project objective is to determine whether the RP2350 architecture can overcome the original Pi86 host-side bus-performance bottleneck and sustain materially higher V20/V30 clock rates. Functional compatibility alone is not sufficient; performance must be measured and treated as an explicit validation dimension.
 
 ## Development Model
 
@@ -53,6 +61,26 @@ RESET / fetch
 
 Detailed gate definitions, acceptance criteria, and validation history are maintained in [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/). Raw hardware evidence is archived separately in the project Google Drive.
 
+## Success criteria
+
+The project tracks three independent success dimensions:
+
+```text
+Functional
+  physical V30 -> memory -> I/O -> PIC/PIT -> BIOS -> DOS
+
+Architectural
+  deterministic critical path, no Linux scheduler dependency,
+  hard-real-time bus service separated from slower peripherals
+
+Performance
+  establish the maximum sustainable physical V30 clock,
+  with 4.77 MHz-class operation as the primary target and
+  8 MHz-class operation as a stretch objective
+```
+
+The original Pi86 project's reported approximately 0.3 MHz operating point is treated as the historical comparison baseline, not as a target architecture limit.
+
 ## Locked hardware baseline
 
 - Host: Waveshare RP2350-PiZero
@@ -100,12 +128,15 @@ The project preserves Pi86 system behavior while replacing Raspberry Pi/Linux/Wi
 - **Bring-up memory:** RP2350 internal SRAM
 - **Full system memory:** external PSRAM backend
 
-The original HAT uses a scattered Raspberry Pi physical-header mapping. Performance work will use direct SIO access, masks, and lookup tables rather than per-pin high-level GPIO calls.
+The original HAT uses a scattered Raspberry Pi physical-header mapping. Performance work will use direct SIO access, masks, lookup tables, SRAM-resident hot paths, and PIO/DMA offload where measurement shows that they improve the sustainable V30 bus rate.
+
+See [`docs/project_overview.md`](docs/project_overview.md) for the full project mission, research questions, and performance strategy.
 
 ## Engineering knowledge and decision records
 
 Important project knowledge is deliberately version-controlled rather than left only in chat history:
 
+- [`docs/project_overview.md`](docs/project_overview.md) — mission, research question, success criteria, and performance strategy.
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract and source hierarchy.
 - [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map.
 - [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — architectural decision explaining why physical header position is canonical.
@@ -142,6 +173,7 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   │   └── rp2350_pizero.h
 │   ├── memory/
 │   ├── pic/
+│   ├── pit/
 │   └── v30/
 │       └── v30_pins.h
 ├── tests/
@@ -155,14 +187,17 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   ├── gate9r_pic/
 │   ├── gate10_8259a/
 │   ├── gate11_pic_priority/
-│   └── gate11_irq_priority/
+│   ├── gate11_irq_priority/
+│   └── gate12_pit_core/
 ├── docs/
+│   ├── project_overview.md
 │   ├── architecture.md
 │   ├── hardware.md
 │   ├── hardware_contract.md
 │   ├── pin_mapping.md
 │   ├── bringup.md
 │   ├── bringup_gate11.md
+│   ├── bringup_gate12.md
 │   ├── toolchain.md
 │   ├── validation/
 │   ├── adr/
@@ -243,6 +278,7 @@ Build a single target:
 ./scripts/build.sh --target gate10_8259a
 ./scripts/build.sh --target gate11_pic_priority
 ./scripts/build.sh --target gate11_irq_priority
+./scripts/build.sh --target gate12_pit_core
 ```
 
 ### PowerShell
