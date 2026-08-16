@@ -61,8 +61,8 @@ sdk_path="${repo_root}/third_party/pico-sdk"
 sdk_init="${sdk_path}/pico_sdk_init.cmake"
 picotool_src="${repo_root}/third_party/picotool"
 picotool_install="${repo_root}/.tools/picotool-install"
-picotool_bin="${picotool_install}/bin/picotool"
 picotool_cmake_dir="${picotool_install}/picotool"
+picotool_bin="${picotool_cmake_dir}/picotool"
 
 if [[ ! -f "$sdk_init" || ! -f "${picotool_src}/CMakeLists.txt" ]]; then
     cat >&2 <<EOF
