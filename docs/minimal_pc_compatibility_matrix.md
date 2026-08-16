@@ -10,6 +10,8 @@ This document is a planning and dependency artifact. It does not change the norm
 
 Each new gate should unlock a concrete BIOS or DOS dependency. Avoid implementing peripherals merely because they existed in an IBM PC/XT if the current boot path does not yet require them.
 
+A second rule now applies before deep BIOS/DOS expansion: **the RP2350 host architecture must be performance-characterized on the physical V30 so that compatibility work is not built on an unmeasured low-speed bus engine.**
+
 ## Current validated baseline
 
 | Capability | Status | Evidence boundary |
@@ -26,6 +28,7 @@ Each new gate should unlock a concrete BIOS or DOS dependency. Avoid implementin
 | Programmable 8259A-compatible PIC subset | PASS | Gate 10 |
 | Multi-IRQ fixed priority, ISR blocking, EOI recovery, `IRET` | PASS | Gate 11 |
 | Programmable PIT channel-0 to IRQ0 | PENDING | Gate 12 |
+| Current bus-engine maximum sustainable V30 clock | NOT CHARACTERIZED | Performance Characterization 1 |
 
 ## Dependency chain
 
@@ -45,7 +48,21 @@ PIC / INTA / IVT / ISR / EOI / IRET
 programmable timer IRQ0
         |
         v
-BIOS timing services
+Performance Characterization 1
+        |
+        +-----------------------------+
+        |                             |
+        | sufficient margin           | insufficient margin
+        v                             v
+BIOS timing services            bus-engine optimization
+                                      |
+                                      v
+                               re-characterization
+                                      |
+                                      +-------------------+
+                                                          |
+                                                          v
+                                                   BIOS timing services
         |
         +------------------------+
         |                        |
@@ -115,7 +132,7 @@ IRQ0 pending
 
 ### Gate 12 — Minimal programmable PIT channel 0 -> IRQ0
 
-**Status: DEFINED — IMPLEMENTATION / HARDWARE VALIDATION PENDING**
+**Status: CORE VALIDATION PASS — PHYSICAL V30 VALIDATION PENDING**
 
 **Goal:** provide the smallest CPU-programmed PIT-compatible channel 0 path that raises IRQ0 through the already validated PIC and physical V30 interrupt path.
 
@@ -139,7 +156,60 @@ OUT 43h / OUT 40h
 
 Initial implementation deliberately uses a deterministic one-shot-style validation path. Full periodic BIOS tick behavior is deferred until the PIT-to-PIC dependency has passed on physical hardware.
 
-## Provisional sequence after Gate 12
+## Performance Characterization 1 — Current bus-engine ceiling
+
+**Status: DEFINED — EXECUTION PENDING AFTER GATE 12 PHYSICAL PASS**
+
+This milestone is intentionally placed before large BIOS/DOS expansion.
+
+Its purpose is to answer the project-level hypothesis: whether the RP2350 host architecture materially improves the original Pi86 physical-CPU bus-performance limit.
+
+Historical comparison baseline:
+
+```text
+Original Pi86 reported physical CPU rate: approximately 0.3 MHz
+```
+
+Initial interpretation targets:
+
+| Physical V30 clock | Interpretation |
+|---:|---|
+| ~0.3 MHz | Historical comparison baseline |
+| >= 1 MHz | Minimum meaningful improvement |
+| >= 2 MHz | Major improvement |
+| 4.77 MHz | Primary IBM PC-class target |
+| 8 MHz class | Stretch target |
+
+Planned frequency sweep:
+
+```text
+1.0 MHz
+2.0 MHz
+2.5 MHz
+3.0 MHz
+4.0 MHz
+4.77 MHz
+6.0 MHz
+8.0 MHz
+```
+
+At every step, validate more than instruction fetch. Record at minimum:
+
+- memory read/write correctness;
+- byte lanes and odd-address accesses;
+- I/O correctness;
+- interrupt acknowledge correctness;
+- PIC/PIT correctness where applicable;
+- sustained execution duration;
+- error count;
+- host bus-service latency or timing margin where measurable;
+- exact failure mode at the first unstable frequency.
+
+The milestone result must identify the **maximum sustainable validated V30 clock of the current architecture**.
+
+If the result is below the performance level required for practical compatibility work, the project should optimize the bus engine before proceeding deeply into BIOS/DOS layers. Candidate work includes direct SIO hot paths, SRAM-resident critical code, branch/dispatch reduction, PIO timing ownership, and DMA only where measurement shows benefit.
+
+## Provisional sequence after characterization
 
 The following numbering is provisional and must be updated when a concrete BIOS dependency changes the order.
 
@@ -209,10 +279,11 @@ The exact criterion must be selected before implementation.
 | Interrupt acknowledge / PIC subset | DONE | Required for timer/keyboard IRQ architecture |
 | Multi-IRQ PIC priority | DONE | Required for credible interrupt-controller behavior |
 | PIT timer subset | P0 | BIOS timebase / IRQ0 dependency |
+| Bus performance characterization | P0 | Required to validate the RP2350 replacement architecture before deep compatibility work |
 | Boot-storage service | P0 | Required to load an OS |
 | Keyboard service | P1 | Required for interactive DOS; may follow first noninteractive boot experiments |
 | Minimal console/video path | P1 | Needed for observable BIOS/DOS UI; can develop partly outside hard real-time bus path |
-| DMA | P1/P2 | Implement when selected device path proves it is required |
+| DMA | P1/P2 | Use only where measurement proves it improves the bus/peripheral architecture |
 | RTC | P2 | Useful but not necessary for first boot milestone |
 | Serial / printer | P2 | BIOS compatibility feature, not first-boot prerequisite |
 | Expansion ROM scanning | P2 | Needed for broader compatibility, not minimum boot path if integrated BIOS services are used |
@@ -266,4 +337,4 @@ Use a project-specific diagnostic/minimal BIOS first to validate infrastructure,
 
 ## Decision boundary
 
-This matrix remains provisional beyond the currently validated gates. A future gate may be reordered when direct BIOS evidence shows a different dependency. Such changes must update this document with the evidence and rationale rather than silently changing the development sequence.
+This matrix remains provisional beyond the currently validated gates. A future gate may be reordered when direct BIOS evidence or measured bus performance shows a different dependency. Such changes must update this document with the evidence and rationale rather than silently changing the development sequence.
