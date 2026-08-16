@@ -1,14 +1,14 @@
 # pi86-rp2350
 
-`pi86-rp2350` re-architects the original Pi86 physical V20/V30 computer around the Waveshare RP2350-PiZero as a deterministic real-time bus and peripheral host.
+`pi86-rp2350` is evolving the original Pi86 physical V20/V30 computer into an RP2350-based **V30 companion chip**: a programmable, deterministic chipset around a real NEC processor.
 
-The goal is not merely to port Pi86 from Raspberry Pi 2/3 to another board. The project preserves the original physical NEC V20/V30 CPU architecture while replacing Linux/WiringPi GPIO bit-banging with a bare-metal RP2350 design using deterministic GPIO service, PIO/SIO, and eventually DMA where it provides measurable benefit.
+The goal is not to reproduce a Raspberry Pi 2/3 software stack on a faster board. The project preserves the physical NEC V20/V30 while moving clock generation, bus control, ROM/RAM, peripherals, storage, and debugging into a bare-metal RP2350 design. PIO and DMA own the deterministic data plane; the Arm cores provide supervision and higher-level services where the measured timing budget permits.
 
 The central engineering question is:
 
-> How far can a modern deterministic microcontroller replace the chipset, memory, and peripheral infrastructure around a real NEC V20/V30 CPU while maintaining practical PC-class performance?
+> How far can an RP2350 act as a programmable chipset around a real NEC V20/V30, from reset-vector execution through a monitor, BIOS services, and eventually a bootable PC-class system?
 
-A primary project objective is to determine whether the RP2350 architecture can overcome the original Pi86 host-side bus-performance bottleneck and sustain materially higher V20/V30 clock rates. Functional compatibility alone is not sufficient; performance must be measured and treated as an explicit validation dimension.
+PC1-B has answered the first performance question: the PIO-direct fixed-response path is validated on physical hardware from 0.300 through 8.000 MHz configured V30 clock. The active question is now whether that timing result can be converted into address-qualified ROM/RAM and peripheral service without losing deterministic behavior.
 
 ## Development Model
 
@@ -44,7 +44,7 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 
 ## Project status
 
-Validated through **Gate 11 on physical NEC V30 hardware**. Current development work and the active gate are tracked in [GitHub Issues](https://github.com/cctsao1008/pi86-rp2350/issues).
+Validated through **Gate 12 and PC1-B on physical NEC V30 hardware**. The active milestone is **PC1-C ROM execution**. Current development work is tracked in [GitHub Issues](https://github.com/cctsao1008/pi86-rp2350/issues).
 
 ### Validated functional chain
 
@@ -57,7 +57,12 @@ RESET / fetch
 -> reusable PIC backend
 -> programmable 8259A-compatible PIC
 -> multi-IRQ fixed priority / ISR blocking
+-> programmable PIT channel 0 / IRQ0 path
+-> PIO-direct V30 instruction response
+-> 0.300-8.000 MHz fixed-response frequency sweep
 ```
+
+PC1-B proves that a pre-staged `EB FE` response can travel through DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the V30 to execute it at every tested clock point. It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz; that is the PC1-C boundary.
 
 Detailed gate definitions, acceptance criteria, and validation history are maintained in [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/). Raw hardware evidence is archived separately in the project Google Drive.
 
@@ -74,9 +79,9 @@ Architectural
   hard-real-time bus service separated from slower peripherals
 
 Performance
-  establish the maximum sustainable physical V30 clock,
-  with 4.77 MHz-class operation as the primary target and
-  8 MHz-class operation as a stretch objective
+  fixed-response PIO-direct path validated through 8 MHz,
+  next characterize address-qualified ROM/RAM service and
+  preserve real V30-class operation rather than chase clock rate alone
 ```
 
 The original Pi86 project's reported approximately 0.3 MHz operating point is treated as the historical comparison baseline, not as a target architecture limit.
@@ -118,17 +123,21 @@ WiringPi number != BCM GPIO != physical header pin != RP2350 GPIO
 
 See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and permanent review rules.
 
-## Architecture direction
+## Architecture direction: V30 companion chip
 
-The project preserves Pi86 system behavior while replacing Raspberry Pi/Linux/WiringPi GPIO bit-banging with deterministic RP2350 firmware.
+The RP2350 is treated as a modern programmable chipset, not as a faster Linux host running Pi86-style GPIO polling.
 
-- **PIO:** V30 clock generation and timing synchronization
-- **Core 0 / SIO:** GPIO snapshots, scattered HAT pin packing/unpacking, V30 bus service, memory/I/O transactions, interrupt acknowledge
-- **Core 1:** storage, display, USB/debug/keyboard, and slower system services
+- **PIO0:** continuous V30 clock, passive ALE/address observation, and phase capture
+- **PIO1:** direct scattered-AD data output and `PINDIRS` ownership during read response windows
+- **DMA:** deterministic SRAM-to-PIO FIFO movement without DMA writes to SIO
+- **Real-time core role:** address/control decode, cache/refill supervision, and exceptional bus work that cannot remain entirely in PIO/DMA
+- **Service core role:** ROM/disk images, USB/debug/keyboard, display, storage, and other non-real-time services
 - **Bring-up memory:** RP2350 internal SRAM
 - **Full system memory:** external PSRAM backend
 
-The original HAT uses a scattered Raspberry Pi physical-header mapping. Performance work will use direct SIO access, masks, lookup tables, SRAM-resident hot paths, and PIO/DMA offload where measurement shows that they improve the sustainable V30 bus rate.
+The original HAT uses a scattered Raspberry Pi physical-header mapping. PC1-B handles it by encoding each 16-bit V30 word into a GPIO0-27 bitmap, routing only AD pins to PIO1, and switching bus ownership with RP2350 `MOV PINDIRS`. Input synchronizer bypass was not required for the 0.300-8.000 MHz validation.
+
+The next architecture boundary is address-qualified service. The current HAT holds V30 `READY` high, so the existing hardware cannot insert wait states for a ROM-cache or PSRAM miss. PC1-C must therefore measure the complete address-capture, lookup, and response loop honestly before the project claims general 8 MHz memory service.
 
 See [`docs/project_overview.md`](docs/project_overview.md) for the full project mission, research questions, and performance strategy.
 
@@ -142,6 +151,9 @@ Important project knowledge is deliberately version-controlled rather than left 
 - [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — architectural decision explaining why physical header position is canonical.
 - [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up postmortem, root cause, superseded diagnostic paths and permanent corrective actions.
 - [`docs/validation/gate11_multi_irq_priority_validation.md`](docs/validation/gate11_multi_irq_priority_validation.md) — physical Gate 11 multi-IRQ validation evidence and acceptance result.
+- [`docs/validation/pc1b_pio_direct_frequency_sweep.md`](docs/validation/pc1b_pio_direct_frequency_sweep.md) — PC1-B physical 0.300-8.000 MHz PIO-direct validation result.
+- [`docs/pc1b_pio_direct_frequency_sweep_20260817.md`](docs/pc1b_pio_direct_frequency_sweep_20260817.md) — dated PC1-B sweep evidence and interpretation.
+- [`docs/pc1c_rom_execution_plan.md`](docs/pc1c_rom_execution_plan.md) — active transition from fixed responses to ROM execution.
 - [GitHub Issue #14](https://github.com/cctsao1008/pi86-rp2350/issues/14) — Gate 4 debugging archaeology and root-cause resolution history.
 - [GitHub Issue #41](https://github.com/cctsao1008/pi86-rp2350/issues/41) — Gate 11 multi-IRQ fixed-priority validation, closed PASS.
 
@@ -188,7 +200,9 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   ├── gate10_8259a/
 │   ├── gate11_pic_priority/
 │   ├── gate11_irq_priority/
-│   └── gate12_pit_core/
+│   ├── gate12_pit_core/
+│   ├── performance_characterization_1/
+│   └── performance_characterization_1_extended/
 ├── docs/
 │   ├── project_overview.md
 │   ├── architecture.md
@@ -198,6 +212,8 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   ├── bringup.md
 │   ├── bringup_gate11.md
 │   ├── bringup_gate12.md
+│   ├── pc1b_pio_direct_frequency_sweep_20260817.md
+│   ├── pc1c_rom_execution_plan.md
 │   ├── toolchain.md
 │   ├── validation/
 │   ├── adr/
@@ -279,6 +295,7 @@ Build a single target:
 ./scripts/build.sh --target gate11_pic_priority
 ./scripts/build.sh --target gate11_irq_priority
 ./scripts/build.sh --target gate12_pit_core
+./scripts/build.sh --target pc1b_pio_direct_post_reset_epoch_sweep
 ```
 
 ### PowerShell
@@ -292,6 +309,7 @@ Build a single target:
 ```powershell
 .\scripts\build.ps1 -Target pi86_rp2350
 .\scripts\build.ps1 -Target gpio_test
+.\scripts\build.ps1 -Target pc1b_pio_direct_post_reset_epoch_sweep
 ```
 
 ### Manual CMake
@@ -313,7 +331,7 @@ The first critical V30 milestone was:
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
-That milestone and the subsequent memory, I/O-space, maskable-interrupt, reusable-PIC, programmable-PIC, and multi-IRQ fixed-priority gates are now validated on physical hardware. Current and planned work is tracked in GitHub Issues rather than duplicated here.
+That milestone and the subsequent memory, I/O-space, interrupt, PIC, PIT, and PC1-B PIO-direct performance gates are validated on physical hardware. The next milestone is PC1-C0: execute an address-qualified ROM image beginning with a far jump from `FFFF0` to `F0000`, then reach a CPU-visible checkpoint rather than merely completing a host-side code path.
 
 ## Source and documentation policy
 

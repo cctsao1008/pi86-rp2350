@@ -13,19 +13,17 @@ NEC V30
   |
   | bus cycle
   v
-PIO0
+PIO1 direct bus-phase response
+  ^
+  | TX DREQ
+DMA <- encoded GPIO0-27 words in SRAM
   |
-  | observation
-  v
-PIO1
-  |
-  | RX DREQ
-  v
-DMA
-  |
-  v
-SIO GPIO response
+  +-> PIO1 TX FIFO -> OUT pins, 28 -> MOV PINDIRS
+
+PIO0 remains a passive clock/ALE/phase observer.
 ```
+
+DMA does not write SIO in this validated path. Only the scattered AD pins are function-muxed to PIO1; intervening GPIOs in the contiguous OUT window remain owned by their configured functions.
 
 ## Validation Result
 
@@ -58,9 +56,9 @@ FFFF0 -> FFFF2 -> FFFF4 -> FFFF0
 
 ## Significance
 
-The original Pi86 Raspberry Pi 2/3 implementation demonstrated approximately 0.3 MHz operation. This experiment validates that the RP2350 PIO/DMA architecture can sustain deterministic physical V30 bus servicing beyond that historical operating point.
+The original Pi86 Raspberry Pi 2/3 implementation demonstrated approximately 0.3 MHz operation. This experiment validates the fixed, pre-staged PIO-direct response path beyond that historical operating point, through every configured clock tested up to 8.000 MHz.
 
-This result does not yet represent full PC compatibility. The next milestone is execution of real ROM code with ROM, RAM, interrupt, and peripheral behavior enabled.
+This result does not yet establish arbitrary 8 MHz address-dependent memory service or full PC compatibility. The next milestone is address-qualified ROM execution, followed by RAM and integrated peripheral behavior.
 
 ## Next Gate
 
