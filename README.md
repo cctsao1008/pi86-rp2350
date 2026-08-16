@@ -36,26 +36,22 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 
 ## Project status
 
-**Phase:** physical V30 multi-IRQ fixed-priority PIC behavior validated through real INTA/IVT/ISR/EOI/IRET paths; a minimal programmable PIT source driving IRQ0 is the next subsystem boundary
+Validated through **Gate 11 on physical NEC V30 hardware**. Current development work and the active gate are tracked in [GitHub Issues](https://github.com/cctsao1008/pi86-rp2350/issues).
 
-**Validated functional chain:**
+### Validated functional chain
 
-- Gate 0: RP2350-PiZero SDK / USB CDC baseline — PASS
-- Gate 1: GPIO0-GPIO27 host validation — PASS
-- Gate 2: V30 HAT electrical/preflight baseline — PASS
-- Gate 3: RESET -> first physical fetch `0xFFFF0` — PASS
-- Gate 4: aligned 16-bit memory read + prefetch-aware execution — PASS
-- Gate 5: SRAM-backed executable ROM + far jump to physical `0xF0000` — PASS
-- Gate 6: aligned RAM write/readback + CPU compare/branch verification — PASS
-- Gate 6R: reusable `v30_bus` + byte-addressed memory refactor regression — PASS
-- Gate 7: low/high byte lanes + odd-address 16-bit memory split/readback — PASS
-- Gate 8: byte I/O-space `OUT`/`IN` on even/odd ports + CPU compare/branch — PASS
-- Gate 9: maskable `INT` + two INTAK cycles + vector injection + IVT/ISR execution — PASS
-- Gate 9R: reusable `pi86_pic` interrupt-controller backend regression — PASS
-- Gate 10: programmable 8259A-compatible PIC subset (ICW1-4, IMR, IRR, ISR, IRQ0, fixed priority baseline, two INTA cycles, vector delivery, non-specific EOI) — PASS
-- Gate 11: multi-IRQ fixed-priority arbitration, ISR blocking, pending-IRQ recovery, two physical interrupt entries and `IRET` returns — PASS
+```text
+RESET / fetch
+-> memory read/write
+-> byte lanes / odd-address access
+-> I/O space
+-> maskable interrupt entry
+-> reusable PIC backend
+-> programmable 8259A-compatible PIC
+-> multi-IRQ fixed priority / ISR blocking
+```
 
-The current validated scope includes byte-addressed 8/16-bit memory, odd-address word splitting, byte I/O-space transactions, complete physical V30 maskable interrupt entry, programmable PIC initialization/masking/vector delivery, and multi-source fixed-priority IRQ arbitration with real IVT/ISR/EOI/IRET execution. PIT timing, PSRAM, BIOS/DOS compatibility, advanced 8259A modes, and final clock-rate optimization remain separate future milestones.
+Detailed gate definitions, acceptance criteria, and validation history are maintained in [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/). Raw hardware evidence is archived separately in the project Google Drive.
 
 ## Locked hardware baseline
 
@@ -281,7 +277,7 @@ The first critical V30 milestone was:
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
-That milestone and the subsequent memory, I/O-space, maskable-interrupt, reusable-PIC, programmable-PIC, and multi-IRQ fixed-priority gates are now validated on physical hardware. Gate 12 introduces the first programmable timer source and must raise IRQ0 only through the already validated PIC path.
+That milestone and the subsequent memory, I/O-space, maskable-interrupt, reusable-PIC, programmable-PIC, and multi-IRQ fixed-priority gates are now validated on physical hardware. Current and planned work is tracked in GitHub Issues rather than duplicated here.
 
 ## Source and documentation policy
 
