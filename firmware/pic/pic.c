@@ -11,7 +11,21 @@ static uint8_t pi86_pic_highest_priority(uint8_t requests) {
 }
 
 static uint8_t pi86_pic_eligible_requests(const pi86_pic_t *pic) {
-    return (uint8_t)(pic->irr & (uint8_t)~pic->imr);
+    uint8_t requests = (uint8_t)(pic->irr & (uint8_t)~pic->imr);
+    const uint8_t in_service = pi86_pic_highest_priority(pic->isr);
+
+    /*
+     * Fixed-priority 8259A behavior: while an IRQ is in service, only a
+     * strictly higher-priority request may preempt it. IRQ0 is highest and
+     * IRQ7 is lowest, so an in-service IRQn blocks IRQn..IRQ7.
+     */
+    if (in_service != PI86_PIC_NO_IRQ) {
+        const uint8_t higher_priority_mask =
+            in_service == 0u ? 0u : (uint8_t)((1u << in_service) - 1u);
+        requests = (uint8_t)(requests & higher_priority_mask);
+    }
+
+    return requests;
 }
 
 static void pi86_pic_refresh_intr(pi86_pic_t *pic) {
