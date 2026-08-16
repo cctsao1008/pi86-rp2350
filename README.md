@@ -36,7 +36,7 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 
 ## Project status
 
-**Phase:** reusable V30 bus/memory/I/O and interrupt-controller backend validated; 8259A-compatible programming semantics are the next subsystem boundary
+**Phase:** programmable 8259A-compatible PIC subset validated on the physical V30; multi-IRQ fixed-priority arbitration, masking behavior, and ISR blocking are the next subsystem boundary
 
 **Validated functional chain:**
 
@@ -52,8 +52,9 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 - Gate 8: byte I/O-space `OUT`/`IN` on even/odd ports + CPU compare/branch — PASS
 - Gate 9: maskable `INT` + two INTAK cycles + vector injection + IVT/ISR execution — PASS
 - Gate 9R: reusable `pi86_pic` interrupt-controller backend regression — PASS
+- Gate 10: programmable 8259A-compatible PIC subset (ICW1-4, IMR, IRR, ISR, IRQ0, fixed priority baseline, two INTA cycles, vector delivery, non-specific EOI) — PASS
 
-The current validated scope includes byte-addressed 8/16-bit memory, odd-address word splitting, byte I/O-space transactions, complete synthetic maskable interrupt entry through ISR execution on the physical V30, and the same interrupt-entry behavior reproduced through the reusable `pi86_pic` backend. Full 8259A programming semantics, PIT, PSRAM, BIOS/DOS compatibility and final clock-rate optimization remain separate future milestones.
+The current validated scope includes byte-addressed 8/16-bit memory, odd-address word splitting, byte I/O-space transactions, complete synthetic maskable interrupt entry through ISR execution on the physical V30, reusable `pi86_pic` interrupt-entry behavior, and the Gate 10 programmable 8259A-compatible subset. Multi-IRQ priority arbitration, ISR blocking, PIT, PSRAM, BIOS/DOS compatibility, advanced 8259A modes, and final clock-rate optimization remain separate future milestones.
 
 ## Locked hardware baseline
 
@@ -264,7 +265,7 @@ The first critical V30 milestone was:
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
-That milestone and the subsequent memory, I/O-space, maskable-interrupt, and reusable-PIC regression gates are now validated. Future gates should extend compatibility without invalidating the physical-header hardware contract or the established regression chain.
+That milestone and the subsequent memory, I/O-space, maskable-interrupt, reusable-PIC, and programmable-PIC gates are now validated. Gate 11 extends the PIC toward multi-IRQ fixed-priority behavior and still requires physical V30 validation before it may be marked PASS.
 
 ## Source and documentation policy
 
