@@ -20,15 +20,15 @@ V30 programs PIT
     -> IRET
 ```
 
-## Initial Scope
+## Scope
 
 Included:
 
 - PIT control port `43h`
 - PIT channel 0 data port `40h`
 - channel 0 only
-- one deterministic count format selected for this gate
-- a minimal one-shot terminal-count behavior
+- LSB/MSB count programming
+- binary Mode 0 one-shot terminal-count behavior
 - deterministic RP2350-side timer progression
 - IRQ0 generation only through `pi86_pic_raise_irq(..., 0)`
 - existing Gate 10/11 PIC programming contract
@@ -41,7 +41,7 @@ Explicitly excluded:
 - DRAM-refresh compatibility behavior
 - full 8253/8254 mode matrix
 - read-back command
-- latch/read semantics beyond what this gate requires
+- advanced latch/read behavior
 - periodic BIOS tick compatibility
 - BIOS time-of-day services
 - timer calibration / final clock-rate optimization
@@ -50,12 +50,14 @@ Explicitly excluded:
 
 Target: `gate12_pit_core`
 
-The PIT/PIC controller-state path has passed deterministic core validation:
+**PASS.**
+
+Validated controller-state sequence:
 
 ```text
 PIT control 43h = 30h
 PIT channel 0 reload = 0004h
-no terminal-count event before the final tick
+no terminal-count event before final tick
 terminal count produces exactly one event
 terminal count -> pi86_pic IRQ0
 PIC IRR = 01h
@@ -66,32 +68,52 @@ non-specific EOI
 final PIC ISR = 00h, INTR deasserted
 ```
 
-This validates the PIT state machine and PIT-to-PIC integration only. It does not close Gate 12.
+## Physical V30 Validation
 
-## Proposed CPU-Visible Test
+Target: `gate12_pit_irq0`
 
-1. Initialize PIC with vector base `20h`.
-2. Unmask IRQ0 only (`IMR=FEh`).
-3. Program PIT channel 0 through ports `43h` and `40h` with a deterministic test count.
-4. Enable interrupts and enter a wait loop.
-5. PIT backend reaches terminal count and raises IRQ0 through `pi86_pic`.
-6. Physical V30 performs exactly two INTA cycles.
-7. INTA #2 supplies vector `20h`.
-8. V30 resolves IVT vector `20h` and executes ISR0.
-9. ISR0 writes a known marker, sends non-specific EOI to port `20h`, and returns with `IRET`.
-10. CPU reaches a deterministic SUCCESS loop.
+**PASS.**
+
+The physical V30 executed the actual programming sequence:
+
+```text
+PIC: ICW1-4, IMR=FEh
+PIT: OUT 43h,30h
+     OUT 40h,08h
+     OUT 40h,00h
+```
+
+The RP2350 PIT backend then reached terminal count and raised IRQ0 only through `pi86_pic`.
+
+Hardware result:
+
+```text
+Serviced bus cycles                  = 76/360 max
+First reset-vector WORD read         = PASS
+PIC ICW1 / ICW2 / ICW3 / ICW4       = YES / YES / YES / YES
+PIC IMR / vector base                = FEh / 20h
+PIT OUT 43h control 30h              = YES
+PIT OUT 40h LSB/MSB                  = YES / YES
+PIT programmed / reload              = YES / 0008h
+No IRQ0 before PIT terminal count    = YES
+PIT terminal count / IRQ0 routed     = YES / YES
+INTA cycles                          = 2 total (1 first / 1 second)
+IRQ0 selected / vector 20h           = YES / YES
+IRQ0 IVT offset/segment              = YES / YES
+IRQ0 ISR fetch / marker A0h          = YES / YES
+IRQ0 EOI                             = YES
+Stack writes 7FFA/7FFC/7FFE          = 1 / 1 / 1
+IRET stack reads 7FFA/7FFC/7FFE      = 1 / 1 / 1
+Final IRR / ISR / INTR               = 00h / 00h / 0
+Success-loop hits F0033              = 3/3 required
+GATE 12 PHYSICAL V30 RESULT          = PASS
+```
 
 ## Architectural Rule
 
 The PIT must not bypass the interrupt controller.
 
-Forbidden acceptance shortcut:
-
-```text
-PIT event -> direct v30_bus_set_intr()
-```
-
-Required path:
+Validated path:
 
 ```text
 PIT event
@@ -102,26 +124,28 @@ PIT event
 
 This preserves the Gate 10/11 PIC contract as a regression invariant.
 
-## Acceptance Criteria
+## Acceptance Result
 
-- V30 emits the expected PIT programming I/O writes on ports `43h` / `40h`.
-- PIT backend accepts the selected channel-0 programming sequence.
-- IRQ0 is not raised before the programmed terminal-count event.
-- terminal count raises exactly one IRQ0 request for this gate.
-- IRQ0 request appears in PIC IRR and asserts INTR while unmasked.
-- physical V30 performs exactly two INTA cycles for the timer interrupt.
-- INTA #2 supplies vector `20h`.
-- IRQ0 moves IRR -> ISR at acknowledge.
-- V30 reads IVT vector `20h` and enters the expected ISR.
-- ISR writes the expected RAM marker.
-- non-specific EOI clears ISR IRQ0.
-- `IRET` returns to the interrupted execution path.
-- final PIC state is `IRR=00h`, `ISR=00h`, `INTR=0`.
-- CPU reaches SUCCESS and never reaches FAIL.
-- Gate 9R, Gate 10, Gate 11 PIC core, and Gate 11 physical targets remain build regressions.
+All Gate 12 acceptance criteria are satisfied:
+
+- physical V30 PIT writes on `43h` / `40h` observed;
+- channel-0 programming accepted;
+- no IRQ0 before terminal count;
+- exactly one IRQ0 generated for the test;
+- PIC IRR/INTR transition observed;
+- exactly two physical INTA cycles;
+- vector `20h` supplied on INTA #2;
+- IRQ0 moved IRR -> ISR;
+- IVT and ISR execution observed;
+- marker `A0h` written;
+- EOI cleared ISR;
+- `IRET` restored the interrupted state;
+- final `IRR=00h`, `ISR=00h`, `INTR=0`;
+- SUCCESS observed 3/3;
+- CPU shut down in RESET with CLK low and AD high-Z.
 
 ## Status
 
-**PIT/PIC CORE VALIDATION PASS — physical V30 validation pending.**
+**PASS — physical NEC V30 validation complete.**
 
-Gate 12 must pass on physical V30 hardware before periodic timer behavior or BIOS timing services are introduced.
+Gate 12 is closed. Periodic BIOS timer behavior remains deferred. The next active boundary is Performance Characterization 1: establish the maximum sustainable physical V30 clock of the current RP2350 bus architecture before deeper BIOS/DOS expansion.
