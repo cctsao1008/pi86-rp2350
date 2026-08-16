@@ -34,6 +34,86 @@ Important: legacy `Single Chip.sch` explicitly contains `This does not match PCB
 
 The project's physical HAT is marked Copyright 2021 EMM, while current upstream KiCad PCB data contains 2023 revision/silkscreen information. Current upstream PCB data therefore corroborates the electrical design and GPIO mapping but does not eliminate the need to verify the physical 2021 board during Gate 2.
 
+## BIOS and PC-compatible system references
+
+These references are useful for defining the minimum PC-compatible environment required after the V30 memory bus is validated. They are not normative sources for NEC V30 electrical timing or Pi86 HAT signal mapping.
+
+### skiselev/8088_bios — primary BIOS implementation reference
+
+- Repository: `https://github.com/skiselev/8088_bios`
+- Open-source BIOS for Micro 8088, NuXT, Xi 8088 and related XT-class systems.
+- Includes source, CMake/build instructions, ROM images, XT-IDE integration, POST, keyboard, video, disk, serial, printer, RTC, DMA and boot-path implementations.
+- Includes NEC V20-optimized BIOS images and Homebrew8088 V40 Processor Card support.
+
+Use for:
+
+- PC/XT-class BIOS architecture and implementation patterns;
+- POST sequencing and device initialization dependencies;
+- BIOS interrupt service contracts such as INT 10h, INT 13h, INT 14h, INT 16h and INT 17h;
+- boot-sector/IPL flow;
+- identifying the minimum RP2350-emulated peripheral set needed for BIOS/DOS bring-up.
+
+Do not use as the normative source for:
+
+- NEC V30 bus timing;
+- A0/BHE# electrical semantics;
+- Pi86 HAT GPIO mapping.
+
+### TinyBIOS — minimal BIOS architecture reference
+
+- Repository/site: `https://praios.lf-net.org/k4m1/TinyBIOS`
+- Minimal BIOS implementation useful for studying reset entry, early initialization, POST structure and boot flow without the full complexity of a mature PC BIOS.
+
+Use for:
+
+- minimal BIOS skeleton;
+- reset-to-POST flow;
+- early boot architecture;
+- identifying which BIOS services can be deferred.
+
+### maxmalysh/simple-bios — educational/minimal BIOS reference
+
+- Repository: `https://github.com/maxmalysh/simple-bios`
+- University-course BIOS implementation with source, a 64 KiB BIOS image, Bochs configuration and Intel/AT&T syntax build scripts.
+
+Use for:
+
+- understanding a small BIOS codebase;
+- reset-vector and initialization flow;
+- comparing minimal implementation structure with more complete BIOS projects.
+
+Treat as educational reference rather than a compatibility baseline; the project intentionally has limited build/use documentation.
+
+### IBM PC/XT Technical Reference BIOS — historical compatibility reference
+
+Use the IBM PC/XT Technical Reference and BIOS listings, where legally available, to understand original machine contracts, interrupt-vector conventions, BIOS Data Area behavior and PC/XT peripheral assumptions.
+
+This is a compatibility/historical reference, not a replacement for the NEC V30 manual for CPU-specific bus timing.
+
+### SeaBIOS — mature legacy BIOS comparison reference
+
+Use SeaBIOS selectively when a mature legacy BIOS implementation is useful for comparison. It is intentionally not the first implementation reference for this project because its architecture and supported platform scope are substantially broader than the minimum XT-class environment required for initial DOS bring-up.
+
+## Secondary x86 architecture references
+
+### The Holy Book of X86
+
+- Repository: `https://github.com/Captainarash/The_Holy_Book_of_X86`
+- Covers x86 assembly, architecture, segmentation, paging, interrupts and related internals.
+- License: CC BY-SA 4.0; avoid copying substantial text or exercise material into this repository unless licensing obligations are deliberately handled.
+
+Use for:
+
+- x86 assembly semantics;
+- real-mode/segmentation background;
+- interrupts and architectural concepts.
+
+Do not use as a normative source for:
+
+- NEC V30 electrical behavior;
+- V30 bus cycles or timing;
+- Pi86 HAT mapping.
+
 ## Temporary GPIO fixture
 
 - Fixture: `Pi ALL GPIO TEST BOARD (A)` Raspberry Pi 40-pin LED GPIO test board.
