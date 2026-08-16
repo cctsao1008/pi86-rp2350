@@ -169,8 +169,9 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
 
-    printf("\nPC1-B PIO-Direct Post-Reset Test - %lu Hz\n",
-           (unsigned long)PC1B_DIRECT_V30_HZ);
+    printf("\nPC1-B PIO-Direct Post-Reset Test - %lu.%03lu MHz\n",
+           (unsigned long)(PC1B_DIRECT_V30_HZ / 1000000u),
+           (unsigned long)((PC1B_DIRECT_V30_HZ % 1000000u) / 1000u));
     printf("RESET qualification: clock-only; all response/observer SMs disabled\n");
     printf("Measurement epoch  : arm after RESET clocks with CLK stopped LOW\n");
     printf("Timing             : AF-H2; PIO1 owns data and PINDIRS\n");
