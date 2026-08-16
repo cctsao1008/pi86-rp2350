@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "pic/pic.h"
 
 void pi86_pic_init(pi86_pic_t *pic, uint8_t vector) {

@@ -16,7 +16,7 @@
 #define SUCCESS_HITS_REQUIRED          3u
 #define MAX_INTA_FINISH_STEPS         16u
 
-#define ROM_BASE                 0xF0000u
+#define PI86_ROM_BASE                 0xF0000u
 #define ROM_SIZE                 0x10000u
 #define RAM_BASE                 0x00000u
 #define RAM_SIZE                 0x10000u
@@ -180,7 +180,7 @@ int main(void) {
     pi86_memory_t memory;
     pi86_memory_init(&memory,
                      ram, RAM_BASE, RAM_SIZE,
-                     rom, ROM_BASE, ROM_SIZE);
+                     rom, PI86_ROM_BASE, ROM_SIZE);
 
     pi86_pic_t pic;
     pi86_pic_init(&pic, INTERRUPT_VECTOR);
