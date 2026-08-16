@@ -59,15 +59,37 @@ done
 
 sdk_path="${repo_root}/third_party/pico-sdk"
 sdk_init="${sdk_path}/pico_sdk_init.cmake"
+picotool_src="${repo_root}/third_party/picotool"
+picotool_install="${repo_root}/.tools/picotool-install"
+picotool_bin="${picotool_install}/bin/picotool"
+picotool_cmake_dir="${picotool_install}/picotool"
 
-if [[ ! -f "$sdk_init" ]]; then
+if [[ ! -f "$sdk_init" || ! -f "${picotool_src}/CMakeLists.txt" ]]; then
     cat >&2 <<EOF
-ERROR: Pico SDK submodule is missing or incomplete:
-  ${sdk_path}
+ERROR: repository submodules are missing or incomplete.
 
 Run from the repository root:
   git submodule update --init --recursive
 EOF
+    exit 1
+fi
+
+if [[ ! -x "${picotool_bin}" ]]; then
+    echo "Repository-local picotool is not bootstrapped; building it now."
+    "${repo_root}/scripts/bootstrap_tools.sh"
+fi
+
+picotool_version="$(${picotool_bin} version 2>&1)"
+if ! grep -q 'picotool v2\.3\.0' <<<"${picotool_version}"; then
+    echo "ERROR: repository-local picotool is not v2.3.0:" >&2
+    printf '%s\n' "${picotool_version}" >&2
+    echo "Run ./scripts/bootstrap_tools.sh to rebuild the pinned host tool." >&2
+    exit 1
+fi
+
+if grep -q 'compiled without USB support' <<<"${picotool_version}"; then
+    echo "ERROR: repository-local picotool lacks USB support." >&2
+    echo "Run ./scripts/bootstrap_tools.sh after installing libusb development files." >&2
     exit 1
 fi
 
@@ -78,6 +100,7 @@ fi
 
 echo "Repository = ${repo_root}"
 echo "Pico SDK   = ${sdk_path}"
+echo "picotool   = ${picotool_bin}"
 echo "PICO_BOARD = waveshare_rp2350_pizero"
 echo "BuildDir   = ${build_dir}"
 
@@ -85,6 +108,7 @@ cmake_args=(
     -S "$repo_root"
     -B "$build_dir"
     -DPICO_BOARD=waveshare_rp2350_pizero
+    -Dpicotool_DIR="${picotool_cmake_dir}"
     -DCMAKE_BUILD_TYPE=Release
 )
 

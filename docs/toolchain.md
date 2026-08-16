@@ -8,43 +8,70 @@ This project uses the official Pico SDK board definition:
 waveshare_rp2350_pizero
 ```
 
-Pico SDK **2.3.0** is tracked as the Git submodule:
+The repository pins both target SDK source and the matching host-side picotool source:
 
 ```text
-third_party/pico-sdk
+third_party/pico-sdk   -> Pico SDK 2.3.0
+third_party/picotool   -> picotool 2.3.0
 ```
 
-The repository pins the submodule to commit:
+Pinned commits:
 
 ```text
+Pico SDK 2.3.0:
 98a542c1a62fb549ffb5d66a3e5892b06276b670
+
+picotool 2.3.0:
+6f6458d792b93685a11423b244a585eaa99eafcf
 ```
 
-That is the Pico SDK `2.3.0` tag. SDK 2.3.0 includes the official Waveshare RP2350-PiZero board definition, including RP2350B package selection and the board's 16 MB flash configuration.
-
-The SDK itself contains nested submodules such as TinyUSB, so always initialize dependencies recursively.
+The Pico SDK itself contains nested submodules such as TinyUSB and mbedTLS, so always initialize repository dependencies recursively.
 
 ## Dependency policy
 
-Source dependencies required to reproduce the firmware belong in the repository as pinned Git submodules when practical. Host build tools remain host-installed.
+The two submodules have different roles:
 
-For the current baseline:
+- `third_party/pico-sdk` is a target firmware source dependency.
+- `third_party/picotool` is pinned host-tool source provenance.
 
-- Pico SDK: `third_party/pico-sdk` Git submodule, pinned to 2.3.0.
-- CMake: host tool.
-- Arm GNU Toolchain: host toolchain.
-- Ninja: optional host build tool.
-- Pi86 upstream source: not imported yet; licensing must be reviewed first.
-- ArduinoX86: reference only, not a build dependency.
+The picotool source tree is not linked into the target firmware. `scripts/bootstrap_tools.sh` builds and installs the pinned source into the gitignored repository-local tool area:
 
-Normal builds do **not** require the `PICO_SDK_PATH` environment variable. The root CMake configuration uses the repository submodule by default. An explicit `-DPICO_SDK_PATH=...` may be supplied only when intentionally testing another SDK checkout.
+```text
+.tools/picotool-install
+```
 
-## Required host tools
+This keeps source provenance reproducible while keeping generated host binaries out of Git.
 
-- Git
+Other host requirements remain host-installed:
+
 - CMake
-- Arm GNU Toolchain supported by Pico SDK 2.3.0
+- Arm GNU Toolchain
+- pkg-config
+- libusb-1.0 development files
 - Ninja, optional but recommended
+
+Pi86 upstream source is not imported yet; licensing must be reviewed first. ArduinoX86 remains a reference only, not a build dependency.
+
+Normal firmware builds do **not** require `PICO_SDK_PATH` or a machine-global picotool installation. The build helper selects the repository-pinned SDK and repository-local picotool automatically.
+
+## Required host packages on Ubuntu / WSL
+
+```bash
+sudo apt update
+sudo apt install -y \
+    build-essential \
+    pkg-config \
+    libusb-1.0-0-dev \
+    cmake
+```
+
+Ninja is optional:
+
+```bash
+sudo apt install -y ninja-build
+```
+
+The pinned picotool build requires libusb support. A picotool binary that reports `compiled without USB support` is not accepted as the project baseline.
 
 ## Clone with dependencies
 
@@ -62,17 +89,66 @@ git pull
 git submodule update --init --recursive
 ```
 
-Verify the dependency state:
+Verify dependency state:
 
 ```bash
 git submodule status --recursive
 ```
 
-The first line should show `third_party/pico-sdk` at the repository-pinned commit. Nested Pico SDK submodules should also be populated.
+The top-level output should include both `third_party/pico-sdk` and `third_party/picotool` at the repository-pinned commits.
+
+## Repository-local picotool bootstrap
+
+Bootstrap explicitly with:
+
+```bash
+./scripts/bootstrap_tools.sh
+```
+
+The script:
+
+1. validates the Pico SDK and picotool submodules;
+2. requires host `pkg-config` and libusb development files;
+3. builds the pinned picotool source against the pinned Pico SDK;
+4. installs it under `.tools/picotool-install` using a flat install;
+5. verifies picotool version 2.3.0;
+6. rejects a build that lacks USB support.
+
+Expected binary:
+
+```text
+.tools/picotool-install/bin/picotool
+```
+
+Expected CMake package directory:
+
+```text
+.tools/picotool-install/picotool
+```
+
+Verify manually:
+
+```bash
+.tools/picotool-install/bin/picotool version
+```
+
+Expected version:
+
+```text
+picotool v2.3.0
+```
+
+The output must not contain:
+
+```text
+This version of picotool was compiled without USB support.
+```
 
 ## Linux / WSL build
 
 The repository includes `scripts/build.sh`.
+
+On the first build, if the repository-local picotool has not yet been bootstrapped, `build.sh` invokes `bootstrap_tools.sh` automatically.
 
 Full build:
 
@@ -86,56 +162,32 @@ Clean build:
 ./scripts/build.sh --clean
 ```
 
-Build only the Gate 0 firmware:
+Build one target:
 
 ```bash
-./scripts/build.sh --target pi86_rp2350
+./scripts/build.sh --target gate9r_pic
 ```
 
-Build only the GPIO test:
+The build helper passes the repository-local package location to CMake:
 
-```bash
-./scripts/build.sh --target gpio_test
+```text
+picotool_DIR=<repo>/.tools/picotool-install/picotool
 ```
 
-The script validates that `third_party/pico-sdk` is initialized before configuring CMake.
+Therefore a clean firmware build does not download and rebuild another picotool copy inside `build/_deps`.
 
 ## PowerShell build
 
-The repository includes `scripts/build.ps1`.
-
-Full build:
-
-```powershell
-.\scripts\build.ps1
-```
-
-Clean build:
-
-```powershell
-.\scripts\build.ps1 -Clean
-```
-
-Build only the Gate 0 firmware:
-
-```powershell
-.\scripts\build.ps1 -Target pi86_rp2350
-```
-
-Build only the GPIO test:
-
-```powershell
-.\scripts\build.ps1 -Target gpio_test
-```
-
-The PowerShell helper also validates the repository submodule and does not require `PICO_SDK_PATH`.
+The repository also includes `scripts/build.ps1` for firmware builds. The repository-local host-tool bootstrap described above is currently the canonical Linux/WSL path. Keep PowerShell usage separate until an equivalent native Windows bootstrap path is validated.
 
 ## Manual CMake build
 
-From the repository root:
+For a manual build after `bootstrap_tools.sh`:
 
 ```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build \
+    -DCMAKE_BUILD_TYPE=Release \
+    -Dpicotool_DIR="$PWD/.tools/picotool-install/picotool"
 cmake --build build --parallel
 ```
 
@@ -151,21 +203,23 @@ For a deliberate SDK experiment, an explicit override remains possible:
 ```bash
 cmake -S . -B build-test \
     -DPICO_SDK_PATH=/path/to/another/pico-sdk \
-    -DPICO_BOARD=waveshare_rp2350_pizero
+    -DPICO_BOARD=waveshare_rp2350_pizero \
+    -Dpicotool_DIR="$PWD/.tools/picotool-install/picotool"
 ```
 
-Do not use an alternate SDK as the project baseline without updating the pinned submodule and documenting the change.
+Do not use an alternate SDK or picotool as the project baseline without updating the pinned submodule and documenting the change.
 
-## Expected initial UF2 files
+## WSL USB note
 
-After a successful full build, expect files equivalent to:
+Building picotool with libusb enables its USB-capable commands, but WSL must also be given access to the physical RP2350 USB device before commands such as `picotool info`, `load`, or `reboot` can reach the board. Windows-to-WSL USB attachment is a separate host configuration concern from picotool compilation.
+
+## Generated UF2 files
+
+After a successful build, target-specific UF2 files are produced below `build/`. For example:
 
 ```text
-build/firmware/pi86_rp2350.uf2
-build/tests/gpio_test/gpio_test.uf2
+build/tests/gate9r_pic/gate9r_pic.uf2
 ```
-
-Exact auxiliary files may vary with the host toolchain.
 
 ## Gate 0 flashing
 
@@ -176,8 +230,6 @@ For Gate 0, the V30 HAT is not required.
 3. Allow the board to reboot.
 4. Open the USB CDC serial device.
 5. Verify the project banner and repeating `Gate 0 heartbeat` output.
-
-The firmware prints its banner whenever a USB CDC connection is newly detected, so opening the terminal after the board has already booted should still produce visible output.
 
 ## Gate 1 safety
 

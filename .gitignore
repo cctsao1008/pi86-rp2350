@@ -51,6 +51,9 @@ build/
 Build/
 build-*/
 
+# Repository-local host tools
+.tools/
+
 # CMake generated files
 CMakeFiles/
 CMakeCache.txt
