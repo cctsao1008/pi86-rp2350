@@ -205,7 +205,7 @@ This establishes the complete CPU-semantic interrupt-entry chain: external INT r
 
 Goal: replace Gate 9's test-local interrupt-source state with a reusable `pi86_pic` module while preserving the exact proven CPU-semantic behavior.
 
-Current `pi86_pic` scope is deliberately smaller than a complete Intel 8259A model:
+Current `pi86_pic` scope at the time of this regression was deliberately smaller than a complete Intel 8259A model:
 
 ```text
 one pending interrupt request
@@ -214,18 +214,6 @@ INT asserted while request is pending
 INTA #1 -> no vector
 INTA #2 -> vector on AD7..AD0
 request clears after INTA #2 completes
-```
-
-Not part of Gate 9R:
-
-```text
-ICW / OCW programming
-IRR / ISR registers
-interrupt mask register
-priority resolver
-EOI semantics
-8259A port 20h/21h programming contract
-PIT timing or IRQ0 generation
 ```
 
 Acceptance criteria:
@@ -269,13 +257,11 @@ INTA #2: vector=20h, PIC_INTR=0
 
 The V30 then read IVT vector `20h` at `00080h/00082h`, saved FLAGS/CS/IP at `7FFEh/7FFCh/7FFAh`, fetched the ISR at `F0100h`, wrote marker `5A` to `00300h`, and reached the `F0040h` SUCCESS loop three times without entering `F0050h` FAIL.
 
-This closes the reusable interrupt-controller regression boundary: `pi86_pic` is now hardware-regression-validated as the backend abstraction for the already-proven V30 interrupt-entry behavior.
-
 ## Gate 10 — 8259A-compatible initialization, masking, IRQ0 and EOI
 
 Goal: extend the validated `pi86_pic` backend into the minimum programmable 8259A-compatible subset needed to support an IBM PC/XT-style master PIC path, without introducing PIT timing yet.
 
-Initial scope:
+Validated scope:
 
 ```text
 I/O ports 20h / 21h
@@ -298,49 +284,103 @@ special mask mode
 poll mode
 special fully nested mode
 buffered mode
-full cascade behavior beyond the minimum master-PIC contract
+full cascade behavior
 PIT timing / channel programming / IRQ0 generation
 ```
 
-Planned CPU-visible test semantics:
+**Status: PASS**
+
+Target: `gate10_8259a`.
+
+Hardware result established CPU-visible ICW1-4 programming, `IMR=FEh`, IRQ0 request handling, exactly two INTA cycles with vector `20h` on INTA #2, IRR -> ISR movement, IVT/ISR execution, non-specific EOI, final `ISR=00h`, and 3/3 SUCCESS loop observations.
+
+See [`validation/gate10_8259a_validation.md`](validation/gate10_8259a_validation.md).
+
+## Gate 11 — Multi IRQ priority, ISR blocking, EOI recovery and IRET
+
+Goal: validate multiple pending interrupt sources and fixed-priority in-service blocking on the physical V30 using the programmable `pi86_pic` backend.
+
+Validated scenario:
 
 ```text
-OUT 20h,11h       ; ICW1: initialize, ICW4 follows
-OUT 21h,20h       ; ICW2: vector base 20h
-OUT 21h,00h       ; ICW3: single/master test value for this gate
-OUT 21h,01h       ; ICW4: 8086/8088 mode
-OUT 21h,FEh       ; unmask IRQ0 only
+vector base = 20h
+IMR = FCh
+raise IRQ1 first
+raise IRQ0 second
+IRR = 03h
 
-synthetic backend raises IRQ0
-V30 performs two INTA cycles
-INTA #2 supplies vector 20h
-ISR writes marker [0300] = 5Ah
-ISR issues non-specific EOI to port 20h
-CPU reaches SUCCESS
+IRQ0 selected first
+INTA #1 / #2 -> vector 20h
+IRQ1 remains pending and blocked while ISR0 is active
+ISR0 -> marker A0h -> EOI -> IRET
+
+IRQ1 becomes serviceable
+INTA #1 / #2 -> vector 21h
+ISR1 -> marker A1h -> EOI -> IRET
+
+final IRR=00h ISR=00h INTR=0
 ```
 
-Acceptance criteria:
+**Status: PASS**
 
-- CPU I/O writes at ports `20h/21h` drive the PIC through the expected ICW sequence
-- programmed vector base becomes `20h`
-- IMR value `FEh` leaves IRQ0 unmasked and masks IRQ1..IRQ7
-- a synthetic IRQ0 request sets the corresponding IRR state and asserts INT only when unmasked
-- fixed-priority resolver selects IRQ0
-- exactly two INTA cycles are observed
-- INTA #1 does not drive a vector
-- INTA #2 drives vector `20h`
-- accepted IRQ0 moves from IRR to ISR at the defined acknowledge point
-- V30 performs IVT lookup and ISR entry for vector `20h`
-- ISR marker `[0300]` becomes `5A`
-- non-specific EOI clears the in-service IRQ0 state
-- CPU reaches `F0040` SUCCESS at least three times
-- `F0050` FAIL is not observed
+Targets:
 
-**Status: IMPLEMENTATION / HARDWARE VALIDATION PENDING**
+- `gate11_pic_priority` — controller-only fixed-priority preflight PASS
+- `gate11_irq_priority` — physical V30 end-to-end PASS
 
-Target name: `gate10_8259a`.
+Hardware result:
 
-Gate 10 must preserve Gate 9R behavior as a regression invariant. PIT behavior is not permitted into this gate; timer-driven IRQ0 belongs to the next dependency boundary after the programmable PIC contract passes on hardware.
+```text
+Serviced bus cycles                  = 89/480 max
+ICW1 / ICW2 / ICW3 / ICW4           = YES / YES / YES / YES
+PIC initialized / vector base        = YES / 20h
+IMR programmed                       = FCh
+IRQ1 then IRQ0 raised / IRR=03h      = YES / YES
+INTAK cycles                         = 4 total
+IRQ0 selected first / vector 20h     = YES / YES
+IRQ1 blocked while IRQ0 in service   = YES
+IRQ0 ISR fetch / marker A0h          = YES / YES
+IRQ0 EOI / IRQ1 becomes serviceable = YES / YES
+IRQ1 selected second / vector 21h    = YES / YES
+IRQ1 ISR fetch / marker A1h          = YES / YES
+IRQ1 EOI                             = YES
+Stack frame writes x2 7FFA/7FFC/7FFE= 2 / 2 / 2
+Final IRR / ISR / INTR               = 00h / 00h / 0
+Success-loop hits F002E              = 3/3
+GATE 11 PHYSICAL V30 RESULT          = PASS
+```
+
+See [`bringup_gate11.md`](bringup_gate11.md) and [`validation/gate11_multi_irq_priority_validation.md`](validation/gate11_multi_irq_priority_validation.md).
+
+## Gate 12 — Minimal programmable PIT IRQ0 validation
+
+Goal: introduce the smallest programmable PIT-compatible channel 0 required to produce a deterministic timer event and raise IRQ0 through the already validated PIC path.
+
+Required dependency chain:
+
+```text
+V30 programs PIT ports 43h / 40h
+    -> PIT channel 0 count
+    -> terminal-count event
+    -> pi86_pic IRQ0
+    -> INTR
+    -> two INTA cycles
+    -> vector 20h
+    -> IVT
+    -> ISR0
+    -> marker
+    -> EOI
+    -> IRET
+    -> SUCCESS
+```
+
+The PIT may not bypass `pi86_pic` by driving the V30 INTR pin directly.
+
+Initial scope is one deterministic channel-0 one-shot path only. Periodic BIOS timing, channels 1/2, speaker, DRAM-refresh behavior, full PIT mode coverage, and BIOS time-of-day services remain deferred.
+
+**Status: DEFINED — IMPLEMENTATION / HARDWARE VALIDATION PENDING**
+
+See [`bringup_gate12.md`](bringup_gate12.md) and [`validation/gate12_pit_irq0_validation.md`](validation/gate12_pit_irq0_validation.md).
 
 ## Current capability boundary
 
@@ -350,18 +390,23 @@ Validated:
 - pi86-style software-stepped clocking
 - aligned 16-bit memory read/write
 - low/high byte-lane memory transactions
-- odd-address 16-bit memory accesses split by the V30 across two byte cycles
+- odd-address 16-bit memory accesses split across two byte cycles
 - reusable V30 bus transaction layer
 - byte-addressed RP2350 SRAM ROM/RAM backend
 - byte I/O-space `IN`/`OUT` on even and odd ports
-- physical V30 maskable interrupt entry through two INTAK cycles, IVT lookup and ISR execution
-- reusable `pi86_pic` interrupt-controller backend reproducing the Gate 9 CPU-semantic interrupt chain on physical hardware
+- physical V30 maskable interrupt entry through INTA, IVT and ISR execution
+- reusable programmable `pi86_pic` backend
+- ICW1-4 / IMR / IRR / ISR / vector / EOI PIC subset
+- multi-IRQ fixed-priority arbitration
+- ISR priority blocking and pending lower-priority recovery
+- two sequential real V30 ISR entries and `IRET` returns
 - V30 control-flow execution including far jump, short jump, compare and conditional branch
 
 Not yet validated:
 
-- programmable 8259A-compatible initialization/mask/priority/EOI semantics (`Gate 10`)
-- PIT behavior and timer-driven IRQ0
+- programmable PIT behavior and timer-driven IRQ0 (`Gate 12`)
+- periodic BIOS timer compatibility
+- advanced 8259A modes
 - PSRAM backend timing and integrity
 - BIOS/system services
 - keyboard path
@@ -372,13 +417,13 @@ Not yet validated:
 
 ## Next development boundary
 
-Gate 10 is the active development boundary.
+Gate 12 is the active development boundary.
 
-Do not add PIT behavior until the programmable 8259A-compatible PIC subset has passed on real hardware. Gate 10 should first prove CPU-visible ICW programming, IMR masking, IRQ0 arbitration, the existing two-INTA contract, vector derivation from ICW2, IRR/ISR state movement, and EOI clearing.
+Do not introduce periodic BIOS timer semantics yet. First prove the smallest CPU-programmed PIT channel-0 path that reaches terminal count and raises one IRQ0 strictly through the validated PIC abstraction and physical V30 INTA/IVT/ISR/EOI/IRET chain.
 
-After Gate 10 passes, the next dependency boundary may introduce a one-shot PIT channel that raises IRQ0 through the validated PIC, followed by the broader timer behavior needed for BIOS compatibility.
+Only after this gate passes should PIT periodic modes and BIOS timing services be considered.
 
-See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the dependency-driven route toward BIOS and DOS boot.
+See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the broader dependency-driven route toward BIOS and DOS boot.
 
 ## Retrospective and evidence
 
@@ -389,4 +434,4 @@ For the mapping failure, superseded diagnostics, test-design lessons, and perman
 - [`retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md)
 - GitHub Issue #14
 
-Raw/human-readable Gate evidence is archived in the project Google Drive under `02_Bringup_Logs` and `03_Scope_Captures`, indexed by the `Pi86-RP2350 Bring-up Evidence Matrix` spreadsheet.
+Raw/human-readable Gate evidence is archived in the project Google Drive under `02_Bringup_Logs` and `03_Scope_Captures`. Gate 11 raw evidence is stored under `02_Bringup_Logs/Gate11_MultiIRQ_Priority`.
