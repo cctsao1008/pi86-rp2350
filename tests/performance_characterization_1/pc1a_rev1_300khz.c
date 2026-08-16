@@ -31,7 +31,9 @@
 #define IRQ0_MARKER_VALUE          0xA0u
 #define SUCCESS_LOOP_ADDR          0xF0033u
 
+#ifndef REV1_V30_HZ
 #define REV1_V30_HZ                300000u
+#endif
 #define RESET_CLOCKS               20u
 #define SIGNAL_TIMEOUT_CLOCKS      64u
 #define MAX_BUS_CYCLES             360u

@@ -1,11 +1,16 @@
 /*
- * PC1-B PIO-direct post-reset self-loop discriminator at 0.300 MHz.
+ * PC1-B PIO-direct post-reset self-loop discriminator.
  *
  * RESET qualification remains clock-only. In the clean measurement epoch,
  * DMA supplies encoded GPIO0..27 words to one PIO1 TX FIFO; PIO1 writes the
  * pins and PINDIRS directly from ALE-fall through H2. Input synchronizers are
  * deliberately left at their SDK defaults for this baseline.
  */
+#ifndef PC1B_DIRECT_V30_HZ
+#define PC1B_DIRECT_V30_HZ 300000u
+#endif
+
+#define REV1_V30_HZ PC1B_DIRECT_V30_HZ
 #define main pc1a_rev1_300khz_original_main
 #define capture_cycle pc1a_rev1_capture_cycle_original
 #define run_point pc1a_rev1_run_point_original
@@ -164,7 +169,8 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
 
-    printf("\nPC1-B PIO-Direct Post-Reset Test - 0.300 MHz\n");
+    printf("\nPC1-B PIO-Direct Post-Reset Test - %lu Hz\n",
+           (unsigned long)PC1B_DIRECT_V30_HZ);
     printf("RESET qualification: clock-only; all response/observer SMs disabled\n");
     printf("Measurement epoch  : arm after RESET clocks with CLK stopped LOW\n");
     printf("Timing             : AF-H2; PIO1 owns data and PINDIRS\n");
