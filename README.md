@@ -36,7 +36,7 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 
 ## Project status
 
-**Phase:** programmable 8259A-compatible PIC subset validated on the physical V30; multi-IRQ fixed-priority arbitration, masking behavior, and ISR blocking are the next subsystem boundary
+**Phase:** physical V30 multi-IRQ fixed-priority PIC behavior validated through real INTA/IVT/ISR/EOI/IRET paths; a minimal programmable PIT source driving IRQ0 is the next subsystem boundary
 
 **Validated functional chain:**
 
@@ -53,8 +53,9 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 - Gate 9: maskable `INT` + two INTAK cycles + vector injection + IVT/ISR execution — PASS
 - Gate 9R: reusable `pi86_pic` interrupt-controller backend regression — PASS
 - Gate 10: programmable 8259A-compatible PIC subset (ICW1-4, IMR, IRR, ISR, IRQ0, fixed priority baseline, two INTA cycles, vector delivery, non-specific EOI) — PASS
+- Gate 11: multi-IRQ fixed-priority arbitration, ISR blocking, pending-IRQ recovery, two physical interrupt entries and `IRET` returns — PASS
 
-The current validated scope includes byte-addressed 8/16-bit memory, odd-address word splitting, byte I/O-space transactions, complete synthetic maskable interrupt entry through ISR execution on the physical V30, reusable `pi86_pic` interrupt-entry behavior, and the Gate 10 programmable 8259A-compatible subset. Multi-IRQ priority arbitration, ISR blocking, PIT, PSRAM, BIOS/DOS compatibility, advanced 8259A modes, and final clock-rate optimization remain separate future milestones.
+The current validated scope includes byte-addressed 8/16-bit memory, odd-address word splitting, byte I/O-space transactions, complete physical V30 maskable interrupt entry, programmable PIC initialization/masking/vector delivery, and multi-source fixed-priority IRQ arbitration with real IVT/ISR/EOI/IRET execution. PIT timing, PSRAM, BIOS/DOS compatibility, advanced 8259A modes, and final clock-rate optimization remain separate future milestones.
 
 ## Locked hardware baseline
 
@@ -113,7 +114,9 @@ Important project knowledge is deliberately version-controlled rather than left 
 - [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map.
 - [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — architectural decision explaining why physical header position is canonical.
 - [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up postmortem, root cause, superseded diagnostic paths and permanent corrective actions.
+- [`docs/validation/gate11_multi_irq_priority_validation.md`](docs/validation/gate11_multi_irq_priority_validation.md) — physical Gate 11 multi-IRQ validation evidence and acceptance result.
 - [GitHub Issue #14](https://github.com/cctsao1008/pi86-rp2350/issues/14) — Gate 4 debugging archaeology and root-cause resolution history.
+- [GitHub Issue #41](https://github.com/cctsao1008/pi86-rp2350/issues/41) — Gate 11 multi-IRQ fixed-priority validation, closed PASS.
 
 A key retrospective lesson is that signal identity must be proven before signal behavior is interpreted. Earlier diagnostics performed under an incorrect BCM-to-RP2350 translation are retained as history but are explicitly superseded where their signal interpretation depended on the wrong mapping.
 
@@ -141,6 +144,8 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   ├── main.c
 │   ├── board/
 │   │   └── rp2350_pizero.h
+│   ├── memory/
+│   ├── pic/
 │   └── v30/
 │       └── v30_pins.h
 ├── tests/
@@ -148,14 +153,22 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   ├── gate2_preflight/
 │   ├── gate3_reset/
 │   ├── gate4_memread/
-│   └── gate5_minrom/
+│   ├── gate7_byte_lanes/
+│   ├── gate8_io/
+│   ├── gate9_interrupt/
+│   ├── gate9r_pic/
+│   ├── gate10_8259a/
+│   ├── gate11_pic_priority/
+│   └── gate11_irq_priority/
 ├── docs/
 │   ├── architecture.md
 │   ├── hardware.md
 │   ├── hardware_contract.md
 │   ├── pin_mapping.md
 │   ├── bringup.md
+│   ├── bringup_gate11.md
 │   ├── toolchain.md
+│   ├── validation/
 │   ├── adr/
 │   │   └── 0001-use-rpi-physical-pin-as-hardware-abi.md
 │   └── retrospectives/
@@ -231,6 +244,9 @@ Build a single target:
 ./scripts/build.sh --target pi86_rp2350
 ./scripts/build.sh --target gpio_test
 ./scripts/build.sh --target gate9r_pic
+./scripts/build.sh --target gate10_8259a
+./scripts/build.sh --target gate11_pic_priority
+./scripts/build.sh --target gate11_irq_priority
 ```
 
 ### PowerShell
@@ -265,7 +281,7 @@ The first critical V30 milestone was:
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
-That milestone and the subsequent memory, I/O-space, maskable-interrupt, reusable-PIC, and programmable-PIC gates are now validated. Gate 11 extends the PIC toward multi-IRQ fixed-priority behavior and still requires physical V30 validation before it may be marked PASS.
+That milestone and the subsequent memory, I/O-space, maskable-interrupt, reusable-PIC, programmable-PIC, and multi-IRQ fixed-priority gates are now validated on physical hardware. Gate 12 introduces the first programmable timer source and must raise IRQ0 only through the already validated PIC path.
 
 ## Source and documentation policy
 
