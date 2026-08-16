@@ -190,6 +190,33 @@ function(add_gate5_minrom_target target_name)
     pico_add_extra_outputs(${target_name})
 endfunction()
 
+function(add_gate6_arch_target target_name)
+    add_executable(${target_name}
+        ${PROJECT_SOURCE_DIR}/tests/gate6_arch/gate6_arch_regression.c
+        ${PROJECT_SOURCE_DIR}/firmware/v30/v30_bus.c
+        ${PROJECT_SOURCE_DIR}/firmware/memory/memory.c
+    )
+
+    target_include_directories(${target_name} PRIVATE
+        ${PROJECT_SOURCE_DIR}/firmware
+    )
+
+    target_link_libraries(${target_name}
+        pico_stdlib
+        hardware_clocks
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/gate4_step_clock.pio
+    )
+
+    pico_enable_stdio_usb(${target_name} 1)
+    pico_enable_stdio_uart(${target_name} 0)
+
+    pico_add_extra_outputs(${target_name})
+endfunction()
+
 add_gate4_memread_target(gate4_memread 0)
 add_gate4_memread_target(gate4_memread_smoke 1)
 add_gate4_matrix_target(gate4_memread_matrix gate4_memread_matrix.c)
@@ -207,3 +234,4 @@ add_gate4_window_target(gate4_read_window_capture)
 add_gate4_dma_capture_target(gate4_ale_reset_capture)
 add_gate4_astb_edge_target(gate4_astb_edge_verify)
 add_gate5_minrom_target(gate5_minrom)
+add_gate6_arch_target(gate6_arch_regression)
