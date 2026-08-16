@@ -2,9 +2,9 @@
 
 ## Purpose
 
-Measure the maximum sustainable physical NEC V30 clock of the current RP2350 bus architecture before deeper BIOS/DOS expansion.
+Measure the maximum sustainable physical NEC V30 clock of the RP2350 host architecture before deeper BIOS/DOS expansion.
 
-This characterization is deliberately separated from Gate 0–12 functional bring-up. The completed gate sequence proves bus semantics and the minimum PC-compatible interrupt/timer path. Performance Characterization 1 asks a different question: how fast can the current host architecture sustain that behavior when the V30 clock is free-running rather than host-stepped?
+This characterization is deliberately separated from Gate 0–12 functional bring-up. The completed gate sequence proves bus semantics and the minimum PC-compatible interrupt/timer path. Performance Characterization 1 asks a different question: how fast can the host sustain that behavior when the V30 clock is free-running rather than host-stepped?
 
 ## Historical comparison
 
@@ -26,11 +26,94 @@ The bring-up gates use `gate4_step_clock.pio`, where each host call advances one
 
 That mechanism is intentionally slow and observable. `STEP_PIO_CLOCK_HZ` is the PIO state-machine instruction frequency, not the physical V30 clock frequency.
 
-Therefore the existing stepped-clock gates remain the last-known-good functional regression baseline, but they are not used to claim V30 MHz performance.
+Therefore the stepped-clock gates remain the last-known-good functional regression baseline, but they are not used to claim V30 MHz performance.
+
+## Two-phase characterization strategy
+
+Performance Characterization 1 is now split into two explicit phases.
+
+### PC1-A — Continuous software-polling baseline
+
+Purpose: establish the performance and failure behavior of the current free-running clock plus Cortex-M33 software-polling service architecture.
+
+The first 1–8 MHz runs produced non-monotonic failures almost immediately after reset fetch. Observed failure addresses and even cycle directions became implausible, for example a reset-vector cycle later being decoded as a memory write. This pattern is treated as evidence of bus-phase/data-service races rather than a valid RP2350 performance ceiling.
+
+PC1-A therefore extends the diagnostic sweep below 1 MHz to determine whether software polling becomes reliable at lower free-running rates.
+
+Target:
+
+```text
+performance_characterization_1_polling_baseline
+```
+
+Single-run sweep:
+
+```text
+0.100 MHz
+0.200 MHz
+0.300 MHz
+0.500 MHz
+0.750 MHz
+1.000 MHz
+2.000 MHz
+2.500 MHz
+3.000 MHz
+4.000 MHz
+4.770 MHz
+6.000 MHz
+8.000 MHz
+```
+
+The low-frequency points are diagnostic, not project targets. In particular, 0.300 MHz is included because it is approximately the historical Pi86 comparison point.
+
+Possible interpretations:
+
+```text
+low frequencies PASS, higher frequencies FAIL
+  -> establishes a software-polling ceiling / transition region
+
+0.100 MHz also FAILS
+  -> remaining protocol/timing correctness problem in the continuous polling harness
+
+non-monotonic pass/fail pattern
+  -> polling race / insufficient deterministic phase ownership remains dominant
+```
+
+PC1-A is not the final architectural benchmark.
+
+### PC1-B — PIO-timed bus engine
+
+PC1-B moves critical V30 bus-phase ownership away from Cortex-M33 software edge polling and into RP2350 PIO.
+
+Minimum intended responsibility split:
+
+```text
+PIO
+  -> generate deterministic V30 CLK
+  -> observe/own T-state timing
+  -> detect ALE/T1
+  -> capture phase-aligned bus-cycle state
+  -> present deterministic events to the CPU-side service path
+
+Cortex-M33
+  -> memory / I/O / PIC / PIT semantics
+  -> non-cycle-critical policy and backend work
+```
+
+The first PIO-timed implementation should be incremental. Do not add DMA merely because it is available. DMA or deeper PIO data-response ownership should be introduced only when PC1-B measurements show a specific remaining deadline or throughput problem.
+
+PC1-B must rerun comparable characterization against:
+
+```text
+original Pi86 historical baseline  ~0.3 MHz
+PC1-A software-polling baseline     measured by this project
+primary target                      4.77 MHz
+stretch target                      8 MHz class
+```
 
 ## Continuous-clock path
 
-Performance Characterization 1 introduces a separate PIO clock program:
+The current diagnostic path uses a separate PIO clock program:
 
 ```text
 perf_continuous_clk
@@ -41,36 +124,11 @@ perf_continuous_clk
 
 The PIO state machine runs at twice the configured V30 frequency because one instruction emits each half-cycle.
 
-This performance path is intentionally isolated from the validated stepped-clock implementation so that the Gate 12 baseline is not modified while the real-time architecture is characterized.
-
-## Single-run sweep
-
-Target:
-
-```text
-performance_characterization_1
-```
-
-One firmware execution automatically runs all configured points:
-
-```text
-1.00 MHz
-2.00 MHz
-2.50 MHz
-3.00 MHz
-4.00 MHz
-4.77 MHz
-6.00 MHz
-8.00 MHz
-```
-
-Each point performs a complete reset/reinitialization sequence before starting the next frequency.
-
-The test does not stop permanently at the first failure. Higher points receive a bounded diagnostic attempt so the final log shows the complete sweep and the failure pattern.
+This path is intentionally isolated from the validated stepped-clock implementation so that Gate 12 remains unchanged as the functional baseline.
 
 ## Workload
 
-The initial continuous-clock workload reuses the completed Gate 12 end-to-end dependency chain:
+The continuous characterization workload reuses the completed Gate 12 end-to-end dependency chain:
 
 ```text
 RESET / reset-vector fetch
@@ -100,40 +158,27 @@ No per-bus-cycle USB logging is performed while a frequency point is running. Pr
 
 Before each point the firmware logs the requested point. After the clock is stopped it prints the result and evidence summary.
 
-Example:
-
-```text
->>> Starting point 6/8: 4.770 MHz configured V30 clock <<<
-
-Configured V30 clock : 4.770 MHz
-Clock mode           : continuous PIO free-running
-...
-RESULT @ 4.770 MHz = PASS
-```
-
 The wording **Configured V30 clock** is intentional.
 
 A PIO divider calculation alone is not independent measurement of the physical CLK waveform. A scope or frequency-counter capture must verify the physical clock before a configured value is reported as a measured frequency.
 
-## Result summary
+Each failure also records the bounded failure category plus failing address, cycle type and lane when available.
 
-The firmware prints all eight results together:
+## Result interpretation
+
+A point is considered PASS only when the physical workload reaches the deterministic SUCCESS loop while preserving the complete Gate 12 interrupt/timer chain and final idle PIC state.
+
+A reset fetch alone is not sufficient.
+
+For PC1-A, the important outputs are:
 
 ```text
-1.000 MHz   PASS
-2.000 MHz   PASS
-2.500 MHz   PASS
-3.000 MHz   PASS
-4.000 MHz   PASS
-4.770 MHz   PASS
-6.000 MHz   FAIL
-8.000 MHz   FAIL
-
-Last known-good configured clock : 4.770 MHz
-First failing configured clock    : 6.000 MHz
+last known-good software-polling configured clock
+first failing software-polling configured clock
+failure pattern around the transition
 ```
 
-The example above illustrates the format only and is not a project result.
+The result must not be described as the final RP2350 ceiling because PC1-B changes the real-time architecture.
 
 ## Failure interpretation
 
@@ -149,23 +194,27 @@ The first unstable point is evidence, not merely a failed test. The implementati
 - PIT/IRQ0 routing failure;
 - SUCCESS not reached before the cycle limit.
 
-The observed first failure mode determines the optimization work rather than assuming PIO, DMA or CPU frequency is automatically the answer.
+The first two hardware runs of the polling implementation showed non-monotonic failures and implausible addresses/cycle types. They are retained as architecture evidence but are not accepted as `max V30 clock < 1 MHz`.
 
 ## Optimization decision order
 
-If the current continuous architecture does not reach the desired operating point, investigate in this order:
+After PC1-A is captured, the next architectural action is PC1-B rather than further ad-hoc polling delay tuning.
 
-1. direct SIO hot path and GPIO masks;
-2. SRAM-resident critical code/data;
-3. branch/dispatch reduction and lookup tables;
-4. greater PIO ownership of deterministic bus timing;
-5. DMA only where measurement demonstrates benefit;
-6. repeat the same single-run sweep after each architectural change.
+Within PC1-B, investigate in this order:
 
-## PASS interpretation
+1. PIO ownership of deterministic bus-phase capture;
+2. direct SIO hot path and GPIO masks where CPU-side service remains timing-critical;
+3. SRAM-resident critical code/data;
+4. branch/dispatch reduction and lookup tables;
+5. greater PIO ownership of response timing if measurements require it;
+6. DMA only where measurement demonstrates benefit;
+7. rerun comparable characterization after each architectural change.
 
-A point is considered PASS only when the physical workload reaches the deterministic SUCCESS loop while preserving the complete Gate 12 interrupt/timer chain and final idle PIC state.
+## Milestone completion
 
-A reset fetch alone is not sufficient.
+Performance Characterization 1 remains open until:
 
-The characterization milestone itself remains open until hardware results are captured, the physical CLK is independently verified at relevant points, and the maximum sustainable frequency is documented.
+1. PC1-A software-polling baseline is captured and documented;
+2. PC1-B PIO-timed bus engine is implemented and characterized;
+3. physical CLK is independently verified at the relevant operating points; and
+4. the maximum sustainable validated frequency of the chosen architecture is documented.
