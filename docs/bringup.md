@@ -156,7 +156,7 @@ As with Gate 7, the inactive byte lane is high-Z during a byte read; only the se
 
 ## Gate 9 — Maskable interrupt acknowledge and vector entry
 
-Goal: validate the physical V30 maskable interrupt path with a synthetic interrupt source before implementing an 8259-compatible PIC model.
+Goal: validate the physical V30 maskable interrupt path with a synthetic interrupt source before implementing a reusable interrupt-controller backend.
 
 Test setup:
 
@@ -201,6 +201,48 @@ GATE 9 INTERRUPT RESULT         = PASS
 
 This establishes the complete CPU-semantic interrupt-entry chain: external INT request -> two acknowledge cycles -> external vector acquisition -> IVT resolution -> state save -> ISR execution.
 
+## Gate 9R — Reusable interrupt-controller regression
+
+Goal: replace Gate 9's test-local interrupt-source state with a reusable `pi86_pic` module while preserving the exact proven CPU-semantic behavior.
+
+Current `pi86_pic` scope is deliberately smaller than a complete Intel 8259A model:
+
+```text
+one pending interrupt request
+configured 8-bit vector
+INT asserted while request is pending
+INTA #1 -> no vector
+INTA #2 -> vector on AD7..AD0
+request clears after INTA #2 completes
+```
+
+Not part of Gate 9R:
+
+```text
+ICW / OCW programming
+IRR / ISR registers
+interrupt mask register
+priority resolver
+EOI semantics
+8259A port 20h/21h programming contract
+PIT timing or IRQ0 generation
+```
+
+Acceptance criteria:
+
+- reproduce Gate 9's two-INTA sequence through `pi86_pic`
+- vector `20h` appears only on acknowledge #2
+- the reusable controller keeps INT asserted through acknowledge #1 and clears it only after acknowledge #2
+- V30 performs the same IVT reads and stack saves as Gate 9
+- CPU fetches ISR at `F0100h`
+- ISR marker `[0300]` becomes `5A`
+- CPU reaches `F0040` SUCCESS at least three times
+- `F0050` FAIL is not observed
+
+**Status: PENDING HARDWARE VALIDATION**
+
+Target: `gate9r_pic`
+
 ## Current capability boundary
 
 Validated:
@@ -218,7 +260,8 @@ Validated:
 
 Not yet validated:
 
-- 8259-compatible PIC register/priority/mask semantics
+- reusable interrupt-controller regression (`Gate 9R`)
+- full 8259A-compatible programming/mask/priority/EOI semantics
 - PIT behavior and timer-driven IRQ0
 - PSRAM backend timing and integrity
 - BIOS/system services
@@ -228,23 +271,11 @@ Not yet validated:
 - virtual CGA -> DVI
 - performance toward 4.77 MHz and beyond
 
-## Next development boundary — PIC regression before PIT
+## Next development boundary
 
-The next architectural step should preserve Gate 9's proven interrupt behavior while replacing the synthetic one-shot interrupt source with a minimal reusable 8259-compatible PIC backend.
+Do not add PIT behavior until Gate 9R has reproduced Gate 9 on real hardware.
 
-Initial PIC scope should remain deliberately narrow:
-
-```text
-one interrupt input
-mask / unmask
-pending request
-INT output
-first INTA acknowledge
-second INTA returns vector
-end-of-interrupt sufficient for repeated testing
-```
-
-Do not add PIT timing in the same first validation. First prove that the reusable PIC backend reproduces the Gate 9 interrupt-entry postconditions; only then use PIT output as the source for IRQ0.
+After Gate 9R passes, choose the next gate according to the minimum BIOS/DOS dependency needed at that point. A one-shot PIT-to-interrupt test can build on the reusable controller core, while true IBM PC/XT BIOS compatibility will eventually require the broader 8259A programming contract listed above.
 
 See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the dependency-driven route toward BIOS and DOS boot.
 
