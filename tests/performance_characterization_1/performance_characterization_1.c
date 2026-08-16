@@ -292,13 +292,13 @@ static bool capture_cycle(bool first_cycle,
     return true;
 }
 
-static void clock_init(perf_clock_t *clock, PIO pio) {
+static void perf_clock_init(perf_clock_t *clock, PIO pio) {
     clock->pio = pio;
     clock->sm = pio_claim_unused_sm(pio, true);
     clock->offset = pio_add_program(pio, &perf_continuous_clk_program);
 }
 
-static void clock_start(perf_clock_t *clock, uint32_t v30_hz) {
+static void perf_clock_start(perf_clock_t *clock, uint32_t v30_hz) {
     pio_sm_set_enabled(clock->pio, clock->sm, false);
 
     gpio_init(V30_PIN_CLK);
@@ -317,7 +317,7 @@ static void clock_start(perf_clock_t *clock, uint32_t v30_hz) {
     pio_sm_set_enabled(clock->pio, clock->sm, true);
 }
 
-static void clock_stop(perf_clock_t *clock) {
+static void perf_clock_stop(perf_clock_t *clock) {
     pio_sm_set_enabled(clock->pio, clock->sm, false);
     gpio_init(V30_PIN_CLK);
     gpio_disable_pulls(V30_PIN_CLK);
@@ -520,7 +520,7 @@ static bool run_frequency_point(perf_clock_t *clock,
     release_ad();
     set_intr(false);
     hold_reset(true);
-    clock_start(clock, frequency_hz);
+    perf_clock_start(clock, frequency_hz);
     busy_wait_us_32(RESET_SETTLE_US);
     hold_reset(false);
 
@@ -614,7 +614,7 @@ static bool run_frequency_point(perf_clock_t *clock,
     release_ad();
     set_intr(false);
     busy_wait_us_32(10u);
-    clock_stop(clock);
+    perf_clock_stop(clock);
 
     result->final_irr = pi86_pic_irr(&pic);
     result->final_isr = pi86_pic_isr(&pic);
@@ -716,7 +716,7 @@ int main(void) {
     fflush(stdout);
 
     perf_clock_t clock;
-    clock_init(&clock, pio0);
+    perf_clock_init(&clock, pio0);
 
     const uint point_count = (uint)(sizeof(frequency_points_hz) /
                                     sizeof(frequency_points_hz[0]));
@@ -746,7 +746,7 @@ int main(void) {
     hold_reset(true);
     set_intr(false);
     release_ad();
-    clock_stop(&clock);
+    perf_clock_stop(&clock);
 
     printf("\n============================================================\n");
     printf("PERFORMANCE CHARACTERIZATION 1 SUMMARY\n");
