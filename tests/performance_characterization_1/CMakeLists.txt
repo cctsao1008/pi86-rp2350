@@ -208,3 +208,30 @@ pico_enable_stdio_usb(pc1a_rev1_free_run_timeline_600khz 1)
 pico_enable_stdio_uart(pc1a_rev1_free_run_timeline_600khz 0)
 
 pico_add_extra_outputs(pc1a_rev1_free_run_timeline_600khz)
+
+add_executable(pc1a_rev1_read_timing_matrix
+    pc1a_rev1_read_timing_matrix.c
+    ${PROJECT_SOURCE_DIR}/firmware/memory/memory.c
+    ${PROJECT_SOURCE_DIR}/firmware/pic/pic.c
+    ${PROJECT_SOURCE_DIR}/firmware/pit/pit.c
+)
+
+target_include_directories(pc1a_rev1_read_timing_matrix PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1a_rev1_read_timing_matrix
+    pico_stdlib
+    hardware_clocks
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1a_rev1_read_timing_matrix
+    ${CMAKE_CURRENT_LIST_DIR}/perf_continuous_clock.pio
+)
+
+pico_enable_stdio_usb(pc1a_rev1_read_timing_matrix 1)
+pico_enable_stdio_uart(pc1a_rev1_read_timing_matrix 0)
+
+pico_add_extra_outputs(pc1a_rev1_read_timing_matrix)
