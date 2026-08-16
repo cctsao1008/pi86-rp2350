@@ -1,0 +1,25 @@
+; PC1-B RP2350 PIO-direct AD response at ALE-fall, released at H2.
+;
+; The TX FIFO supplies a complete GPIO0..27 bitmap. Only the scattered AD
+; GPIOs are function-muxed to PIO1, so the contiguous OUT window does not
+; take ownership of the intervening control pins.
+
+.pio_version rp2350
+.program pc1b_pio_direct_ad
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+
+    pull block
+    out pins, 28
+    mov pindirs, ~null
+
+    ; H2: release after the second falling CLK edge following ALE-fall.
+    set x, 1
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+    mov pindirs, null
+.wrap
