@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Define the minimum functional path from the currently validated V30 memory bus to a BIOS that can boot DOS-class software, without implementing unrelated PC hardware too early.
+Define the minimum functional path from the currently validated V30 bus and interrupt subsystem toward a BIOS that can boot DOS-class software, without implementing unrelated PC hardware too early.
 
 This document is a planning and dependency artifact. It does not change the normative source hierarchy for V30 electrical/bus behavior.
 
@@ -18,10 +18,14 @@ Each new gate should unlock a concrete BIOS or DOS dependency. Avoid implementin
 | Aligned 16-bit memory read | PASS | Gate 4 |
 | SRAM-backed executable ROM | PASS | Gate 5 |
 | Aligned RAM write/readback with CPU semantic branch | PASS | Gate 6 |
-| Refactored reusable V30 bus + memory backend | PASS | Gate 6R |
-| Byte lanes and odd-address word transactions | IN VALIDATION | Gate 7 |
-
-Gate 7 remains a prerequisite for claiming a general byte-addressed x86 memory subsystem.
+| Reusable V30 bus + byte-addressed memory backend | PASS | Gate 6R |
+| Byte lanes and odd-address word transactions | PASS | Gate 7 |
+| Byte I/O port transactions | PASS | Gate 8 |
+| Physical maskable interrupt entry | PASS | Gate 9 |
+| Reusable PIC regression backend | PASS | Gate 9R |
+| Programmable 8259A-compatible PIC subset | PASS | Gate 10 |
+| Multi-IRQ fixed priority, ISR blocking, EOI recovery, `IRET` | PASS | Gate 11 |
+| Programmable PIT channel-0 to IRQ0 | PENDING | Gate 12 |
 
 ## Dependency chain
 
@@ -31,19 +35,17 @@ V30 byte-addressed memory bus
         v
 I/O port read/write transactions
         |
-        +------------------------+
-        |                        |
-        v                        v
-basic debug/POST output      programmable interrupt path
-                                 |
-                                 v
-                              PIC / INTA
-                                 |
-                                 v
-                              timer IRQ
-                                 |
-                                 v
-                         BIOS timing services
+        v
+programmable interrupt path
+        |
+        v
+PIC / INTA / IVT / ISR / EOI / IRET
+        |
+        v
+programmable timer IRQ0
+        |
+        v
+BIOS timing services
         |
         +------------------------+
         |                        |
@@ -62,58 +64,101 @@ BIOS INT 16h               BIOS INT 13h
                   DOS
 ```
 
-Video can initially be decoupled from the hard real-time V30 bus path if BIOS console output is provided through a minimal compatible abstraction or an existing Pi86 virtual-CGA mechanism. Full display compatibility is a separate validation track.
+Video can initially be decoupled from the hard real-time V30 bus path if BIOS console output is provided through a minimal compatible abstraction or an existing Pi86 virtual-CGA mechanism. Full display compatibility remains a separate validation track.
 
-## Proposed gate sequence after Gate 7
+## Actual validated gate sequence
 
 ### Gate 8 — I/O port transaction primitive
 
-**Goal:** Prove V30 `IN` and `OUT` instructions reach an RP2350 I/O backend with correct port address, direction and data.
+**Status: PASS**
 
-Minimum test:
+Physical V30 `IN`/`OUT` byte transactions on even/odd ports are validated.
 
-- execute `OUT` to a project-owned diagnostic port;
-- backend records the value;
-- execute `IN` from a project-owned diagnostic port;
-- backend returns a known value;
-- CPU compares returned value and branches to SUCCESS.
+### Gate 9 — Interrupt acknowledge / vector entry
 
-Acceptance must be CPU-semantic, not merely host-side observation.
+**Status: PASS**
 
-Why required: BIOS initialization and virtually all PC peripherals are I/O-port driven.
+Physical V30 maskable interrupt entry through two INTA cycles, vector acquisition, IVT lookup and ISR execution is validated.
 
-### Gate 9 — interrupt acknowledge / PIC skeleton
+### Gate 9R — Reusable PIC regression
 
-**Goal:** Prove the complete CPU interrupt path, including asserted `INTR`, V30 interrupt-acknowledge bus cycle(s), vector delivery and execution of an ISR.
+**Status: PASS**
 
-Initial implementation may use a minimal software PIC model rather than a complete 8259A feature set.
+The Gate 9 behavior was reproduced through reusable `pi86_pic` state without introducing new PIC programming semantics.
 
-Acceptance:
+### Gate 10 — Programmable 8259A-compatible PIC subset
 
-- RP2350 asserts interrupt request;
-- V30 performs expected INTA sequence;
-- backend supplies vector;
-- V30 reaches known ISR;
-- ISR changes a RAM sentinel or branches to a success loop;
-- no polling shortcut is allowed in the acceptance path.
+**Status: PASS**
 
-Why required: PC/XT BIOS timer and keyboard services depend on maskable interrupts.
+Validated CPU-visible ICW1-4 programming, IMR, IRR, ISR, IRQ0, fixed-priority baseline, vector derivation, two-INTA behavior and non-specific EOI on physical V30 hardware.
 
-### Gate 10 — PIT-compatible timer subset
+### Gate 11 — Multi IRQ fixed-priority validation
 
-**Goal:** Provide the smallest 8253/8254 behavior required for BIOS timebase and timer IRQ operation.
+**Status: PASS**
 
-Initial scope:
+Validated IRQ0/IRQ1 arbitration, ISR blocking, pending lower-priority recovery, two sequential physical interrupt entries, EOI and `IRET`.
 
-- I/O programming interface needed by the selected BIOS path;
-- channel behavior sufficient to produce periodic IRQ0;
-- deterministic RP2350 implementation.
+The decisive sequence was:
 
-Do not implement unused PIT modes until a BIOS or DOS dependency requires them.
+```text
+IRQ1 pending
+IRQ0 pending
+ -> IRQ0 vector 20h
+ -> ISR0 / marker A0h / EOI / IRET
+ -> pending IRQ1 becomes serviceable
+ -> IRQ1 vector 21h
+ -> ISR1 / marker A1h / EOI / IRET
+ -> IRR=00h ISR=00h INTR=0
+```
 
-### Gate 11 — minimal BIOS POST entry
+## Active boundary
 
-**Goal:** Replace synthetic test ROM with a minimal BIOS image that reaches a deterministic POST checkpoint using the validated memory and I/O services.
+### Gate 12 — Minimal programmable PIT channel 0 -> IRQ0
+
+**Status: DEFINED — IMPLEMENTATION / HARDWARE VALIDATION PENDING**
+
+**Goal:** provide the smallest CPU-programmed PIT-compatible channel 0 path that raises IRQ0 through the already validated PIC and physical V30 interrupt path.
+
+Required chain:
+
+```text
+OUT 43h / OUT 40h
+  -> PIT channel 0
+  -> terminal-count event
+  -> pi86_pic IRQ0
+  -> INTR
+  -> INTA #1 / #2
+  -> vector 20h
+  -> IVT
+  -> ISR0
+  -> marker
+  -> EOI
+  -> IRET
+  -> SUCCESS
+```
+
+Initial implementation deliberately uses a deterministic one-shot-style validation path. Full periodic BIOS tick behavior is deferred until the PIT-to-PIC dependency has passed on physical hardware.
+
+## Provisional sequence after Gate 12
+
+The following numbering is provisional and must be updated when a concrete BIOS dependency changes the order.
+
+### Gate 13 — Periodic timer / BIOS timing contract
+
+Goal: expand the validated Gate 12 timer path only as far as required by the selected BIOS timing dependency.
+
+Potential scope:
+
+- periodic channel-0 operation required by the selected BIOS;
+- repeated IRQ0 delivery;
+- timer ISR state accumulation;
+- deterministic long-run validation.
+
+Do not automatically implement every 8253/8254 mode.
+
+### Gate 14 — Minimal BIOS POST entry
+
+Goal: replace synthetic test ROM with a minimal BIOS image that reaches a deterministic POST checkpoint using the validated memory, I/O, PIC and timer services.
 
 Possible implementation references:
 
@@ -124,15 +169,15 @@ Possible implementation references:
 
 Acceptance should identify a CPU-visible checkpoint, not merely that the BIOS binary was fetched.
 
-### Gate 12 — keyboard service subset
+### Gate 15 — Keyboard service subset
 
-**Goal:** Provide enough keyboard-facing behavior for BIOS keyboard initialization and INT 16h input.
+Goal: provide enough keyboard-facing behavior for BIOS keyboard initialization and INT 16h input.
 
-Implementation choice should be driven by the selected BIOS configuration. Full XT/AT/PS2 controller emulation is not automatically required for the first DOS boot.
+Implementation choice must be driven by the selected BIOS configuration. Full XT/AT/PS/2 controller emulation is not automatically required for the first DOS boot.
 
-### Gate 13 — boot-storage / INT 13h subset
+### Gate 16 — Boot-storage / INT 13h subset
 
-**Goal:** Read a boot sector from an RP2350-managed disk image through a BIOS-visible disk service.
+Goal: read a boot sector from an RP2350-managed disk image through a BIOS-visible disk service.
 
 Potential backend: onboard MicroSD. MicroSD transactions must remain outside the hard real-time V30 bus service path; buffering/caching should isolate slow storage from CPU bus deadlines.
 
@@ -143,33 +188,34 @@ Acceptance:
 - BIOS transfers control to loaded boot code;
 - CPU reaches a known sentinel in the boot sector.
 
-### Gate 14 — DOS boot milestone
+### Gate 17 — DOS boot milestone
 
-**Goal:** Boot a deliberately selected DOS image to a deterministic milestone.
+Goal: boot a deliberately selected DOS image to a deterministic milestone.
 
-Initial acceptance should be narrower than 'fully compatible DOS PC'. Examples:
+Initial acceptance should be narrower than "fully compatible DOS PC". Examples:
 
 - DOS kernel begins execution;
 - command interpreter starts;
 - a known program executes and writes a sentinel.
 
-The exact criterion must be selected before the gate is implemented.
+The exact criterion must be selected before implementation.
 
 ## Peripheral priority
 
 | Subsystem | Initial priority | Reason |
 |---|---:|---|
-| Memory byte lanes / odd access | P0 | Required for normal x86 execution |
-| I/O port backend | P0 | Gateway to PC peripheral model |
-| Interrupt acknowledge / PIC subset | P0 | Required for timer/keyboard IRQ architecture |
+| Memory byte lanes / odd access | DONE | Required for normal x86 execution |
+| I/O port backend | DONE | Gateway to PC peripheral model |
+| Interrupt acknowledge / PIC subset | DONE | Required for timer/keyboard IRQ architecture |
+| Multi-IRQ PIC priority | DONE | Required for credible interrupt-controller behavior |
 | PIT timer subset | P0 | BIOS timebase / IRQ0 dependency |
 | Boot-storage service | P0 | Required to load an OS |
-| Keyboard service | P1 | Required for interactive DOS, but can follow first noninteractive boot experiments depending on BIOS strategy |
-| Minimal console/video path | P1 | Needed for observable BIOS/DOS UI; can be developed partly out of the hard real-time bus path |
-| DMA | P1/P2 | Implement when selected floppy/device path proves it is required |
+| Keyboard service | P1 | Required for interactive DOS; may follow first noninteractive boot experiments |
+| Minimal console/video path | P1 | Needed for observable BIOS/DOS UI; can develop partly outside hard real-time bus path |
+| DMA | P1/P2 | Implement when selected device path proves it is required |
 | RTC | P2 | Useful but not necessary for first boot milestone |
 | Serial / printer | P2 | BIOS compatibility feature, not first-boot prerequisite |
-| Expansion ROM scanning | P2 | Needed for broader PC compatibility, not minimum boot path if integrated BIOS services are used |
+| Expansion ROM scanning | P2 | Needed for broader compatibility, not minimum boot path if integrated BIOS services are used |
 | Full VGA/EGA | P3 | Outside first minimal DOS boot objective |
 | Full chipset emulation | P3 | Avoid unless a concrete software dependency requires it |
 
@@ -220,4 +266,4 @@ Use a project-specific diagnostic/minimal BIOS first to validate infrastructure,
 
 ## Decision boundary
 
-This matrix is intentionally provisional beyond the currently validated gates. A future gate may be reordered when direct BIOS evidence shows a different dependency. Such changes should update this document with the evidence and rationale rather than silently changing the development sequence.
+This matrix remains provisional beyond the currently validated gates. A future gate may be reordered when direct BIOS evidence shows a different dependency. Such changes must update this document with the evidence and rationale rather than silently changing the development sequence.
