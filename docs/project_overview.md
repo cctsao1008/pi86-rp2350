@@ -1,295 +1,264 @@
 # pi86-rp2350 Project Overview
 
-## Project Identity
+## Project identity
 
-`pi86-rp2350` is not intended to be a board-for-board port of Pi86.
+`pi86-rp2350` is an RP2350-based **V30 companion-chip platform** built around a real NEC V20/V30 and the original Pi86 CPU HAT.
 
-The project preserves the original Pi86 concept of using a **real NEC V20/V30 CPU** while replacing the Raspberry Pi/Linux/WiringPi host with a Waveshare RP2350-PiZero acting as a deterministic real-time bus engine and programmable chipset backend.
-
-The project explores this hardware/software co-design model:
+It began by re-architecting Pi86 away from Raspberry Pi/Linux/WiringPi GPIO timing. Physical bring-up and PC1-B performance evidence now support a broader definition: the RP2350 is the programmable chipset that provides bus control, memory, peripherals, storage, display integration, and debugging around the V30.
 
 ```text
-BIOS / DOS / Applications
-          |
-          v
-      NEC V30 CPU
-          |
-      physical x86 bus
-          |
-          v
-  RP2350 real-time host
-   |       |        |
-   |       |        +-> virtual peripherals
-   |       +----------> PIC / PIT / chipset services
-   +------------------> memory / storage / display backends
+monitor / BIOS / applications
+             |
+             v
+        physical NEC V30
+             |
+      multiplexed x86 bus
+             |
+             v
+       RP2350 companion chip
+        |       |       |
+      memory   devices  debugger/services
+        |       |       |
+      PSRAM   SD/DVI   USB/keyboard
 ```
 
-## Why Replace Raspberry Pi 2/3?
+This is neither a software-only emulator nor a board-for-board Pi86 clone. The V30 executes the instructions and owns x86 architectural state; the RP2350 replaces the surrounding historical chipset with deterministic programmable logic and firmware.
 
-The original Pi86 architecture is ingenious but its host execution model is fundamentally software-timed:
+## Why replace the Raspberry Pi 2/3 host?
+
+The original Pi86 execution model is software-timed:
 
 ```text
 Linux userspace
- -> WiringPi / GPIO access
- -> toggle V20/V30 clock
- -> sample control bus
- -> decode transaction
+ -> GPIO library
+ -> toggle CPU clock
+ -> sample and decode bus
  -> provide memory or I/O response
 ```
 
-The original project reports an operating point of approximately **0.3 MHz** for the physical processor. That figure is treated here as the historical comparison baseline.
+Its reported physical CPU operating point of approximately 0.3 MHz is the historical comparison baseline.
 
-The RP2350 is not expected to outperform Raspberry Pi 2/3 in general-purpose compute. The hypothesis is narrower and more relevant:
+The RP2350 hypothesis is architectural rather than computational: a bare-metal MCU with PIO, DMA, tightly coupled SRAM, and bounded execution can be a better real-time bus companion than a faster application processor behind a general-purpose operating system.
 
-> A lower-clocked microcontroller with bare-metal deterministic execution, direct SIO access, PIO state machines, tightly coupled SRAM, and optional DMA can be a better host for a cycle-sensitive external V20/V30 bus than a much faster Linux application processor using software GPIO timing.
+## Central research question
 
-The replacement therefore targets **architecture**, not raw CPU benchmark performance.
+> How far can an RP2350 replace the chipset, memory, and peripheral infrastructure around a real NEC V30 while retaining practical PC-class speed and compatibility?
 
-## Central Research Question
+The project now divides that question into explicit evidence boundaries:
 
-> **How far can a modern deterministic microcontroller replace the chipset, memory, and peripheral infrastructure around a real NEC V20/V30 CPU while maintaining practical PC-class performance?**
+1. Can the RP2350 generate and observe the physical bus correctly?
+2. Can PIO directly meet the V30 read-response window at real V30-class clocks?
+3. Can captured addresses select real ROM/RAM data before the fixed READY deadline?
+4. Can RAM, byte lanes, I/O, PIC, PIT, and interrupt acknowledge be reintegrated under continuous clock?
+5. Can a monitor and minimal BIOS expose useful services?
+6. Can storage, keyboard, display, and a boot sector support DOS-class or CP/M-86 software?
 
-This breaks down into several measurable engineering questions:
+## Current evidence
 
-```text
-Can RP2350 sustain a physical V30 at 1 MHz?
-Can it sustain 2 MHz?
-Can it reach the IBM PC-class 4.77 MHz operating point?
-Can it approach the installed V30's 8 MHz class?
+### Functional gate chain
 
-Can critical bus timing move from Cortex-M33 software loops into PIO?
-Can DMA reduce repetitive host intervention without harming determinism?
-Can external PSRAM satisfy memory-service deadlines?
-Can MicroSD, DVI, USB and other slow services run without disturbing the bus-critical path?
-Can BIOS and DOS execute on top of those virtualized peripherals?
-```
+Physical hardware validation has established:
 
-## Mission
+- reset and first fetch at `0xFFFF0`;
+- SRAM-backed executable ROM and far jump to `0xF0000`;
+- RAM writes, reads, comparisons, and CPU-visible branches;
+- byte lanes and odd-address word transactions;
+- I/O-space transactions;
+- maskable interrupt entry and two INTA cycles;
+- reusable 8259A-compatible PIC behavior;
+- multi-IRQ priority, ISR blocking, EOI, and `IRET`;
+- programmable PIT channel 0 reaching IRQ0 through the PIC path.
 
-The project mission is:
+These gates were primarily validated with software-stepped bus service. They remain semantic regression evidence while the continuous-clock architecture is built.
 
-> **Re-architect Pi86 into a deterministic RP2350-based physical-x86 platform that preserves the real V20/V30 CPU while overcoming the original Linux GPIO bus-performance bottleneck and progressing toward practical PC-class speed and compatibility.**
+### PC1-B performance result
 
-Functional compatibility is necessary, but it is not sufficient by itself. A successful DOS boot at a very low processor clock would prove compatibility but would not fully validate the reason for replacing the original host architecture.
-
-## Why Waveshare RP2350-PiZero?
-
-The board is useful because it combines the RP2350 real-time MCU architecture with a Raspberry Pi-style physical platform that fits the existing Pi86 HAT strategy.
-
-### Mechanical and interface continuity
-
-The Raspberry Pi 40-pin physical header remains the project hardware ABI:
+PC1-B moved the critical read response out of M33/SIO software and into:
 
 ```text
-original Pi86 V20/V30 HAT
-        |
-        | Raspberry Pi physical 40-pin header
-        v
-Waveshare RP2350-PiZero
+SRAM -> DMA -> PIO1 TX FIFO -> OUT pins, 28 -> PINDIRS -> V30 AD bus
 ```
 
-This avoids a new HAT PCB becoming part of the research problem. The existing physical CPU/HAT assembly can remain fixed while the host architecture changes underneath it.
+A post-reset `EB FE` self-loop discriminator passed at every configured point:
 
-### Platform integration direction
+| Configured V30 clock | Result |
+|---:|---|
+| 0.300 MHz | PASS |
+| 0.600 MHz | PASS |
+| 1.200 MHz | PASS |
+| 2.000 MHz | PASS |
+| 3.000 MHz | PASS |
+| 4.000 MHz | PASS |
+| 5.000 MHz | PASS |
+| 6.000 MHz | PASS |
+| 7.000 MHz | PASS |
+| 8.000 MHz | PASS |
 
-The board also provides a natural path toward an integrated system:
+The repeated `FFFF0` after reset prefetch proves the V30 consumed and executed the PIO-driven instruction. Default input synchronizers remained enabled.
+
+### What PC1-B does not prove
+
+The response data was fixed and pre-staged. PC1-B therefore does not establish:
+
+- arbitrary address-dependent ROM/RAM lookup at 8 MHz;
+- qualified memory versus I/O ownership;
+- dynamic byte-lane responses;
+- write capture under the continuous-clock engine;
+- integrated PIC/PIT/INTA behavior at 8 MHz;
+- PSRAM cache-miss behavior;
+- sustained general workload execution.
+
+Those distinctions are mandatory in all performance claims.
+
+## Active milestone: PC1-C ROM execution
+
+PC1-C converts the proven timing front-end into an address-qualified memory path.
+
+### PC1-C0
 
 ```text
-                 NEC V30
-                    |
-             physical x86 bus
-                    |
-          +---------v---------+
-          |       RP2350      |
-          |                   |
-          | PIO / SIO bus     |
-          | PIC / PIT         |
-          | memory backend    |
-          | system services   |
-          +----+----+----+----+
-               |    |    |
-             PSRAM SD   DVI/USB
+FFFF0: JMP FAR F000:0000
+                 |
+                 v
+F0000: deterministic ROM program
+                 |
+                 v
+CPU-visible checkpoint
 ```
 
-That allows the RP2350 to evolve toward the role of a small programmable motherboard/chipset around a real x86 processor.
+Acceptance requires data to be selected from the captured address and cycle type. A response stream indexed only by transaction count is not accepted as a general ROM backend.
 
-## Success Criteria
+### PC1-C1
 
-The project tracks three independent dimensions of success.
+The first observable Mini BIOS service is a project debug port, initially `0xE9`. ROM code writes a short signature and the RP2350 mirrors it to USB CDC:
 
-### 1. Functional success
+```text
+V30 ROM -> OUT 0E9h, AL -> RP2350 I/O backend -> USB CDC
+```
+
+This provides an end-to-end boot signature without making UART, OLED, or CGA a prerequisite.
+
+## Companion-chip partitioning
+
+### PIO and DMA data plane
+
+- continuous clock and controlled LOW stop;
+- passive ALE/address/control capture;
+- direct encoded AD output and `PINDIRS` ownership;
+- SRAM-to-PIO FIFO movement;
+- deterministic event capture.
+
+### Real-time M33 role
+
+- address/control decode;
+- deterministic response-queue or cache supervision;
+- memory-write and exceptional-cycle handling;
+- deadline/starvation telemetry;
+- no blocking service-layer calls.
+
+### Service M33 role
+
+- USB debugger and monitor control;
+- ROM/disk/configuration images;
+- MicroSD;
+- keyboard and display work;
+- host-visible diagnostics.
+
+The logical roles are fixed; their Core 0/Core 1 assignment is not locked until shared-resource contention is measured.
+
+## Hardware constraint: READY
+
+The original HAT connects V30 `READY` to 3.3 V. The current interface cannot insert wait states.
+
+This is a first-class architecture constraint:
+
+- dynamic lookups have a hard response deadline;
+- PSRAM and MicroSD require deterministic caching or prefetch;
+- a miss cannot be hidden by pausing the current CPU cycle;
+- PC1-C must measure the first dynamic-lookup failure point independently of PC1-B.
+
+A future hardware revision may expose READY, but the current project must not assume that capability.
+
+## Success dimensions
+
+### Functional
 
 ```text
 physical V30
- -> memory
- -> I/O
- -> PIC / PIT
- -> BIOS
- -> storage / keyboard / display services
- -> DOS
+ -> address-qualified ROM/RAM
+ -> I/O and interrupt devices
+ -> monitor / BIOS
+ -> storage / keyboard / display
+ -> bootable operating system
 ```
 
-This answers: **Does the machine work?**
+### Architectural
 
-### 2. Architectural success
+- no operating-system scheduler in the bus-critical path;
+- deterministic PIO/DMA ownership of physical timing;
+- bounded real-time supervision;
+- slower services isolated behind queues and caches;
+- reusable memory and device backends;
+- explicit safe high-Z terminal states;
+- regression evidence preserved as the engine evolves.
 
-Required properties:
+### Performance
 
-- no Linux scheduler dependency on the V30 bus-critical path;
-- deterministic timing for critical bus phases;
-- clear separation between hard-real-time V30 bus service and slower peripheral work;
-- reusable memory, I/O, PIC and PIT backends;
-- PIO/SIO/DMA used where measurement justifies offload;
-- regressions remain testable through the existing gate chain.
+- fixed/pre-staged response: validated through 8.000 MHz;
+- address-qualified internal-SRAM ROM: active PC1-C measurement;
+- integrated ROM/RAM/I/O/interrupt engine: future measurement;
+- external PSRAM and full system: future measurement.
 
-This answers: **Is the replacement architecture technically better suited to the problem?**
+The project targets authentic stable V30-class operation. It does not pursue clock rate beyond the installed 8 MHz-grade CPU merely for a headline number.
 
-### 3. Performance success
-
-Performance must be measured on physical V30 hardware.
-
-Initial interpretation targets:
-
-| Physical V30 clock | Interpretation |
-|---:|---|
-| ~0.3 MHz | Historical original-Pi86 comparison baseline |
-| >= 1 MHz | Minimum meaningful improvement |
-| >= 2 MHz | Major improvement over the original reported baseline |
-| 4.77 MHz | Primary target: IBM PC-class operating point |
-| 8 MHz class | Stretch target for the installed V30 |
-
-These are research thresholds, not claims of already-achieved performance.
-
-## Performance Strategy
-
-Performance work should occur before the project becomes deeply dependent on BIOS/DOS layers.
-
-The intended sequence is:
+## Development roadmap
 
 ```text
-complete minimum timer/interrupt platform boundary
-        |
-        v
-Performance Characterization 1
-measure current architecture ceiling
-        |
-        +---------------------------+
-        |                           |
-        | ceiling sufficient        | ceiling insufficient
-        v                           v
-continue compatibility work     optimize bus engine
-                                    |
-                                    v
-                         direct SIO / SRAM hot path
-                                    |
-                                    v
-                            PIO-assisted timing
-                                    |
-                                    v
-                         DMA where measurably useful
-                                    |
-                                    v
-                           re-characterize ceiling
+DONE
+  Gate 0-12 semantic chain
+  PC1-B PIO-direct fixed response, 0.300-8.000 MHz
+
+ACTIVE
+  PC1-C0 address-qualified far-jump ROM
+
+NEXT
+  PC1-C1 debug-port Mini BIOS signature
+  PC1-D deterministic RAM read/write
+  PC1-E ROM monitor
+  PC1-F minimum BIOS services
+  PC1-G boot-sector and DOS/CP/M-86 exploration
 ```
 
-### Performance Characterization 1
+Compatibility work remains dependency-driven. A peripheral is implemented when a monitor, BIOS, or boot milestone needs it, not simply because the original IBM PC contained it.
 
-The first formal benchmark should sweep increasing physical V30 clock targets, for example:
+## Hardware platform
 
-```text
-1.0 MHz
-2.0 MHz
-2.5 MHz
-3.0 MHz
-4.0 MHz
-4.77 MHz
-6.0 MHz
-8.0 MHz
-```
+- Host: Waveshare RP2350-PiZero
+- CPU: NEC V30 `D70116C-8` / `uPD70116C-8`
+- CPU HAT: original Homebrew8088 Pi86 V20/V30 HAT
+- Hardware ABI: Raspberry Pi physical 40-pin header position
+- Bring-up memory: internal RP2350 SRAM
+- Planned system memory: APS6404L-class 8 MB PSRAM
+- Storage: onboard MicroSD
+- Display direction: onboard DVI with virtual CGA memory
+- Debug path: native USB CDC
 
-The exact sweep may be adjusted to measured hardware behavior.
+The installed CPU is nominally a 5 V part operated by a HAT designed around 3.3 V. This remains a project-specific empirical condition rather than a change to NEC's nominal rating.
 
-At each point, record at minimum:
+## Decision and evidence sources
 
-- memory read/write correctness;
-- byte-lane and odd-address correctness;
-- I/O transaction correctness;
-- interrupt acknowledge correctness;
-- PIC/PIT behavior where applicable;
-- sustained execution duration;
-- error count;
-- bus-service latency / timing margin where measurable;
-- failure mode when the next frequency step becomes unstable.
+- [`architecture.md`](architecture.md) — current companion-chip structure and timing boundaries.
+- [`adr/0002-adopt-v30-companion-chip-architecture.md`](adr/0002-adopt-v30-companion-chip-architecture.md) — architecture decision.
+- [`hardware_contract.md`](hardware_contract.md) — canonical physical interface mapping.
+- [`validation/pc1b_pio_direct_frequency_sweep.md`](validation/pc1b_pio_direct_frequency_sweep.md) — PC1-B result.
+- [`pc1c_rom_execution_plan.md`](pc1c_rom_execution_plan.md) — active ROM milestone.
+- [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) — dependency-driven route toward a bootable machine.
 
-The result must identify the **maximum sustainable validated V30 clock for the current architecture**, not merely the fastest clock that produces occasional instruction fetches.
+## Development principle
 
-## Development Evolution
-
-### Phase 1 — CPU and Bus Bring-up
-
-Validated:
-
-- RP2350 firmware baseline;
-- V30 reset sequence;
-- physical bus validation;
-- first instruction fetch.
-
-### Phase 2 — Memory and I/O Subsystem
-
-Validated:
-
-- SRAM-backed execution;
-- memory read/write;
-- byte lanes and odd-address transactions;
-- byte I/O transactions.
-
-### Phase 3 — Interrupt Subsystem
-
-Validated through Gate 11:
-
-- maskable interrupt entry;
-- reusable `pi86_pic` backend;
-- programmable 8259A-compatible subset;
-- ICW1-ICW4 initialization;
-- IMR / IRR / ISR;
-- fixed-priority arbitration;
-- two INTA cycles;
-- vector delivery;
-- ISR blocking;
-- non-specific EOI;
-- sequential IRQ0/IRQ1 physical V30 execution with `IRET`.
-
-### Phase 4 — Timer Boundary
-
-Gate 12 introduces the minimal programmable PIT channel-0 path required to generate IRQ0 through the validated PIC architecture.
-
-Controller-state PIT/PIC validation and physical-V30 validation are deliberately separated.
-
-### Phase 5 — Performance Characterization and Bus Optimization
-
-Before large BIOS/DOS expansion, establish the current bus-engine performance ceiling and decide whether the existing Cortex-M33/SIO architecture is sufficient or whether critical timing must move further into PIO/DMA.
-
-### Phase 6 — PC-Compatible Platform Expansion
-
-After the architecture has a measured performance baseline:
-
-- periodic timer behavior required by the selected BIOS;
-- BIOS POST and services;
-- keyboard path;
-- boot storage;
-- DOS milestone;
-- display integration;
-- broader chipset compatibility as demanded by actual software dependencies.
-
-## Design Principle
-
-The project follows evidence-driven development:
-
-1. Define a bounded capability or performance hypothesis.
-2. Implement the minimum required behavior.
-3. Validate on real V30/RP2350 hardware.
-4. Capture measurable evidence.
-5. Preserve regression evidence before expanding scope.
-6. Refactor only when the measured architecture or dependency boundary justifies it.
-
-The project is not a software-only emulator and not merely an MCU port. It is an experiment in building a practical physical-x86 platform around a modern deterministic microcontroller backend.
+1. Define a bounded CPU-visible capability.
+2. Implement the minimum behavior that can prove it.
+3. Validate on the physical V30.
+4. Record the exact architecture and performance class tested.
+5. Preserve the last known-good baseline.
+6. Advance only when the current dependency is closed by evidence.

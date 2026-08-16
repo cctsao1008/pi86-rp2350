@@ -10,7 +10,7 @@ This document is a planning and dependency artifact. It does not change the norm
 
 Each new gate should unlock a concrete BIOS or DOS dependency. Avoid implementing peripherals merely because they existed in an IBM PC/XT if the current boot path does not yet require them.
 
-A second rule now applies before deep BIOS/DOS expansion: **the RP2350 host architecture must be performance-characterized on the physical V30 so that compatibility work is not built on an unmeasured low-speed bus engine.**
+A second rule applies to every performance statement: identify whether the measured response is software-stepped, fixed/pre-staged PIO-direct, address-qualified internal SRAM, cached external memory, or a fully integrated bus engine. Results from one class do not silently prove another.
 
 ## Current validated baseline
 
@@ -27,8 +27,9 @@ A second rule now applies before deep BIOS/DOS expansion: **the RP2350 host arch
 | Reusable PIC regression backend | PASS | Gate 9R |
 | Programmable 8259A-compatible PIC subset | PASS | Gate 10 |
 | Multi-IRQ fixed priority, ISR blocking, EOI recovery, `IRET` | PASS | Gate 11 |
-| Programmable PIT channel-0 to IRQ0 | PENDING | Gate 12 |
-| Current bus-engine maximum sustainable V30 clock | NOT CHARACTERIZED | Performance Characterization 1 |
+| Programmable PIT channel-0 to IRQ0 | PASS | Gate 12 |
+| Fixed/pre-staged PIO-direct instruction response, 0.300-8.000 MHz | PASS | PC1-B |
+| Address-qualified ROM execution under continuous clock | ACTIVE | PC1-C |
 
 ## Dependency chain
 
@@ -45,24 +46,25 @@ programmable interrupt path
 PIC / INTA / IVT / ISR / EOI / IRET
         |
         v
-programmable timer IRQ0
+programmable timer IRQ0                     PASS
         |
         v
-Performance Characterization 1
+PIO-direct fixed response to 8 MHz          PASS (PC1-B)
         |
-        +-----------------------------+
-        |                             |
-        | sufficient margin           | insufficient margin
-        v                             v
-BIOS timing services            bus-engine optimization
-                                      |
-                                      v
-                               re-characterization
-                                      |
-                                      +-------------------+
-                                                          |
-                                                          v
-                                                   BIOS timing services
+        v
+address-qualified ROM + far jump            ACTIVE (PC1-C0)
+        |
+        v
+debug-port Mini BIOS signature              PC1-C1
+        |
+        v
+deterministic RAM read/write                PC1-D
+        |
+        v
+ROM monitor                                 PC1-E
+        |
+        v
+minimum BIOS services                       PC1-F
         |
         +------------------------+
         |                        |
@@ -75,10 +77,10 @@ BIOS INT 16h               BIOS INT 13h
         +------------+-----------+
                      |
                      v
-                boot sector
+               boot-sector path
                      |
                      v
-                  DOS
+              DOS / CP/M-86 study
 ```
 
 Video can initially be decoupled from the hard real-time V30 bus path if BIOS console output is provided through a minimal compatible abstraction or an existing Pi86 virtual-CGA mechanism. Full display compatibility remains a separate validation track.
@@ -128,11 +130,11 @@ IRQ0 pending
  -> IRR=00h ISR=00h INTR=0
 ```
 
-## Active boundary
+## Completed timer and performance boundaries
 
 ### Gate 12 — Minimal programmable PIT channel 0 -> IRQ0
 
-**Status: CORE VALIDATION PASS — PHYSICAL V30 VALIDATION PENDING**
+**Status: PASS**
 
 **Goal:** provide the smallest CPU-programmed PIT-compatible channel 0 path that raises IRQ0 through the already validated PIC and physical V30 interrupt path.
 
@@ -154,81 +156,56 @@ OUT 43h / OUT 40h
   -> SUCCESS
 ```
 
-Initial implementation deliberately uses a deterministic one-shot-style validation path. Full periodic BIOS tick behavior is deferred until the PIT-to-PIC dependency has passed on physical hardware.
+The deterministic one-shot-style path passed through the physical V30, PIC, IVT, ISR, EOI, `IRET`, and success checkpoint. Full periodic BIOS tick behavior remains deferred until the selected BIOS requires it.
 
-## Performance Characterization 1 — Current bus-engine ceiling
+## PC1-B — PIO-direct fixed-response timing
 
-**Status: DEFINED — EXECUTION PENDING AFTER GATE 12 PHYSICAL PASS**
+**Status: PASS FROM 0.300 THROUGH 8.000 MHz**
 
-This milestone is intentionally placed before large BIOS/DOS expansion.
+PC1-B replaced the invalid DMA-to-SIO experiment with DMA-fed PIO1 direct AD/PINDIRS control. The V30 consumed and executed a pre-staged `EB FE` response at every configured clock point.
 
-Its purpose is to answer the project-level hypothesis: whether the RP2350 host architecture materially improves the original Pi86 physical-CPU bus-performance limit.
-
-Historical comparison baseline:
+Validated path:
 
 ```text
-Original Pi86 reported physical CPU rate: approximately 0.3 MHz
+encoded SRAM response -> DMA -> PIO1 TX FIFO
+                              -> OUT pins, 28
+                              -> MOV PINDIRS
+                              -> scattered AD bus
 ```
 
-Initial interpretation targets:
+This is a fixed/pre-staged response result. It is not the maximum sustainable clock of a general address-dependent memory and peripheral engine.
 
-| Physical V30 clock | Interpretation |
-|---:|---|
-| ~0.3 MHz | Historical comparison baseline |
-| >= 1 MHz | Minimum meaningful improvement |
-| >= 2 MHz | Major improvement |
-| 4.77 MHz | Primary IBM PC-class target |
-| 8 MHz class | Stretch target |
+See [`validation/pc1b_pio_direct_frequency_sweep.md`](validation/pc1b_pio_direct_frequency_sweep.md).
 
-Planned frequency sweep:
+## Active boundary: PC1-C address-qualified ROM
 
-```text
-1.0 MHz
-2.0 MHz
-2.5 MHz
-3.0 MHz
-4.0 MHz
-4.77 MHz
-6.0 MHz
-8.0 MHz
-```
+**Status: PLANNED / IMPLEMENTATION NEXT**
 
-At every step, validate more than instruction fetch. Record at minimum:
+PC1-C must capture the address and cycle type, select bytes from internal-SRAM ROM, and return them through PIO1 before the V30 deadline. The first program performs a far jump from `FFFF0` to `F0000` and reaches a deterministic checkpoint.
 
-- memory read/write correctness;
-- byte lanes and odd-address accesses;
-- I/O correctness;
-- interrupt acknowledge correctness;
-- PIC/PIT correctness where applicable;
-- sustained execution duration;
-- error count;
-- host bus-service latency or timing margin where measurable;
-- exact failure mode at the first unstable frequency.
+The original HAT holds `READY` high. No wait-state escape is available, so the dynamic address-to-data path receives its own frequency characterization.
 
-The milestone result must identify the **maximum sustainable validated V30 clock of the current architecture**.
+See [`pc1c_rom_execution_plan.md`](pc1c_rom_execution_plan.md).
 
-If the result is below the performance level required for practical compatibility work, the project should optimize the bus engine before proceeding deeply into BIOS/DOS layers. Candidate work includes direct SIO hot paths, SRAM-resident critical code, branch/dispatch reduction, PIO timing ownership, and DMA only where measurement shows benefit.
+## Provisional sequence after PC1-C
 
-## Provisional sequence after characterization
+### PC1-C1 — Diagnostic-port Mini BIOS signature
 
-The following numbering is provisional and must be updated when a concrete BIOS dependency changes the order.
+Goal: execute ROM code that writes a short signature to project diagnostic port `0xE9`, then mirror the bytes to USB CDC. This proves ROM-to-CPU-to-I/O flow without making a full console device a prerequisite.
 
-### Gate 13 — Periodic timer / BIOS timing contract
+### PC1-D — Deterministic RAM subsystem
 
-Goal: expand the validated Gate 12 timer path only as far as required by the selected BIOS timing dependency.
+Goal: reintegrate byte-lane-aware RAM writes and reads behind the continuous-clock PIO-direct engine. Acceptance includes CPU compare/branch evidence, odd-address words, no read/write contention, and a measured dynamic-service clock range.
 
-Potential scope:
+### PC1-E — ROM monitor
 
-- periodic channel-0 operation required by the selected BIOS;
-- repeated IRQ0 delivery;
-- timer ISR state accumulation;
-- deterministic long-run validation.
+Goal: provide the first interactive execution environment on the physical V30. Initial commands may expose registers, memory display/edit, and controlled execution through the RP2350 debug channel.
 
-Do not automatically implement every 8253/8254 mode.
+The monitor is a bring-up tool and architecture milestone; it is not yet a PC BIOS compatibility claim.
 
-### Gate 14 — Minimal BIOS POST entry
+### PC1-F — Minimum BIOS services
 
-Goal: replace synthetic test ROM with a minimal BIOS image that reaches a deterministic POST checkpoint using the validated memory, I/O, PIC and timer services.
+Goal: replace the diagnostic ROM with a minimal BIOS image that reaches a deterministic POST checkpoint using the validated memory, I/O, PIC, and timer services.
 
 Possible implementation references:
 
@@ -237,15 +214,17 @@ Possible implementation references:
 3. `maxmalysh/simple-bios` for educational comparison;
 4. IBM PC/XT BIOS listings for historical contract comparison.
 
-Acceptance should identify a CPU-visible checkpoint, not merely that the BIOS binary was fetched.
+Acceptance must identify a CPU-visible checkpoint, not merely that the BIOS binary was fetched.
 
-### Gate 15 — Keyboard service subset
+Periodic PIT behavior is introduced here only to the extent required by the selected BIOS. Do not automatically implement every 8253/8254 mode.
+
+### PC1-F1 — Keyboard service subset
 
 Goal: provide enough keyboard-facing behavior for BIOS keyboard initialization and INT 16h input.
 
 Implementation choice must be driven by the selected BIOS configuration. Full XT/AT/PS/2 controller emulation is not automatically required for the first DOS boot.
 
-### Gate 16 — Boot-storage / INT 13h subset
+### PC1-F2 — Boot-storage / INT 13h subset
 
 Goal: read a boot sector from an RP2350-managed disk image through a BIOS-visible disk service.
 
@@ -258,9 +237,9 @@ Acceptance:
 - BIOS transfers control to loaded boot code;
 - CPU reaches a known sentinel in the boot sector.
 
-### Gate 17 — DOS boot milestone
+### PC1-G — Bootable operating-system milestone
 
-Goal: boot a deliberately selected DOS image to a deterministic milestone.
+Goal: boot a deliberately selected DOS or CP/M-86 image to a deterministic milestone.
 
 Initial acceptance should be narrower than "fully compatible DOS PC". Examples:
 

@@ -1,136 +1,191 @@
-# Architecture
+# V30 Companion-Chip Architecture
 
 ## Goal
 
-Replace the original Pi86 Raspberry Pi/Linux/WiringPi bus-control path with deterministic RP2350 firmware while keeping the physical NEC V30 and the original Pi86 V20/V30 HAT.
+Build a programmable chipset around the physical NEC V30 and original Pi86 HAT using the Waveshare RP2350-PiZero.
 
-## Locked hardware constraint
+The RP2350 is not treated as a faster Raspberry Pi running a Pi86-style polling loop. Its responsibilities are separated into a deterministic bus data plane and slower system services:
 
-The V30 HAT is used as-is and plugs directly into the RP2350-PiZero. No HAT PCB redesign or signal reassignment is planned.
+```text
+BIOS / monitor / applications
+             |
+             v
+         NEC V30
+             |
+      multiplexed x86 bus
+             |
+             v
+ +-------------------------------+
+ |            RP2350             |
+ |                               |
+ | PIO + DMA bus data plane      |
+ | address/control supervision   |
+ | ROM / RAM / I/O device model  |
+ | debugger and system services  |
+ +------+-------+------+---------+
+        |       |      |
+      PSRAM   MicroSD  USB/DVI
+```
 
-The Raspberry Pi **physical 40-pin header position** is the cross-platform hardware ABI. Host GPIO numbers are target-specific and must be translated through the physical header position. See `docs/hardware_contract.md`.
+The physical Raspberry Pi 40-pin header position remains the hardware ABI. The HAT is used without signal reassignment. See [`hardware_contract.md`](hardware_contract.md).
 
-## Validated execution baseline
+## Evidence that selected this architecture
 
-The corrected host mapping has passed:
+The software-stepped gates established the functional V30 contract:
 
-- Gate 3: RESET -> first fetch at physical `0xFFFF0`.
-- Gate 4: aligned 16-bit memory read and prefetch-aware execution.
-- Gate 5: internal-SRAM-backed executable ROM and far jump to physical `0xF0000`.
-- Gate 6: aligned 16-bit RAM write/readback with CPU compare/branch verification.
+- reset and first fetch at `0xFFFF0`;
+- executable SRAM-backed ROM and far jump to `0xF0000`;
+- RAM read/write and CPU-semantic branches;
+- byte lanes and odd-address words;
+- I/O transactions;
+- PIC, interrupt acknowledge, IVT, ISR, EOI, and `IRET`;
+- programmable PIT channel 0 to IRQ0.
 
-The current refactor must preserve this behavior before new byte-lane capability is accepted.
+PC1-B then established the high-speed physical response mechanism. A pre-staged `EB FE` self-loop passed from 0.300 through 8.000 MHz configured V30 clock using:
+
+```text
+encoded SRAM words -> DMA -> PIO1 TX FIFO
+                              |
+                              v
+                   OUT pins, 28 + MOV PINDIRS
+                              |
+                              v
+                    scattered AD0-AD15 GPIOs
+```
+
+The superseded DMA-to-SIO experiment is not part of the architecture. SIO is processor-local on RP2350 and cannot be the DMA response destination.
 
 ## Runtime partitioning
 
-```text
-NEC V30
-   |
-Original Pi86 V30 HAT
-   |
-Raspberry Pi-compatible physical 40-pin header
-   |
-RP2350-PiZero target GPIO mapping
-   |
-   +-- PIO: software-stepped V30 clock primitive
-   |
-   +-- Core 0 + SIO: bus-critical service path
-   |      +-- GPIO snapshot / signal decode
-   |      +-- AD bus pack/unpack and ownership
-   |      +-- bus-cycle classification
-   |      +-- memory / I/O dispatch
-   |      +-- interrupt acknowledge
-   |
-   +-- Core 1: slower services
-          +-- MicroSD / disk images
-          +-- CGA rendering / DVI
-          +-- USB debug / keyboard
-```
+### Deterministic data plane
 
-## Software layering
+- **PIO clock engine:** generates the continuous V30 clock and can stop it LOW at controlled boundaries.
+- **PIO address/control capture:** observes ALE/T1 and the relevant bus-control state without driving the bus.
+- **PIO read responder:** owns encoded AD output and `PINDIRS` assertion/release during qualified response windows.
+- **DMA:** moves prepared words between SRAM and PIO FIFOs; it does not write SIO.
 
-The bring-up implementation is being separated into replaceable layers:
+### Real-time supervision
 
-```text
-V30 physical bus
-      |
-      v
-firmware/v30/v30_bus.*
-      - stepped CLK()/RESET sequencing
-      - ALE/T1 address capture
-      - A0/BHE# lane decode
-      - memory/I/O cycle classification
-      - AD direction/ownership
-      - read response / write capture phases
-      |
-      v
-transaction dispatch / system policy
-      |
-      +-------------------+
-      |                   |
-      v                   v
-memory backend          I/O backend (future)
-firmware/memory/*       devices/* (future)
-      |
-      +-- internal SRAM during bring-up
-      +-- external PSRAM later
-```
+One M33 role is reserved for work that must remain close to the bus but cannot be expressed entirely in PIO/DMA:
 
-The bus layer must not own the memory map. The memory layer must not own V30 timing or GPIO semantics.
+- decode captured scattered GPIO snapshots into V30 addresses and cycle types;
+- maintain deterministic ROM/RAM cache and response queues;
+- capture writes and exceptional cycles;
+- record deadline misses and starvation;
+- coordinate PIO/DMA without blocking on service-layer locks.
 
-## Bus API design rules
+The exact Core 0/Core 1 assignment remains provisional until contention and interrupt behavior are measured.
 
-- Signal names preserve polarity where ambiguity matters (`BHE#`, `INTA#`).
-- A0 and BHE# are decoded into explicit active byte lanes.
-- AD0..AD15 remain high-Z whenever the V30 owns the data bus.
-- Output values are prepared before the relevant AD output-enable mask is asserted.
-- Read service may enable low byte, high byte, or both lanes independently.
-- Write capture preserves the data phase already demonstrated by Gate 6 unless new measured evidence requires a change.
-- I/O and interrupt policy remain outside the memory backend.
+### Service plane
 
-## Regression-before-extension rule
+The other M33 role owns work that must not block a V30 response:
 
-A structural refactor and a new bus capability must not be validated in the same first test.
+- USB CDC debugger and diagnostic console;
+- ROM, disk, and configuration images;
+- MicroSD access;
+- keyboard translation;
+- display/CGA rendering and DVI;
+- monitor and host-side control commands.
 
-Current sequence:
+Communication between the real-time and service roles should use bounded, lock-free queues or explicit ownership transfer. Slow service completion is never assumed to meet a bus-cycle deadline.
+
+## Scattered AD bus strategy
+
+The original HAT maps V30 AD0-AD15 across scattered RP2350 GPIOs. PC1-B proved the following approach:
+
+1. Encode each V30 word into a GPIO0-27 bitmap in SRAM.
+2. Configure the PIO1 OUT group as the contiguous GPIO0-27 window.
+3. Function-mux only the sixteen AD pins to PIO1.
+4. Leave intervening control and clock pins assigned to their own functions.
+5. Use `OUT PINS, 28` to stage data.
+6. Use RP2350 `MOV PINDIRS, ~NULL` and `MOV PINDIRS, NULL` for ownership and release.
+
+Default input synchronizers remain enabled. Bypass is an optimization experiment, not part of the validated baseline.
+
+## Address-qualified memory boundary
+
+PC1-B consumed a fixed response stream. A real companion chip must select data from the captured bus transaction:
 
 ```text
-Gate 6 PASS
+ALE/T1 snapshot
+   |
+   +-> decode A19:A0
+   +-> decode IO/M, DT/R, BHE, A0
    |
    v
-extract v30_bus + memory backend
+qualified memory read
    |
    v
-Gate 6R architecture regression
-   |  must reproduce 0x00200 <- 0x1234 -> CPU readback -> SUCCESS
+ROM/RAM lookup or deterministic cache hit
+   |
    v
-Gate 7 byte-lane / odd-address validation
+encoded response -> PIO1 TX FIFO -> AD bus
 ```
 
-If Gate 6R fails, Gate 7 is not executed until the regression is resolved.
+PC1-C0 is accepted only when the V30 executes a far jump from `FFFF0` into an address-qualified ROM target and reaches a CPU-visible checkpoint. A transaction-count-indexed response stream is useful diagnostic evidence but is not accepted as a general ROM backend.
 
-## Performance principle
+## READY and deadline policy
 
-The original Pi86 HAT scatters V30 AD0-AD15 across RP2350 GPIO space. The fast path therefore does not depend on contiguous PIO `IN PINS,16` / `OUT PINS,16` operations. Instead:
+The current HAT connects V30 `READY` to 3.3 V. RP2350 cannot insert a wait state on the existing interface.
 
-1. take a 32-bit SIO GPIO snapshot;
-2. decode scattered V30 signals with masks/shifts or equivalent precomputation;
-3. use lookup tables for data output packing;
-4. use lane-specific OE masks for byte transactions;
-5. use PIO where deterministic clock/timing sequencing provides value.
+Consequences:
 
-Correctness and complete transaction semantics are established before clock-rate optimization.
+- every qualified response has a hard deadline;
+- MicroSD and general PSRAM access cannot sit directly in the cycle-critical path without a deterministic cache contract;
+- cache misses must be prevented, predicted, handled at a lower clock, or supported by a future hardware revision;
+- the first dynamic-lookup failure frequency must be recorded rather than hidden by a fixed-response result.
 
-## Memory progression
+## Memory and I/O layering
 
-- Bring-up: internal RP2350 SRAM-backed RAM/ROM.
-- Current memory API is byte-addressed so aligned words, byte lanes and odd-address operations can share one backend.
-- Full Pi86 system: external PSRAM for V30 system memory and host-private buffers.
-- Slow devices such as MicroSD must not be placed directly in the hard real-time bus path.
+```text
+physical V30 transaction
+          |
+          v
+bus-cycle classification and lane decode
+          |
+          +--------------------+
+          |                    |
+          v                    v
+address-qualified memory     I/O dispatcher
+          |                    |
+     +----+----+          +----+----------------+
+     |         |          | PIC | PIT | debug | ...
+     v         v
+    ROM       RAM
+```
 
-## Source of truth
+Rules:
 
-- `docs/hardware_contract.md` is the project-owned hardware interface contract.
-- NEC V20/V30 documentation is normative for CPU electrical/bus semantics.
-- Original Pi86 behavior is the compatibility reference for software-stepped sequencing and system behavior.
-- Actual corrected hardware evidence outranks historical diagnostics produced under the superseded GPIO mapping.
+- the bus layer owns timing, direction, and lane semantics;
+- memory backends own bytes and address ranges, not GPIO timing;
+- device backends own port semantics, not PIO state;
+- AD remains high-Z outside a qualified response window;
+- writes are captured without enabling the RP2350 AD drivers;
+- unsupported reads have an explicit policy and may not accidentally drive stale data.
+
+## Software progression
+
+The first observable firmware service should be a diagnostic output port rather than a complete display stack. A minimal ROM can execute `OUT 0E9h, AL`; the RP2350 then mirrors those bytes to USB CDC. This proves ROM-to-CPU-to-I/O flow before UART, OLED, CGA, or BIOS console compatibility is introduced.
+
+Recommended sequence:
+
+```text
+PC1-C0  address-qualified far-jump ROM
+PC1-C1  debug-port Mini BIOS signature
+PC1-D   deterministic RAM backend
+PC1-E   ROM monitor
+PC1-F   minimum BIOS services
+PC1-G   boot-sector / DOS or CP/M-86 exploration
+```
+
+## Validation rules
+
+- State whether a result is fixed-response, address-qualified, cached, or general.
+- Prefer V30-visible control-flow or data checkpoints over DMA counters alone.
+- Preserve the post-reset clean epoch and safe terminal state.
+- Re-run the software-stepped semantic gates when their backends are moved behind the continuous-clock engine.
+- Do not claim full 8 MHz operation until ROM, RAM, byte lanes, I/O, interrupt acknowledge, and sustained service are integrated at that clock.
+
+## Decision record
+
+See [`adr/0002-adopt-v30-companion-chip-architecture.md`](adr/0002-adopt-v30-companion-chip-architecture.md).

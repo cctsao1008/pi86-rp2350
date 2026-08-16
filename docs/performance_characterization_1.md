@@ -1,5 +1,7 @@
 # Performance Characterization 1 — Maximum Sustainable V30 Clock
 
+> **Outcome note (2026-08-17):** The original software-polling path below is retained as experimental history. PC1-B subsequently validated the PIO-direct fixed-response architecture from 0.300 through 8.000 MHz on physical V30 hardware. The active performance boundary is now address-qualified ROM service in PC1-C; PC1-B does not establish arbitrary memory service at 8 MHz.
+
 ## Purpose
 
 Measure the maximum sustainable physical NEC V30 clock of the RP2350 host architecture before deeper BIOS/DOS expansion.
@@ -515,15 +517,19 @@ A reset-vector observation alone is never a PASS.
 ```text
 Gate 12 physical functional baseline   PASS
 PC1-A Rev0                            INVALID characterization; defect evidence retained
-PC1-A Rev1                            NEXT — controlled 0.300 MHz gate before sweep
-PC1-B                                 AFTER valid Rev1 baseline, or after Rev1 timebox expires
+PC1-A Rev1                            CONTROL PLAN RETAINED; NOT THE SELECTED ARCHITECTURE
+PC1-B PIO-direct fixed response       PASS, 0.300-8.000 MHz configured clock
+PC1-C address-qualified ROM           ACTIVE PERFORMANCE BOUNDARY
 ```
 
 ## Milestone completion
 
-Performance Characterization 1 remains open until:
+The fixed-response portion of Performance Characterization 1 is complete. Its result selects DMA-fed PIO-direct GPIO ownership as the deterministic response architecture.
 
-1. PC1-A Rev1 produces a valid controlled polling baseline, or is explicitly timeboxed after P0–P2 with the result documented;
-2. PC1-B is implemented and characterized against the best valid control baseline available;
-3. internal average-clock measurement is validated and waveform quality is externally characterized where needed; and
-4. the maximum sustainable validated frequency of the selected architecture is documented.
+The broader performance question remains open and moves into PC1-C:
+
+1. capture and qualify the V30 address/control cycle;
+2. select the correct SRAM-backed ROM bytes and byte lanes;
+3. meet the response deadline without relying on V30 wait states, because the current HAT ties `READY` high;
+4. validate CPU-visible execution before sweeping frequency; and
+5. report address-qualified performance separately from the PC1-B fixed-response ceiling.

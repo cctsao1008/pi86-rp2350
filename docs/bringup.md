@@ -378,7 +378,7 @@ The PIT may not bypass `pi86_pic` by driving the V30 INTR pin directly.
 
 Initial scope is one deterministic channel-0 one-shot path only. Periodic BIOS timing, channels 1/2, speaker, DRAM-refresh behavior, full PIT mode coverage, and BIOS time-of-day services remain deferred.
 
-**Status: DEFINED — IMPLEMENTATION / HARDWARE VALIDATION PENDING**
+**Status: PASS — IMPLEMENTED AND VALIDATED ON PHYSICAL V30 HARDWARE**
 
 See [`bringup_gate12.md`](bringup_gate12.md) and [`validation/gate12_pit_irq0_validation.md`](validation/gate12_pit_irq0_validation.md).
 
@@ -401,27 +401,31 @@ Validated:
 - ISR priority blocking and pending lower-priority recovery
 - two sequential real V30 ISR entries and `IRET` returns
 - V30 control-flow execution including far jump, short jump, compare and conditional branch
+- programmable PIT channel 0 and timer-driven IRQ0 through the PIC path (`Gate 12`)
+- PIO-direct fixed instruction response through DMA -> PIO1 TX FIFO -> scattered AD GPIO/PINDIRS
+- post-reset `EB FE` self-loop execution from 0.300 through 8.000 MHz (`PC1-B`)
 
 Not yet validated:
 
-- programmable PIT behavior and timer-driven IRQ0 (`Gate 12`)
 - periodic BIOS timer compatibility
 - advanced 8259A modes
+- address-qualified continuous-clock ROM service (`PC1-C`)
+- continuous-clock RAM reads/writes and byte-lane handling
 - PSRAM backend timing and integrity
 - BIOS/system services
 - keyboard path
 - MicroSD disk images / boot storage path
 - DOS boot
 - virtual CGA -> DVI
-- performance toward 4.77 MHz and beyond
+- sustained integrated-system performance at V30-class clock rates
 
 ## Next development boundary
 
-Gate 12 is the active development boundary.
+PC1-C address-qualified ROM execution is the active development boundary.
 
-Do not introduce periodic BIOS timer semantics yet. First prove the smallest CPU-programmed PIT channel-0 path that reaches terminal count and raises one IRQ0 strictly through the validated PIC abstraction and physical V30 INTA/IVT/ISR/EOI/IRET chain.
+PC1-B proved that the RP2350 can deliver a pre-staged fixed instruction response through PIO1 at configured clocks through 8.000 MHz. It did not prove that arbitrary V30 addresses can be captured, decoded, looked up in SRAM, and answered within the same no-wait-state bus deadline.
 
-Only after this gate passes should PIT periodic modes and BIOS timing services be considered.
+PC1-C must first execute a reset-vector far jump from `FFFF0` to ROM at `F0000` and expose a CPU-visible checkpoint. The following increment adds a minimal debug output port so a ROM program can emit `OK`. Periodic BIOS timer semantics remain deferred until address-qualified memory and I/O service are established on the continuous-clock front end.
 
 See [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) for the broader dependency-driven route toward BIOS and DOS boot.
 

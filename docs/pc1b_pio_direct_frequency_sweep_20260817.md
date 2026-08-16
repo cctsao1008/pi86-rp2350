@@ -109,11 +109,13 @@ This result does **not** yet prove a complete 8 MHz Pi86 bus engine. The followi
 
 ## Next recommended validation
 
-1. Exact 4.770 MHz PIO-direct point.
-2. PIO-direct far jump (`EA 00 00 00 F0`).
-3. Multi-word executable ROM sequence.
-4. Qualified memory READ response and WRITE capture.
-5. Rebuild byte-lane, I/O, INTA, PIC and PIT behavior on the continuous-clock PC1-B front-end.
+PC1-B has answered the fixed-response speed question. The next milestone is PC1-C address-qualified ROM execution, not a denser fixed-response frequency sweep.
+
+1. Decode the reset-vector memory read at `FFFF0` and return a far jump (`EA 00 00 00 F0`).
+2. Serve the destination stream from SRAM-backed ROM at `F0000`.
+3. Prove execution with a CPU-visible checkpoint, then add debug port `0xE9` output of `OK`.
+4. Sweep the address-qualified implementation only after the semantic test passes, including an exact 4.770 MHz point.
+5. Extend the continuous-clock front end to qualified writes, byte lanes, I/O, INTA, PIC, and PIT behavior.
 
 ## Milestone statement
 

@@ -149,6 +149,7 @@ Important project knowledge is deliberately version-controlled rather than left 
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract and source hierarchy.
 - [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map.
 - [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — architectural decision explaining why physical header position is canonical.
+- [`docs/adr/0002-adopt-v30-companion-chip-architecture.md`](docs/adr/0002-adopt-v30-companion-chip-architecture.md) — decision to adopt the companion-chip architecture and its validation boundaries.
 - [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up postmortem, root cause, superseded diagnostic paths and permanent corrective actions.
 - [`docs/validation/gate11_multi_irq_priority_validation.md`](docs/validation/gate11_multi_irq_priority_validation.md) — physical Gate 11 multi-IRQ validation evidence and acceptance result.
 - [`docs/validation/pc1b_pio_direct_frequency_sweep.md`](docs/validation/pc1b_pio_direct_frequency_sweep.md) — PC1-B physical 0.300-8.000 MHz PIO-direct validation result.
@@ -217,7 +218,8 @@ This makes a project commit resolve to exact SDK and picotool source commits and
 │   ├── toolchain.md
 │   ├── validation/
 │   ├── adr/
-│   │   └── 0001-use-rpi-physical-pin-as-hardware-abi.md
+│   │   ├── 0001-use-rpi-physical-pin-as-hardware-abi.md
+│   │   └── 0002-adopt-v30-companion-chip-architecture.md
 │   └── retrospectives/
 │       └── 2026-08-rp2350-pi86-bringup-retrospective.md
 ├── scripts/
