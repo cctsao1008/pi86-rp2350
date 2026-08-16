@@ -4,10 +4,17 @@
 ;   start   -> D2 falling edge
 ;   release -> H2 falling edge
 ;
-; The only controlled change is stage timing. Instead of staging the next
-; GPIO_OUT word at the same H2 edge as OE_CLR, stage waits for the next CLK
-; rising edge. This gives the release DMA a half-cycle ordering margin before
-; the output latch changes.
+; The controlled change is stage timing. Instead of staging the next GPIO_OUT
+; word at the same H2 edge as OE_CLR, stage waits for the next CLK rising edge.
+; This gives the release DMA a half-cycle ordering margin before the output
+; latch changes.
+;
+; PIO1 instruction-memory budget is exactly 32 instructions. To keep the
+; ordered stage program within that budget, its initial idle-low ALE wait is
+; omitted. This is safe for this focused diagnostic because the SM is started
+; while RESET is asserted/ALE is idle low, and after each stage event it wraps
+; while ALE remains low before the next T1. D2/H2 edge timing itself is
+; unchanged.
 ;
 ; Physical pins:
 ;   ALE = GPIO9
@@ -47,7 +54,7 @@
 
 .program pc1b_dma_ordered_stage
 .wrap_target
-    wait 0 gpio 9
+    ; Started and wrapped from ALE-low for this focused reset-vector test.
     wait 1 gpio 9
     wait 0 gpio 9
     ; D2.
