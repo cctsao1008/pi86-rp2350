@@ -2,6 +2,38 @@
 
 Port of Pi86 to the Waveshare RP2350-PiZero using the original Pi86 V20/V30 HAT and a physical NEC V30 CPU.
 
+## Development Model
+
+This project uses an evidence-driven, gate-based development model.
+
+Each gate introduces one clearly bounded capability and must be validated on the real V30/RP2350 hardware before the next capability is added.
+
+Key rules:
+
+- Preserve the last known-good hardware/software baseline.
+- Change one major assumption or capability at a time.
+- Separate refactoring from new functional behavior; refactors require regression validation first.
+- Define measurable acceptance criteria before implementation.
+- Prefer CPU-semantic validation over host-side code-path completion.
+- Treat real hardware behavior and target-specific documentation as higher-priority evidence than inferred behavior.
+- Record invalidated assumptions and superseded diagnostics instead of silently rewriting history.
+- Do not advance to the next gate until the current gate has passed on hardware.
+
+Typical progression:
+
+```text
+baseline
+-> isolated capability
+-> hardware validation
+-> evidence capture
+-> regression-safe architecture
+-> next capability
+```
+
+The current gate sequence is documented in [`docs/bringup.md`](docs/bringup.md).
+
+The broader cross-project methodology is maintained in [`cctsao1008/technical-management-framework`](https://github.com/cctsao1008/technical-management-framework); this repository contains the Pi86-RP2350-specific application of that methodology.
+
 ## Project status
 
 **Phase:** hardware bring-up transitioning into reusable bus/memory architecture
