@@ -1,23 +1,30 @@
-# Reusable Engineering Playbook
+# Shared Technical Management Framework
 
-The Pi86-RP2350 bring-up produced project-agnostic engineering lessons that should be reused in future firmware, hardware, control, systems, migration, and AI-assisted engineering work.
+The Pi86-RP2350 bring-up produced project-agnostic lessons that have now been promoted into the standalone cross-project repository:
 
-The source-controlled seed lives at:
+[`cctsao1008/technical-management-framework`](https://github.com/cctsao1008/technical-management-framework)
 
-[`docs/engineering_playbook/`](docs/engineering_playbook/README.md)
+That repository is the reusable source for:
 
-It includes:
-
-- engineering truth hierarchy;
+- evidence and truth hierarchy;
 - namespace and identity discipline;
 - known-good baseline method;
+- source-of-truth governance;
 - diagnostic design and model-reset triggers;
 - test acceptance criteria;
-- migration/porting checklist;
-- project-local truth template;
+- project-local truth templates;
 - ADR and postmortem templates;
-- AI engineering collaboration protocol.
+- AI-assisted technical collaboration rules;
+- cross-project case studies.
 
-The corresponding human-readable cross-project knowledge area is stored in Google Drive under **Engineering Operating System**.
+Pi86-specific facts remain owned by this repository, including:
 
-This package is intentionally independent of Pi86-specific technical details and is intended to move to a future standalone `cctsao1008/engineering-playbook` repository when repository-creation tooling is available.
+- hardware contract and exact pin mapping;
+- V30 bus implementation;
+- bring-up gates and acceptance criteria;
+- source code and commits;
+- project issues and raw validation evidence.
+
+Pi86-RP2350 is retained in the shared framework as **Case Study 001**, but it no longer owns the generalized methodology.
+
+The legacy seed under [`docs/engineering_playbook/`](docs/engineering_playbook/README.md) is retained temporarily for provenance and migration history. New cross-project methodology changes should be made in `technical-management-framework`, not duplicated here.
