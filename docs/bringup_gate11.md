@@ -2,7 +2,7 @@
 
 ## Objective
 
-Validate multiple interrupt sources using the programmable `pi86_pic` backend.
+Validate multiple interrupt sources using the programmable `pi86_pic` backend on the physical NEC V30.
 
 ## Scope
 
@@ -12,47 +12,78 @@ Included:
 - IMR masking
 - IRR pending behavior
 - ISR blocking behavior
-- Fixed priority arbitration
+- fixed-priority arbitration
+- two INTA cycles per interrupt
 - EOI recovery
+- IVT resolution
+- ISR execution
+- `IRET` return path
 
 Excluded:
 
 - PIT
-- Cascade
-- Priority rotation
-- Advanced 8259A modes
+- cascade
+- priority rotation
+- advanced 8259A modes
 
-## Planned Scenario
+## Validated Scenario
 
 Initial configuration:
 
 ```text
+vector base = 20h
+IMR = FCh
 IRQ0 enabled
 IRQ1 enabled
 ```
 
-Test sequence:
+Hardware sequence:
 
 ```text
 Raise IRQ1
 Raise IRQ0
+IRR = 03h
 
-Expected:
-IRQ0 is serviced first
-
+IRQ0 wins fixed-priority arbitration
+INTA #1 / #2 -> vector 20h
+IRQ0 enters ISR
+IRQ1 remains pending and blocked
+ISR0 writes A0h
 EOI IRQ0
+IRET
 
-Expected:
 IRQ1 becomes serviceable
+INTA #1 / #2 -> vector 21h
+IRQ1 enters ISR
+ISR1 writes A1h
+EOI IRQ1
+IRET
+
+Final IRR=00h ISR=00h INTR=0
 ```
 
-## Acceptance Criteria
+## Hardware Result
 
 ```text
-IRQ priority       PASS
-IRR handling       PASS
-ISR handling       PASS
-EOI recovery       PASS
+IRQ priority                        PASS
+IRR handling                        PASS
+ISR handling                        PASS
+ISR priority blocking               PASS
+EOI recovery                        PASS
+IRQ0 vector 20h                     PASS
+IRQ1 vector 21h                     PASS
+IRQ0 IVT / ISR / marker A0h         PASS
+IRQ1 IVT / ISR / marker A1h         PASS
+IRET path x2                        PASS
+Final controller idle state         PASS
+Success-loop F002E                  3/3
+GATE 11 PHYSICAL V30 RESULT          PASS
 ```
 
-Gate 11 extends the validated single IRQ0 path from Gate 10 into multi-source interrupt behavior.
+Gate 11 extends the validated single IRQ0 path from Gate 10 into physical multi-source fixed-priority interrupt behavior.
+
+## Status
+
+**PASS**
+
+The next dependency boundary is Gate 12: introduce a minimal programmable PIT timer source that raises IRQ0 through the already validated PIC path, without yet expanding into full BIOS timer compatibility.
