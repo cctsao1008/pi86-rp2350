@@ -30,15 +30,11 @@ Therefore the stepped-clock gates remain the last-known-good functional regressi
 
 ## Two-phase characterization strategy
 
-Performance Characterization 1 is now split into two explicit phases.
+Performance Characterization 1 is split into two explicit phases.
 
 ### PC1-A — Continuous software-polling baseline
 
-Purpose: establish the performance and failure behavior of the current free-running clock plus Cortex-M33 software-polling service architecture.
-
-The first 1–8 MHz runs produced non-monotonic failures almost immediately after reset fetch. Observed failure addresses and even cycle directions became implausible, for example a reset-vector cycle later being decoded as a memory write. This pattern is treated as evidence of bus-phase/data-service races rather than a valid RP2350 performance ceiling.
-
-PC1-A therefore extends the diagnostic sweep below 1 MHz to determine whether software polling becomes reliable at lower free-running rates.
+Purpose: characterize the failure behavior of the free-running clock plus Cortex-M33 software-polling service architecture before moving deterministic phase ownership into PIO.
 
 Target:
 
@@ -66,54 +62,99 @@ Single-run sweep:
 
 The low-frequency points are diagnostic, not project targets. In particular, 0.300 MHz is included because it is approximately the historical Pi86 comparison point.
 
-Possible interpretations:
+#### PC1-A physical result — diagnostic FAIL at all 13 points
+
+The completed hardware sweep produced:
 
 ```text
-low frequencies PASS, higher frequencies FAIL
-  -> establishes a software-polling ceiling / transition region
-
-0.100 MHz also FAILS
-  -> remaining protocol/timing correctness problem in the continuous polling harness
-
-non-monotonic pass/fail pattern
-  -> polling race / insufficient deterministic phase ownership remains dominant
+0.100 MHz   FAIL   memory transaction failure
+0.200 MHz   FAIL   ALE timeout / host missed bus timing
+0.300 MHz   FAIL   ALE timeout / host missed bus timing
+0.500 MHz   FAIL   memory transaction failure
+0.750 MHz   FAIL   ALE timeout / host missed bus timing
+1.000 MHz   FAIL   memory transaction failure
+2.000 MHz   FAIL   memory transaction failure
+2.500 MHz   FAIL   memory transaction failure
+3.000 MHz   FAIL   memory transaction failure
+4.000 MHz   FAIL   memory transaction failure
+4.770 MHz   FAIL   memory transaction failure
+6.000 MHz   FAIL   memory transaction failure
+8.000 MHz   FAIL   memory transaction failure
 ```
 
-PC1-A is not the final architectural benchmark.
+No frequency reached the Gate 12 end-to-end SUCCESS condition.
+
+Representative evidence includes:
+
+```text
+0.100 MHz: first failing cycle address=20164h, MEM_READ, WORD
+0.200 MHz: reset-vector observed, then ALE timeout after 2 serviced cycles
+0.300 MHz: reset-vector observed, then ALE timeout after 2 serviced cycles
+1.000 MHz: failing address=2FFFCh decoded as MEM_WRITE
+4.770 MHz: failing address=2001Ah after 6 serviced cycles
+8.000 MHz: failing address=32000h after 4 serviced cycles
+```
+
+#### Interpretation
+
+This is **not** accepted as a measured performance ceiling of `< 0.100 MHz`.
+
+The important result is that even 0.100 MHz fails and the failure pattern remains non-monotonic. At 0.100 MHz the clock period is 10 us, so the failure cannot reasonably be explained only as Cortex-M33 compute throughput exhaustion. The harness is still losing deterministic V30 bus-phase/protocol alignment under a free-running clock.
+
+The observed bogus addresses, wrong cycle directions and intermittent reset-vector detection show that software observation and response are not reliably synchronized to the V30 T-state contract. PC1-A therefore establishes an **architecture/protocol baseline**, not a useful maximum clock number.
+
+PC1-A is now considered complete as diagnostic evidence. Do not spend further work tuning arbitrary polling delays to force a pass.
 
 ### PC1-B — PIO-timed bus engine
 
 PC1-B moves critical V30 bus-phase ownership away from Cortex-M33 software edge polling and into RP2350 PIO.
 
+The first implementation must correct two classes of nondeterminism exposed by PC1-A:
+
+1. RESET release must be tied to a deterministic clock phase rather than occurring at an arbitrary point in a free-running cycle.
+2. T1/ALE and later control/data sampling must be captured by PIO at deterministic hardware phases rather than by Cortex-M33 polling loops.
+
 Minimum intended responsibility split:
 
 ```text
-PIO
+PIO clock/reset state machine
   -> generate deterministic V30 CLK
-  -> observe/own T-state timing
+  -> hold RESET for a defined number of clocks
+  -> release RESET on a defined clock phase
+
+PIO bus-capture state machine
   -> detect ALE/T1
-  -> capture phase-aligned bus-cycle state
-  -> present deterministic events to the CPU-side service path
+  -> capture raw T1 GPIO state
+  -> capture phase-aligned control/write-data state
+  -> provide deterministic FIFO events
 
 Cortex-M33
+  -> decode captured snapshots
   -> memory / I/O / PIC / PIT semantics
-  -> non-cycle-critical policy and backend work
+  -> drive read/vector data through the SIO hot path
+  -> backend policy
 ```
 
-The first PIO-timed implementation should be incremental. Do not add DMA merely because it is available. DMA or deeper PIO data-response ownership should be introduced only when PC1-B measurements show a specific remaining deadline or throughput problem.
+The first PIO-timed implementation remains incremental. Do not add DMA by default. If deterministic capture works but read-data response still misses the V30 data window, that becomes the next measured boundary: direct SIO/SRAM hot-path optimization first, deeper PIO response ownership or DMA only when evidence requires it.
 
 PC1-B must rerun comparable characterization against:
 
 ```text
 original Pi86 historical baseline  ~0.3 MHz
-PC1-A software-polling baseline     measured by this project
+PC1-A software-polling result       protocol FAIL at 0.100–8.000 MHz
 primary target                      4.77 MHz
 stretch target                      8 MHz class
 ```
 
+## V30 timing contract relevant to PC1-B
+
+The NEC V20/V30 bus model uses T1/T2/T3/T4 states. Address is valid during T1; the multiplexed AD bus is used for data in later states. RESET is active high and must be held for multiple clocks before release. The physical reset-vector dependency remains `FFFF0h`.
+
+PC1-B should treat the NEC timing contract as normative and use the already validated Gate 0–12 hardware behavior as the project regression reference.
+
 ## Continuous-clock path
 
-The current diagnostic path uses a separate PIO clock program:
+The PC1-A diagnostic path uses a separate PIO clock program:
 
 ```text
 perf_continuous_clk
@@ -124,11 +165,11 @@ perf_continuous_clk
 
 The PIO state machine runs at twice the configured V30 frequency because one instruction emits each half-cycle.
 
-This path is intentionally isolated from the validated stepped-clock implementation so that Gate 12 remains unchanged as the functional baseline.
+This path remains preserved as diagnostic evidence. It is not the final bus engine.
 
 ## Workload
 
-The continuous characterization workload reuses the completed Gate 12 end-to-end dependency chain:
+Comparable characterization should reuse the completed Gate 12 end-to-end dependency chain:
 
 ```text
 RESET / reset-vector fetch
@@ -148,73 +189,49 @@ RESET / reset-vector fetch
   -> SUCCESS
 ```
 
-This provides memory, I/O programming, interrupt acknowledge, PIC, PIT, stack-entry, ISR and return-path coverage in one bounded physical workload.
-
 Gate 7/8/9R/10/11/12 targets remain independent functional regressions and are not replaced by the performance target.
 
 ## Logging rule
 
-No per-bus-cycle USB logging is performed while a frequency point is running. Printing every transaction would perturb the workload and invalidate the timing experiment.
+No per-bus-cycle USB logging is performed while a frequency point is running.
 
-Before each point the firmware logs the requested point. After the clock is stopped it prints the result and evidence summary.
+The wording **Configured V30 clock** remains intentional. A PIO divider calculation alone is not independent measurement of the physical CLK waveform. A scope or frequency-counter capture must verify the physical clock before a configured value is reported as a measured frequency.
 
-The wording **Configured V30 clock** is intentional.
-
-A PIO divider calculation alone is not independent measurement of the physical CLK waveform. A scope or frequency-counter capture must verify the physical clock before a configured value is reported as a measured frequency.
-
-Each failure also records the bounded failure category plus failing address, cycle type and lane when available.
+Failure evidence should retain bounded failure category plus failing address, cycle type and lane where available.
 
 ## Result interpretation
 
-A point is considered PASS only when the physical workload reaches the deterministic SUCCESS loop while preserving the complete Gate 12 interrupt/timer chain and final idle PIC state.
+A point is considered PASS only when the physical workload reaches the deterministic SUCCESS loop while preserving the complete Gate 12 interrupt/timer chain and final idle PIC state. A reset fetch alone is not sufficient.
 
-A reset fetch alone is not sufficient.
-
-For PC1-A, the important outputs are:
+PC1-A result:
 
 ```text
-last known-good software-polling configured clock
-first failing software-polling configured clock
-failure pattern around the transition
+Last known-good polling clock : none
+First failing polling clock    : 0.100 MHz
+Interpretation                 : protocol/phase synchronization failure,
+                                 not RP2350 performance ceiling
 ```
-
-The result must not be described as the final RP2350 ceiling because PC1-B changes the real-time architecture.
-
-## Failure interpretation
-
-The first unstable point is evidence, not merely a failed test. The implementation records a bounded failure reason such as:
-
-- ALE timeout / host missed bus timing;
-- control-phase timeout;
-- unsupported or corrupted bus-cycle decode;
-- memory transaction failure;
-- I/O transaction failure;
-- PIC sequencing failure;
-- INTA failure;
-- PIT/IRQ0 routing failure;
-- SUCCESS not reached before the cycle limit.
-
-The first two hardware runs of the polling implementation showed non-monotonic failures and implausible addresses/cycle types. They are retained as architecture evidence but are not accepted as `max V30 clock < 1 MHz`.
 
 ## Optimization decision order
 
-After PC1-A is captured, the next architectural action is PC1-B rather than further ad-hoc polling delay tuning.
+After the recorded PC1-A result, the next architectural action is PC1-B rather than further ad-hoc polling delay tuning.
 
 Within PC1-B, investigate in this order:
 
-1. PIO ownership of deterministic bus-phase capture;
-2. direct SIO hot path and GPIO masks where CPU-side service remains timing-critical;
-3. SRAM-resident critical code/data;
-4. branch/dispatch reduction and lookup tables;
-5. greater PIO ownership of response timing if measurements require it;
-6. DMA only where measurement demonstrates benefit;
-7. rerun comparable characterization after each architectural change.
+1. deterministic PIO clock/reset sequencing;
+2. PIO ownership of T1/control phase capture;
+3. direct SIO hot path and GPIO masks where CPU-side response remains timing-critical;
+4. SRAM-resident critical code/data;
+5. branch/dispatch reduction and lookup tables;
+6. greater PIO ownership of response timing if measurements require it;
+7. DMA only where measurement demonstrates benefit;
+8. rerun comparable characterization after each architectural change.
 
 ## Milestone completion
 
 Performance Characterization 1 remains open until:
 
-1. PC1-A software-polling baseline is captured and documented;
+1. PC1-A software-polling baseline is captured and documented — **DONE**;
 2. PC1-B PIO-timed bus engine is implemented and characterized;
 3. physical CLK is independently verified at the relevant operating points; and
 4. the maximum sustainable validated frequency of the chosen architecture is documented.
