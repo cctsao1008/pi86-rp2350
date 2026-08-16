@@ -44,8 +44,8 @@ Capture and report at minimum:
 
 ## PASS Boundary
 
-Controller-only PIT state tests are useful preflight evidence but do not close Gate 12. Gate 12 closes only after the timer-programming and IRQ0 path completes on the physical V30.
+The `gate12_pit_core` PIT/PIC core validation is useful controller-state evidence, but it does not close Gate 12. Gate 12 closes only after the timer-programming and IRQ0 path completes on the physical V30.
 
 ## Status
 
-**PLANNED — not yet PASS.**
+**CORE VALIDATION PASS — physical V30 validation pending.**
