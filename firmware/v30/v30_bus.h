@@ -83,3 +83,12 @@ void v30_bus_complete_write(v30_bus_t *bus,
                             uint16_t *sample2);
 
 void v30_bus_safe_halt(v30_bus_t *bus, uint reset_clocks);
+
+/*
+ * Standard test shutdown used by gate firmware: assert RESET, advance the
+ * established eight reset clocks, stop the PIO clock, force CLK low, and
+ * leave the multiplexed AD bus high-Z.
+ */
+static inline void v30_bus_shutdown(v30_bus_t *bus) {
+    v30_bus_safe_halt(bus, 8u);
+}
