@@ -8,7 +8,8 @@ picotool_src="${repo_root}/third_party/picotool"
 tools_root="${repo_root}/.tools"
 picotool_build="${tools_root}/picotool-build"
 picotool_install="${tools_root}/picotool-install"
-picotool_bin="${picotool_install}/bin/picotool"
+picotool_cmake_dir="${picotool_install}/picotool"
+picotool_bin="${picotool_cmake_dir}/picotool"
 
 if [[ ! -f "${sdk_path}/pico_sdk_init.cmake" ]]; then
     cat >&2 <<EOF
@@ -82,5 +83,5 @@ cat <<EOF
 Repository-local picotool is ready.
   Source  = ${picotool_src}
   Binary  = ${picotool_bin}
-  CMake   = ${picotool_install}/picotool
+  CMake   = ${picotool_cmake_dir}
 EOF
