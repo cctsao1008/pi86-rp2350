@@ -106,80 +106,55 @@ pico_enable_stdio_uart(pc1b_pio_dma_post_reset_epoch 0)
 
 pico_add_extra_outputs(pc1b_pio_dma_post_reset_epoch)
 
-add_executable(pc1b_pio_direct_post_reset_epoch
-    pc1b_pio_direct_post_reset_epoch.c
-    ${PROJECT_SOURCE_DIR}/firmware/memory/memory.c
-    ${PROJECT_SOURCE_DIR}/firmware/pic/pic.c
-    ${PROJECT_SOURCE_DIR}/firmware/pit/pit.c
-)
+function(add_pc1b_pio_direct_target target_name v30_hz)
+    add_executable(${target_name}
+        pc1b_pio_direct_post_reset_epoch.c
+        ${PROJECT_SOURCE_DIR}/firmware/memory/memory.c
+        ${PROJECT_SOURCE_DIR}/firmware/pic/pic.c
+        ${PROJECT_SOURCE_DIR}/firmware/pit/pit.c
+    )
 
-target_include_directories(pc1b_pio_direct_post_reset_epoch PRIVATE
-    ${PROJECT_SOURCE_DIR}/firmware
-)
+    target_compile_definitions(${target_name} PRIVATE
+        PC1B_DIRECT_V30_HZ=${v30_hz}u
+    )
 
-target_link_libraries(pc1b_pio_direct_post_reset_epoch
-    pico_stdlib
-    hardware_clocks
-    hardware_dma
-    hardware_pio
-    hardware_sync
-)
+    target_include_directories(${target_name} PRIVATE
+        ${PROJECT_SOURCE_DIR}/firmware
+    )
 
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch
-    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
-)
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch
-    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_ale_observer.pio
-)
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch
-    ${CMAKE_CURRENT_LIST_DIR}/pc1b_pio_direct_ad.pio
-)
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch
-    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
-)
+    target_link_libraries(${target_name}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+        hardware_sync
+    )
 
-pico_enable_stdio_usb(pc1b_pio_direct_post_reset_epoch 1)
-pico_enable_stdio_uart(pc1b_pio_direct_post_reset_epoch 0)
+    pico_generate_pio_header(${target_name}
+        ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_ale_observer.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/pc1b_pio_direct_ad.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+    )
 
-pico_add_extra_outputs(pc1b_pio_direct_post_reset_epoch)
+    pico_enable_stdio_usb(${target_name} 1)
+    pico_enable_stdio_uart(${target_name} 0)
+    pico_add_extra_outputs(${target_name})
+endfunction()
 
-add_executable(pc1b_pio_direct_post_reset_epoch_600khz
-    pc1b_pio_direct_post_reset_epoch.c
-    ${PROJECT_SOURCE_DIR}/firmware/memory/memory.c
-    ${PROJECT_SOURCE_DIR}/firmware/pic/pic.c
-    ${PROJECT_SOURCE_DIR}/firmware/pit/pit.c
-)
-
-target_compile_definitions(pc1b_pio_direct_post_reset_epoch_600khz PRIVATE
-    PC1B_DIRECT_V30_HZ=600000u
-)
-
-target_include_directories(pc1b_pio_direct_post_reset_epoch_600khz PRIVATE
-    ${PROJECT_SOURCE_DIR}/firmware
-)
-
-target_link_libraries(pc1b_pio_direct_post_reset_epoch_600khz
-    pico_stdlib
-    hardware_clocks
-    hardware_dma
-    hardware_pio
-    hardware_sync
-)
-
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch_600khz
-    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
-)
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch_600khz
-    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_ale_observer.pio
-)
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch_600khz
-    ${CMAKE_CURRENT_LIST_DIR}/pc1b_pio_direct_ad.pio
-)
-pico_generate_pio_header(pc1b_pio_direct_post_reset_epoch_600khz
-    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
-)
-
-pico_enable_stdio_usb(pc1b_pio_direct_post_reset_epoch_600khz 1)
-pico_enable_stdio_uart(pc1b_pio_direct_post_reset_epoch_600khz 0)
-
-pico_add_extra_outputs(pc1b_pio_direct_post_reset_epoch_600khz)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch          300000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_600khz   600000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_1200khz 1200000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_2mhz    2000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_3mhz    3000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_4mhz    4000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_5mhz    5000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_6mhz    6000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_7mhz    7000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_8mhz    8000000)
