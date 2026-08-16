@@ -150,11 +150,7 @@ endfunction()
 
 add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch          300000)
 add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_600khz   600000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_1200khz 1200000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_2mhz    2000000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_3mhz    3000000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_4mhz    4000000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_5mhz    5000000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_6mhz    6000000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_7mhz    7000000)
-add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_8mhz    8000000)
+add_pc1b_pio_direct_target(pc1b_pio_direct_post_reset_epoch_sweep    300000)
+target_compile_definitions(pc1b_pio_direct_post_reset_epoch_sweep PRIVATE
+    PC1B_DIRECT_SWEEP=1
+)
