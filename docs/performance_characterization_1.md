@@ -4,13 +4,11 @@
 
 Measure the maximum sustainable physical NEC V30 clock of the RP2350 host architecture before deeper BIOS/DOS expansion.
 
-This characterization is deliberately separated from Gate 0–12 functional bring-up. The completed gate sequence proves bus semantics and the minimum PC-compatible interrupt/timer path. Performance Characterization 1 asks a different question: how fast can the host sustain that behavior when the V30 clock is free-running rather than host-stepped?
+Gate 0–12 prove functional bus semantics and the minimum PC-compatible interrupt/timer path. Performance Characterization 1 asks a separate question: how fast can the host sustain that behavior with a free-running V30 clock?
 
 ## Historical comparison
 
-The original Pi86 project reports an approximately 0.3 MHz physical processor operating point. That value is the historical comparison baseline, not the target limit for `pi86-rp2350`.
-
-Interpretation targets:
+The original Pi86 project reports approximately 0.3 MHz physical processor operation. This is a historical comparison baseline, not the project target.
 
 | V30 clock | Interpretation |
 |---:|---|
@@ -20,110 +18,105 @@ Interpretation targets:
 | 4.77 MHz | Primary IBM PC-class target |
 | 8 MHz class | Stretch target |
 
-## Why the Gate 0–12 clock cannot be used as the performance metric
+## Known-good functional reference
 
-The bring-up gates use `gate4_step_clock.pio`, where each host call advances one clock pulse and the PIO stalls low until the Cortex-M33 requests the next step.
+The Gate 0–12 implementation uses a host-stepped PIO clock. Each `v30_bus_step()` emits one complete HIGH→LOW pulse and returns the GPIO snapshot only after the low phase. This implementation is intentionally slow but deterministic and has passed physical hardware validation through Gate 12.
 
-That mechanism is intentionally slow and observable. `STEP_PIO_CLOCK_HZ` is the PIO state-machine instruction frequency, not the physical V30 clock frequency.
+Gate 12 remains the last-known-good functional regression baseline:
 
-Therefore the stepped-clock gates remain the last-known-good functional regression baseline, but they are not used to claim V30 MHz performance.
+```text
+V30 OUT 43h / 40h
+  -> PIT channel 0
+  -> terminal count
+  -> pi86_pic IRQ0
+  -> INTR
+  -> INTA #1 / #2
+  -> vector 20h
+  -> IVT
+  -> ISR
+  -> marker
+  -> EOI
+  -> IRET
+  -> SUCCESS
+```
 
-## Two-phase characterization strategy
+The stepped clock is not a MHz performance metric.
 
-Performance Characterization 1 is split into two explicit phases.
+---
 
-### PC1-A — Continuous software-polling baseline
+## PC1-A Rev0 — INVALID characterization
 
-Purpose: characterize the failure behavior of the free-running clock plus Cortex-M33 software-polling service architecture before moving deterministic phase ownership into PIO.
-
-Target:
+Target used:
 
 ```text
 performance_characterization_1_polling_baseline
 ```
 
-Single-run sweep:
+The Rev0 harness used a free-running PIO clock plus Cortex-M33 software polling and ran a 13-point sweep from 0.100 to 8.000 MHz. Every point failed before the Gate 12 end-to-end SUCCESS condition.
 
-```text
-0.100 MHz
-0.200 MHz
-0.300 MHz
-0.500 MHz
-0.750 MHz
-1.000 MHz
-2.000 MHz
-2.500 MHz
-3.000 MHz
-4.000 MHz
-4.770 MHz
-6.000 MHz
-8.000 MHz
+Those results are retained as implementation-defect evidence, but **Rev0 is invalid as a polling-performance characterization and must not be used to claim either a software-polling ceiling or an RP2350 performance ceiling.**
+
+### Root cause: T1/address sampled at the wrong end of T1
+
+The Rev0 continuous harness accepted the first GPIO sample where ALE was observed high:
+
+```c
+wait_signal_level(V30_PIN_ALE, true, &t1);
 ```
 
-The low-frequency points are diagnostic, not project targets. In particular, 0.300 MHz is included because it is approximately the historical Pi86 comparison point.
+That samples near the beginning of ALE-high / T1.
 
-#### PC1-A physical result — diagnostic FAIL at all 13 points
+The known-good stepped engine samples after a complete HIGH→LOW pulse, near the end of T1 / ALE falling region. The two engines therefore sampled opposite ends of the T1 address window.
 
-The completed hardware sweep produced:
+The V20/V30 bus timing contract does not guarantee that the full address has propagated at the first observation of ALE high. Conventional 8282/8283-style latching is transparent while ALE is high and retains the address on the falling transition. Rev0 therefore sampled at a phase the device does not guarantee as address-valid.
 
-```text
-0.100 MHz   FAIL   memory transaction failure
-0.200 MHz   FAIL   ALE timeout / host missed bus timing
-0.300 MHz   FAIL   ALE timeout / host missed bus timing
-0.500 MHz   FAIL   memory transaction failure
-0.750 MHz   FAIL   ALE timeout / host missed bus timing
-1.000 MHz   FAIL   memory transaction failure
-2.000 MHz   FAIL   memory transaction failure
-2.500 MHz   FAIL   memory transaction failure
-3.000 MHz   FAIL   memory transaction failure
-4.000 MHz   FAIL   memory transaction failure
-4.770 MHz   FAIL   memory transaction failure
-6.000 MHz   FAIL   memory transaction failure
-8.000 MHz   FAIL   memory transaction failure
-```
+This is a **protocol/timing implementation defect**.
 
-No frequency reached the Gate 12 end-to-end SUCCESS condition.
+### Strongest Rev0 evidence
 
-Representative evidence includes:
+The strongest evidence is not the overall histogram but two individual captures.
+
+#### Cycle-zero corruption
+
+At 4.000 MHz the first captured bus cycle reported:
 
 ```text
-0.100 MHz: first failing cycle address=20164h, MEM_READ, WORD
-0.200 MHz: reset-vector observed, then ALE timeout after 2 serviced cycles
-0.300 MHz: reset-vector observed, then ALE timeout after 2 serviced cycles
-1.000 MHz: failing address=2FFFCh decoded as MEM_WRITE
-4.770 MHz: failing address=2001Ah after 6 serviced cycles
-8.000 MHz: failing address=32000h after 4 serviced cycles
+observed: 2FFF0 / MEM_WRITE / WORD
+serviced bus cycles before failure: 0
 ```
 
-#### PC1-A methodological defect — reset was not normalized in clock cycles
-
-PC1-A used a fixed `RESET_SETTLE_US = 50 us` while the V30 clock frequency changed across the sweep. Therefore the RESET-high duration, expressed in V30 clocks, was not held constant:
+The first bus cycle after RESET must be the reset-vector fetch:
 
 ```text
-0.100 MHz -> 5 clocks
-0.200 MHz -> 10 clocks
-0.300 MHz -> 15 clocks
-0.500 MHz -> 25 clocks
-0.750 MHz -> 37.5 clocks
-1.000 MHz -> 50 clocks
-2.000 MHz -> 100 clocks
-2.500 MHz -> 125 clocks
-3.000 MHz -> 150 clocks
-4.000 MHz -> 200 clocks
-4.770 MHz -> 238.5 clocks
-6.000 MHz -> 300 clocks
-8.000 MHz -> 400 clocks
+expected: FFFF0 / MEM_READ / WORD
 ```
 
-The NEC V20/V30 reset contract requires RESET to remain active for at least 4 clocks. The 0.100 MHz point therefore operated only one clock above the minimum, while the 8.000 MHz point held RESET for 400 clocks.
+No instruction had executed, so this cannot be downstream CPU derailment. Both address and direction were corrupted at capture time. This also means the Rev0 control sample is **not established as correct** and must be re-derived from a corrected T1 anchor.
 
-This means the 13 points were not a controlled frequency-only experiment: reset history varied by 80x across the sweep. As a result, PC1-A cannot methodologically support a throughput-ceiling claim even if the failures had been monotonic. This is a defect in the PC1-A experiment design and is recorded as such, not merely as a PC1-B improvement opportunity.
+#### `AFFF4` capture
 
-#### PC1-A failure fingerprint
+A Rev0 failure also captured `AFFF4` in the reset-vector region, where `FFFF4` is expected. The intact low 16 bits with a mixed high nibble are strongly consistent with A19..A16 being sampled during a transition rather than at a valid T1 address point.
 
-The failure-address distribution also contains a useful falsifiable fingerprint.
+### Failure-nibble fingerprint — corrected statistical interpretation
 
-Among the ten captured nonzero failure addresses, nine have an upper hex nibble in `{0,1,2,3}`. The observed distribution is approximately:
+The previous wording treated `{0,1,2,3}` failures as if the failure list were an unbiased address sample. It is not.
+
+The memory map itself creates selection bias:
+
+```text
+0xxxx  -> mapped RAM; a corrupted address can be serviced silently
+Fxxxx  -> mapped ROM; a corrupted address can be serviced silently
+1xxxx-E​xxxx -> unmapped and therefore observable as memory-transaction failure
+```
+
+The correct supporting observation is:
+
+```text
+observable unmapped upper-nibble space: 1..E = 14 bins
+9 of 10 recorded nonzero failures fall in {1,2,3}
+```
+
+with the approximate distribution:
 
 ```text
 2xxxx  x6
@@ -131,259 +124,406 @@ Among the ten captured nonzero failure addresses, nine have an upper hex nibble 
 3xxxx  x1
 ```
 
-This pattern is consistent with repeated capture of post-T1 processor-status values in the A19..A16 pins rather than a true physical address high nibble. In the NEC V30 bus contract, A19..A16 carry address during T1 and processor status afterward. Interpreting later-phase status as address therefore creates apparently structured but bogus addresses instead of random noise.
+This is consistent with status-related A19..A16 corruption and with the workload's dominant CS/SS/DS activity, but it is supporting evidence rather than the primary proof.
 
-This fingerprint is intentionally retained as a PC1-B discriminator:
+The Rev1 ring buffer must preserve raw high-nibble evidence so this hypothesis remains falsifiable.
+
+### Experiment-control defect: RESET duration varied by 80x
+
+Rev0 held RESET high for a fixed 50 us while changing V30 frequency. Expressed in processor clocks:
 
 ```text
-If PC1-B failing addresses begin showing the expected Fxxxx reset/fetch region,
-then T1 capture timing has materially improved.
-
-If PC1-B still clusters in 0xxxx/1xxxx/2xxxx/3xxxx,
-then moving capture into PIO has not fixed the root cause and the next investigation
-must focus on exactly which phase is entering the capture FIFO.
+0.100 MHz -> 5 clocks
+8.000 MHz -> 400 clocks
 ```
 
-This is more useful than a generic `protocol/phase failure` label because it is falsifiable against the next architecture revision.
+The V30 requires RESET for at least 4 clocks. Frequency was therefore not the only changing independent variable; reset history varied by 80x across the sweep.
 
-#### PC1-A interpretation
+This is an **experiment-method defect**. No throughput comparison across the Rev0 frequency points is admissible.
 
-PC1-A is **not** accepted as a measured performance ceiling of `< 0.100 MHz`.
+### RESET GPIO transition defect
 
-Three independent reasons make a throughput-ceiling interpretation invalid:
+Rev0 `hold_reset()` called `gpio_init()` on every RESET transition. This can temporarily return the pin to input before it is driven again, leaving an asynchronous RESET input briefly undriven with pulls disabled.
 
-1. even 0.100 MHz fails, despite a 10 us clock period;
-2. failures are non-monotonic and include bogus addresses / wrong cycle directions / intermittent reset-vector detection; and
-3. RESET duration was not normalized in clock cycles, so frequency was not the only changing independent variable.
+This is a correctness defect worth removing. It is not claimed as the cause of the Rev0 failure pattern.
 
-The observed `memory transaction failure` is therefore treated primarily as a downstream symptom of incorrect bus-phase observation or response, not as a root cause in the memory backend.
+### Additional uncontrolled variables found in review
 
-PC1-A is complete as architecture/protocol diagnostic evidence. Do not spend further work tuning arbitrary polling delays to force a pass.
+Rev0 also contained the following confounders:
 
-### PC1-B — PIO-timed bus engine
+1. `MAX_SIGNAL_SPINS` was a fixed software-iteration timeout rather than a timeout normalized in V30 clocks.
+2. Interrupts were not masked while the polling loop ran and USB stdio remained active.
+3. Timing-critical service code executed from XIP flash rather than being placed in deterministic SRAM.
+4. Several sweep points used fractional PIO clock dividers, introducing bounded divider jitter / duty asymmetry.
+5. AD release timing had no measured guard margin before the next T1.
+6. No independent ALE-cycle counter existed, so an entirely missed bus cycle could go undetected.
 
-PC1-B moves critical V30 bus-phase ownership away from Cortex-M33 software edge polling and into RP2350 PIO.
+The first three must be controlled before Rev1 can be treated as a valid polling baseline. The remaining three must at least be instrumented and reported.
 
-The first implementation must correct two classes of nondeterminism exposed by PC1-A:
-
-1. RESET sequencing must be expressed in clock counts and released on a deterministic V30 clock phase.
-2. T1/ALE and later control/data sampling must be captured by PIO at deterministic hardware phases rather than by Cortex-M33 polling loops.
-
-Minimum intended responsibility split:
+### Rev0 status
 
 ```text
-PIO clock/reset state machine
-  -> generate deterministic V30 CLK
-  -> hold RESET for a defined integer number of V30 clocks
-  -> release RESET on a defined clock phase
+PC1-A Rev0: INVALID CHARACTERIZATION
 
-PIO bus-capture state machine
-  -> detect ALE/T1
-  -> capture raw T1 GPIO state
-  -> capture phase-aligned control/write-data state
-  -> include clock-count / phase metadata
-  -> provide deterministic FIFO events
+Useful for:
+- identifying the T1/address sampling bug
+- identifying control-phase uncertainty on cycle zero
+- identifying RESET and timeout experiment-control defects
+- preserving failure fingerprints
 
-Cortex-M33
-  -> decode captured snapshots
-  -> memory / I/O / PIC / PIT semantics
-  -> drive read/vector data through the SIO hot path
-  -> backend policy
+Not valid for:
+- polling maximum clock
+- RP2350 maximum clock
+- proving that software polling is architecturally insufficient
+- quantifying the benefit of PC1-B
 ```
 
-#### PC1-B state-machine synchronization rule
-
-The clock/reset SM and bus-capture SM must not be enabled in separate software operations if their relative phase matters.
-
-They must be initialized disabled, then started by one PIO control-register write that sets both required `SM_ENABLE` bits together. Otherwise startup ordering becomes a new run-to-run phase variable and merely moves nondeterminism from the Cortex-M33 polling loop into PIO startup.
-
-#### PC1-B entry gate — do not start with a sweep
-
-The first PC1-B hardware gate is a **single-point functional validation at 0.300 MHz**.
-
-Do not run the full characterization sweep until the following end-to-end path has passed once at 0.300 MHz:
+The detailed review record is preserved in:
 
 ```text
-RESET held for defined N clocks
-  -> deterministic RESET release
-  -> FFFF0 reset fetch captured in T1
-  -> ROM execution
-  -> PIC programming
-  -> PIT programming
-  -> terminal count
-  -> IRQ0 / INTR
-  -> INTA #1 / #2
-  -> vector 20h
-  -> IVT / ISR / marker / EOI / IRET
-  -> SUCCESS
+docs/pc1a_rev0_review.md
 ```
 
-Rationale: PC1-A spent 13 measurements repeating essentially the same early failure without first establishing a known-good continuous-clock point. PC1-B must establish one known-good functional point before frequency becomes an experimental variable.
+---
 
-Only after 0.300 MHz passes should the automated sweep be enabled.
+## PC1-A Rev1 — Controlled software-polling baseline
 
-#### PC1-B failure ring buffer
+PC1-A Rev1 must be completed before PC1-B is used for architectural comparison. Rev1 is not an attempt to rescue polling as the final architecture; it exists to produce a valid control group.
 
-PC1-B must retain a bounded diagnostic ring buffer containing the final N events before PASS/FAIL. At minimum each entry should include:
+### Rev1 P0 — experiment control
+
+Before any measurement:
+
+- initialize RESET GPIO once and keep it configured as output;
+- express RESET hold duration in a fixed integer number of V30 clocks for every point;
+- release RESET at a defined V30 clock boundary;
+- express ALE/CLK timeout budgets in V30 clocks rather than fixed loop iterations;
+- mask interrupts for the timing-critical portion of each point;
+- perform USB logging only outside timing-critical execution;
+- place the timing-critical polling/service path and required hot data in SRAM so XIP cache misses do not introduce a latency tail.
+
+Rev1 is therefore defined as a **controlled, isolated Cortex-M33 polling baseline without PIO bus-phase ownership**, not as an application-level USB-loaded benchmark.
+
+### Rev1 P1 — T1 capture correctness
+
+Every cycle, including cycle zero, must establish the same initial condition:
 
 ```text
+wait ALE low
+wait ALE high
+track GPIO continuously while ALE remains high
+retain the final coherent ALE-high snapshot
+```
+
+Recommended software-transparent-latch rule:
+
+```c
+uint32_t t1 = 0u;
+uint32_t s;
+uint32_t n = 0u;
+
+wait ALE low;
+wait ALE high -> s;
+
+do {
+    t1 = s;
+    ++n;
+    s = sio_hw->gpio_in;
+} while (ALE remains high in s);
+```
+
+All relevant pins are within GPIO 0–27, so one `sio_hw->gpio_in` read is a coherent 32-bit snapshot.
+
+The `first_cycle` special case must be removed.
+
+The control/write-data sample must be **re-derived from the corrected T1 anchor**. Rev0 does not prove the existing control phase correct.
+
+Cycle zero is a hard protocol assertion:
+
+```text
+address = FFFF0
+cycle   = MEM_READ
+lanes   = WORD
+```
+
+Any mismatch is an immediate capture failure and aborts the point.
+
+### Direct polling-margin metric: `n`
+
+For each cycle record the number of coherent ALE-high samples captured by the polling loop:
+
+```text
+n = ALE-high coherent sample count
+```
+
+Report at least:
+
+```text
+min(n) for the frequency point
+```
+
+When `min(n)` approaches 1, software polling has effectively lost address-capture margin even if a particular workload still happens to pass. This is a direct characterization metric, not a post-failure inference.
+
+For the first 0.300 MHz gate require:
+
+```text
+min(n) >= 3
+```
+
+### Rev1 P2 — observability
+
+Maintain a bounded ring buffer without per-cycle USB output. Each entry should contain at least:
+
+```text
+clock count since RESET release
 raw T1 GPIO snapshot
-raw control/data-phase GPIO snapshot
-clock count since RESET assertion or release
-classified cycle type
-captured lane state
+raw A19:A16 nibble
+ALE-high sample count n
+raw control/data-phase snapshot
+decoded address
+cycle type
+lane state
+response latency when applicable
 ```
 
-The buffer is printed only after the timing-critical run has stopped. No per-cycle USB logging is permitted during execution.
+Also retain:
 
-The ring buffer exists to preserve the evidence immediately preceding loss of synchronization. A final label such as `memory transaction failure` is insufficient by itself.
+- explicit first-anomalous-cycle evidence;
+- independent ALE pulse count;
+- serviced-cycle count;
+- internally measured average V30 clock;
+- worst-case control/T2-to-AD-data-driven latency;
+- AD-release-to-next-ALE margin.
 
-#### PC1-B clock self-measurement
+Any difference between independent ALE pulse count and serviced-cycle count invalidates the point.
 
-PC1-B should not rely only on the configured PIO divider.
+### Clock reporting
 
-The firmware must include an internal clock-measurement mechanism that counts actual V30 CLK edges over a defined RP2350 reference-time interval or equivalent deterministic reference window. The log should report both:
+Rev1 should log both:
 
 ```text
 Configured V30 clock
-Measured V30 clock
+Internally measured average V30 clock
 ```
 
-Once internal measurement has been validated, the project no longer needs the standing caveat that configured frequency is not measured frequency for routine characterization. External scope verification remains useful for waveform quality, duty cycle and timing-margin investigations, but not as the sole frequency truth source.
+A hardware edge counter such as an available PWM B-channel edge-count path or equivalent deterministic counter may be used to measure actual CLK edges over a reference window.
 
-#### PC1-B read-response latency instrumentation
+Internal edge counting validates average frequency and catches configuration errors. External scope validation remains the reference for duty cycle, fractional-divider jitter, rise/fall behavior, ringing and electrical margin.
 
-PC1-B must instrument the likely next binding constraint before optimization begins.
+Fractional PIO divider settings should be logged where used.
 
-For each memory or I/O read response, capture at least the latency from the deterministic T2/control event to the point where response data is actually driven on AD. Report a bounded statistic such as:
+### Read-response latency
+
+Measure the worst-case interval from the accepted control/T2 event to the instruction or hardware action that actually drives response data onto AD.
+
+Report at least:
 
 ```text
-minimum response latency
-maximum response latency
-worst-case response latency in RP2350 cycles
-worst-case response latency converted to ns
+worst-case RP2350 cycles
+worst-case ns
+worst-case latency as a fraction of the available V30 response window
 ```
 
-This makes a later 4.77 MHz or 8 MHz failure quantitatively actionable. If the read-data deadline is missed, the project should know how much latency must be removed before selecting SIO hot-path, SRAM placement, deeper PIO response ownership or DMA work.
+This instrumentation must already exist in Rev1 so that a later PC1-B comparison can attribute any improvement.
 
-#### PC1-B optimization order
+---
 
-The first PIO-timed implementation remains incremental. Do not add DMA by default.
+## PC1-A Rev1 first gate — 0.300 MHz only
+
+Do **not** begin Rev1 with a sweep.
+
+The first hardware gate is a single controlled point at 0.300 MHz.
+
+Acceptance criteria:
+
+```text
+RESET held for the defined N clocks
+RESET released on the defined phase
+cycle 0 = FFFF0 / MEM_READ / WORD
+expected FFFFx -> F000x boot/fetch progression
+min(ALE-high samples n) >= 3
+independent ALE pulse count == serviced-cycle count
+no first-fault capture anomaly
+PIC ICW1-4 / IMR programming
+PIT OUT 43h / 40h programming
+PIT terminal count
+IRQ0 through pi86_pic
+INTR
+exactly two INTA cycles
+vector 20h
+IVT
+ISR / marker
+EOI
+IRET
+final IRR=00h / ISR=00h / INTR=0
+SUCCESS 3/3
+```
+
+If this gate fails, dump the bounded ring buffer and debug only the first fault.
+
+If P0–P2 are complete and the controlled 0.300 MHz gate still cannot reach a clean PASS within a bounded debugging effort, **timebox PC1-A Rev1 and proceed to PC1-B** rather than continuing to rescue the polling architecture.
+
+---
+
+## PC1-A Rev1 controlled sweep
+
+Only after the 0.300 MHz gate passes, run the comparable 13-point sweep:
+
+```text
+0.100
+0.200
+0.300
+0.500
+0.750
+1.000
+2.000
+2.500
+3.000
+4.000
+4.770
+6.000
+8.000 MHz
+```
+
+Every point must use identical:
+
+- RESET clock count;
+- RESET release phase;
+- T1 and control sampling rules;
+- timeout meaning in V30 clocks;
+- interrupt/runtime isolation;
+- SRAM placement policy;
+- workload;
+- PASS criteria.
+
+Per-point output should include at least:
+
+```text
+Configured average clock
+Internally measured average clock
+PIO divider
+min(ALE-high samples n)
+independent ALE count
+serviced cycle count
+worst response latency
+AD-release margin
+PASS / FAIL
+first-fault category
+```
+
+The valid PC1-A deliverable is:
+
+```text
+last known-good controlled polling frequency
+first failing controlled polling frequency
+capture-margin trend via min(n)
+first measured binding constraint
+```
+
+---
+
+## PC1-B — PIO-timed bus engine
+
+PC1-B remains the preferred target architecture for deterministic phase ownership and higher-frequency timing margin, but **PC1-A Rev0 is not evidence for that architectural claim**. PC1-B must be compared against the valid PC1-A Rev1 control group when Rev1 is available.
+
+Minimum responsibility split:
+
+```text
+PIO clock/reset state machine
+  -> deterministic CLK
+  -> RESET in integer V30 clocks
+  -> deterministic RESET release phase
+
+PIO bus-capture state machine
+  -> deterministic T-state ownership
+  -> ALE/T1 capture
+  -> phase-aligned control/data capture
+  -> clock/phase metadata
+  -> deterministic event handoff
+
+Cortex-M33
+  -> event decode
+  -> memory / I/O / PIC / PIT semantics
+  -> read/vector response initially through direct SIO
+  -> backend policy
+```
+
+### PIO state-machine synchronization
+
+Phase-coupled state machines must be fully initialized while disabled and started in sync using:
+
+```c
+pio_enable_sm_mask_in_sync(...)
+```
+
+or an equivalent mechanism that both enables the selected SMs together and restarts/aligns their clock dividers. A simple pair of independent enable operations is insufficient.
+
+### PC1-B first gate
+
+PC1-B must also start at one 0.300 MHz end-to-end functional point before any sweep.
+
+Use the same semantic Gate 12 path and equivalent observability so PC1-B can be compared directly to PC1-A Rev1.
+
+### PC1-B optimization order
+
+Do not add DMA by default.
 
 Use this order:
 
 1. deterministic PIO clock/reset sequencing;
-2. simultaneous SM startup where phase coupling is required;
+2. synchronized PIO SM startup;
 3. PIO ownership of T1/control phase capture;
-4. ring-buffer evidence and internal clock measurement;
-5. read-response latency instrumentation;
-6. direct SIO hot path and GPIO masks where CPU-side response remains timing-critical;
-7. SRAM-resident critical code/data;
-8. branch/dispatch reduction and lookup tables;
-9. greater PIO ownership of response timing if measurements require it;
-10. DMA only where measurement demonstrates benefit;
-11. rerun comparable characterization after each architectural change.
+4. preserve ring-buffer and clock/latency instrumentation;
+5. keep data response on Cortex-M33/SIO initially for attribution;
+6. optimize direct SIO hot path if measured response latency requires it;
+7. optimize SRAM placement / dispatch further if required;
+8. move more response timing into PIO only when the measured deadline requires it;
+9. use DMA only if a measured problem is actually improved by DMA;
+10. rerun comparable characterization after each architectural change.
 
-PC1-B must rerun comparable characterization against:
+The primary comparison remains:
 
 ```text
 original Pi86 historical baseline  ~0.3 MHz
-PC1-A software-polling result       protocol/methodology FAIL at 0.100–8.000 MHz
-primary target                      4.77 MHz
-stretch target                      8 MHz class
+PC1-A Rev1 controlled polling      measured by this project
+primary target                     4.77 MHz
+stretch target                     8 MHz class
 ```
 
-## V30 timing contract relevant to PC1-B
-
-The NEC V20/V30 bus model uses T1/T2/T3/T4 states. Address is valid during T1; the multiplexed AD bus is used for data in later states. A19..A16 similarly represent address during T1 and processor status later in the bus cycle. RESET is active high and requires at least 4 clocks before release. The physical reset-vector dependency remains `FFFF0h`.
-
-PC1-B should treat the NEC timing contract as normative and use the already validated Gate 0–12 hardware behavior as the project regression reference.
-
-## Continuous-clock path
-
-The PC1-A diagnostic path uses a separate PIO clock program:
-
-```text
-perf_continuous_clk
-    set CLK high
-    set CLK low
-    repeat continuously
-```
-
-The PIO state machine runs at twice the configured V30 frequency because one instruction emits each half-cycle.
-
-This path remains preserved as diagnostic evidence. It is not the final bus engine.
-
-## Workload
-
-Comparable characterization should reuse the completed Gate 12 end-to-end dependency chain:
-
-```text
-RESET / reset-vector fetch
-  -> ROM execution
-  -> PIC ICW1-4 / IMR programming
-  -> PIT channel-0 programming through OUT 43h / 40h
-  -> PIT terminal count
-  -> pi86_pic IRQ0
-  -> INTR
-  -> INTA #1 / #2
-  -> vector 20h
-  -> IVT
-  -> ISR0
-  -> marker
-  -> EOI
-  -> IRET
-  -> SUCCESS
-```
-
-Gate 7/8/9R/10/11/12 targets remain independent functional regressions and are not replaced by the performance target.
+---
 
 ## Logging rule
 
-No per-bus-cycle USB logging is performed while a frequency point is running.
+No per-bus-cycle USB logging during timing-critical execution.
 
-PC1-A logs retain the wording **Configured V30 clock** because PC1-A did not include internal self-measurement.
+Dump evidence only after a point has stopped.
 
-PC1-B should report both configured and internally measured clock values once the self-measurement path is validated. Failure evidence must retain bounded failure category plus the final diagnostic ring-buffer entries.
-
-## Result interpretation
-
-A point is considered PASS only when the physical workload reaches the deterministic SUCCESS loop while preserving the complete Gate 12 interrupt/timer chain and final idle PIC state. A reset fetch alone is not sufficient.
-
-PC1-A result:
+For valid Rev1/PC1-B measurements, distinguish:
 
 ```text
-Last known-good polling clock : none
-First failing polling clock    : 0.100 MHz
-Interpretation                 : protocol/phase synchronization + experiment-control defect,
-                                 not RP2350 performance ceiling
+configured average clock
+internally measured average clock
+external waveform-quality validation
 ```
 
-## PC1-B entry criteria / gate checklist
+A reset-vector observation alone is never a PASS.
 
-PC1-B may begin implementation when all items below are explicit in the design:
+---
 
-- [ ] RESET hold duration is specified in V30 clock counts, not microseconds.
-- [ ] RESET release phase is deterministic.
-- [ ] Clock/reset and capture state machines that require phase alignment are initialized disabled and enabled simultaneously.
-- [ ] T1 capture is owned by PIO and preserves raw GPIO evidence.
-- [ ] Control/write-data capture is tied to a defined V30 phase and preserves raw GPIO evidence.
-- [ ] A bounded failure ring buffer is defined.
-- [ ] A clock-count field is attached to capture evidence.
-- [ ] Internal V30 clock self-measurement is defined.
-- [ ] T2-to-data-driven response latency instrumentation is defined.
-- [ ] The first hardware gate is a single 0.300 MHz end-to-end functional PASS, not a sweep.
-- [ ] The Gate 12 stepped-clock target remains unchanged as the last-known-good regression baseline.
-- [ ] DMA is explicitly excluded from the first PC1-B implementation unless later measurement justifies it.
+## Current status
 
-Only after the 0.300 MHz entry gate passes should the full performance sweep be enabled.
+```text
+Gate 12 physical functional baseline   PASS
+PC1-A Rev0                            INVALID characterization; defect evidence retained
+PC1-A Rev1                            NEXT — controlled 0.300 MHz gate before sweep
+PC1-B                                 AFTER valid Rev1 baseline, or after Rev1 timebox expires
+```
 
 ## Milestone completion
 
 Performance Characterization 1 remains open until:
 
-1. PC1-A software-polling baseline is captured and documented — **DONE**;
-2. PC1-B PIO-timed bus engine passes the 0.300 MHz single-point functional gate;
-3. PC1-B is characterized across the planned frequency range;
-4. internal clock self-measurement is validated, with external scope checks used where needed for waveform/timing quality; and
-5. the maximum sustainable validated frequency of the chosen architecture is documented.
+1. PC1-A Rev1 produces a valid controlled polling baseline, or is explicitly timeboxed after P0–P2 with the result documented;
+2. PC1-B is implemented and characterized against the best valid control baseline available;
+3. internal average-clock measurement is validated and waveform quality is externally characterized where needed; and
+4. the maximum sustainable validated frequency of the selected architecture is documented.
