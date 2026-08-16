@@ -32,11 +32,11 @@ baseline
 
 The current gate sequence is documented in [`docs/bringup.md`](docs/bringup.md).
 
-The broader cross-project methodology is maintained in [`cctsao1008/technical-management-framework`](https://github.com/cctsao1008/technical-management-framework); this repository contains the Pi86-RP2350-specific application of that methodology.
+The broader cross-project methodology is maintained in [`cctsao1008/technical-management-framework`](https://github.com/cctsao1008/technical-management-framework); this repository contains only the Pi86-RP2350-specific application of that methodology.
 
 ## Project status
 
-**Phase:** hardware bring-up transitioning into reusable bus/memory architecture
+**Phase:** reusable bus/memory architecture with byte-addressed memory validated; I/O-space bring-up next
 
 **Validated functional chain:**
 
@@ -47,8 +47,10 @@ The broader cross-project methodology is maintained in [`cctsao1008/technical-ma
 - Gate 4: aligned 16-bit memory read + prefetch-aware execution — PASS
 - Gate 5: SRAM-backed executable ROM + far jump to physical `0xF0000` — PASS
 - Gate 6: aligned RAM write/readback + CPU compare/branch verification — PASS
+- Gate 6R: reusable `v30_bus` + byte-addressed memory refactor regression — PASS
+- Gate 7: low/high byte lanes + odd-address 16-bit memory split/readback — PASS
 
-The current validated scope is aligned 16-bit memory read/write with an RP2350 internal-SRAM backend. Byte lanes, odd-address accesses, general I/O, interrupts, PSRAM, BIOS/DOS compatibility and final clock-rate optimization remain separate future milestones.
+The current validated memory scope is byte-addressed 8/16-bit memory read/write, including odd-address 16-bit accesses split by the V30 across HIGH/LOW byte lanes. General I/O, interrupts, PSRAM, BIOS/DOS compatibility and final clock-rate optimization remain separate future milestones.
 
 ## Locked hardware baseline
 
@@ -246,7 +248,7 @@ The first critical V30 milestone was:
 RESET -> first bus fetch -> 0xFFFF0
 ```
 
-That milestone and subsequent aligned memory read, executable ROM, and aligned RAM write/readback gates are now validated. Future gates should extend capability without invalidating the physical-header hardware contract.
+That milestone and subsequent memory-read, executable-ROM, RAM write/readback, and byte-lane/odd-address gates are now validated. Future gates should extend capability without invalidating the physical-header hardware contract.
 
 ## Source and documentation policy
 
