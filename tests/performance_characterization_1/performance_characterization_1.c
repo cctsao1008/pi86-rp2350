@@ -109,6 +109,9 @@ typedef struct {
     uint8_t final_irr;
     uint8_t final_isr;
     bool final_intr;
+    uint32_t fail_address;
+    v30_bus_cycle_type_t fail_cycle_type;
+    v30_bus_lanes_t fail_lanes;
 } perf_result_t;
 
 static inline uint32_t sample_bit(uint32_t sample, uint gpio) {
@@ -241,10 +244,14 @@ static bool wait_signal_level(uint gpio, bool level, uint32_t *sample_out) {
     return false;
 }
 
+static bool wait_falling_edge_sample(uint32_t *sample_out) {
+    if (!wait_signal_level(V30_PIN_CLK, true, NULL)) return false;
+    return wait_signal_level(V30_PIN_CLK, false, sample_out);
+}
+
 static bool wait_falling_edges(uint count) {
     for (uint edge = 0u; edge < count; ++edge) {
-        if (!wait_signal_level(V30_PIN_CLK, true, NULL)) return false;
-        if (!wait_signal_level(V30_PIN_CLK, false, NULL)) return false;
+        if (!wait_falling_edge_sample(NULL)) return false;
     }
     return true;
 }
@@ -273,7 +280,17 @@ static bool capture_cycle(bool first_cycle,
     cycle->bhe_n = (uint8_t)sample_bit(t1, V30_PIN_BHE);
     cycle->lanes = decode_lanes(cycle->a0, cycle->bhe_n);
 
-    if (!wait_signal_level(V30_PIN_ALE, false, &control)) {
+    /*
+     * Match the phase already proven by the stepped Gate 6-12 bus engine.
+     * In that implementation, control_sample is captured by the *next full
+     * V30 clock step* after the ALE/T1 sample.  Sampling immediately when ALE
+     * falls is too early for stable IO/M, DT/R, INTA and write-data values.
+     *
+     * Wait for ALE to leave T1, then capture at the next CLK falling edge.
+     * This is the continuous-clock equivalent of the proven stepped phase.
+     */
+    if (!wait_signal_level(V30_PIN_ALE, false, NULL) ||
+        !wait_falling_edge_sample(&control)) {
         *reason = PERF_FAIL_CONTROL_TIMEOUT;
         return false;
     }
@@ -498,6 +515,13 @@ static bool advance_pit(pi86_pit_t *pit,
     return true;
 }
 
+static void remember_failure_cycle(perf_result_t *result,
+                                   const v30_bus_cycle_t *cycle) {
+    result->fail_address = cycle->address;
+    result->fail_cycle_type = cycle->type;
+    result->fail_lanes = cycle->lanes;
+}
+
 static bool run_frequency_point(perf_clock_t *clock,
                                 uint32_t frequency_hz,
                                 perf_result_t *result) {
@@ -539,6 +563,7 @@ static bool run_frequency_point(perf_clock_t *clock,
         if (cycle.type == V30_BUS_CYCLE_INTERRUPT_ACK) {
             if (!service_inta(&pic, result)) {
                 result->fail_reason = PERF_FAIL_INTA;
+                remember_failure_cycle(result, &cycle);
                 break;
             }
             ++result->cycles;
@@ -549,6 +574,7 @@ static bool run_frequency_point(perf_clock_t *clock,
             uint16_t driven = 0u;
             if (!memory_read(&memory, &cycle, &driven)) {
                 result->fail_reason = PERF_FAIL_MEMORY;
+                remember_failure_cycle(result, &cycle);
                 break;
             }
 
@@ -560,6 +586,7 @@ static bool run_frequency_point(perf_clock_t *clock,
             if (!wait_falling_edges(2u)) {
                 release_ad();
                 result->fail_reason = PERF_FAIL_CONTROL_TIMEOUT;
+                remember_failure_cycle(result, &cycle);
                 break;
             }
             release_ad();
@@ -583,6 +610,7 @@ static bool run_frequency_point(perf_clock_t *clock,
             const uint16_t data = decode_ad(cycle.control_sample);
             if (!memory_write(&memory, &cycle, data)) {
                 result->fail_reason = PERF_FAIL_MEMORY;
+                remember_failure_cycle(result, &cycle);
                 break;
             }
             if (cycle.address == IRQ0_MARKER_ADDR &&
@@ -595,15 +623,18 @@ static bool run_frequency_point(perf_clock_t *clock,
         } else if (cycle.type == V30_BUS_CYCLE_IO_WRITE) {
             if (!service_io_write(&pic, &pit, &cycle, result)) {
                 result->fail_reason = PERF_FAIL_IO;
+                remember_failure_cycle(result, &cycle);
                 break;
             }
         } else {
             result->fail_reason = PERF_FAIL_BUS_CYCLE;
+            remember_failure_cycle(result, &cycle);
             break;
         }
 
         if (!advance_pit(&pit, &pic, result)) {
             result->fail_reason = PERF_FAIL_TERMINAL_COUNT;
+            remember_failure_cycle(result, &cycle);
             break;
         }
 
@@ -691,6 +722,12 @@ static void print_point_result(const perf_result_t *r, uint index, uint total) {
     printf("Success hits                      = %u/%u\n",
            r->success_hits, SUCCESS_HITS_REQUIRED);
     printf("Failure reason                    = %s\n", fail_reason_name(r->fail_reason));
+    if (r->fail_reason != PERF_FAIL_NONE) {
+        printf("Failure cycle                     = address=%05lX type=%u lanes=%u\n",
+               (unsigned long)r->fail_address,
+               (unsigned)r->fail_cycle_type,
+               (unsigned)r->fail_lanes);
+    }
     printf("RESULT @ ");
     print_mhz(r->configured_hz);
     printf(" = %s\n", r->pass ? "PASS" : "FAIL");
@@ -712,6 +749,7 @@ int main(void) {
     printf("One firmware run sweeps all configured clock points.\n");
     printf("No per-bus-cycle USB logging occurs while a point is running.\n");
     printf("Configured clock is reported explicitly; it is not claimed as an independently measured frequency.\n");
+    printf("Continuous control/write-data sampling is phase-aligned to the proven Gate 6-12 stepped bus timing.\n");
     printf("Gate 12 stepped-clock firmware remains the last-known-good functional regression baseline.\n\n");
     fflush(stdout);
 
