@@ -168,6 +168,8 @@ AD data-valid observation
 
 ### PC1-C0A: Address Capture
 
+**Status: PASS on physical V30 hardware at 0.300 MHz.**
+
 Capture address and control under continuous clock without driving AD. Compare decoded results against the passive PC1-B observer and known reset sequence.
 
 Implementation target:
@@ -203,7 +205,11 @@ PC1-C ADDRESS CAPTURE RESULT = PASS
 CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
 ```
 
+Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.md`](validation/pc1c0a_address_capture_validation.md).
+
 ### PC1-C0B: Qualified Reset-Vector Response
+
+**Status: ACTIVE / IMPLEMENTATION NEXT.**
 
 Return only the reset-vector far jump from address-qualified ROM. All other cycles use an explicit unsupported-read policy.
 
