@@ -67,7 +67,7 @@ This is consistent with a split odd-address word write. It is supporting observe
 
 PC1-C0A deliberately supplies no read data. After the initial reset-vector reads, the V30 consumes uncontrolled bus values and its later transactions are not architecturally meaningful. They do not invalidate the capture test and must not be treated as ROM-execution evidence.
 
-The captured direction signal is electrically coherent: it is low for the initial reads and high for the later writes. The historical firmware name `DTR` remains provisional until continuity testing identifies whether Raspberry Pi physical pin 26 reaches V30 `DT/R`, `RD#`, or `WR#`.
+The captured `BUFR/W` signal is electrically coherent with the V30 pinout: it is low for the initial reads and high for the later writes. The legacy firmware name `DTR` is retained only as a source-compatibility alias.
 
 ## Consequence
 

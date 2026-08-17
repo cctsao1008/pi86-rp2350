@@ -33,7 +33,7 @@ Therefore **BCM GPIO numbers must never be copied directly into RP2350 firmware 
 | RESET | 36 | 16 | 16 | RP2350 -> V30 |
 | ALE / ASTB | 32 | 12 | 9 | V30 -> RP2350 |
 | IO/M | 24 | 8 | 8 | V30 -> RP2350 |
-| DT/R | 26 | 7 | 7 | V30 -> RP2350 |
+| BUFR/W | 26 | 7 | 7 | V30 -> RP2350 |
 | BHE | 22 | 25 | 25 | V30 -> RP2350 |
 | INTR | 38 | 20 | 20 | RP2350 -> V30 |
 | INTA | 28 | 1 | 1 | V30 -> RP2350 |

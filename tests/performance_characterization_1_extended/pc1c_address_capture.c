@@ -257,7 +257,7 @@ static void run_capture(capture_sm_t *clock,
         const uint32_t control = result->cycles[0].control_raw;
         result->first_memory_read =
             sample_bit(control, V30_PIN_IOM) != 0u &&
-            sample_bit(control, V30_PIN_DTR) == 0u &&
+            sample_bit(control, V30_PIN_BUFRW) == 0u &&
             sample_bit(control, V30_PIN_INTA) != 0u;
     }
 }
@@ -293,7 +293,7 @@ static void print_result(const capture_result_t *result) {
            result->ad_passive ? "PASSIVE PASS" : "FAIL");
 
     printf("\n[ADDRESS / CONTROL TRACE]\n");
-    printf("idx address raw_addr raw_ctrl ALE IOM DTR INTA BHE A0\n");
+    printf("idx address raw_addr raw_ctrl ALE IOM BUFRW INTA BHE A0\n");
     for (uint i = 0u; i < result->cycle_count; ++i) {
         const captured_cycle_t *cycle = &result->cycles[i];
         printf("%02u  %05lX  %08lX %08lX  %u   %u   %u    %u   %u   %u\n",
@@ -303,7 +303,7 @@ static void print_result(const capture_result_t *result) {
                (unsigned long)cycle->control_raw,
                (unsigned)sample_bit(cycle->control_raw, V30_PIN_ALE),
                (unsigned)sample_bit(cycle->control_raw, V30_PIN_IOM),
-               (unsigned)sample_bit(cycle->control_raw, V30_PIN_DTR),
+               (unsigned)sample_bit(cycle->control_raw, V30_PIN_BUFRW),
                (unsigned)sample_bit(cycle->control_raw, V30_PIN_INTA),
                (unsigned)sample_bit(cycle->control_raw, V30_PIN_BHE),
                (unsigned)sample_bit(cycle->address_raw, V30_PIN_AD0));
@@ -313,7 +313,7 @@ static void print_result(const capture_result_t *result) {
         "AF", "R1", "F1", "R2", "F2", "R3"
     };
     printf("\n[FIRST-CYCLE GPIO SNAPSHOTS]\n");
-    printf("phase raw_gpio  ALE CLK IOM DTR INTA BHE AD16\n");
+    printf("phase raw_gpio  ALE CLK IOM BUFRW INTA BHE AD16\n");
     for (uint i = 0u; i < result->phase_count; ++i) {
         const uint32_t raw = result->phase_raw[i];
         printf("%-4s  %08lX   %u   %u   %u   %u    %u   %u  %04X\n",
@@ -321,7 +321,7 @@ static void print_result(const capture_result_t *result) {
                (unsigned)sample_bit(raw, V30_PIN_ALE),
                (unsigned)sample_bit(raw, V30_PIN_CLK),
                (unsigned)sample_bit(raw, V30_PIN_IOM),
-               (unsigned)sample_bit(raw, V30_PIN_DTR),
+               (unsigned)sample_bit(raw, V30_PIN_BUFRW),
                (unsigned)sample_bit(raw, V30_PIN_INTA),
                (unsigned)sample_bit(raw, V30_PIN_BHE),
                (unsigned)decode_ad(raw));

@@ -66,7 +66,7 @@ The exact final loop address must be fixed by the assembled image and listed in 
 PIO address/control capture
         |
         v
-decode A19:A0, IO/M, DT/R, BHE, A0
+decode A19:A0, IO/M, BUFR/W, BHE, A0
         |
         v
 qualified memory READ

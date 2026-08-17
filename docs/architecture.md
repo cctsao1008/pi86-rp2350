@@ -110,7 +110,7 @@ PC1-B consumed a fixed response stream. A real companion chip must select data f
 ALE/T1 snapshot
    |
    +-> decode A19:A0
-   +-> decode IO/M, DT/R, BHE, A0
+   +-> decode IO/M, BUFR/W, BHE, A0
    |
    v
 qualified memory read

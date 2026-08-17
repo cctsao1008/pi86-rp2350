@@ -22,7 +22,8 @@
 #define V30_PIN_RESET  16u  /* RPi physical pin 36 */
 #define V30_PIN_ALE     9u  /* RPi physical pin 32 */
 #define V30_PIN_IOM     8u  /* RPi physical pin 24 */
-#define V30_PIN_DTR     7u  /* RPi physical pin 26 */
+#define V30_PIN_BUFRW   7u  /* RPi physical pin 26 */
+#define V30_PIN_DTR V30_PIN_BUFRW /* Legacy firmware name. */
 #define V30_PIN_BHE    25u  /* RPi physical pin 22 */
 #define V30_PIN_INTR   20u  /* RPi physical pin 38 */
 #define V30_PIN_INTA    1u  /* RPi physical pin 28 */

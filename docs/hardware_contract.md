@@ -49,7 +49,7 @@ A Raspberry Pi BCM GPIO number is reference-platform metadata. It must never be 
 | RESET | 36 | 16 | RP2350 -> V30 |
 | ALE | 32 | 9 | V30 -> RP2350 |
 | IO/M | 24 | 8 | V30 -> RP2350 |
-| DT/R | 26 | 7 | V30 -> RP2350 |
+| BUFR/W | 26 | 7 | V30 -> RP2350 |
 | BHE | 22 | 25 | V30 -> RP2350 |
 | INTR | 38 | 20 | RP2350 -> V30 |
 | INTA | 28 | 1 | V30 -> RP2350 |
