@@ -1,108 +1,111 @@
 # pi86-rp2350
 
-`pi86-rp2350` is evolving the original Pi86 physical V20/V30 computer into an RP2350-based **V30 companion chip**: a programmable, deterministic chipset around a real NEC processor.
+**A real NEC V30, with an RP2350 acting as its programmable chipset.**
 
-The goal is not to reproduce a Raspberry Pi 2/3 software stack on a faster board. The project preserves the physical NEC V20/V30 while moving clock generation, bus control, ROM/RAM, peripherals, storage, and debugging into a bare-metal RP2350 design. PIO and DMA own the deterministic data plane; the Arm cores provide supervision and higher-level services where the measured timing budget permits.
+`pi86-rp2350` evolves the original Pi86 physical V20/V30 computer into an RP2350-based **V30 companion-chip architecture**.
+
+The project preserves the **physical NEC V30 CPU** while moving clock generation, bus control, ROM/RAM service, interrupt/timer peripherals, storage, display, and debugging into a bare-metal RP2350 system. PIO and DMA implement the deterministic bus data path; the RP2350 processor cores provide address decoding, supervision, and higher-level services where the measured timing budget permits.
+
+This is **not** an x86 emulator running on the RP2350.
+
+```text
+Real NEC V30
+     +
+RP2350 programmable chipset
+     +
+PIO / DMA deterministic bus control
+```
 
 The central engineering question is:
 
-> How far can an RP2350 act as a programmable chipset around a real NEC V20/V30, from reset-vector execution through a monitor, BIOS services, and eventually a bootable PC-class system?
+> How far can an RP2350 act as a programmable chipset around a real NEC V20/V30 — from reset-vector execution through ROM, RAM, peripherals, BIOS services, and eventually a bootable PC-class system?
 
-PC1-B has answered the first performance question: the PIO-direct fixed-response path is validated on physical hardware from 0.300 through 8.000 MHz configured V30 clock. The active question is now whether that timing result can be converted into address-qualified ROM/RAM and peripheral service without losing deterministic behavior.
+## Project state
 
-## Development Model
+| Area | State |
+|---|---|
+| Physical NEC V30 bring-up | Validated |
+| Memory / I/O bus | Validated |
+| Maskable interrupt entry | Validated |
+| 8259A-compatible PIC | Validated |
+| PIT channel 0 / IRQ0 path | Validated |
+| PC1-B fixed-response PIO-direct path | Validated from 0.300 to 8.000 MHz |
+| **PC1-C address-qualified ROM execution** | **Active** |
+| General 8 MHz ROM/RAM service | Not yet validated |
+| 8255-compatible PPI | Planned |
+| BIOS / DOS boot | Planned |
 
-This project uses an evidence-driven, gate-based development model.
+PC1-B proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly at every tested clock point.
 
-Each gate introduces one clearly bounded capability and must be validated on the real V30/RP2350 hardware before the next capability is added.
+It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That is the PC1-C boundary.
 
-Key rules:
+Detailed gate definitions and validation records are maintained in [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
 
-- Preserve the last known-good hardware/software baseline.
-- Change one major assumption or capability at a time.
-- Separate refactoring from new functional behavior; refactors require regression validation first.
-- Define measurable acceptance criteria before implementation.
-- Prefer CPU-semantic validation over host-side code-path completion.
-- Treat real hardware behavior and target-specific documentation as higher-priority evidence than inferred behavior.
-- Record invalidated assumptions and superseded diagnostics instead of silently rewriting history.
-- Do not advance to the next gate until the current gate has passed on hardware.
+## Architecture direction: V30 companion chip
 
-Typical progression:
-
-```text
-baseline
--> isolated capability
--> hardware validation
--> evidence capture
--> regression-safe architecture
--> next capability
-```
-
-The current gate sequence is documented in [`docs/bringup.md`](docs/bringup.md).
-
-The broader cross-project methodology is maintained in [`cctsao1008/technical-management-framework`](https://github.com/cctsao1008/technical-management-framework); this repository contains only the Pi86-RP2350-specific application of that methodology.
-
-## Project status
-
-Validated through **Gate 12 and PC1-B on physical NEC V30 hardware**. The active milestone is **PC1-C ROM execution**. Current development work is tracked in [GitHub Issues](https://github.com/cctsao1008/pi86-rp2350/issues).
-
-### Validated functional chain
+The RP2350 is treated as a programmable chipset, not as a faster Linux host running Pi86-style GPIO polling.
 
 ```text
-RESET / fetch
--> memory read/write
--> byte lanes / odd-address access
--> I/O space
--> maskable interrupt entry
--> reusable PIC backend
--> programmable 8259A-compatible PIC
--> multi-IRQ fixed priority / ISR blocking
--> programmable PIT channel 0 / IRQ0 path
--> PIO-direct V30 instruction response
--> 0.300-8.000 MHz fixed-response frequency sweep
+                     +----------------------+
+                     |     Physical V30     |
+                     |    NEC D70116C-8     |
+                     +----------+-----------+
+                                |
+                         V30 system bus
+                                |
+                    Original Pi86 V20/V30 HAT
+                                |
+                                v
+              +-----------------------------------+
+              |        Waveshare RP2350-PiZero   |
+              |              RP2350B              |
+              |                                   |
+              |  PIO0  clock / passive observe   |
+              |  PIO1  AD bus response           |
+              |  DMA   deterministic transfers   |
+              |                                   |
+              |  real-time core   decode/service |
+              |  service core     USB/storage/etc|
+              +------+-----------+----------+------+
+                     |           |          |
+                     v           v          v
+                  SRAM        PSRAM       Flash
+                     |           |          |
+                fast path     V30 RAM      BIOS
+                PIO/DMA       video        ROM
+                queues        trace        firmware
 ```
 
-PC1-B proves that a pre-staged `EB FE` response can travel through DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the V30 to execute it at every tested clock point. It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz; that is the PC1-C boundary.
+Current partitioning:
 
-Detailed gate definitions, acceptance criteria, and validation history are maintained in [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/). Raw hardware evidence is archived separately in the project Google Drive.
+- **PIO0** — continuous V30 clock, passive ALE/address observation, and phase capture
+- **PIO1** — direct scattered-AD data output and bus-direction ownership during read-response windows
+- **DMA** — deterministic SRAM-to-PIO FIFO data movement
+- **Real-time core** — address/control decode, cache/refill supervision, and exceptional bus work
+- **Service core** — ROM/disk images, USB/debug/keyboard, display, storage, and other non-real-time services
 
-## Success criteria
+The current HAT holds V30 `READY` high, so the present hardware cannot insert arbitrary wait states for ROM-cache misses, PSRAM latency, or slower peripheral service. Deterministic response latency is therefore a first-class architectural constraint.
 
-The project tracks three independent success dimensions:
+See [`docs/project_overview.md`](docs/project_overview.md) for the full architecture and performance strategy.
 
-```text
-Functional
-  physical V30 -> memory -> I/O -> PIC/PIT -> BIOS -> DOS
+## Hardware baseline
 
-Architectural
-  deterministic critical path, no Linux scheduler dependency,
-  hard-real-time bus service separated from slower peripherals
+- **Host / chipset:** Waveshare RP2350-PiZero
+- **MCU:** RP2350B
+- **CPU:** NEC V30 `D70116C-8` / `uPD70116C-8`
+- **Installed CPU marking:** `1020VD002`
+- **CPU interface:** original Homebrew8088 Pi86 V20/V30 HAT
+- **Mechanical interface:** Raspberry Pi-compatible physical 40-pin header
+- **HAT redesign:** not planned
+- **External RAM target:** APS6404L-class 8 MB PSRAM
+- **Onboard Flash:** 16 MB
+- **Storage target:** onboard MicroSD
+- **Display target:** onboard DVI using Pi86 virtual CGA memory
+- **Debug target:** native USB CDC
 
-Performance
-  fixed-response PIO-direct path validated through 8 MHz,
-  next characterize address-qualified ROM/RAM service and
-  preserve real V30-class operation rather than chase clock rate alone
-```
+> The installed `D70116C-8` is nominally a 5 V device. Operation on the original Pi86 HAT at 3.3 V is treated as a project-specific empirical condition rather than the nominal NEC operating specification.
 
-The original Pi86 project's reported approximately 0.3 MHz operating point is treated as the historical comparison baseline, not as a target architecture limit.
-
-## Locked hardware baseline
-
-- Host: Waveshare RP2350-PiZero
-- CPU: NEC V30 `D70116C-8` / `uPD70116C-8`
-- Installed CPU marking: `1020VD002`
-- CPU HAT: original Homebrew8088 Pi86 V20/V30 (8088/8086) HAT
-- Mechanical interface: HAT plugs directly into the RP2350-PiZero 40-pin Raspberry Pi-compatible header
-- HAT PCB redesign: **not planned**
-- Original Pi86 HAT physical-header assignment: **preserved**
-- Planned external RAM: APS6404L-class 8 MB PSRAM on the RP2350-PiZero PSRAM footprint
-- Storage target: onboard MicroSD
-- Display target: onboard DVI using Pi86 virtual CGA memory
-- Debug target: native USB CDC
-
-> The installed `D70116C-8` is nominally a 5 V part. The original HAT is marked for 3.3 V V20/V30 operation. Treat 3.3 V operation of this specific CPU as a project-specific empirical condition, not as the nominal NEC rating.
-
-## Hardware-interface rule
+## Hardware-interface contract
 
 The Raspberry Pi **physical 40-pin header position** is the cross-platform hardware ABI.
 
@@ -121,122 +124,196 @@ Do not conflate:
 WiringPi number != BCM GPIO != physical header pin != RP2350 GPIO
 ```
 
-See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and permanent review rules.
+See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and [`docs/pin_mapping.md`](docs/pin_mapping.md) for the implementation-oriented pin map.
 
-## Architecture direction: V30 companion chip
+## Memory model
 
-The RP2350 is treated as a modern programmable chipset, not as a faster Linux host running Pi86-style GPIO polling.
+The project separates three memory roles:
 
-- **PIO0:** continuous V30 clock, passive ALE/address observation, and phase capture
-- **PIO1:** direct scattered-AD data output and `PINDIRS` ownership during read response windows
-- **DMA:** deterministic SRAM-to-PIO FIFO movement without DMA writes to SIO
-- **Real-time core role:** address/control decode, cache/refill supervision, and exceptional bus work that cannot remain entirely in PIO/DMA
-- **Service core role:** ROM/disk images, USB/debug/keyboard, display, storage, and other non-real-time services
-- **Bring-up memory:** RP2350 internal SRAM
-- **Full system memory:** external PSRAM backend
+> **Internal SRAM = deterministic fast path**  
+> **External PSRAM = V30 bulk working memory**  
+> **Flash = persistent firmware / BIOS / ROM storage**
 
-The original HAT uses a scattered Raspberry Pi physical-header mapping. PC1-B handles it by encoding each 16-bit V30 word into a GPIO0-27 bitmap, routing only AD pins to PIO1, and switching bus ownership with RP2350 `MOV PINDIRS`. Input synchronizer bypass was not required for the 0.300-8.000 MHz validation.
+| Resource | Primary role |
+|---|---|
+| RP2350 internal SRAM | PIO/DMA queues, bus state, hot memory, virtual-device state |
+| External PSRAM | V30 RAM, video memory, trace, snapshots, large buffers |
+| External Flash | RP2350 firmware, BIOS, option/test ROM images |
+| MicroSD | PC storage and persistent disk images |
 
-The next architecture boundary is address-qualified service. The current HAT holds V30 `READY` high, so the existing hardware cannot insert wait states for a ROM-cache or PSRAM miss. PC1-C must therefore measure the complete address-capture, lookup, and response loop honestly before the project claims general 8 MHz memory service.
+The V30 itself sees its normal 20-bit physical address space:
 
-See [`docs/project_overview.md`](docs/project_overview.md) for the full project mission, research questions, and performance strategy.
+```text
+00000h - FFFFFh
+```
 
-## Engineering knowledge and decision records
+The RP2350 maps V30 memory and I/O transactions onto SRAM, PSRAM, Flash, or virtual-device backends.
 
-Important project knowledge is deliberately version-controlled rather than left only in chat history:
+## Peripheral model
 
-- [`docs/project_overview.md`](docs/project_overview.md) — mission, research question, success criteria, and performance strategy.
-- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract and source hierarchy.
-- [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map.
-- [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — architectural decision explaining why physical header position is canonical.
-- [`docs/adr/0002-adopt-v30-companion-chip-architecture.md`](docs/adr/0002-adopt-v30-companion-chip-architecture.md) — decision to adopt the companion-chip architecture and its validation boundaries.
-- [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up postmortem, root cause, superseded diagnostic paths and permanent corrective actions.
-- [`docs/validation/gate11_multi_irq_priority_validation.md`](docs/validation/gate11_multi_irq_priority_validation.md) — physical Gate 11 multi-IRQ validation evidence and acceptance result.
-- [`docs/validation/pc1b_pio_direct_frequency_sweep.md`](docs/validation/pc1b_pio_direct_frequency_sweep.md) — PC1-B physical 0.300-8.000 MHz PIO-direct validation result.
-- [`docs/pc1b_pio_direct_frequency_sweep_20260817.md`](docs/pc1b_pio_direct_frequency_sweep_20260817.md) — dated PC1-B sweep evidence and interpretation.
-- [`docs/pc1c_rom_execution_plan.md`](docs/pc1c_rom_execution_plan.md) — active transition from fixed responses to ROM execution.
-- [GitHub Issue #14](https://github.com/cctsao1008/pi86-rp2350/issues/14) — Gate 4 debugging archaeology and root-cause resolution history.
-- [GitHub Issue #41](https://github.com/cctsao1008/pi86-rp2350/issues/41) — Gate 11 multi-IRQ fixed-priority validation, closed PASS.
+The RP2350 progressively replaces traditional PC glue logic and peripheral controllers with software-defined implementations around the physical V30.
 
-A key retrospective lesson is that signal identity must be proven before signal behavior is interpreted. Earlier diagnostics performed under an incorrect BCM-to-RP2350 translation are retained as history but are explicitly superseded where their signal interpretation depended on the wrong mapping.
+Current peripheral state:
 
-## Dependency model
+- **8259A-compatible PIC** — validated
+- **8253/8254-class PIT path** — channel 0 / IRQ0 validated
+- **8255-compatible PPI** — planned
+- **UART / keyboard / display / storage services** — future integration as required by the BIOS/DOS path
 
-The Raspberry Pi Pico SDK and picotool host utility are repository-pinned dependencies.
+These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
 
-- Pico SDK is tracked as the Git submodule `third_party/pico-sdk`, pinned to **2.3.0**, commit `98a542c1a62fb549ffb5d66a3e5892b06276b670`.
-- picotool is tracked as the Git submodule `third_party/picotool`, pinned to **2.3.0**, commit `6f6458d792b93685a11423b244a585eaa99eafcf`.
-- Pico SDK contains its own nested submodules, so dependency initialization must use `--recursive`.
-- `scripts/bootstrap_tools.sh` builds the pinned picotool with libusb support into the gitignored `.tools/` tree.
-- Normal builds do **not** require a `PICO_SDK_PATH` environment variable.
-- An explicit CMake `-DPICO_SDK_PATH=...` remains available only as an intentional local override.
+## Toolchain
 
-This makes a project commit resolve to exact SDK and picotool source commits and keeps historical builds reproducible.
+The project has two execution domains and therefore two toolchain roles.
 
-## Clone
+### RP2350 side
 
-New clone:
+- C / C++
+- Raspberry Pi Pico SDK
+- Arm GNU Toolchain
+- CMake
+- picotool
+
+### V30 side
+
+- 16-bit x86/V30 assembly
+- **NASM** for ROM, diagnostic, monitor, and BIOS-side test images
+
+NASM-generated flat binaries can be embedded or mapped as V30 ROM images for hardware execution tests such as PC1-C.
+
+## Reference model
+
+Original processor documentation is the primary source for CPU and bus behavior.
+
+Reference priority:
+
+1. **NEC V20/V30 User's Manual** — physical V30 hardware architecture, pin behavior, bus cycles, reset, interrupts, memory, and I/O
+2. **NEC 16-bit V-series Instruction Manual** — V30 instruction set, addressing modes, execution behavior, and 8086/8088 correspondence
+3. **Intel 8086 family documentation** — architectural and software-compatibility reference for the underlying 8086-class model
+4. **Original Pi86 source and HAT behavior** — implementation and compatibility reference
+5. **Related physical x86/V20/V30 implementations** — secondary engineering reference
+
+Where NEC V30-specific behavior differs from the Intel 8086, the NEC documentation takes precedence for this project because the target CPU is a physical NEC V30.
+
+For tool behavior, the NASM documentation is the normative reference for V30-side assembly generation.
+
+## Engineering model
+
+Development follows hardware-validated gates:
+
+```text
+known-good baseline
+        -> isolated capability
+        -> physical hardware validation
+        -> evidence capture
+        -> regression verification
+        -> next capability
+```
+
+A gate does not advance merely because a host-side code path executes. Acceptance is based on **CPU-visible behavior on the physical V30**.
+
+The complete gate sequence is maintained in [`docs/bringup.md`](docs/bringup.md).
+
+## Target progression
+
+```text
+RESET / instruction fetch
+        ↓
+address-qualified ROM execution
+        ↓
+RAM service
+        ↓
+I/O-space peripherals
+   ├── 8259 PIC
+   ├── 8253/8254 PIT
+   ├── 8255 PPI
+   └── UART / keyboard / other devices
+        ↓
+BIOS services
+        ↓
+storage / display
+        ↓
+DOS boot
+```
+
+Clock frequency alone is not the project goal. The objective is to preserve deterministic real-V30 operation while progressively increasing system capability.
+
+## Documentation
+
+Important project knowledge is version-controlled rather than retained only in development conversations.
+
+- [`docs/project_overview.md`](docs/project_overview.md) — mission, research questions, success criteria, and performance strategy
+- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract and source hierarchy
+- [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map
+- [`docs/bringup.md`](docs/bringup.md) — gate sequence and validation state
+- [`docs/validation/`](docs/validation/) — physical hardware validation records
+- [`docs/validation/pc1b_pio_direct_frequency_sweep.md`](docs/validation/pc1b_pio_direct_frequency_sweep.md) — PC1-B validation result
+- [`docs/pc1c_rom_execution_plan.md`](docs/pc1c_rom_execution_plan.md) — active ROM-execution milestone
+- [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — physical-header ABI decision
+- [`docs/adr/0002-adopt-v30-companion-chip-architecture.md`](docs/adr/0002-adopt-v30-companion-chip-architecture.md) — companion-chip architecture decision
+- [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up retrospective
+
+Raw hardware evidence such as scope captures, photographs, logs, benchmarks, and long-form experimental reports is archived separately.
+
+## Dependencies
+
+The main RP2350 build dependencies are repository-pinned for reproducibility.
+
+- **Pico SDK 2.3.0** — `third_party/pico-sdk`, commit `98a542c1a62fb549ffb5d66a3e5892b06276b670`
+- **picotool 2.3.0** — `third_party/picotool`, commit `6f6458d792b93685a11423b244a585eaa99eafcf`
+
+Both are Git submodules. Pico SDK contains nested submodules, so dependency initialization should use `--recursive`.
+
+## Quick start
+
+### Clone
 
 ```bash
 git clone --recursive git@github.com:cctsao1008/pi86-rp2350.git
 cd pi86-rp2350
 ```
 
-Existing clone after pulling a commit that adds or changes dependencies:
+For an existing clone:
 
 ```bash
 git pull
 git submodule update --init --recursive
 ```
 
-Verify the pinned dependency:
-
-```bash
-git submodule status --recursive
-```
-
-## Build prerequisites
+### Build prerequisites
 
 Host tools:
 
 - Git
 - CMake
 - Arm GNU Toolchain supported by Pico SDK 2.3.0
-- `pkg-config` and `libusb-1.0` development files for repository-local picotool
-- Ninja is optional but recommended
+- `pkg-config`
+- `libusb-1.0` development files
+- **NASM 3.x** for V30/8086 ROM and diagnostic images
+- Ninja optional but recommended
 
-The project uses the official Pico SDK board definition:
+The project uses the Pico SDK board definition:
 
 ```text
 waveshare_rp2350_pizero
 ```
 
-That board definition selects the RP2350B package and the board's 16 MB flash configuration.
-
 ### Linux / WSL
-
-Bootstrap the pinned host tool once:
 
 ```bash
 ./scripts/bootstrap_tools.sh
-```
-
-Then build normally:
-
-```bash
 ./scripts/build.sh --clean
 ```
 
-Build a single target:
+Build the primary firmware:
 
 ```bash
 ./scripts/build.sh --target pi86_rp2350
-./scripts/build.sh --target gpio_test
-./scripts/build.sh --target gate9r_pic
-./scripts/build.sh --target gate10_8259a
-./scripts/build.sh --target gate11_pic_priority
-./scripts/build.sh --target gate11_irq_priority
-./scripts/build.sh --target gate12_pit_core
+```
+
+Build the PC1-B validation target:
+
+```bash
 ./scripts/build.sh --target pc1b_pio_direct_post_reset_epoch_sweep
 ```
 
@@ -246,12 +323,10 @@ Build a single target:
 .\scripts\build.ps1 -Clean
 ```
 
-Build a single target:
+or:
 
 ```powershell
 .\scripts\build.ps1 -Target pi86_rp2350
-.\scripts\build.ps1 -Target gpio_test
-.\scripts\build.ps1 -Target pc1b_pio_direct_post_reset_epoch_sweep
 ```
 
 ### Manual CMake
@@ -261,28 +336,22 @@ cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
 ```
 
-The root `CMakeLists.txt` defaults to the repository-pinned Pico SDK submodule and `PICO_BOARD=waveshare_rp2350_pizero`. The scripted Linux/WSL build additionally selects the repository-local picotool CMake package generated by `scripts/bootstrap_tools.sh`.
+Normal builds use the repository-pinned Pico SDK and do not require a global `PICO_SDK_PATH`.
 
-## Bring-up gates
+## Source and evidence policy
 
-See [`docs/bringup.md`](docs/bringup.md).
+**GitHub** contains source code, build configuration, architecture documentation, hardware contracts, ADRs, validation summaries, issues, and version history.
 
-The first critical V30 milestone was:
+The external **evidence archive** is used for original manuals/datasheets, hardware photographs, oscilloscope captures, raw bring-up logs, benchmarks, long-form reports, and eventual BIOS/DOS boot evidence.
 
-```text
-RESET -> first bus fetch -> 0xFFFF0
-```
+## Project origin
 
-That milestone and the subsequent memory, I/O-space, interrupt, PIC, PIT, and PC1-B PIO-direct performance gates are validated on physical hardware. The next milestone is PC1-C0: execute an address-qualified ROM image beginning with a far jump from `FFFF0` to `F0000`, then reach a CPU-visible checkpoint rather than merely completing a host-side code path.
+`pi86-rp2350` is derived conceptually from the original Homebrew8088 Pi86 project, which demonstrated a physical NEC V20/V30 computer using a Raspberry Pi as the surrounding system.
 
-## Source and documentation policy
+This project preserves the original physical CPU and HAT interface while replacing the Linux-hosted control model with a bare-metal RP2350 architecture designed around PIO, DMA, deterministic timing, and explicit hardware validation.
 
-- GitHub contains source code, build files, pinned source dependencies, hardware-interface documentation, ADRs, retrospectives, issues, and version history.
-- Google Drive is the evidence vault for original manuals/datasheets, hardware photos, bring-up logs, scope captures, benchmarks, long-form reports, and DOS boot evidence.
-- NEC documentation is the normative source for V30 electrical and bus timing requirements.
-- Original Pi86 source/HAT behavior is the compatibility reference.
-- ArduinoX86 is a related implementation reference for physical x86/V20/V30 bus-control and validation concepts.
+The intent is therefore not merely to **port Pi86**. The longer-term objective is to explore whether the RP2350 can function as a compact, programmable implementation of much of the chipset traditionally surrounding an 8086-class processor.
 
 ## License
 
-No project license has been selected yet. Upstream Pi86 licensing and derivative-code obligations must be reviewed before Pi86 source is imported or redistributed here.
+No project license has been selected yet. Upstream Pi86 licensing and derivative-code obligations must be reviewed before Pi86 source code is imported or redistributed by this repository.
