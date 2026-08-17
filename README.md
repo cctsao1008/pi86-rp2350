@@ -56,16 +56,16 @@ The RP2350 is treated as a programmable chipset, not as a faster Linux host runn
                     Original Pi86 V20/V30 HAT
                                 |
                                 v
-              +-----------------------------------+
-              |        Waveshare RP2350-PiZero   |
-              |              RP2350B              |
-              |                                   |
-              |  PIO0  clock / passive observe   |
-              |  PIO1  AD bus response           |
-              |  DMA   deterministic transfers   |
-              |                                   |
-              |  real-time core   decode/service |
-              |  service core     USB/storage/etc|
+              +------------------------------------+
+              |        Waveshare RP2350-PiZero     |
+              |              RP2350B               |
+              |                                    |
+              |  PIO0  clock / passive observe     |
+              |  PIO1  AD bus response             |
+              |  DMA   deterministic transfers     |
+              |                                    |
+              |  real-time core   decode/service   |
+              |  service core     USB/storage/etc  |
               +------+-----------+----------+------+
                      |           |          |
                      v           v          v
