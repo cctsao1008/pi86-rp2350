@@ -223,7 +223,7 @@ The first 0.300 MHz implementation deliberately keeps the lookup path simple and
 
 ```text
 PIO1 synchronized CLK + early-T1 capture + AD response
-  -> M33 current-cycle SRAM lookup
+  -> M33 current-cycle precompiled SRAM descriptor lookup
   -> one command per ASTB cycle
   -> PIO1 TX FIFO
   -> encoded scattered AD bitmap + PINDIRS
@@ -233,9 +233,15 @@ PIO0 passive address observer
   -> bounded SRAM trace
 ```
 
-PIO1 rechecks ASTB after pulling every response command. Commands that arrive
-after ASTB falls are consumed as alignment tokens but are hardware-gated from
-asserting AD output-enable.
+PIO1 pulls each response command while ASTB is high, then rechecks ASTB. An
+on-time command preloads the output latch and waits for ASTB fall before
+asserting output-enable. Commands that arrive after ASTB falls are consumed as
+alignment tokens but are hardware-gated from driving AD.
+
+The reset-ROM backend precompiles word and byte-lane responses into complete
+GPIO0-27 command descriptors before RESET release. The timed path performs an
+address-qualified SRAM index and does not encode sixteen scattered AD bits per
+cycle.
 
 The first physical C0B run confirmed correct post-fall address classification,
 but the response command missed R2 because the paired capture was not published

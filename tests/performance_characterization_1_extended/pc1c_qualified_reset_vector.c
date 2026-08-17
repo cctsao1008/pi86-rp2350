@@ -92,6 +92,9 @@ typedef struct {
 } pc1c0b_result_t;
 
 static uint8_t g_reset_rom[RESET_ROM_SIZE];
+static uint32_t g_reset_word_commands[RESET_ROM_SIZE / 2u];
+static uint32_t g_reset_low_commands[RESET_ROM_SIZE];
+static uint32_t g_reset_high_commands[RESET_ROM_SIZE];
 static uint32_t g_observer_dma_words[TRACE_DEPTH];
 
 static const uint8_t ad_pins[16] = {
@@ -146,9 +149,14 @@ static inline uint32_t encode_gpio_word(uint16_t value) {
     return encoded;
 }
 
+static inline uint32_t encoded_drive_command(uint16_t value) {
+    return encode_gpio_word(value) | (1u << RESPONSE_VALID_BIT);
+}
+
 static inline bool reset_rom_read(uint32_t address,
                                   lane_mask_t lanes,
-                                  uint16_t *value) {
+                                  uint16_t *value,
+                                  uint32_t *command) {
     if (lanes == LANES_WORD) {
         if (address < RESET_ROM_BASE ||
             address + 1u >= RESET_ROM_BASE + RESET_ROM_SIZE)
@@ -156,6 +164,7 @@ static inline bool reset_rom_read(uint32_t address,
         const uint32_t offset = address - RESET_ROM_BASE;
         *value = (uint16_t)g_reset_rom[offset] |
                  ((uint16_t)g_reset_rom[offset + 1u] << 8);
+        *command = g_reset_word_commands[offset >> 1u];
         return true;
     }
 
@@ -166,10 +175,12 @@ static inline bool reset_rom_read(uint32_t address,
     const uint8_t byte = g_reset_rom[address - RESET_ROM_BASE];
     if (lanes == LANE_LOW) {
         *value = byte;
+        *command = g_reset_low_commands[address - RESET_ROM_BASE];
         return true;
     }
     if (lanes == LANE_HIGH) {
         *value = (uint16_t)byte << 8;
+        *command = g_reset_high_commands[address - RESET_ROM_BASE];
         return true;
     }
     return false;
@@ -356,11 +367,6 @@ static void responder_preserve_clock_direction(pc1c_sm_t *responder) {
                 pio_encode_mov(pio_y, pio_osr));
 }
 
-static inline uint32_t response_command(uint16_t response, bool drive) {
-    return encode_gpio_word(response) |
-           (drive ? (1u << RESPONSE_VALID_BIT) : 0u);
-}
-
 static inline void remember_trace(pc1c0b_result_t *result,
                                   uint32_t cycle_raw,
                                   uint32_t address,
@@ -398,15 +404,15 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
         const lane_mask_t lanes = decode_lanes(cycle_raw);
         const bool memory_read = is_memory_read(cycle_raw);
         uint16_t response = 0u;
+        uint32_t command = 0u;
         const bool rom_hit = memory_read &&
-            reset_rom_read(address, lanes, &response);
+            reset_rom_read(address, lanes, &response, &command);
 
         if (pio_sm_is_tx_fifo_full(responder->pio, responder->sm)) {
             ++result->tx_backpressure;
             return;
         }
-        pio_sm_put(responder->pio, responder->sm,
-                   response_command(response, rom_hit));
+        pio_sm_put(responder->pio, responder->sm, command);
         if (!gpio_get(V30_PIN_ASTB))
             ++result->late_response_commands;
 
@@ -572,9 +578,9 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("Realtime engine     : PIO1 synchronized CLK + early-T1 capture + AD/PINDIRS\n");
     printf("Capture settling    : %u PIO cycles after ASTB rise\n",
            CAPTURE_SETTLE_CYCLES);
-    printf("Response policy     : M33 current-cycle SRAM lookup -> PIO1 TX FIFO\n");
+    printf("Response policy     : M33 precompiled SRAM descriptor -> PIO1 TX FIFO\n");
     printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
-    printf("Late-drive gate     : PIO1 rechecks ASTB before asserting AD OE\n");
+    printf("Late-drive gate     : PIO1 requires command arrival during ASTB-high\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
@@ -674,6 +680,16 @@ int main(void) {
         0xEAu, 0x00u, 0x00u, 0x00u, 0xF0u, 0x90u,
     };
     for (uint i = 0u; i < RESET_ROM_SIZE; ++i) g_reset_rom[i] = image[i];
+    for (uint i = 0u; i < RESET_ROM_SIZE; ++i) {
+        g_reset_low_commands[i] = encoded_drive_command(g_reset_rom[i]);
+        g_reset_high_commands[i] =
+            encoded_drive_command((uint16_t)g_reset_rom[i] << 8);
+    }
+    for (uint i = 0u; i < RESET_ROM_SIZE / 2u; ++i) {
+        const uint16_t word = (uint16_t)g_reset_rom[i * 2u] |
+            ((uint16_t)g_reset_rom[i * 2u + 1u] << 8);
+        g_reset_word_commands[i] = encoded_drive_command(word);
+    }
 
     prepare_header_high_z();
     init_control_outputs();
