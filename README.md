@@ -39,9 +39,9 @@ PC1-B proves that a pre-staged V30 instruction response can travel through RP235
 
 It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That is the PC1-C boundary.
 
-Detailed gate definitions and validation records are maintained in [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
+Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
 
-## Architecture direction: V30 companion chip
+## Architecture
 
 The RP2350 is treated as a programmable chipset, not as a faster Linux host running Pi86-style GPIO polling.
 
@@ -86,7 +86,7 @@ Current partitioning:
 
 The current HAT holds V30 `READY` high, so the present hardware cannot insert arbitrary wait states for ROM-cache misses, PSRAM latency, or slower peripheral service. Deterministic response latency is therefore a first-class architectural constraint.
 
-See [`docs/project_overview.md`](docs/project_overview.md) for the full architecture and performance strategy.
+The Raspberry Pi **physical 40-pin header position** is treated as the cross-platform hardware ABI. See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and review rules.
 
 ## Hardware baseline
 
@@ -105,28 +105,9 @@ See [`docs/project_overview.md`](docs/project_overview.md) for the full architec
 
 > The installed `D70116C-8` is nominally a 5 V device. Operation on the original Pi86 HAT at 3.3 V is treated as a project-specific empirical condition rather than the nominal NEC operating specification.
 
-## Hardware-interface contract
+Board-level reference: [Waveshare RP2350-PiZero Wiki](https://www.waveshare.com/wiki/RP2350-PiZero).
 
-The Raspberry Pi **physical 40-pin header position** is the cross-platform hardware ABI.
-
-Always translate:
-
-```text
-V30 signal
-  -> Raspberry Pi physical header pin
-  -> RP2350-PiZero board routing
-  -> RP2350 GPIO
-```
-
-Do not conflate:
-
-```text
-WiringPi number != BCM GPIO != physical header pin != RP2350 GPIO
-```
-
-See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and [`docs/pin_mapping.md`](docs/pin_mapping.md) for the implementation-oriented pin map.
-
-## Memory model
+## Memory and peripheral model
 
 The project separates three memory roles:
 
@@ -141,17 +122,7 @@ The project separates three memory roles:
 | External Flash | RP2350 firmware, BIOS, option/test ROM images |
 | MicroSD | PC storage and persistent disk images |
 
-The V30 itself sees its normal 20-bit physical address space:
-
-```text
-00000h - FFFFFh
-```
-
-The RP2350 maps V30 memory and I/O transactions onto SRAM, PSRAM, Flash, or virtual-device backends.
-
-## Peripheral model
-
-The RP2350 progressively replaces traditional PC glue logic and peripheral controllers with software-defined implementations around the physical V30.
+The V30 sees its normal 20-bit physical address space (`00000h`-`FFFFFh`). The RP2350 maps V30 memory and I/O transactions onto SRAM, PSRAM, Flash, or virtual-device backends.
 
 Current peripheral state:
 
@@ -164,7 +135,7 @@ These peripherals are parallel branches of the V30 I/O-space architecture rather
 
 ## Toolchain
 
-The project has two execution domains and therefore two toolchain roles.
+The project has two execution domains.
 
 ### RP2350 side
 
@@ -183,36 +154,34 @@ NASM-generated flat binaries can be embedded or mapped as V30 ROM images for har
 
 ## Reference model
 
-Original processor documentation is the primary source for CPU and bus behavior.
+References are grouped by scope rather than treated as one interchangeable source hierarchy.
 
-Reference priority:
+### CPU and bus
 
-1. **NEC V20/V30 User's Manual** — physical V30 hardware architecture, pin behavior, bus cycles, reset, interrupts, memory, and I/O
-2. **NEC 16-bit V-series Instruction Manual** — V30 instruction set, addressing modes, execution behavior, and 8086/8088 correspondence
-3. **Intel 8086 family documentation** — architectural and software-compatibility reference for the underlying 8086-class model
-4. **Original Pi86 source and HAT behavior** — implementation and compatibility reference
-5. **Related physical x86/V20/V30 implementations** — secondary engineering reference
+- **NEC V20/V30 User's Manual** — normative source for the physical V30 hardware, pins, bus cycles, reset, interrupts, memory, and I/O behavior
+- **NEC 16-bit V-series Instruction Manual** — normative V30 ISA reference, including addressing modes, execution behavior, and 8086/8088 correspondence
+- **Intel 8086 family documentation** — architectural and software-compatibility reference for the underlying 8086-class model
 
-Where NEC V30-specific behavior differs from the Intel 8086, the NEC documentation takes precedence for this project because the target CPU is a physical NEC V30.
+Where NEC V30-specific behavior differs from Intel 8086 behavior, the NEC documentation takes precedence because the target CPU is a physical NEC V30.
 
-For tool behavior, the NASM documentation is the normative reference for V30-side assembly generation.
+### RP2350 platform
 
-## Engineering model
+- **Raspberry Pi RP2350 Datasheet** — MCU architecture, GPIO, PIO, DMA, QMI, SRAM, timing, and electrical reference
+- **Raspberry Pi Pico SDK documentation** — firmware API and build-system reference
 
-Development follows hardware-validated gates:
+### Board
 
-```text
-known-good baseline
-        -> isolated capability
-        -> physical hardware validation
-        -> evidence capture
-        -> regression verification
-        -> next capability
-```
+- [**Waveshare RP2350-PiZero Wiki**](https://www.waveshare.com/wiki/RP2350-PiZero) and schematic — board routing, Flash, PSRAM footprint, DVI, MicroSD, USB, and 40-pin interface
 
-A gate does not advance merely because a host-side code path executes. Acceptance is based on **CPU-visible behavior on the physical V30**.
+### Tool behavior
 
-The complete gate sequence is maintained in [`docs/bringup.md`](docs/bringup.md).
+- **NASM documentation** — normative reference for V30-side assembly generation
+
+### Compatibility and lineage
+
+- [**Homebrew8088 Pi86 project**](https://www.homebrew8088.com/home/raspberry-pi-second-project) — historical architecture, hardware behavior, BIOS/toolchain model, and the approximately 0.3 MHz comparison baseline
+- Original Pi86 source and V20/V30 HAT — source-level and physical-interface compatibility reference
+- Related physical x86/V20/V30 implementations — secondary engineering references
 
 ## Target progression
 
@@ -240,31 +209,28 @@ Clock frequency alone is not the project goal. The objective is to preserve dete
 
 ## Documentation
 
-Important project knowledge is version-controlled rather than retained only in development conversations.
-
-- [`docs/project_overview.md`](docs/project_overview.md) — mission, research questions, success criteria, and performance strategy
-- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract and source hierarchy
-- [`docs/pin_mapping.md`](docs/pin_mapping.md) — implementation-oriented pin map
-- [`docs/bringup.md`](docs/bringup.md) — gate sequence and validation state
+- [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
+- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
+- [`docs/bringup.md`](docs/bringup.md) — gate sequence and current validation state
 - [`docs/validation/`](docs/validation/) — physical hardware validation records
-- [`docs/validation/pc1b_pio_direct_frequency_sweep.md`](docs/validation/pc1b_pio_direct_frequency_sweep.md) — PC1-B validation result
-- [`docs/pc1c_rom_execution_plan.md`](docs/pc1c_rom_execution_plan.md) — active ROM-execution milestone
-- [`docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](docs/adr/0001-use-rpi-physical-pin-as-hardware-abi.md) — physical-header ABI decision
-- [`docs/adr/0002-adopt-v30-companion-chip-architecture.md`](docs/adr/0002-adopt-v30-companion-chip-architecture.md) — companion-chip architecture decision
-- [`docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](docs/retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md) — bring-up retrospective
 
-Raw hardware evidence such as scope captures, photographs, logs, benchmarks, and long-form experimental reports is archived separately.
+Raw hardware evidence such as scope captures, photographs, logs, benchmarks, manuals/datasheets, and long-form experimental reports is archived separately.
 
-## Dependencies
+## Build
 
-The main RP2350 build dependencies are repository-pinned for reproducibility.
+The main RP2350 build dependencies are repository-pinned for reproducibility. Pico SDK and picotool are Git submodules; dependency initialization therefore uses `--recursive`.
 
-- **Pico SDK 2.3.0** — `third_party/pico-sdk`, commit `98a542c1a62fb549ffb5d66a3e5892b06276b670`
-- **picotool 2.3.0** — `third_party/picotool`, commit `6f6458d792b93685a11423b244a585eaa99eafcf`
+### Prerequisites
 
-Both are Git submodules. Pico SDK contains nested submodules, so dependency initialization should use `--recursive`.
+- Git
+- CMake
+- Arm GNU Toolchain supported by the pinned Pico SDK
+- `pkg-config`
+- `libusb-1.0` development files
+- **NASM 3.x** for V30/8086 ROM and diagnostic images
+- Ninja optional but recommended
 
-## Quick start
+The project uses the Pico SDK board definition `waveshare_rp2350_pizero`.
 
 ### Clone
 
@@ -278,24 +244,6 @@ For an existing clone:
 ```bash
 git pull
 git submodule update --init --recursive
-```
-
-### Build prerequisites
-
-Host tools:
-
-- Git
-- CMake
-- Arm GNU Toolchain supported by Pico SDK 2.3.0
-- `pkg-config`
-- `libusb-1.0` development files
-- **NASM 3.x** for V30/8086 ROM and diagnostic images
-- Ninja optional but recommended
-
-The project uses the Pico SDK board definition:
-
-```text
-waveshare_rp2350_pizero
 ```
 
 ### Linux / WSL
@@ -338,19 +286,17 @@ cmake --build build --parallel
 
 Normal builds use the repository-pinned Pico SDK and do not require a global `PICO_SDK_PATH`.
 
-## Source and evidence policy
+## Project provenance
 
-**GitHub** contains source code, build configuration, architecture documentation, hardware contracts, ADRs, validation summaries, issues, and version history.
+`pi86-rp2350` builds directly on the [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its physical V20/V30 HAT.
 
-The external **evidence archive** is used for original manuals/datasheets, hardware photographs, oscilloscope captures, raw bring-up logs, benchmarks, long-form reports, and eventual BIOS/DOS boot evidence.
+The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V30-class processor, observe the control/address phases, and service memory and I/O transactions in software. Its approximately 0.3 MHz operating point is used here as a historical comparison baseline.
 
-## Project origin
-
-`pi86-rp2350` is derived conceptually from the original Homebrew8088 Pi86 project, which demonstrated a physical NEC V20/V30 computer using a Raspberry Pi as the surrounding system.
-
-This project preserves the original physical CPU and HAT interface while replacing the Linux-hosted control model with a bare-metal RP2350 architecture designed around PIO, DMA, deterministic timing, and explicit hardware validation.
+`pi86-rp2350` preserves the physical CPU and HAT interface while replacing the Linux/GPIO-driven control model with a bare-metal RP2350 architecture centered on PIO, DMA, deterministic timing, and explicit hardware validation.
 
 The intent is therefore not merely to **port Pi86**. The longer-term objective is to explore whether the RP2350 can function as a compact, programmable implementation of much of the chipset traditionally surrounding an 8086-class processor.
+
+GitHub stores source, architecture, build metadata, and validation summaries. Raw hardware evidence is archived separately.
 
 ## License
 
