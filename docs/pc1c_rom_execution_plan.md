@@ -233,6 +233,10 @@ PIO0 passive address observer
   -> bounded SRAM trace
 ```
 
+PIO1 rechecks ASTB after pulling every response command. Commands that arrive
+after ASTB falls are consumed as alignment tokens but are hardware-gated from
+asserting AD output-enable.
+
 The first physical C0B run confirmed correct post-fall address classification,
 but the response command missed R2 because the paired capture was not published
 until ASTB had already fallen. An immediate ASTB-rise experiment then proved

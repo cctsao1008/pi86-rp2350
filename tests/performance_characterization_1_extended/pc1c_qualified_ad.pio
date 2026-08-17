@@ -11,6 +11,9 @@
 ; Y is preloaded by the host with the PIO1 direction bits that must remain
 ; outputs when AD is released. C0B places CLK on the same PIO, so Y preserves
 ; GPIO21 while clearing the scattered AD directions.
+;
+; The final JMP PIN gate rechecks ASTB after the command is pulled. A late CPU
+; command is consumed to preserve cycle alignment but can never assert AD OE.
 
 .pio_version rp2350
 .program pc1c_qualified_ad
@@ -23,6 +26,9 @@
     out pins, 28
     out x, 1
     jmp !x no_drive
+    jmp pin drive_allowed
+    jmp no_drive
+drive_allowed:
     mov pindirs, ~null
 
     ; H2: release after the second falling CLK edge following ASTB-fall.

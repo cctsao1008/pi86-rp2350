@@ -335,6 +335,7 @@ static void responder_init(pc1c_sm_t *responder) {
     pio_sm_config c = pc1c_qualified_ad_program_get_default_config(responder->offset);
     sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
     sm_config_set_out_shift(&c, true, false, 32u);
+    sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
     hard_assert(pio_sm_init(responder->pio, responder->sm, responder->offset, &c) == PICO_OK);
     pio_sm_set_enabled(responder->pio, responder->sm, false);
 }
@@ -573,6 +574,7 @@ static void print_result(const pc1c0b_result_t *result) {
            CAPTURE_SETTLE_CYCLES);
     printf("Response policy     : M33 current-cycle SRAM lookup -> PIO1 TX FIFO\n");
     printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
+    printf("Late-drive gate     : PIO1 rechecks ASTB before asserting AD OE\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
