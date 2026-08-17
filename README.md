@@ -173,66 +173,6 @@ The Raspberry Pi Pico SDK and picotool host utility are repository-pinned depend
 
 This makes a project commit resolve to exact SDK and picotool source commits and keeps historical builds reproducible.
 
-## Repository layout
-
-```text
-.
-├── .gitmodules
-├── CMakeLists.txt
-├── firmware/
-│   ├── CMakeLists.txt
-│   ├── main.c
-│   ├── board/
-│   │   └── rp2350_pizero.h
-│   ├── memory/
-│   ├── pic/
-│   ├── pit/
-│   └── v30/
-│       └── v30_pins.h
-├── tests/
-│   ├── gpio_test/
-│   ├── gate2_preflight/
-│   ├── gate3_reset/
-│   ├── gate4_memread/
-│   ├── gate7_byte_lanes/
-│   ├── gate8_io/
-│   ├── gate9_interrupt/
-│   ├── gate9r_pic/
-│   ├── gate10_8259a/
-│   ├── gate11_pic_priority/
-│   ├── gate11_irq_priority/
-│   ├── gate12_pit_core/
-│   ├── performance_characterization_1/
-│   └── performance_characterization_1_extended/
-├── docs/
-│   ├── project_overview.md
-│   ├── architecture.md
-│   ├── hardware.md
-│   ├── hardware_contract.md
-│   ├── pin_mapping.md
-│   ├── bringup.md
-│   ├── bringup_gate11.md
-│   ├── bringup_gate12.md
-│   ├── pc1b_pio_direct_frequency_sweep_20260817.md
-│   ├── pc1c_rom_execution_plan.md
-│   ├── toolchain.md
-│   ├── validation/
-│   ├── adr/
-│   │   ├── 0001-use-rpi-physical-pin-as-hardware-abi.md
-│   │   └── 0002-adopt-v30-companion-chip-architecture.md
-│   └── retrospectives/
-│       └── 2026-08-rp2350-pi86-bringup-retrospective.md
-├── scripts/
-│   ├── bootstrap_tools.sh
-│   ├── build.sh
-│   └── build.ps1
-├── third_party/
-│   ├── pico-sdk/          # Git submodule, pinned to Pico SDK 2.3.0
-│   └── picotool/          # Git submodule, pinned to picotool 2.3.0
-└── references/
-    └── README.md
-```
-
 ## Clone
 
 New clone:
