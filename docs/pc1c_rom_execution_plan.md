@@ -222,12 +222,19 @@ pc1c_qualified_reset_vector
 The first 0.300 MHz implementation deliberately keeps the lookup path simple and observable:
 
 ```text
-PIO0 paired address/control capture
+PIO0 early-T1 address/control capture
   -> M33 SRAM lookup
   -> one command per ASTB cycle
   -> PIO1 TX FIFO
   -> encoded scattered AD bitmap + PINDIRS
 ```
+
+The first physical C0B run confirmed correct post-fall address classification,
+but the response command missed R2 because the paired capture was not published
+until ASTB had already fallen. C0B therefore uses the coherent address and
+minimum-mode controls observed during ASTB-high/T1. This is still a lookup of
+the current physical cycle; it does not predict the next address or index a
+transaction-count response stream.
 
 The six-byte reset ROM is:
 
@@ -260,6 +267,7 @@ FIRST cycle type          = MEMORY READ PASS
 FIRST response at R2/F2/R3= 00EA PASS
 Required ROM hit mask     = 07 PASS
 Response deadline misses  = 0 PASS
+Commands late at ASTB fall= 0 PASS
 TX FIFO backpressure      = 0 PASS
 Unqualified drive commands= 0 PASS
 Far-jump target observed  = F0000 PASS

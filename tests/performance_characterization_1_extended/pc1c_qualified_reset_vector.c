@@ -1,7 +1,7 @@
 /*
  * PC1-C0B address-qualified reset-vector response at 0.300 MHz.
  *
- * PIO0 captures paired address/control snapshots. The M33 classifies each
+ * PIO0 captures an early T1 address/control snapshot. The M33 classifies each
  * cycle and performs an internal-SRAM ROM lookup. PIO1 consumes exactly one
  * command per ASTB cycle, drives only qualified ROM reads, and releases AD at
  * H2. Observing a fetch at F0000 is the CPU-visible far-jump discriminator.
@@ -18,7 +18,7 @@
 
 #include "v30/v30_pins.h"
 #include "pc1b_first_cycle_phase_capture.pio.h"
-#include "pc1c_bus_capture.pio.h"
+#include "pc1c_early_cycle_capture.pio.h"
 #include "pc1c_qualified_ad.pio.h"
 #include "perf_continuous_clock.pio.h"
 
@@ -49,8 +49,7 @@ typedef struct {
 } pc1c_sm_t;
 
 typedef struct {
-    uint32_t address_raw;
-    uint32_t control_raw;
+    uint32_t cycle_raw;
     uint32_t address;
     uint16_t response;
     lane_mask_t lanes;
@@ -70,6 +69,7 @@ typedef struct {
     uint32_t rom_hits;
     uint32_t unsupported_cycles;
     uint32_t deadline_misses;
+    uint32_t late_response_commands;
     uint32_t tx_backpressure;
     uint32_t unqualified_drive_commands;
     uint8_t required_hit_mask;
@@ -108,10 +108,9 @@ static inline uint32_t decode_address(uint32_t sample) {
     return address & 0xFFFFFu;
 }
 
-static inline lane_mask_t decode_lanes(uint32_t address_raw,
-                                       uint32_t control_raw) {
-    const bool a0 = sample_bit(address_raw, V30_PIN_AD0) != 0u;
-    const bool ube_n = sample_bit(control_raw, V30_PIN_UBE) != 0u;
+static inline lane_mask_t decode_lanes(uint32_t cycle_raw) {
+    const bool a0 = sample_bit(cycle_raw, V30_PIN_AD0) != 0u;
+    const bool ube_n = sample_bit(cycle_raw, V30_PIN_UBE) != 0u;
     if (!a0 && !ube_n) return LANES_WORD;
     if (!a0 && ube_n) return LANE_LOW;
     if (a0 && !ube_n) return LANE_HIGH;
@@ -254,8 +253,10 @@ static bool wait_reset_clocks(uint count) {
 static void bus_capture_init(pc1c_sm_t *capture) {
     capture->pio = pio0;
     capture->sm = pio_claim_unused_sm(capture->pio, true);
-    capture->offset = pio_add_program(capture->pio, &pc1c_bus_capture_program);
-    pio_sm_config c = pc1c_bus_capture_program_get_default_config(capture->offset);
+    capture->offset = pio_add_program(capture->pio,
+                                      &pc1c_early_cycle_capture_program);
+    pio_sm_config c =
+        pc1c_early_cycle_capture_program_get_default_config(capture->offset);
     sm_config_set_in_pins(&c, 0u);
     sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
@@ -298,8 +299,7 @@ static inline uint32_t response_command(uint16_t response, bool drive) {
 }
 
 static inline void remember_trace(pc1c0b_result_t *result,
-                                  uint32_t address_raw,
-                                  uint32_t control_raw,
+                                  uint32_t cycle_raw,
                                   uint32_t address,
                                   lane_mask_t lanes,
                                   bool memory_read,
@@ -308,8 +308,7 @@ static inline void remember_trace(pc1c0b_result_t *result,
     if (result->trace_count >= TRACE_DEPTH) return;
     trace_entry_t *entry = &result->trace[result->trace_count++];
     *entry = (trace_entry_t){
-        .address_raw = address_raw,
-        .control_raw = control_raw,
+        .cycle_raw = cycle_raw,
         .address = address,
         .response = response,
         .lanes = lanes,
@@ -323,16 +322,15 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
                                               pc1c0b_result_t *result,
                                               uint64_t deadline) {
     while (time_us_64() <= deadline && !result->far_target_seen) {
-        if (pio_sm_get_rx_fifo_level(capture->pio, capture->sm) < 2u) {
+        if (pio_sm_is_rx_fifo_empty(capture->pio, capture->sm)) {
             tight_loop_contents();
             continue;
         }
 
-        const uint32_t address_raw = pio_sm_get(capture->pio, capture->sm);
-        const uint32_t control_raw = pio_sm_get(capture->pio, capture->sm);
-        const uint32_t address = decode_address(address_raw);
-        const lane_mask_t lanes = decode_lanes(address_raw, control_raw);
-        const bool memory_read = is_memory_read(control_raw);
+        const uint32_t cycle_raw = pio_sm_get(capture->pio, capture->sm);
+        const uint32_t address = decode_address(cycle_raw);
+        const lane_mask_t lanes = decode_lanes(cycle_raw);
+        const bool memory_read = is_memory_read(cycle_raw);
         uint16_t response = 0u;
         const bool rom_hit = memory_read &&
             reset_rom_read(address, lanes, &response);
@@ -343,6 +341,8 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
         }
         pio_sm_put(responder->pio, responder->sm,
                    response_command(response, rom_hit));
+        if (!gpio_get(V30_PIN_ASTB))
+            ++result->late_response_commands;
 
         ++result->service_cycles;
         if (rom_hit) {
@@ -356,7 +356,7 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
         if (rom_hit && !memory_read)
             ++result->unqualified_drive_commands;
 
-        remember_trace(result, address_raw, control_raw, address, lanes,
+        remember_trace(result, cycle_raw, address, lanes,
                        memory_read, rom_hit, response);
 
         if (memory_read && address == FAR_TARGET)
@@ -448,6 +448,7 @@ static bool result_pass(const pc1c0b_result_t *result) {
     return result_valid(result) && result->first_response_phase_ok &&
            result->required_hit_mask == 0x07u &&
            result->far_target_seen && result->deadline_misses == 0u &&
+           result->late_response_commands == 0u &&
            result->tx_backpressure == 0u &&
            result->unqualified_drive_commands == 0u && result->terminal_safe;
 }
@@ -465,7 +466,7 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("\nPC1-C0B Qualified Reset-Vector Response - 0.300 MHz\n");
     printf("RESET qualification : clock-only; response/capture SMs disabled\n");
     printf("Measurement epoch   : arm after RESET clocks with CLK stopped LOW\n");
-    printf("Response path       : PIO0 capture -> M33 SRAM lookup -> PIO1 AD/PINDIRS\n");
+    printf("Response path       : PIO0 early-T1 capture -> M33 SRAM lookup -> PIO1 AD/PINDIRS\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
@@ -488,6 +489,9 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("Response deadline misses  = %lu %s\n",
            (unsigned long)result->deadline_misses,
            result->deadline_misses == 0u ? "PASS" : "FAIL");
+    printf("Commands late at ASTB fall= %lu %s\n",
+           (unsigned long)result->late_response_commands,
+           result->late_response_commands == 0u ? "PASS" : "FAIL");
     printf("TX FIFO backpressure      = %lu %s\n",
            (unsigned long)result->tx_backpressure,
            result->tx_backpressure == 0u ? "PASS" : "FAIL");
@@ -498,16 +502,15 @@ static void print_result(const pc1c0b_result_t *result) {
            result->far_target_seen ? "F0000 PASS" : "FAIL");
 
     printf("\n[QUALIFIED BUS TRACE]\n");
-    printf("idx address type lanes hit response raw_addr raw_ctrl\n");
+    printf("idx address type lanes hit response raw_t1\n");
     for (uint i = 0u; i < result->trace_count; ++i) {
         const trace_entry_t *entry = &result->trace[i];
-        printf("%02u  %05lX  %-5s %-4s  %s  %04X     %08lX %08lX\n",
+        printf("%02u  %05lX  %-5s %-4s  %s  %04X     %08lX\n",
                i, (unsigned long)entry->address,
                entry->memory_read ? "MEMR" : "OTHER",
                lane_name(entry->lanes), entry->rom_hit ? "YES" : "NO ",
                entry->response,
-               (unsigned long)entry->address_raw,
-               (unsigned long)entry->control_raw);
+               (unsigned long)entry->cycle_raw);
     }
 
     static const char *const phase_names[FIRST_PHASE_COUNT] = {

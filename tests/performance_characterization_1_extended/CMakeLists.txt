@@ -202,7 +202,7 @@ pico_generate_pio_header(pc1c_qualified_reset_vector
     ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
 )
 pico_generate_pio_header(pc1c_qualified_reset_vector
-    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bus_capture.pio
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_early_cycle_capture.pio
 )
 pico_generate_pio_header(pc1c_qualified_reset_vector
     ${CMAKE_CURRENT_LIST_DIR}/pc1c_qualified_ad.pio
