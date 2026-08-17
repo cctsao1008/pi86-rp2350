@@ -209,7 +209,7 @@ Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.
 
 ### PC1-C0B: Qualified Reset-Vector Response
 
-**Status: IMPLEMENTED / RAW-KEY REVISION AWAITING PHYSICAL VALIDATION.**
+**Status: PIO-LOCAL SEQUENCER IMPLEMENTED / PHYSICAL VALIDATION PENDING.**
 
 Return only the reset-vector far jump from address-qualified ROM. All other cycles use an explicit unsupported-read policy.
 
@@ -222,28 +222,28 @@ pc1c_qualified_reset_vector
 The first 0.300 MHz implementation deliberately keeps the lookup path simple and observable:
 
 ```text
-PIO1 synchronized CLK + early-T1 capture + AD response
-  -> M33 current-cycle masked raw-GPIO key lookup
-  -> precompiled SRAM response descriptor
-  -> one command per ASTB cycle
-  -> PIO1 TX FIFO
-  -> encoded scattered AD bitmap + PINDIRS
+PIO1 synchronized CLK
+  + early-T1 exact raw-GPIO matcher
+  -> internal PIO IRQ on qualified match
+  + prestaged response SM
+  -> encoded scattered AD bitmap + PINDIRS at ASTB fall
 
 PIO0 passive address observer
   -> DMA
   -> bounded SRAM trace
 ```
 
-PIO1 pulls each response after ASTB falls and requires CLK to remain high. This
-accepts commands through the validated AF-to-F1 preparation interval. Commands
-that arrive after the first post-ASTB CLK fall are consumed as alignment tokens
-but are hardware-gated from driving AD.
+The matcher and responder each receive four FIFO words before RESET release.
+The matcher holds the current expected key until the physical early-T1 snapshot
+matches exactly, then wakes the responder through an internal PIO IRQ. Unrelated
+cycles remain high-Z and do not advance the sequence. The fourth pair qualifies
+the `F0000` far-jump target and carries a no-drive sentinel.
 
-The reset-ROM backend precompiles both masked raw-GPIO address keys and word or
-byte-lane GPIO0-27 response descriptors before RESET release. The timed path
-compares the current physical snapshot directly with those keys and submits the
-descriptor before any diagnostic address decoding or trace formatting. It does
-not encode or decode sixteen scattered AD bits per response cycle.
+The reset-ROM backend precompiles exact raw-GPIO address/control keys and
+GPIO0-27 response descriptors before RESET release. The entire current-cycle
+qualification and response path stays inside PIO1. M33 performs no lookup or
+FIFO submission while the V30 is running; PIO0 and DMA independently retain
+the evidence used to decode and print the trace after RESET is reasserted.
 
 The first physical C0B run confirmed correct post-fall address classification,
 but the response command missed R2 because the paired capture was not published
@@ -254,12 +254,12 @@ ASTB rises (about 53 ns at the default 150 MHz PIO clock), while CLK remains
 low. This is still a lookup of the current physical cycle; it does not predict
 the next address or index a transaction-count response stream.
 
-The first AF-to-F1-gated build still submitted commands late and consumed only
-the first two reset-vector words. The raw-key revision removes generic 20-bit
-address decoding and per-poll timer reads from the response-critical path. Its
-acceptance criterion is unchanged: all three reset-ROM words must be qualified,
-no command may be late at F1, and the CPU must fetch the far-jump target at
-`F0000`.
+The first AF-to-F1-gated M33 build submitted commands late and consumed only the
+first two reset-vector words. A raw-key M33 revision qualified all three words,
+but two submissions were still late and the first response missed the physical
+read window. That establishes the current-cycle M33 round trip—not address
+decoding—as the remaining boundary. The PIO-local revision removes that round
+trip while retaining physical address/control qualification.
 
 The six-byte reset ROM is:
 
@@ -290,15 +290,15 @@ Required result:
 FIRST post-reset address  = FFFF0 PASS
 PIO1 pre-release OE       = 00200000 CLK-ONLY PASS
 FIRST cycle type          = MEMORY READ PASS
-Early-T1 phase errors     = 0 PASS
+Matcher FIFO primed       = 4/4 PASS
+Responder FIFO primed     = 4/4 PASS
 DMA observer first address= FFFF0 PASS
 DMA observer FIFO residue = 0 PASS
 FIRST response at R2/F2/R3= 00EA PASS
 Required ROM hit mask     = 07 PASS
 Response deadline misses  = 0 PASS
-Commands late at F1       = 0 PASS
-TX FIFO backpressure      = 0 PASS
-Unqualified drive commands= 0 PASS
+PIO-qualified pairs       = 4/4 PASS
+Responder FIFO remain     = 0 PASS
 Far-jump target observed  = F0000 PASS
 MEASUREMENT EPOCH         = VALID
 PC1-C0B RESULT            = PASS

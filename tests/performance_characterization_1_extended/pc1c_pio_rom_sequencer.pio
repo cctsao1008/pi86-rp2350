@@ -1,0 +1,61 @@
+; PC1-C0B PIO-local address-qualified reset-vector responder.
+;
+; The matcher TX FIFO is primed with four expected early-T1 raw GPIO keys.
+; The responder TX FIFO is primed with the corresponding descriptors:
+;   FFFF0 -> 00EA, FFFF2 -> 0000, FFFF4 -> 90F0, F0000 -> high-Z sentinel.
+;
+; A pair advances only after the current physical snapshot exactly matches its
+; expected key. Unrelated cycles remain high-Z and do not consume the response,
+; so this is address qualification rather than transaction-count playback.
+;
+; Configure the matcher IN base to GPIO0. Configure the responder OUT base to
+; GPIO0/count 28. Only CLK and the scattered AD pins are muxed to PIO1.
+
+.pio_version rp2350
+.program pc1c_pio_rom_matcher
+
+    pull block                 ; first expected raw GPIO key
+    mov y, osr
+
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]                    ; 8 PIO-cycle input settling interval
+    mov isr, pins
+    mov x, isr
+    push noblock               ; retain up to four samples for diagnostics
+    jmp x!=y no_match
+
+    irq 0                      ; wake the prestaged responder
+    pull block                 ; next expected raw GPIO key
+    mov y, osr
+    wait 0 gpio 9
+    jmp next_cycle
+
+no_match:
+    wait 0 gpio 9
+    jmp next_cycle
+.wrap
+
+.program pc1c_pio_rom_responder
+.wrap_target
+    wait 1 irq 0
+    irq clear 0
+    pull block
+    wait 0 gpio 9
+    out pins, 28
+    out x, 1
+    jmp !x release
+    mov pindirs, ~null
+
+    ; H2: release after the second falling CLK edge following ASTB-fall.
+    set x, 1
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+
+release:
+    mov pindirs, y
+.wrap

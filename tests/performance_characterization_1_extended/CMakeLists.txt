@@ -206,10 +206,7 @@ pico_generate_pio_header(pc1c_qualified_reset_vector
     ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_ale_observer.pio
 )
 pico_generate_pio_header(pc1c_qualified_reset_vector
-    ${CMAKE_CURRENT_LIST_DIR}/pc1c_early_cycle_capture.pio
-)
-pico_generate_pio_header(pc1c_qualified_reset_vector
-    ${CMAKE_CURRENT_LIST_DIR}/pc1c_qualified_ad.pio
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
 )
 pico_generate_pio_header(pc1c_qualified_reset_vector
     ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio

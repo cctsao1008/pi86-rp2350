@@ -1,9 +1,10 @@
 /*
  * PC1-C0B address-qualified reset-vector response at 0.300 MHz.
  *
- * PIO1 owns the synchronized clock, early-T1 capture, and AD response SMs.
- * The M33 classifies each current-cycle snapshot and performs an internal-SRAM
- * ROM lookup. PIO0 remains passive; DMA drains its address observer into SRAM.
+ * PIO1 owns the synchronized clock and an address-qualified matcher/responder
+ * pair. The complete reset-vector sequence is prestaged before RESET release;
+ * the M33 is absent from the current-cycle response path. PIO0 remains passive;
+ * DMA drains its address observer into SRAM.
  * Observing a fetch at F0000 is the CPU-visible far-jump discriminator.
  */
 
@@ -19,8 +20,7 @@
 
 #include "v30/v30_pins.h"
 #include "pc1b_first_cycle_phase_capture.pio.h"
-#include "pc1c_early_cycle_capture.pio.h"
-#include "pc1c_qualified_ad.pio.h"
+#include "pc1c_pio_rom_sequencer.pio.h"
 #include "perf_ale_observer.pio.h"
 #include "perf_continuous_clock.pio.h"
 
@@ -39,9 +39,10 @@
 #define RESET_ROM_BASE           0xFFFF0u
 #define RESET_ROM_SIZE                 6u
 #define FAR_TARGET                0xF0000u
-#define ADDRESS_GPIO_MASK (V30_AD_BUS_MASK | (1u << V30_PIN_A16) | \
-                           (1u << V30_PIN_A17) | (1u << V30_PIN_A18) | \
-                           (1u << V30_PIN_A19))
+#define SEQUENCE_PAIRS                  4u
+#define QUALIFIED_T1_CONTROL_BITS ((1u << V30_PIN_ASTB) | \
+                                   (1u << V30_PIN_IOM) | \
+                                   (1u << V30_PIN_INTAK))
 
 typedef enum {
     LANES_NONE = 0,
@@ -74,14 +75,14 @@ typedef struct {
     bool clock_direction_armed;
     bool far_target_seen;
     bool terminal_safe;
-    uint32_t service_cycles;
-    uint32_t capture_phase_errors;
     uint32_t rom_hits;
     uint32_t unsupported_cycles;
     uint32_t deadline_misses;
-    uint32_t late_response_commands;
-    uint32_t tx_backpressure;
-    uint32_t unqualified_drive_commands;
+    uint32_t matcher_fifo_pre;
+    uint32_t matcher_fifo_post;
+    uint32_t responder_fifo_pre;
+    uint32_t responder_fifo_post;
+    uint32_t matched_pairs;
     uint32_t observer_dma_pre;
     uint32_t observer_dma_post;
     uint32_t observer_fifo_residue;
@@ -91,17 +92,17 @@ typedef struct {
     uint trace_count;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
     uint phase_count;
+    uint32_t matcher_raw[4];
+    uint matcher_count;
     uint32_t observer_raw[OBSERVER_DEPTH];
     uint observer_count;
 } pc1c0b_result_t;
 
 static uint8_t g_reset_rom[RESET_ROM_SIZE];
-static uint32_t g_reset_address_keys[RESET_ROM_SIZE];
 static uint32_t g_reset_word_commands[RESET_ROM_SIZE / 2u];
-static uint32_t g_reset_low_commands[RESET_ROM_SIZE];
-static uint32_t g_reset_high_commands[RESET_ROM_SIZE];
+static uint32_t g_sequence_keys[SEQUENCE_PAIRS];
+static uint32_t g_sequence_responses[SEQUENCE_PAIRS];
 static uint32_t g_observer_dma_words[OBSERVER_DEPTH];
-static uint32_t g_far_target_key;
 
 static const uint8_t ad_pins[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -166,42 +167,6 @@ static inline uint32_t encode_gpio_address(uint32_t address) {
 
 static inline uint32_t encoded_drive_command(uint16_t value) {
     return encode_gpio_word(value) | (1u << RESPONSE_VALID_BIT);
-}
-
-static inline bool reset_rom_lookup_raw(uint32_t cycle_raw,
-                                        lane_mask_t lanes,
-                                        uint16_t *value,
-                                        uint32_t *command,
-                                        uint8_t *word_index) {
-    const uint32_t key = cycle_raw & ADDRESS_GPIO_MASK;
-    if (lanes == LANES_WORD) {
-        uint32_t offset;
-        if (key == g_reset_address_keys[0]) offset = 0u;
-        else if (key == g_reset_address_keys[2]) offset = 2u;
-        else if (key == g_reset_address_keys[4]) offset = 4u;
-        else return false;
-        *value = (uint16_t)g_reset_rom[offset] |
-                 ((uint16_t)g_reset_rom[offset + 1u] << 8);
-        *command = g_reset_word_commands[offset >> 1u];
-        *word_index = (uint8_t)(offset >> 1u);
-        return true;
-    }
-
-    if (lanes == LANE_LOW || lanes == LANE_HIGH) {
-        for (uint32_t offset = 0u; offset < RESET_ROM_SIZE; ++offset) {
-            if (key != g_reset_address_keys[offset]) continue;
-            const uint8_t byte = g_reset_rom[offset];
-            if (lanes == LANE_LOW) {
-                *value = byte;
-                *command = g_reset_low_commands[offset];
-            } else {
-                *value = (uint16_t)byte << 8;
-                *command = g_reset_high_commands[offset];
-            }
-            return true;
-        }
-    }
-    return false;
 }
 
 static inline uint64_t timeout_us_from_clocks(uint32_t clocks) {
@@ -298,18 +263,17 @@ static bool wait_reset_clocks(uint count) {
     return true;
 }
 
-static void bus_capture_init(pc1c_sm_t *capture) {
-    capture->pio = pio1;
-    capture->sm = pio_claim_unused_sm(capture->pio, true);
-    capture->offset = pio_add_program(capture->pio,
-                                      &pc1c_early_cycle_capture_program);
+static void matcher_init(pc1c_sm_t *matcher) {
+    matcher->pio = pio1;
+    matcher->sm = pio_claim_unused_sm(matcher->pio, true);
+    matcher->offset = pio_add_program(matcher->pio,
+                                      &pc1c_pio_rom_matcher_program);
     pio_sm_config c =
-        pc1c_early_cycle_capture_program_get_default_config(capture->offset);
+        pc1c_pio_rom_matcher_program_get_default_config(matcher->offset);
     sm_config_set_in_pins(&c, 0u);
-    sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
-    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
-    hard_assert(pio_sm_init(capture->pio, capture->sm, capture->offset, &c) == PICO_OK);
-    pio_sm_set_enabled(capture->pio, capture->sm, false);
+    hard_assert(pio_sm_init(matcher->pio, matcher->sm,
+                            matcher->offset, &c) == PICO_OK);
+    pio_sm_set_enabled(matcher->pio, matcher->sm, false);
 }
 
 static void phase_capture_init(pc1c_sm_t *phase) {
@@ -360,11 +324,12 @@ static uint32_t dma_remaining(int channel) {
 static void responder_init(pc1c_sm_t *responder) {
     responder->pio = pio1;
     responder->sm = pio_claim_unused_sm(responder->pio, true);
-    responder->offset = pio_add_program(responder->pio, &pc1c_qualified_ad_program);
-    pio_sm_config c = pc1c_qualified_ad_program_get_default_config(responder->offset);
+    responder->offset = pio_add_program(
+        responder->pio, &pc1c_pio_rom_responder_program);
+    pio_sm_config c = pc1c_pio_rom_responder_program_get_default_config(
+        responder->offset);
     sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
     sm_config_set_out_shift(&c, true, false, 32u);
-    sm_config_set_jmp_pin(&c, V30_PIN_CLK);
     hard_assert(pio_sm_init(responder->pio, responder->sm, responder->offset, &c) == PICO_OK);
     pio_sm_set_enabled(responder->pio, responder->sm, false);
 }
@@ -402,66 +367,8 @@ static inline void remember_trace(pc1c0b_result_t *result,
     };
 }
 
-static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
-                                              pc1c_sm_t *responder,
-                                              pc1c0b_result_t *result,
-                                              uint64_t deadline) {
-    uint32_t empty_polls = 0u;
-    while (!result->far_target_seen) {
-        if (pio_sm_is_rx_fifo_empty(capture->pio, capture->sm)) {
-            if (((++empty_polls & 0x3fu) == 0u) &&
-                time_us_64() > deadline)
-                return;
-            tight_loop_contents();
-            continue;
-        }
-        empty_polls = 0u;
-
-        const uint32_t cycle_raw = pio_sm_get(capture->pio, capture->sm);
-        if (!sample_bit(cycle_raw, V30_PIN_ASTB) ||
-            sample_bit(cycle_raw, V30_PIN_CLK))
-            ++result->capture_phase_errors;
-        const lane_mask_t lanes = decode_lanes(cycle_raw);
-        const bool memory_read = is_memory_read(cycle_raw);
-        uint16_t response = 0u;
-        uint32_t command = 0u;
-        uint8_t word_index = 0xFFu;
-        const bool rom_hit = memory_read &&
-            reset_rom_lookup_raw(cycle_raw, lanes, &response, &command,
-                                 &word_index);
-
-        if (pio_sm_is_tx_fifo_full(responder->pio, responder->sm)) {
-            ++result->tx_backpressure;
-            return;
-        }
-        pio_sm_put(responder->pio, responder->sm, command);
-        const uint32_t after_submit = sio_hw->gpio_in;
-        if (!sample_bit(after_submit, V30_PIN_ASTB) &&
-            !sample_bit(after_submit, V30_PIN_CLK))
-            ++result->late_response_commands;
-
-        ++result->service_cycles;
-        if (rom_hit) {
-            ++result->rom_hits;
-            if (word_index < 3u)
-                result->required_hit_mask |= (uint8_t)(1u << word_index);
-        } else {
-            ++result->unsupported_cycles;
-        }
-        if (rom_hit && !memory_read)
-            ++result->unqualified_drive_commands;
-
-        remember_trace(result, cycle_raw, lanes, memory_read, rom_hit,
-                       response);
-
-        if (memory_read &&
-            (cycle_raw & ADDRESS_GPIO_MASK) == g_far_target_key)
-            result->far_target_seen = true;
-    }
-}
-
 static void run_test(pc1c_sm_t *clock,
-                     pc1c_sm_t *capture,
+                     pc1c_sm_t *matcher,
                      pc1c_sm_t *phase,
                      pc1c_sm_t *observer,
                      pc1c_sm_t *responder,
@@ -478,13 +385,23 @@ static void run_test(pc1c_sm_t *clock,
     clock_stop_low(clock);
 
     clock_prepare_300khz(clock);
-    arm_sm(capture);
+    arm_sm(matcher);
     arm_sm(phase);
     arm_sm(observer);
     arm_sm(responder);
+    pio_interrupt_clear(pio1, 0u);
     responder_preserve_clock_direction(responder);
     pio_sm_exec(responder->pio, responder->sm,
                 pio_encode_mov(pio_pindirs, pio_y));
+    for (uint i = 0u; i < SEQUENCE_PAIRS; ++i) {
+        pio_sm_put_blocking(matcher->pio, matcher->sm, g_sequence_keys[i]);
+        pio_sm_put_blocking(responder->pio, responder->sm,
+                            g_sequence_responses[i]);
+    }
+    result->matcher_fifo_pre =
+        pio_sm_get_tx_fifo_level(matcher->pio, matcher->sm);
+    result->responder_fifo_pre =
+        pio_sm_get_tx_fifo_level(responder->pio, responder->sm);
     route_ad_to_responder(responder);
     result->pre_pio1_padoe = pio1->dbg_padoe;
     result->clock_direction_armed =
@@ -493,10 +410,11 @@ static void run_test(pc1c_sm_t *clock,
     const int observer_dma = start_observer_dma(observer);
     result->observer_dma_pre = dma_remaining(observer_dma);
     result->pre_release_clean =
-        pio_sm_is_rx_fifo_empty(capture->pio, capture->sm) &&
+        pio_sm_is_rx_fifo_empty(matcher->pio, matcher->sm) &&
         pio_sm_is_rx_fifo_empty(phase->pio, phase->sm) &&
         pio_sm_is_rx_fifo_empty(observer->pio, observer->sm) &&
-        pio_sm_is_tx_fifo_empty(responder->pio, responder->sm) &&
+        result->matcher_fifo_pre == SEQUENCE_PAIRS &&
+        result->responder_fifo_pre == SEQUENCE_PAIRS &&
         result->observer_dma_pre == OBSERVER_DEPTH &&
         result->clock_direction_armed &&
         !gpio_get(V30_PIN_CLK) &&
@@ -509,10 +427,15 @@ static void run_test(pc1c_sm_t *clock,
         const uint32_t irq_state = save_and_disable_interrupts();
         gpio_put(V30_PIN_RESET, false);
         pio_enable_sm_mask_in_sync(pio1,
-            (1u << clock->sm) | (1u << capture->sm) |
+            (1u << clock->sm) | (1u << matcher->sm) |
             (1u << responder->sm));
-        service_bus(capture, responder, result,
-                    time_us_64() + timeout_us_from_clocks(RUN_TIMEOUT_CLOCKS));
+        const uint64_t deadline =
+            time_us_64() + timeout_us_from_clocks(RUN_TIMEOUT_CLOCKS);
+        while (!pio_sm_is_tx_fifo_empty(responder->pio, responder->sm) &&
+               time_us_64() <= deadline)
+            tight_loop_contents();
+        if (pio_sm_is_tx_fifo_empty(responder->pio, responder->sm))
+            busy_wait_us_32((uint32_t)timeout_us_from_clocks(2u));
         gpio_put(V30_PIN_RESET, true);
         clock_stop_low(clock);
         restore_interrupts(irq_state);
@@ -521,12 +444,24 @@ static void run_test(pc1c_sm_t *clock,
         clock_stop_low(clock);
     }
 
-    pio_sm_set_enabled(capture->pio, capture->sm, false);
+    result->matcher_fifo_post =
+        pio_sm_get_tx_fifo_level(matcher->pio, matcher->sm);
+    result->responder_fifo_post =
+        pio_sm_get_tx_fifo_level(responder->pio, responder->sm);
+    result->matched_pairs =
+        SEQUENCE_PAIRS - result->responder_fifo_post;
+    pio_sm_set_enabled(matcher->pio, matcher->sm, false);
     pio_sm_set_enabled(phase->pio, phase->sm, false);
     pio_sm_set_enabled(observer->pio, observer->sm, false);
     pio_sm_set_enabled(responder->pio, responder->sm, false);
     pio_sm_exec(responder->pio, responder->sm,
                 pio_encode_mov(pio_pindirs, pio_null));
+
+    while (!pio_sm_is_rx_fifo_empty(matcher->pio, matcher->sm) &&
+           result->matcher_count < count_of(result->matcher_raw)) {
+        result->matcher_raw[result->matcher_count++] =
+            pio_sm_get(matcher->pio, matcher->sm);
+    }
 
     while (!pio_sm_is_rx_fifo_empty(phase->pio, phase->sm) &&
            result->phase_count < FIRST_PHASE_COUNT) {
@@ -550,16 +485,44 @@ static void run_test(pc1c_sm_t *clock,
         decode_address(result->observer_raw[0]) == 0xFFFF0u;
     dma_channel_unclaim((uint)observer_dma);
 
+    for (uint i = 0u; i < result->observer_count; ++i) {
+        const uint32_t raw = result->observer_raw[i];
+        const uint32_t address = decode_address(raw);
+        const lane_mask_t lanes = decode_lanes(raw);
+        const bool memory_read = is_memory_read(raw);
+        bool rom_hit = false;
+        uint16_t response = 0u;
+        if (memory_read && lanes == LANES_WORD) {
+            if (address == RESET_ROM_BASE) {
+                rom_hit = true;
+                response = 0x00EAu;
+                result->required_hit_mask |= 1u << 0;
+            } else if (address == RESET_ROM_BASE + 2u) {
+                rom_hit = true;
+                response = 0x0000u;
+                result->required_hit_mask |= 1u << 1;
+            } else if (address == RESET_ROM_BASE + 4u) {
+                rom_hit = true;
+                response = 0x90F0u;
+                result->required_hit_mask |= 1u << 2;
+            }
+        }
+        if (rom_hit) ++result->rom_hits;
+        else ++result->unsupported_cycles;
+        if (memory_read && address == FAR_TARGET)
+            result->far_target_seen = true;
+        remember_trace(result, raw, lanes, memory_read, rom_hit, response);
+    }
+
     route_ad_to_sio_high_z();
     gpio_put(V30_PIN_INTR, false);
     result->terminal_safe = gpio_get(V30_PIN_RESET) &&
                             !gpio_get(V30_PIN_CLK) &&
                             ad_is_sio_high_z();
-    result->first_address_ok = result->trace_count > 0u &&
-        (result->trace[0].cycle_raw & ADDRESS_GPIO_MASK) ==
-            g_reset_address_keys[0];
-    result->first_memory_read = result->trace_count > 0u &&
-                                result->trace[0].memory_read;
+    result->first_address_ok = result->matcher_count > 0u &&
+        decode_address(result->matcher_raw[0]) == RESET_ROM_BASE;
+    result->first_memory_read = result->matcher_count > 0u &&
+        is_memory_read(result->matcher_raw[0]);
     if (result->phase_count == FIRST_PHASE_COUNT) {
         result->first_response_phase_ok =
             decode_ad(result->phase_raw[3]) == 0x00EAu &&
@@ -574,7 +537,6 @@ static bool result_valid(const pc1c0b_result_t *result) {
            result->first_address_ok && result->first_memory_read &&
            result->dma_observer_first_ok &&
            result->observer_fifo_residue == 0u &&
-           result->capture_phase_errors == 0u &&
            result->phase_count == FIRST_PHASE_COUNT;
 }
 
@@ -582,9 +544,8 @@ static bool result_pass(const pc1c0b_result_t *result) {
     return result_valid(result) && result->first_response_phase_ok &&
            result->required_hit_mask == 0x07u &&
            result->far_target_seen && result->deadline_misses == 0u &&
-           result->late_response_commands == 0u &&
-           result->tx_backpressure == 0u &&
-           result->unqualified_drive_commands == 0u && result->terminal_safe;
+           result->matched_pairs == SEQUENCE_PAIRS &&
+           result->responder_fifo_post == 0u && result->terminal_safe;
 }
 
 static const char *lane_name(lane_mask_t lanes) {
@@ -598,14 +559,14 @@ static const char *lane_name(lane_mask_t lanes) {
 
 static void print_result(const pc1c0b_result_t *result) {
     printf("\nPC1-C0B Qualified Reset-Vector Response - 0.300 MHz\n");
-    printf("RESET qualification : clock-only; response/capture SMs disabled\n");
+    printf("RESET qualification : clock-only; matcher/responder SMs disabled\n");
     printf("Measurement epoch   : arm after RESET clocks with CLK stopped LOW\n");
-    printf("Realtime engine     : PIO1 synchronized CLK + early-T1 capture + AD/PINDIRS\n");
+    printf("Realtime engine     : PIO1 synchronized CLK + raw-key matcher + AD/PINDIRS\n");
     printf("Capture settling    : %u PIO cycles after ASTB rise\n",
            CAPTURE_SETTLE_CYCLES);
-    printf("Response policy     : M33 raw-key SRAM descriptor -> PIO1 TX FIFO\n");
+    printf("Response policy     : prestaged PIO1 key/descriptor FIFOs; no M33 round trip\n");
     printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
-    printf("Late-drive gate     : PIO1 requires command before first post-ASTB CLK fall\n");
+    printf("Qualification gate  : exact current-cycle raw key before ASTB fall\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
@@ -616,15 +577,18 @@ static void print_result(const pc1c0b_result_t *result) {
            result->clock_direction_armed ? "CLK-ONLY PASS" : "FAIL");
     printf("FIRST post-reset address  = %s",
            result->first_address_ok ? "FFFF0 PASS" : "FAIL");
-    if (result->trace_count > 0u)
+    if (result->matcher_count > 0u)
         printf(" (observed %05lX)",
-               (unsigned long)decode_address(result->trace[0].cycle_raw));
+               (unsigned long)decode_address(result->matcher_raw[0]));
     printf("\n");
     printf("FIRST cycle type          = %s\n",
            result->first_memory_read ? "MEMORY READ PASS" : "FAIL");
-    printf("Early-T1 phase errors     = %lu %s\n",
-           (unsigned long)result->capture_phase_errors,
-           result->capture_phase_errors == 0u ? "PASS" : "FAIL");
+    printf("Matcher FIFO primed       = %lu/%u %s\n",
+           (unsigned long)result->matcher_fifo_pre, SEQUENCE_PAIRS,
+           result->matcher_fifo_pre == SEQUENCE_PAIRS ? "PASS" : "FAIL");
+    printf("Responder FIFO primed     = %lu/%u %s\n",
+           (unsigned long)result->responder_fifo_pre, SEQUENCE_PAIRS,
+           result->responder_fifo_pre == SEQUENCE_PAIRS ? "PASS" : "FAIL");
     printf("DMA observer first address= %s\n",
            result->dma_observer_first_ok ? "FFFF0 PASS" : "FAIL");
     printf("DMA observer words        = %u (remain %lu/%lu)\n",
@@ -644,20 +608,36 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("Response deadline misses  = %lu %s\n",
            (unsigned long)result->deadline_misses,
            result->deadline_misses == 0u ? "PASS" : "FAIL");
-    printf("Commands late at F1       = %lu %s\n",
-           (unsigned long)result->late_response_commands,
-           result->late_response_commands == 0u ? "PASS" : "FAIL");
-    printf("TX FIFO backpressure      = %lu %s\n",
-           (unsigned long)result->tx_backpressure,
-           result->tx_backpressure == 0u ? "PASS" : "FAIL");
-    printf("Unqualified drive commands= %lu %s\n",
-           (unsigned long)result->unqualified_drive_commands,
-           result->unqualified_drive_commands == 0u ? "PASS" : "FAIL");
+    printf("PIO-qualified pairs       = %lu/%u %s\n",
+           (unsigned long)result->matched_pairs, SEQUENCE_PAIRS,
+           result->matched_pairs == SEQUENCE_PAIRS ? "PASS" : "FAIL");
+    printf("Matcher FIFO remain       = %lu\n",
+           (unsigned long)result->matcher_fifo_post);
+    printf("Responder FIFO remain     = %lu %s\n",
+           (unsigned long)result->responder_fifo_post,
+           result->responder_fifo_post == 0u ? "PASS" : "FAIL");
     printf("Far-jump target observed  = %s\n",
            result->far_target_seen ? "F0000 PASS" : "FAIL");
 
+    printf("\n[PIO MATCHER EARLY-T1 TRACE]\n");
+    printf("idx address raw_t1 expected match\n");
+    uint expected_index = 0u;
+    for (uint i = 0u; i < result->matcher_count; ++i) {
+        const bool expected = expected_index < SEQUENCE_PAIRS;
+        const uint32_t expected_key =
+            expected ? g_sequence_keys[expected_index] : 0u;
+        const bool match = expected &&
+            result->matcher_raw[i] == expected_key;
+        printf("%02u  %05lX  %08lX %08lX %s\n", i,
+               (unsigned long)decode_address(result->matcher_raw[i]),
+               (unsigned long)result->matcher_raw[i],
+               (unsigned long)expected_key,
+               match ? "YES" : "NO");
+        if (match) ++expected_index;
+    }
+
     printf("\n[QUALIFIED BUS TRACE]\n");
-    printf("idx address type lanes hit response raw_t1\n");
+    printf("idx address type lanes hit response raw_addr\n");
     for (uint i = 0u; i < result->trace_count; ++i) {
         const trace_entry_t *entry = &result->trace[i];
         printf("%02u  %05lX  %-5s %-4s  %s  %04X     %08lX\n",
@@ -712,19 +692,17 @@ int main(void) {
         0xEAu, 0x00u, 0x00u, 0x00u, 0xF0u, 0x90u,
     };
     for (uint i = 0u; i < RESET_ROM_SIZE; ++i) g_reset_rom[i] = image[i];
-    for (uint i = 0u; i < RESET_ROM_SIZE; ++i) {
-        g_reset_address_keys[i] =
-            encode_gpio_address(RESET_ROM_BASE + i) & ADDRESS_GPIO_MASK;
-        g_reset_low_commands[i] = encoded_drive_command(g_reset_rom[i]);
-        g_reset_high_commands[i] =
-            encoded_drive_command((uint16_t)g_reset_rom[i] << 8);
-    }
     for (uint i = 0u; i < RESET_ROM_SIZE / 2u; ++i) {
         const uint16_t word = (uint16_t)g_reset_rom[i * 2u] |
             ((uint16_t)g_reset_rom[i * 2u + 1u] << 8);
         g_reset_word_commands[i] = encoded_drive_command(word);
+        g_sequence_keys[i] = QUALIFIED_T1_CONTROL_BITS |
+            encode_gpio_address(RESET_ROM_BASE + i * 2u);
+        g_sequence_responses[i] = g_reset_word_commands[i];
     }
-    g_far_target_key = encode_gpio_address(FAR_TARGET) & ADDRESS_GPIO_MASK;
+    g_sequence_keys[3] = QUALIFIED_T1_CONTROL_BITS |
+        encode_gpio_address(FAR_TARGET);
+    g_sequence_responses[3] = 0u;
 
     prepare_header_high_z();
     init_control_outputs();
@@ -733,15 +711,15 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
 
-    pc1c_sm_t clock, capture, phase, observer, responder;
+    pc1c_sm_t clock, matcher, phase, observer, responder;
     clock_init(&clock);
-    bus_capture_init(&capture);
+    matcher_init(&matcher);
     phase_capture_init(&phase);
     observer_init(&observer);
     responder_init(&responder);
 
     pc1c0b_result_t result;
-    run_test(&clock, &capture, &phase, &observer, &responder, &result);
+    run_test(&clock, &matcher, &phase, &observer, &responder, &result);
     print_result(&result);
     fflush(stdout);
     while (true) tight_loop_contents();
