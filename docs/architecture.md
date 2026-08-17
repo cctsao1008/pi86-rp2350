@@ -60,7 +60,7 @@ The superseded DMA-to-SIO experiment is not part of the architecture. SIO is pro
 ### Deterministic data plane
 
 - **PIO clock engine:** generates the continuous V30 clock and can stop it LOW at controlled boundaries.
-- **PIO address/control capture:** observes ALE/T1 and the relevant bus-control state without driving the bus.
+- **PIO address/control capture:** observes ASTB/T1 and the relevant bus-control state without driving the bus.
 - **PIO read responder:** owns encoded AD output and `PINDIRS` assertion/release during qualified response windows.
 - **DMA:** moves prepared words between SRAM and PIO FIFOs; it does not write SIO.
 
@@ -107,10 +107,10 @@ Default input synchronizers remain enabled. Bypass is an optimization experiment
 PC1-B consumed a fixed response stream. A real companion chip must select data from the captured bus transaction:
 
 ```text
-ALE/T1 snapshot
+ASTB/T1 snapshot
    |
    +-> decode A19:A0
-   +-> decode IO/M, BUFR/W, BHE, A0
+   +-> decode IO/M, BUFR/W, UBE, A0
    |
    v
 qualified memory read

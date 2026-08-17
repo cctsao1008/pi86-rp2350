@@ -1,10 +1,10 @@
 ; PC1-C0A passive V30 address/control capture.
 ;
-; Each observed ALE cycle produces two RX FIFO words:
-;   1. the last whole-bank GPIO snapshot while ALE was high (address)
-;   2. a whole-bank GPIO snapshot immediately after ALE fell (control)
+; Each observed ASTB cycle produces two RX FIFO words:
+;   1. the last whole-bank GPIO snapshot while ASTB was high (address)
+;   2. a whole-bank GPIO snapshot immediately after ASTB fell (control)
 ;
-; Configure IN base to GPIO0, JMP PIN to GPIO9 (ALE), and join the RX FIFO.
+; Configure IN base to GPIO0, JMP PIN to GPIO9 (ASTB), and join the RX FIFO.
 ; This program never writes pins or PINDIRS.
 
 .program pc1c_bus_capture

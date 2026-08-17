@@ -1,6 +1,6 @@
 ; PC1-C qualified dynamic AD response.
 ;
-; One TX FIFO command is required for every observed ALE cycle:
+; One TX FIFO command is required for every observed ASTB cycle:
 ;   bits  0..27: encoded GPIO0..27 output bitmap
 ;   bit      28: drive enable (1 = drive, 0 = remain high-Z)
 ;
@@ -21,7 +21,7 @@
     jmp !x no_drive
     mov pindirs, ~null
 
-    ; H2: release after the second falling CLK edge following ALE-fall.
+    ; H2: release after the second falling CLK edge following ASTB-fall.
     set x, 1
 hold_fall_loop:
     wait 1 gpio 21

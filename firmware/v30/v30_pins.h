@@ -20,13 +20,18 @@
 /* Control signals. */
 #define V30_PIN_CLK    21u  /* RPi physical pin 40 */
 #define V30_PIN_RESET  16u  /* RPi physical pin 36 */
-#define V30_PIN_ALE     9u  /* RPi physical pin 32 */
+#define V30_PIN_ASTB    9u  /* RPi physical pin 32 */
 #define V30_PIN_IOM     8u  /* RPi physical pin 24 */
 #define V30_PIN_BUFRW   7u  /* RPi physical pin 26 */
-#define V30_PIN_DTR V30_PIN_BUFRW /* Legacy firmware name. */
-#define V30_PIN_BHE    25u  /* RPi physical pin 22 */
+#define V30_PIN_UBE    25u  /* RPi physical pin 22 */
 #define V30_PIN_INTR   20u  /* RPi physical pin 38 */
-#define V30_PIN_INTA    1u  /* RPi physical pin 28 */
+#define V30_PIN_INTAK   1u  /* RPi physical pin 28 */
+
+/* Legacy 8086-style names retained for source compatibility. */
+#define V30_PIN_ALE  V30_PIN_ASTB
+#define V30_PIN_DTR  V30_PIN_BUFRW
+#define V30_PIN_BHE  V30_PIN_UBE
+#define V30_PIN_INTA V30_PIN_INTAK
 
 /* Multiplexed address/data bus. */
 #define V30_PIN_AD0    26u  /* RPi physical pin 37 */

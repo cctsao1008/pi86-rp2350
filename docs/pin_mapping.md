@@ -31,12 +31,12 @@ Therefore **BCM GPIO numbers must never be copied directly into RP2350 firmware 
 |---|---:|---:|---:|---|
 | CLK | 40 | 21 | 21 | RP2350 -> V30 |
 | RESET | 36 | 16 | 16 | RP2350 -> V30 |
-| ALE / ASTB | 32 | 12 | 9 | V30 -> RP2350 |
+| ASTB | 32 | 12 | 9 | V30 -> RP2350 |
 | IO/M | 24 | 8 | 8 | V30 -> RP2350 |
 | BUFR/W | 26 | 7 | 7 | V30 -> RP2350 |
-| BHE | 22 | 25 | 25 | V30 -> RP2350 |
+| UBE | 22 | 25 | 25 | V30 -> RP2350 |
 | INTR | 38 | 20 | 20 | RP2350 -> V30 |
-| INTA | 28 | 1 | 1 | V30 -> RP2350 |
+| INTAK | 28 | 1 | 1 | V30 -> RP2350 |
 | AD0 | 37 | 26 | 26 | Bidirectional |
 | AD1 | 35 | 19 | 19 | Bidirectional |
 | AD2 | 33 | 13 | 13 | Bidirectional |
@@ -68,7 +68,7 @@ The affected signals were:
 
 | Signal | Incorrect RP2350 GPIO | Correct RP2350 GPIO |
 |---|---:|---:|
-| ALE / ASTB | 12 | 9 |
+| ASTB | 12 | 9 |
 | AD4 | 5 | 15 |
 | AD6 | 11 | 10 |
 | AD7 | 9 | 12 |

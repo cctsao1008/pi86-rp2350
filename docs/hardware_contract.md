@@ -47,12 +47,12 @@ A Raspberry Pi BCM GPIO number is reference-platform metadata. It must never be 
 |---|---:|---:|---|
 | CLK | 40 | 21 | RP2350 -> V30 |
 | RESET | 36 | 16 | RP2350 -> V30 |
-| ALE | 32 | 9 | V30 -> RP2350 |
+| ASTB | 32 | 9 | V30 -> RP2350 |
 | IO/M | 24 | 8 | V30 -> RP2350 |
 | BUFR/W | 26 | 7 | V30 -> RP2350 |
-| BHE | 22 | 25 | V30 -> RP2350 |
+| UBE | 22 | 25 | V30 -> RP2350 |
 | INTR | 38 | 20 | RP2350 -> V30 |
-| INTA | 28 | 1 | V30 -> RP2350 |
+| INTAK | 28 | 1 | V30 -> RP2350 |
 | AD0 | 37 | 26 | Bidirectional |
 | AD1 | 35 | 19 | Bidirectional |
 | AD2 | 33 | 13 | Bidirectional |
@@ -94,7 +94,7 @@ The actual RP2350-PiZero routing is:
 RPi physical pin 21 = RP2350 GPIO12
 ```
 
-That error swapped the identities of important signals such as ALE and AD7 and also affected AD4, AD6, AD8, AD12, AD15 and A16. Several subsequent diagnostics were therefore accurately measuring the wrong physical signals.
+That error swapped the identities of important signals such as ASTB and AD7 and also affected AD4, AD6, AD8, AD12, AD15 and A16. Several subsequent diagnostics were therefore accurately measuring the wrong physical signals.
 
 Corrected mapping restored deterministic Gate 3 through Gate 6 behavior.
 

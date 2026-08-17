@@ -22,10 +22,10 @@ PC1-B could prepare `FEEB` before the first read. General ROM service cannot kno
 
 ```text
 PC1-B
-  pre-staged word -> ALE fall -> drive
+  pre-staged word -> ASTB fall -> drive
 
 PC1-C
-  ALE/T1 address -> qualify cycle -> look up ROM -> encode -> drive
+  ASTB/T1 address -> qualify cycle -> look up ROM -> encode -> drive
 ```
 
 The current HAT holds V30 `READY` high. PC1-C cannot hide a lookup miss with a wait state and must measure the complete deadline.
@@ -66,7 +66,7 @@ The exact final loop address must be fixed by the assembled image and listed in 
 PIO address/control capture
         |
         v
-decode A19:A0, IO/M, BUFR/W, BHE, A0
+decode A19:A0, IO/M, BUFR/W, UBE, A0
         |
         v
 qualified memory READ
@@ -85,7 +85,7 @@ PIO1 TX FIFO -> AD drive -> H2 release
 
 - Drive AD only for a classified memory-read cycle.
 - Never drive during memory writes, I/O writes, or address phases.
-- Apply A0/BHE lane selection to the response.
+- Apply A0/UBE lane selection to the response.
 - Release AD to high-Z at the validated boundary.
 - Record unsupported or out-of-range reads explicitly.
 - Do not use transaction count as the ROM address.
@@ -145,7 +145,7 @@ PC1-B's 8 MHz result remains valid even if PC1-C fails earlier; the two tests me
 At each point record:
 
 - first post-reset address;
-- bounded ALE trace;
+- bounded ASTB trace;
 - cycle classification counts;
 - ROM hit, unsupported-read, and deadline-miss counts;
 - DMA transfer completion and FIFO starvation;
@@ -224,7 +224,7 @@ The first 0.300 MHz implementation deliberately keeps the lookup path simple and
 ```text
 PIO0 paired address/control capture
   -> M33 SRAM lookup
-  -> one command per ALE cycle
+  -> one command per ASTB cycle
   -> PIO1 TX FIFO
   -> encoded scattered AD bitmap + PINDIRS
 ```
@@ -237,7 +237,7 @@ FFFF0: EA 00 00 00 F0 90
 
 This executes `JMP FAR F000:0000`; the sixth byte is padding for the third
 16-bit fetch. PIO1 drives only qualified memory reads overlapping these six
-bytes. Every other ALE cycle receives an explicit no-drive command and remains
+bytes. Every other ASTB cycle receives an explicit no-drive command and remains
 high-Z. Default GPIO input synchronizers remain enabled.
 
 Build:

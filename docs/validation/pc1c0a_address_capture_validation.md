@@ -45,18 +45,18 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
 
 The first four captured transactions were coherent sequential memory reads:
 
-| Index | Address | IO/M | direction discriminator | INTA | BHE | A0 |
+| Index | Address | IO/M | BUFR/W | INTAK | UBE | A0 |
 |---:|---:|---:|---:|---:|---:|---:|
 | 00 | `FFFF0` | 1 | 0 | 1 | 0 | 0 |
 | 01 | `FFFF2` | 1 | 0 | 1 | 0 | 0 |
 | 02 | `FFFF4` | 1 | 0 | 1 | 0 | 0 |
 | 03 | `FFFF6` | 1 | 0 | 1 | 0 | 0 |
 
-For each pair, the address snapshot had ALE high and the following control snapshot had ALE low. The decoded address remained stable across the transition.
+For each pair, the address snapshot had ASTB high and the following control snapshot had ASTB low. The decoded address remained stable across the transition.
 
 The next two transactions provided incidental byte-lane evidence:
 
-| Index | Address | direction discriminator | BHE | A0 | Interpretation |
+| Index | Address | BUFR/W | UBE | A0 | Interpretation |
 |---:|---:|---:|---:|---:|---|
 | 04 | `0FFFD` | 1 | 0 | 1 | odd-address high-lane portion |
 | 05 | `0FFFE` | 1 | 1 | 0 | following even-address low-lane portion |

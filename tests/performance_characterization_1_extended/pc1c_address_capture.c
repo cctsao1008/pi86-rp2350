@@ -169,7 +169,7 @@ static void bus_capture_init(capture_sm_t *capture) {
     capture->offset = pio_add_program(capture->pio, &pc1c_bus_capture_program);
     pio_sm_config c = pc1c_bus_capture_program_get_default_config(capture->offset);
     sm_config_set_in_pins(&c, 0u);
-    sm_config_set_jmp_pin(&c, V30_PIN_ALE);
+    sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(capture->pio, capture->sm, capture->offset, &c) == PICO_OK);
     pio_sm_set_enabled(capture->pio, capture->sm, false);
@@ -258,7 +258,7 @@ static void run_capture(capture_sm_t *clock,
         result->first_memory_read =
             sample_bit(control, V30_PIN_IOM) != 0u &&
             sample_bit(control, V30_PIN_BUFRW) == 0u &&
-            sample_bit(control, V30_PIN_INTA) != 0u;
+            sample_bit(control, V30_PIN_INTAK) != 0u;
     }
 }
 
@@ -293,7 +293,7 @@ static void print_result(const capture_result_t *result) {
            result->ad_passive ? "PASSIVE PASS" : "FAIL");
 
     printf("\n[ADDRESS / CONTROL TRACE]\n");
-    printf("idx address raw_addr raw_ctrl ALE IOM BUFRW INTA BHE A0\n");
+    printf("idx address raw_addr raw_ctrl ASTB IOM BUFRW INTAK UBE A0\n");
     for (uint i = 0u; i < result->cycle_count; ++i) {
         const captured_cycle_t *cycle = &result->cycles[i];
         printf("%02u  %05lX  %08lX %08lX  %u   %u   %u    %u   %u   %u\n",
@@ -301,11 +301,11 @@ static void print_result(const capture_result_t *result) {
                (unsigned long)decode_address(cycle->address_raw),
                (unsigned long)cycle->address_raw,
                (unsigned long)cycle->control_raw,
-               (unsigned)sample_bit(cycle->control_raw, V30_PIN_ALE),
+               (unsigned)sample_bit(cycle->control_raw, V30_PIN_ASTB),
                (unsigned)sample_bit(cycle->control_raw, V30_PIN_IOM),
                (unsigned)sample_bit(cycle->control_raw, V30_PIN_BUFRW),
-               (unsigned)sample_bit(cycle->control_raw, V30_PIN_INTA),
-               (unsigned)sample_bit(cycle->control_raw, V30_PIN_BHE),
+               (unsigned)sample_bit(cycle->control_raw, V30_PIN_INTAK),
+               (unsigned)sample_bit(cycle->control_raw, V30_PIN_UBE),
                (unsigned)sample_bit(cycle->address_raw, V30_PIN_AD0));
     }
 
@@ -313,17 +313,17 @@ static void print_result(const capture_result_t *result) {
         "AF", "R1", "F1", "R2", "F2", "R3"
     };
     printf("\n[FIRST-CYCLE GPIO SNAPSHOTS]\n");
-    printf("phase raw_gpio  ALE CLK IOM BUFRW INTA BHE AD16\n");
+    printf("phase raw_gpio  ASTB CLK IOM BUFRW INTAK UBE AD16\n");
     for (uint i = 0u; i < result->phase_count; ++i) {
         const uint32_t raw = result->phase_raw[i];
         printf("%-4s  %08lX   %u   %u   %u   %u    %u   %u  %04X\n",
                phase_names[i], (unsigned long)raw,
-               (unsigned)sample_bit(raw, V30_PIN_ALE),
+               (unsigned)sample_bit(raw, V30_PIN_ASTB),
                (unsigned)sample_bit(raw, V30_PIN_CLK),
                (unsigned)sample_bit(raw, V30_PIN_IOM),
                (unsigned)sample_bit(raw, V30_PIN_BUFRW),
-               (unsigned)sample_bit(raw, V30_PIN_INTA),
-               (unsigned)sample_bit(raw, V30_PIN_BHE),
+               (unsigned)sample_bit(raw, V30_PIN_INTAK),
+               (unsigned)sample_bit(raw, V30_PIN_UBE),
                (unsigned)decode_ad(raw));
     }
 

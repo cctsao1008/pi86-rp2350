@@ -3,7 +3,7 @@
  *
  * PIO0 captures paired address/control snapshots. The M33 classifies each
  * cycle and performs an internal-SRAM ROM lookup. PIO1 consumes exactly one
- * command per ALE cycle, drives only qualified ROM reads, and releases AD at
+ * command per ASTB cycle, drives only qualified ROM reads, and releases AD at
  * H2. Observing a fetch at F0000 is the CPU-visible far-jump discriminator.
  */
 
@@ -111,10 +111,10 @@ static inline uint32_t decode_address(uint32_t sample) {
 static inline lane_mask_t decode_lanes(uint32_t address_raw,
                                        uint32_t control_raw) {
     const bool a0 = sample_bit(address_raw, V30_PIN_AD0) != 0u;
-    const bool bhe_n = sample_bit(control_raw, V30_PIN_BHE) != 0u;
-    if (!a0 && !bhe_n) return LANES_WORD;
-    if (!a0 && bhe_n) return LANE_LOW;
-    if (a0 && !bhe_n) return LANE_HIGH;
+    const bool ube_n = sample_bit(control_raw, V30_PIN_UBE) != 0u;
+    if (!a0 && !ube_n) return LANES_WORD;
+    if (!a0 && ube_n) return LANE_LOW;
+    if (a0 && !ube_n) return LANE_HIGH;
     return LANES_NONE;
 }
 
@@ -122,7 +122,7 @@ static inline bool is_memory_read(uint32_t control_raw) {
     /* V30 minimum-mode bus: IO/M=1, BUFR/W=0, INTAK inactive. */
     return sample_bit(control_raw, V30_PIN_IOM) != 0u &&
            sample_bit(control_raw, V30_PIN_BUFRW) == 0u &&
-           sample_bit(control_raw, V30_PIN_INTA) != 0u;
+           sample_bit(control_raw, V30_PIN_INTAK) != 0u;
 }
 
 static inline uint32_t encode_gpio_word(uint16_t value) {
@@ -257,7 +257,7 @@ static void bus_capture_init(pc1c_sm_t *capture) {
     capture->offset = pio_add_program(capture->pio, &pc1c_bus_capture_program);
     pio_sm_config c = pc1c_bus_capture_program_get_default_config(capture->offset);
     sm_config_set_in_pins(&c, 0u);
-    sm_config_set_jmp_pin(&c, V30_PIN_ALE);
+    sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(capture->pio, capture->sm, capture->offset, &c) == PICO_OK);
     pio_sm_set_enabled(capture->pio, capture->sm, false);
@@ -514,17 +514,17 @@ static void print_result(const pc1c0b_result_t *result) {
         "AF", "R1", "F1", "R2", "F2", "R3"
     };
     printf("\n[FIRST-CYCLE GPIO SNAPSHOTS]\n");
-    printf("phase raw_gpio  ALE CLK IOM BUFRW INTA BHE AD16\n");
+    printf("phase raw_gpio  ASTB CLK IOM BUFRW INTAK UBE AD16\n");
     for (uint i = 0u; i < result->phase_count; ++i) {
         const uint32_t raw = result->phase_raw[i];
         printf("%-4s  %08lX   %u   %u   %u   %u    %u   %u  %04X\n",
                phase_names[i], (unsigned long)raw,
-               (unsigned)sample_bit(raw, V30_PIN_ALE),
+               (unsigned)sample_bit(raw, V30_PIN_ASTB),
                (unsigned)sample_bit(raw, V30_PIN_CLK),
                (unsigned)sample_bit(raw, V30_PIN_IOM),
                (unsigned)sample_bit(raw, V30_PIN_BUFRW),
-               (unsigned)sample_bit(raw, V30_PIN_INTA),
-               (unsigned)sample_bit(raw, V30_PIN_BHE),
+               (unsigned)sample_bit(raw, V30_PIN_INTAK),
+               (unsigned)sample_bit(raw, V30_PIN_UBE),
                (unsigned)decode_ad(raw));
     }
 
