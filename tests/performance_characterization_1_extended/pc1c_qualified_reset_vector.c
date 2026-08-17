@@ -29,6 +29,8 @@
 #define SIGNAL_TIMEOUT_CLOCKS         64u
 #define RUN_TIMEOUT_CLOCKS           640u
 #define TRACE_DEPTH                   16u
+#define OBSERVER_DEPTH               256u
+#define OBSERVER_PRINT_DEPTH          32u
 #define FIRST_PHASE_COUNT              6u
 #define CAPTURE_SETTLE_CYCLES           8u
 #define OUT_BASE                       0u
@@ -87,7 +89,7 @@ typedef struct {
     uint trace_count;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
     uint phase_count;
-    uint32_t observer_raw[TRACE_DEPTH];
+    uint32_t observer_raw[OBSERVER_DEPTH];
     uint observer_count;
 } pc1c0b_result_t;
 
@@ -95,7 +97,7 @@ static uint8_t g_reset_rom[RESET_ROM_SIZE];
 static uint32_t g_reset_word_commands[RESET_ROM_SIZE / 2u];
 static uint32_t g_reset_low_commands[RESET_ROM_SIZE];
 static uint32_t g_reset_high_commands[RESET_ROM_SIZE];
-static uint32_t g_observer_dma_words[TRACE_DEPTH];
+static uint32_t g_observer_dma_words[OBSERVER_DEPTH];
 
 static const uint8_t ad_pins[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -331,7 +333,7 @@ static int start_observer_dma(const pc1c_sm_t *observer) {
     channel_config_set_high_priority(&c, true);
     dma_channel_configure((uint)channel, &c, g_observer_dma_words,
                           &observer->pio->rxf[observer->sm],
-                          TRACE_DEPTH, true);
+                          OBSERVER_DEPTH, true);
     return channel;
 }
 
@@ -346,7 +348,7 @@ static void responder_init(pc1c_sm_t *responder) {
     pio_sm_config c = pc1c_qualified_ad_program_get_default_config(responder->offset);
     sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
     sm_config_set_out_shift(&c, true, false, 32u);
-    sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
+    sm_config_set_jmp_pin(&c, V30_PIN_CLK);
     hard_assert(pio_sm_init(responder->pio, responder->sm, responder->offset, &c) == PICO_OK);
     pio_sm_set_enabled(responder->pio, responder->sm, false);
 }
@@ -413,7 +415,9 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
             return;
         }
         pio_sm_put(responder->pio, responder->sm, command);
-        if (!gpio_get(V30_PIN_ASTB))
+        const uint32_t after_submit = sio_hw->gpio_in;
+        if (!sample_bit(after_submit, V30_PIN_ASTB) &&
+            !sample_bit(after_submit, V30_PIN_CLK))
             ++result->late_response_commands;
 
         ++result->service_cycles;
@@ -443,7 +447,7 @@ static void run_test(pc1c_sm_t *clock,
                      pc1c_sm_t *responder,
                      pc1c0b_result_t *result) {
     *result = (pc1c0b_result_t){0};
-    for (uint i = 0u; i < TRACE_DEPTH; ++i)
+    for (uint i = 0u; i < OBSERVER_DEPTH; ++i)
         g_observer_dma_words[i] = 0u;
     gpio_put(V30_PIN_INTR, false);
     gpio_put(V30_PIN_RESET, true);
@@ -473,7 +477,7 @@ static void run_test(pc1c_sm_t *clock,
         pio_sm_is_rx_fifo_empty(phase->pio, phase->sm) &&
         pio_sm_is_rx_fifo_empty(observer->pio, observer->sm) &&
         pio_sm_is_tx_fifo_empty(responder->pio, responder->sm) &&
-        result->observer_dma_pre == TRACE_DEPTH &&
+        result->observer_dma_pre == OBSERVER_DEPTH &&
         result->clock_direction_armed &&
         !gpio_get(V30_PIN_CLK) &&
         (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
@@ -519,7 +523,7 @@ static void run_test(pc1c_sm_t *clock,
         pio_sm_get_rx_fifo_level(observer->pio, observer->sm);
     result->observer_dma_post = dma_remaining(observer_dma);
     dma_channel_abort((uint)observer_dma);
-    result->observer_count = TRACE_DEPTH - result->observer_dma_post;
+    result->observer_count = OBSERVER_DEPTH - result->observer_dma_post;
     for (uint i = 0u; i < result->observer_count; ++i)
         result->observer_raw[i] = g_observer_dma_words[i];
     result->dma_observer_first_ok = result->observer_count > 0u &&
@@ -580,7 +584,7 @@ static void print_result(const pc1c0b_result_t *result) {
            CAPTURE_SETTLE_CYCLES);
     printf("Response policy     : M33 precompiled SRAM descriptor -> PIO1 TX FIFO\n");
     printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
-    printf("Late-drive gate     : PIO1 requires command arrival during ASTB-high\n");
+    printf("Late-drive gate     : PIO1 requires command before first post-ASTB CLK fall\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
@@ -618,7 +622,7 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("Response deadline misses  = %lu %s\n",
            (unsigned long)result->deadline_misses,
            result->deadline_misses == 0u ? "PASS" : "FAIL");
-    printf("Commands late at ASTB fall= %lu %s\n",
+    printf("Commands late at F1       = %lu %s\n",
            (unsigned long)result->late_response_commands,
            result->late_response_commands == 0u ? "PASS" : "FAIL");
     printf("TX FIFO backpressure      = %lu %s\n",
@@ -643,10 +647,16 @@ static void print_result(const pc1c0b_result_t *result) {
     }
 
     printf("\n[DMA PASSIVE ADDRESS TRACE]\n");
-    for (uint i = 0u; i < result->observer_count; ++i)
+    const uint observer_print_count =
+        result->observer_count < OBSERVER_PRINT_DEPTH ?
+        result->observer_count : OBSERVER_PRINT_DEPTH;
+    for (uint i = 0u; i < observer_print_count; ++i)
         printf("%02u = %05lX raw=%08lX\n", i,
                (unsigned long)decode_address(result->observer_raw[i]),
                (unsigned long)result->observer_raw[i]);
+    if (result->observer_count > observer_print_count)
+        printf("... %u additional DMA words retained in SRAM\n",
+               result->observer_count - observer_print_count);
 
     static const char *const phase_names[FIRST_PHASE_COUNT] = {
         "AF", "R1", "F1", "R2", "F2", "R3"

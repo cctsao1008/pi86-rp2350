@@ -12,23 +12,24 @@
 ; outputs when AD is released. C0B places CLK on the same PIO, so Y preserves
 ; GPIO21 while clearing the scattered AD directions.
 ;
-; Pull while ASTB is high, then recheck ASTB. An on-time command preloads the
-; output latch and waits for ASTB fall before asserting AD OE. A late command
-; is consumed to preserve cycle alignment but can never assert AD OE.
+; Pull after ASTB falls, then require CLK to remain high. This accepts commands
+; through the validated AF-to-F1 preparation window. A command arriving after
+; the first post-ASTB CLK fall is consumed to preserve cycle alignment but can
+; never assert AD OE.
 
 .pio_version rp2350
 .program pc1c_qualified_ad
 .wrap_target
     wait 0 gpio 9
     wait 1 gpio 9
+    wait 0 gpio 9
     pull block
-    jmp pin command_on_time
+    jmp pin command_before_f1
     jmp no_drive
 
-command_on_time:
+command_before_f1:
     out pins, 28
     out x, 1
-    wait 0 gpio 9
     jmp !x no_drive
     mov pindirs, ~null
 

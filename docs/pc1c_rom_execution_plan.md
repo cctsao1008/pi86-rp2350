@@ -233,10 +233,10 @@ PIO0 passive address observer
   -> bounded SRAM trace
 ```
 
-PIO1 pulls each response command while ASTB is high, then rechecks ASTB. An
-on-time command preloads the output latch and waits for ASTB fall before
-asserting output-enable. Commands that arrive after ASTB falls are consumed as
-alignment tokens but are hardware-gated from driving AD.
+PIO1 pulls each response after ASTB falls and requires CLK to remain high. This
+accepts commands through the validated AF-to-F1 preparation interval. Commands
+that arrive after the first post-ASTB CLK fall are consumed as alignment tokens
+but are hardware-gated from driving AD.
 
 The reset-ROM backend precompiles word and byte-lane responses into complete
 GPIO0-27 command descriptors before RESET release. The timed path performs an
@@ -287,7 +287,7 @@ DMA observer FIFO residue = 0 PASS
 FIRST response at R2/F2/R3= 00EA PASS
 Required ROM hit mask     = 07 PASS
 Response deadline misses  = 0 PASS
-Commands late at ASTB fall= 0 PASS
+Commands late at F1       = 0 PASS
 TX FIFO backpressure      = 0 PASS
 Unqualified drive commands= 0 PASS
 Far-jump target observed  = F0000 PASS
