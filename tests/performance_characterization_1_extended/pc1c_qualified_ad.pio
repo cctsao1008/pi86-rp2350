@@ -1,0 +1,34 @@
+; PC1-C qualified dynamic AD response.
+;
+; One TX FIFO command is required for every observed ALE cycle:
+;   bits  0..27: encoded GPIO0..27 output bitmap
+;   bit      28: drive enable (1 = drive, 0 = remain high-Z)
+;
+; The CPU supplies the command only after the paired PIO0 address/control
+; capture has classified the cycle. Consuming a command for misses keeps the
+; responder aligned with the bus even when it must not drive.
+
+.pio_version rp2350
+.program pc1c_qualified_ad
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    wait 0 gpio 9
+
+    pull block
+    out pins, 28
+    out x, 1
+    jmp !x no_drive
+    mov pindirs, ~null
+
+    ; H2: release after the second falling CLK edge following ALE-fall.
+    set x, 1
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+    mov pindirs, null
+
+no_drive:
+    mov pindirs, null
+.wrap

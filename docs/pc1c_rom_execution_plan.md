@@ -209,9 +209,67 @@ Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.
 
 ### PC1-C0B: Qualified Reset-Vector Response
 
-**Status: ACTIVE / IMPLEMENTATION NEXT.**
+**Status: IMPLEMENTED / PHYSICAL VALIDATION PENDING.**
 
 Return only the reset-vector far jump from address-qualified ROM. All other cycles use an explicit unsupported-read policy.
+
+Implementation target:
+
+```text
+pc1c_qualified_reset_vector
+```
+
+The first 0.300 MHz implementation deliberately keeps the lookup path simple and observable:
+
+```text
+PIO0 paired address/control capture
+  -> M33 SRAM lookup
+  -> one command per ALE cycle
+  -> PIO1 TX FIFO
+  -> encoded scattered AD bitmap + PINDIRS
+```
+
+The six-byte reset ROM is:
+
+```text
+FFFF0: EA 00 00 00 F0 90
+```
+
+This executes `JMP FAR F000:0000`; the sixth byte is padding for the third
+16-bit fetch. PIO1 drives only qualified memory reads overlapping these six
+bytes. Every other ALE cycle receives an explicit no-drive command and remains
+high-Z. Default GPIO input synchronizers remain enabled.
+
+Build:
+
+```bash
+cmake --build build --target pc1c_qualified_reset_vector
+```
+
+Flash:
+
+```text
+build/tests/performance_characterization_1_extended/pc1c_qualified_reset_vector.uf2
+```
+
+Required result:
+
+```text
+FIRST post-reset address  = FFFF0 PASS
+FIRST cycle type          = MEMORY READ PASS
+FIRST response at R2/F2/R3= 00EA PASS
+Required ROM hit mask     = 07 PASS
+Response deadline misses  = 0 PASS
+TX FIFO backpressure      = 0 PASS
+Unqualified drive commands= 0 PASS
+Far-jump target observed  = F0000 PASS
+MEASUREMENT EPOCH         = VALID
+PC1-C0B RESULT            = PASS
+TERMINAL SAFE STATE       = PASS
+```
+
+Reaching `F0000` proves CPU-visible consumption of the address-qualified reset
+vector. C0B does not yet serve code at `F0000`; that remains the C0C boundary.
 
 ### PC1-C0C: SRAM ROM Execution
 
