@@ -62,6 +62,23 @@ In this design:
 
 **PIO provides hardware-like timing with software-defined behavior.** That hardware/software boundary is what makes the RP2350 useful here as a programmable chipset rather than merely as an MCU performing GPIO control.
 
+### Dual-core partitioning
+
+The two RP2350 Arm cores are intentionally separated by responsibility so higher-level services do not interfere with V30 bus timing.
+
+- **Real-time core** — supports the deterministic bus path: address/control decode, fast supervision, refill coordination, and exceptional timing-sensitive work that cannot remain entirely in PIO/DMA
+- **Service core** — handles non-time-critical services such as USB/debug, keyboard, storage, display, and ROM/disk image management
+
+The intended hierarchy is:
+
+```text
+PIO / DMA       = hard real-time data path
+Real-time core  = timing-sensitive supervision
+Service core    = non-real-time system services
+```
+
+PIO and DMA remain on the hardest real-time path; dual-core partitioning keeps supervisory and service workloads from becoming part of that critical timing loop.
+
 ```text
                      +----------------------+
                      |     Physical V30     |
