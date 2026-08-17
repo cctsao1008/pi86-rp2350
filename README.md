@@ -6,6 +6,8 @@
 
 The project preserves the **physical NEC V30 CPU** while moving clock generation, bus control, ROM/RAM service, interrupt/timer peripherals, storage, display, and debugging into a bare-metal RP2350 system.
 
+The **current implementation targets the NEC V30**; V20 remains part of the original Pi86 compatibility lineage and reference model.
+
 This is **not** an x86 emulator running on the RP2350.
 
 ```text
@@ -151,7 +153,7 @@ These peripherals are parallel branches of the V30 I/O-space architecture rather
 | Area | State |
 |---|---|
 | Physical NEC V30 bring-up | Validated |
-| Memory / I/O bus | Validated |
+| Basic memory / I/O bus transactions | Validated |
 | Maskable interrupt entry | Validated |
 | 8259A-compatible PIC | Validated |
 | PIT channel 0 / IRQ0 path | Validated |
@@ -168,6 +170,8 @@ It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is su
 Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
 
 ## Target progression
+
+This is the intended **system-capability progression**, not the chronological order of hardware validation.
 
 ```text
 RESET / instruction fetch
@@ -216,21 +220,22 @@ References are grouped by scope.
 
 ### CPU and bus
 
-- **NEC V20/V30 User's Manual** — normative reference for the physical V30, pin functions, bus cycles, reset, interrupts, memory, and I/O
-- **NEC 16-bit V-series Instruction Manual** — normative V30 ISA reference
-- **Intel 8086 family documentation** — architectural and software-compatibility reference
+- **NEC V20/V30 User's Manual** — normative reference for V20/V30 pin functions, bus cycles, reset, interrupts, memory, and I/O behavior; the current hardware target is the V30
+- **NEC 16-bit V-series Instruction Manual** — normative V20/V30 ISA reference
+- **Intel 8088/8086 family documentation** — architectural and software-compatibility reference
 
-### V30 vs. Intel 8086 compatibility
+### NEC V20/V30 vs. Intel 8088/8086 compatibility
 
-The NEC V30 is broadly 8086-compatible at the software and system-architecture level, but it is **not treated as electrically or pin-for-pin identical to an Intel 8086**.
+At the software and system-architecture level, the **NEC V20 corresponds broadly to the Intel 8088 class**, while the **NEC V30 corresponds broadly to the Intel 8086 class**. They are not treated here as electrically or pin-for-pin identical devices.
 
 For this project:
 
-- **NEC V30 documentation is authoritative for pin functions, bus timing, reset, interrupt, and electrical behavior.**
-- **Intel 8086 documentation is used as an architectural and software-compatibility reference.**
-- Pin names, multiplexed functions, timing details, and implementation-specific behavior are checked against the actual NEC V30 device rather than inferred from Intel 8086 documentation alone.
+- **NEC V20/V30 documentation is authoritative for NEC pin functions, bus timing, reset, interrupt, and electrical behavior.**
+- **Intel 8088/8086 documentation is used as an architectural and software-compatibility reference.**
+- Pin names, multiplexed functions, timing details, and implementation-specific behavior are checked against the actual NEC device rather than inferred from Intel documentation alone.
+- **The active `pi86-rp2350` implementation and hardware validation target the NEC V30.**
 
-Where NEC V30-specific behavior differs from Intel 8086 behavior, NEC documentation takes precedence because the target CPU is a physical V30.
+Where NEC V30-specific behavior differs from Intel 8086 behavior, NEC documentation takes precedence for the active implementation.
 
 ### RP2350 platform
 
