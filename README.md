@@ -4,48 +4,41 @@
 
 `pi86-rp2350` evolves the original Pi86 physical V20/V30 computer into an RP2350-based **V30 companion-chip architecture**.
 
-The project preserves the **physical NEC V30 CPU** while moving clock generation, bus control, ROM/RAM service, interrupt/timer peripherals, storage, display, and debugging into a bare-metal RP2350 system. PIO and DMA implement the deterministic bus data path; the RP2350 processor cores provide address decoding, supervision, and higher-level services where the measured timing budget permits.
+The project preserves the **physical NEC V30 CPU** while moving clock generation, bus control, ROM/RAM service, interrupt/timer peripherals, storage, display, and debugging into a bare-metal RP2350 system.
 
 This is **not** an x86 emulator running on the RP2350.
 
 ```text
 Physical NEC V30
-       +
-   RP2350 PIO
-       +
-      DMA
-       =
-deterministic programmable chipset
+        +
+PIO / DMA bus engine
+        +
+dual-core workload partitioning
+        +
+software-defined peripherals
+        =
+programmable V30 companion chipset
 ```
 
 The central engineering question is:
 
 > How far can an RP2350 act as a programmable chipset around a real NEC V20/V30 — from reset-vector execution through ROM, RAM, peripherals, BIOS services, and eventually a bootable PC-class system?
 
-## Project state
+## Architecture thesis
 
-| Area | State |
-|---|---|
-| Physical NEC V30 bring-up | Validated |
-| Memory / I/O bus | Validated |
-| Maskable interrupt entry | Validated |
-| 8259A-compatible PIC | Validated |
-| PIT channel 0 / IRQ0 path | Validated |
-| PC1-B fixed-response PIO-direct path | Validated from 0.300 to 8.000 MHz |
-| **PC1-C address-qualified ROM execution** | **Active** |
-| General 8 MHz ROM/RAM service | Not yet validated |
-| 8255-compatible PPI | Planned |
-| BIOS / DOS boot | Planned |
+The RP2350 is treated as a **programmable chipset**, not as a faster Linux host running Pi86-style GPIO polling.
 
-PC1-B proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly at every tested clock point.
+The core design rule is:
 
-It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That is the PC1-C boundary.
+> **Keep the V30-critical timing path in PIO/DMA; move everything else progressively outward to the Arm cores and service layer.**
 
-Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
+That creates a deliberate hierarchy:
 
-## Architecture
-
-The RP2350 is treated as a programmable chipset, not as a faster Linux host running Pi86-style GPIO polling.
+```text
+PIO / DMA       = hard real-time data path
+Real-time core  = timing-sensitive supervision
+Service core    = non-real-time system services
+```
 
 ### Why PIO matters
 
@@ -68,14 +61,6 @@ The two RP2350 Arm cores are intentionally separated by responsibility so higher
 
 - **Real-time core** — supports the deterministic bus path: address/control decode, fast supervision, refill coordination, and exceptional timing-sensitive work that cannot remain entirely in PIO/DMA
 - **Service core** — handles non-time-critical services such as USB/debug, keyboard, storage, display, and ROM/disk image management
-
-The intended hierarchy is:
-
-```text
-PIO / DMA       = hard real-time data path
-Real-time core  = timing-sensitive supervision
-Service core    = non-real-time system services
-```
 
 PIO and DMA remain on the hardest real-time path; dual-core partitioning keeps supervisory and service workloads from becoming part of that critical timing loop.
 
@@ -110,15 +95,7 @@ PIO and DMA remain on the hardest real-time path; dual-core partitioning keeps s
                 queues        trace        firmware
 ```
 
-Current partitioning:
-
-- **PIO0** — continuous V30 clock, passive ALE/address observation, and phase capture
-- **PIO1** — direct scattered-AD data output and bus-direction ownership during read-response windows
-- **DMA** — deterministic SRAM-to-PIO FIFO data movement
-- **Real-time core** — address/control decode, cache/refill supervision, and exceptional bus work
-- **Service core** — ROM/disk images, USB/debug/keyboard, display, storage, and other non-real-time services
-
-The current HAT holds V30 `READY` high, so the present hardware cannot insert arbitrary wait states for ROM-cache misses, PSRAM latency, or slower peripheral service. Deterministic response latency is therefore a first-class architectural constraint.
+The current HAT holds V30 `READY` high, so the present hardware cannot insert arbitrary wait states for ROM-cache misses, PSRAM latency, or slower peripheral service. **Deterministic response latency is therefore a first-class architectural constraint.**
 
 The Raspberry Pi **physical 40-pin header position** is treated as the cross-platform hardware ABI. See [`docs/hardware_contract.md`](docs/hardware_contract.md) for the canonical mapping and review rules.
 
@@ -166,6 +143,51 @@ Current peripheral state:
 - **UART / keyboard / display / storage services** — future integration as required by the BIOS/DOS path
 
 These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
+
+## Validation status
+
+| Area | State |
+|---|---|
+| Physical NEC V30 bring-up | Validated |
+| Memory / I/O bus | Validated |
+| Maskable interrupt entry | Validated |
+| 8259A-compatible PIC | Validated |
+| PIT channel 0 / IRQ0 path | Validated |
+| PC1-B fixed-response PIO-direct path | Validated from 0.300 to 8.000 MHz |
+| **PC1-C address-qualified ROM execution** | **Active** |
+| General 8 MHz ROM/RAM service | Not yet validated |
+| 8255-compatible PPI | Planned |
+| BIOS / DOS boot | Planned |
+
+PC1-B proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly at every tested clock point.
+
+It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That is the PC1-C boundary.
+
+Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
+
+## Target progression
+
+```text
+RESET / instruction fetch
+        ↓
+address-qualified ROM execution
+        ↓
+RAM service
+        ↓
+I/O-space peripherals
+   ├── 8259 PIC
+   ├── 8253/8254 PIT
+   ├── 8255 PPI
+   └── UART / keyboard / other devices
+        ↓
+BIOS services
+        ↓
+storage / display
+        ↓
+DOS boot
+```
+
+Clock frequency alone is not the project goal. The objective is to preserve deterministic real-V30 operation while progressively increasing system capability.
 
 ## Toolchain
 
@@ -216,30 +238,6 @@ Where NEC V30-specific behavior differs from Intel 8086 behavior, the NEC docume
 - [**Homebrew8088 Pi86 project**](https://www.homebrew8088.com/home/raspberry-pi-second-project) — historical architecture, hardware behavior, BIOS/toolchain model, and the approximately 0.3 MHz comparison baseline
 - Original Pi86 source and V20/V30 HAT — source-level and physical-interface compatibility reference
 - Related physical x86/V20/V30 implementations — secondary engineering references
-
-## Target progression
-
-```text
-RESET / instruction fetch
-        ↓
-address-qualified ROM execution
-        ↓
-RAM service
-        ↓
-I/O-space peripherals
-   ├── 8259 PIC
-   ├── 8253/8254 PIT
-   ├── 8255 PPI
-   └── UART / keyboard / other devices
-        ↓
-BIOS services
-        ↓
-storage / display
-        ↓
-DOS boot
-```
-
-Clock frequency alone is not the project goal. The objective is to preserve deterministic real-V30 operation while progressively increasing system capability.
 
 ## Documentation
 
