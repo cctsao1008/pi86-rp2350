@@ -20,13 +20,13 @@ software-defined peripherals
 programmable V30 companion chipset
 ```
 
-The central engineering question is:
-
-> How far can an RP2350 act as a programmable chipset around a real NEC V20/V30 — from reset-vector execution through ROM, RAM, peripherals, BIOS services, and eventually a bootable PC-class system?
-
 ## Architecture thesis
 
 The RP2350 is treated as a **programmable chipset**, not as a faster Linux host running Pi86-style GPIO polling.
+
+The central engineering question is:
+
+> How far can an RP2350 act as a programmable chipset around a real NEC V20/V30 — from reset-vector execution through ROM, RAM, peripherals, BIOS services, and eventually a bootable PC-class system?
 
 The core design rule is:
 
@@ -44,7 +44,7 @@ Service core    = non-real-time system services
 
 RP2350 PIO is the key architectural enabler of this project.
 
-Unlike software-driven GPIO polling, PIO state machines can execute tightly timed I/O sequences independently of the Arm cores. This allows the V30 bus-critical path to remain deterministic while address decoding, supervision, storage, debugging, and other higher-level services run outside that critical path.
+Unlike software-driven GPIO polling, PIO state machines can execute tightly timed I/O sequences independently of the Arm cores. This keeps the V30 bus-critical path deterministic while address decoding, supervision, storage, debugging, and other higher-level services run outside that path.
 
 In this design:
 
@@ -53,7 +53,7 @@ In this design:
 - **DMA** feeds PIO without placing the Arm cores on the critical data path
 - **Arm cores** supervise, decode, refill, and service work that cannot remain entirely in the deterministic PIO/DMA path
 
-**PIO provides hardware-like timing with software-defined behavior.** That hardware/software boundary is what makes the RP2350 useful here as a programmable chipset rather than merely as an MCU performing GPIO control.
+**PIO provides hardware-like timing with software-defined behavior.** That boundary is what makes the RP2350 useful here as a programmable chipset rather than merely as an MCU performing GPIO control.
 
 ### Dual-core partitioning
 
@@ -146,6 +146,8 @@ These peripherals are parallel branches of the V30 I/O-space architecture rather
 
 ## Validation status
 
+**Headline result: the fixed-response PIO-direct path has been validated from 0.300 to 8.000 MHz on physical NEC V30 hardware.**
+
 | Area | State |
 |---|---|
 | Physical NEC V30 bring-up | Validated |
@@ -210,19 +212,19 @@ NASM-generated flat binaries can be embedded or mapped as V30 ROM images for har
 
 ## Reference model
 
-References are grouped by scope rather than treated as one interchangeable source hierarchy.
+References are grouped by scope.
 
 ### CPU and bus
 
-- **NEC V20/V30 User's Manual** — normative source for the physical V30 hardware, pins, bus cycles, reset, interrupts, memory, and I/O behavior
-- **NEC 16-bit V-series Instruction Manual** — normative V30 ISA reference, including addressing modes, execution behavior, and 8086/8088 correspondence
-- **Intel 8086 family documentation** — architectural and software-compatibility reference for the underlying 8086-class model
+- **NEC V20/V30 User's Manual** — normative reference for the physical V30, bus cycles, reset, interrupts, memory, and I/O
+- **NEC 16-bit V-series Instruction Manual** — normative V30 ISA reference
+- **Intel 8086 family documentation** — architectural and software-compatibility reference
 
-Where NEC V30-specific behavior differs from Intel 8086 behavior, the NEC documentation takes precedence because the target CPU is a physical NEC V30.
+Where NEC V30-specific behavior differs from Intel 8086 behavior, NEC documentation takes precedence because the target CPU is a physical V30.
 
 ### RP2350 platform
 
-- **Raspberry Pi RP2350 Datasheet** — MCU architecture, GPIO, PIO, DMA, QMI, SRAM, timing, and electrical reference
+- **Raspberry Pi RP2350 Datasheet** — silicon, GPIO, PIO, DMA, QMI, SRAM, timing, and electrical behavior
 - **Raspberry Pi Pico SDK documentation** — firmware API and build-system reference
 
 ### Board
@@ -231,13 +233,11 @@ Where NEC V30-specific behavior differs from Intel 8086 behavior, the NEC docume
 
 ### Tool behavior
 
-- **NASM documentation** — normative reference for V30-side assembly generation
+- **NASM documentation** — V30-side assembly generation
 
 ### Compatibility and lineage
 
-- [**Homebrew8088 Pi86 project**](https://www.homebrew8088.com/home/raspberry-pi-second-project) — historical architecture, hardware behavior, BIOS/toolchain model, and the approximately 0.3 MHz comparison baseline
-- Original Pi86 source and V20/V30 HAT — source-level and physical-interface compatibility reference
-- Related physical x86/V20/V30 implementations — secondary engineering references
+- [**Homebrew8088 Pi86 project**](https://www.homebrew8088.com/home/raspberry-pi-second-project) and original V20/V30 HAT — historical architecture, source/physical-interface compatibility, BIOS/toolchain model, and the approximately 0.3 MHz comparison baseline
 
 ## Documentation
 
