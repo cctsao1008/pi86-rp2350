@@ -1,6 +1,6 @@
 # pi86-rp2350
 
-**A real NEC V30, with an RP2350 acting as its programmable chipset.**
+**A real NEC V30, with RP2350 PIO and DMA acting as its programmable chipset.**
 
 `pi86-rp2350` evolves the original Pi86 physical V20/V30 computer into an RP2350-based **V30 companion-chip architecture**.
 
@@ -9,11 +9,13 @@ The project preserves the **physical NEC V30 CPU** while moving clock generation
 This is **not** an x86 emulator running on the RP2350.
 
 ```text
-Real NEC V30
-     +
-RP2350 programmable chipset
-     +
-PIO / DMA deterministic bus control
+Physical NEC V30
+       +
+   RP2350 PIO
+       +
+      DMA
+       =
+deterministic programmable chipset
 ```
 
 The central engineering question is:
@@ -44,6 +46,21 @@ Development is gate-based and hardware-validated. Acceptance is based on **CPU-v
 ## Architecture
 
 The RP2350 is treated as a programmable chipset, not as a faster Linux host running Pi86-style GPIO polling.
+
+### Why PIO matters
+
+RP2350 PIO is the key architectural enabler of this project.
+
+Unlike software-driven GPIO polling, PIO state machines can execute tightly timed I/O sequences independently of the Arm cores. This allows the V30 bus-critical path to remain deterministic while address decoding, supervision, storage, debugging, and other higher-level services run outside that critical path.
+
+In this design:
+
+- **PIO0** generates and observes timing-critical bus phases
+- **PIO1** owns direct V30 AD-bus response timing
+- **DMA** feeds PIO without placing the Arm cores on the critical data path
+- **Arm cores** supervise, decode, refill, and service work that cannot remain entirely in the deterministic PIO/DMA path
+
+**PIO provides hardware-like timing with software-defined behavior.** That hardware/software boundary is what makes the RP2350 useful here as a programmable chipset rather than merely as an MCU performing GPIO control.
 
 ```text
                      +----------------------+
