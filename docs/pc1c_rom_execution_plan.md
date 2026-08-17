@@ -222,7 +222,7 @@ pc1c_qualified_reset_vector
 The first 0.300 MHz implementation deliberately keeps the lookup path simple and observable:
 
 ```text
-PIO1 synchronized CLK + T1 capture + AD response
+PIO1 synchronized CLK + early-T1 capture + AD response
   -> M33 current-cycle SRAM lookup
   -> one command per ASTB cycle
   -> PIO1 TX FIFO
@@ -237,10 +237,10 @@ The first physical C0B run confirmed correct post-fall address classification,
 but the response command missed R2 because the paired capture was not published
 until ASTB had already fallen. An immediate ASTB-rise experiment then proved
 too early: AD0-AD15 were mostly present but A16-A19 had not settled. C0B
-therefore samples the coherent address and minimum-mode controls at the first
-CLK rise while ASTB remains high. This is still a lookup of the current
-physical cycle; it does not predict the next address or index a
-transaction-count response stream.
+therefore samples the address and minimum-mode controls eight PIO cycles after
+ASTB rises (about 53 ns at the default 150 MHz PIO clock), while CLK remains
+low. This is still a lookup of the current physical cycle; it does not predict
+the next address or index a transaction-count response stream.
 
 The six-byte reset ROM is:
 
@@ -271,7 +271,7 @@ Required result:
 FIRST post-reset address  = FFFF0 PASS
 PIO1 pre-release OE       = 00200000 CLK-ONLY PASS
 FIRST cycle type          = MEMORY READ PASS
-T1 capture phase errors   = 0 PASS
+Early-T1 phase errors     = 0 PASS
 DMA observer first address= FFFF0 PASS
 DMA observer FIFO residue = 0 PASS
 FIRST response at R2/F2/R3= 00EA PASS

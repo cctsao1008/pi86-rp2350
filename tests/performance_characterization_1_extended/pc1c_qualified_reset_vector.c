@@ -1,7 +1,7 @@
 /*
  * PC1-C0B address-qualified reset-vector response at 0.300 MHz.
  *
- * PIO1 owns the synchronized clock, T1 capture, and AD response state machines.
+ * PIO1 owns the synchronized clock, early-T1 capture, and AD response SMs.
  * The M33 classifies each current-cycle snapshot and performs an internal-SRAM
  * ROM lookup. PIO0 remains passive; DMA drains its address observer into SRAM.
  * Observing a fetch at F0000 is the CPU-visible far-jump discriminator.
@@ -30,6 +30,7 @@
 #define RUN_TIMEOUT_CLOCKS           640u
 #define TRACE_DEPTH                   16u
 #define FIRST_PHASE_COUNT              6u
+#define CAPTURE_SETTLE_CYCLES           8u
 #define OUT_BASE                       0u
 #define OUT_COUNT                     28u
 #define RESPONSE_VALID_BIT            28u
@@ -390,7 +391,7 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
 
         const uint32_t cycle_raw = pio_sm_get(capture->pio, capture->sm);
         if (!sample_bit(cycle_raw, V30_PIN_ASTB) ||
-            !sample_bit(cycle_raw, V30_PIN_CLK))
+            sample_bit(cycle_raw, V30_PIN_CLK))
             ++result->capture_phase_errors;
         const uint32_t address = decode_address(cycle_raw);
         const lane_mask_t lanes = decode_lanes(cycle_raw);
@@ -567,7 +568,9 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("\nPC1-C0B Qualified Reset-Vector Response - 0.300 MHz\n");
     printf("RESET qualification : clock-only; response/capture SMs disabled\n");
     printf("Measurement epoch   : arm after RESET clocks with CLK stopped LOW\n");
-    printf("Realtime engine     : PIO1 synchronized CLK + T1 capture + AD/PINDIRS\n");
+    printf("Realtime engine     : PIO1 synchronized CLK + early-T1 capture + AD/PINDIRS\n");
+    printf("Capture settling    : %u PIO cycles after ASTB rise\n",
+           CAPTURE_SETTLE_CYCLES);
     printf("Response policy     : M33 current-cycle SRAM lookup -> PIO1 TX FIFO\n");
     printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
@@ -585,7 +588,7 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("\n");
     printf("FIRST cycle type          = %s\n",
            result->first_memory_read ? "MEMORY READ PASS" : "FAIL");
-    printf("T1 capture phase errors   = %lu %s\n",
+    printf("Early-T1 phase errors     = %lu %s\n",
            (unsigned long)result->capture_phase_errors,
            result->capture_phase_errors == 0u ? "PASS" : "FAIL");
     printf("DMA observer first address= %s\n",

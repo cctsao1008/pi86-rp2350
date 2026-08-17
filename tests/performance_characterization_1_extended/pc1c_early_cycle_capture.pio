@@ -1,10 +1,10 @@
 ; PC1-C0B early V30 cycle capture.
 ;
-; Capture one whole-bank GPIO snapshot on the first CLK rise while ASTB is
-; high. The immediate ASTB-rise sample is too early for the V30 high-address
-; pins; the CLK-rise phase was physically observed coherent by PC1-C0A. This
-; still leaves the latter half of T1 for the M33 to prepare the response before
-; ASTB falls.
+; Capture one whole-bank GPIO snapshot eight PIO cycles after ASTB rises. An
+; immediate sample was physically too early for the V30 high-address pins,
+; while waiting for the first CLK rise left no response time before ASTB fell.
+; At the default 150 MHz PIO clock this 53 ns settling delay remains in early
+; T1 and leaves the rest of the phase for the M33 lookup.
 ;
 ; Configure IN base to GPIO0, JMP PIN to GPIO9 (ASTB), and join the RX FIFO.
 ; This program never writes pins or PINDIRS.
@@ -13,7 +13,7 @@
 .wrap_target
     wait 0 gpio 9
     wait 1 gpio 9
-    wait 1 gpio 21
+    nop [7]
     mov isr, pins
     push block
     wait 0 gpio 9
