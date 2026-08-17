@@ -209,7 +209,7 @@ Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.
 
 ### PC1-C0B: Qualified Reset-Vector Response
 
-**Status: PIO-LOCAL SEQUENCER IMPLEMENTED / PHYSICAL VALIDATION PENDING.**
+**Status: PASS on physical V30 hardware at 0.300 MHz.**
 
 Return only the reset-vector far jump from address-qualified ROM. All other cycles use an explicit unsupported-read policy.
 
@@ -307,6 +307,9 @@ TERMINAL SAFE STATE       = PASS
 
 Reaching `F0000` proves CPU-visible consumption of the address-qualified reset
 vector. C0B does not yet serve code at `F0000`; that remains the C0C boundary.
+
+Physical evidence is recorded in
+[`validation/pc1c0b_qualified_reset_vector_validation.md`](validation/pc1c0b_qualified_reset_vector_validation.md).
 
 ### PC1-C0C: SRAM ROM Execution
 
