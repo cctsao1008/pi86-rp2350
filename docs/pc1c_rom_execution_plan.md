@@ -166,23 +166,56 @@ AD data-valid observation
 
 ## Implementation stages
 
-### Stage A: capture-only
+### PC1-C0A: Address Capture
 
 Capture address and control under continuous clock without driving AD. Compare decoded results against the passive PC1-B observer and known reset sequence.
 
-### Stage B: qualified reset-vector response
+Implementation target:
+
+```text
+pc1c_address_capture
+```
+
+The 0.300 MHz test uses PIO0 for the clock, paired address/control capture, and first-cycle phase snapshots. PIO1 and DMA are unused, every AD pin remains SIO input, and input synchronizers remain at their SDK defaults.
+
+Build:
+
+```bash
+cmake --build build --target pc1c_address_capture
+```
+
+Flash:
+
+```text
+build/tests/performance_characterization_1_extended/pc1c_address_capture.uf2
+```
+
+Required result:
+
+```text
+RESET clock count          = PASS
+PRE-RESET EVENT LEAK       = NO
+FIRST post-reset address   = FFFF0 PASS
+FIRST cycle type           = MEMORY READ PASS
+AD bus ownership           = PASSIVE PASS
+MEASUREMENT EPOCH          = VALID
+PC1-C ADDRESS CAPTURE RESULT = PASS
+CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
+```
+
+### PC1-C0B: Qualified Reset-Vector Response
 
 Return only the reset-vector far jump from address-qualified ROM. All other cycles use an explicit unsupported-read policy.
 
-### Stage C: target ROM window
+### PC1-C0C: SRAM ROM Execution
 
 Serve the code at `F0000`, prove immediate operands, and reach the checkpoint.
 
-### Stage D: diagnostic port
+### PC1-C1: Diagnostic Port
 
 Capture `OUT 0E9h, AL` and publish the Mini BIOS signature over USB CDC.
 
-### Stage E: frequency sweep
+### PC1-C2: Address-Qualified Frequency Sweep
 
 Run the integrated address-qualified path from 0.300 through 8.000 MHz and identify the first dynamic-service limit.
 
