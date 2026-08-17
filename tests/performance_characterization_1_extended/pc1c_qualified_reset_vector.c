@@ -66,6 +66,7 @@ typedef struct {
     bool first_memory_read;
     bool first_response_phase_ok;
     bool dma_observer_first_ok;
+    bool clock_direction_armed;
     bool far_target_seen;
     bool terminal_safe;
     uint32_t service_cycles;
@@ -79,6 +80,7 @@ typedef struct {
     uint32_t observer_dma_pre;
     uint32_t observer_dma_post;
     uint32_t observer_fifo_residue;
+    uint32_t pre_pio1_padoe;
     uint8_t required_hit_mask;
     trace_entry_t trace[TRACE_DEPTH];
     uint trace_count;
@@ -450,8 +452,12 @@ static void run_test(pc1c_sm_t *clock,
     arm_sm(responder);
     responder_preserve_clock_direction(responder);
     pio_sm_exec(responder->pio, responder->sm,
-                pio_encode_mov(pio_pindirs, pio_null));
+                pio_encode_mov(pio_pindirs, pio_y));
     route_ad_to_responder(responder);
+    result->pre_pio1_padoe = pio1->dbg_padoe;
+    result->clock_direction_armed =
+        (result->pre_pio1_padoe & (1u << V30_PIN_CLK)) != 0u &&
+        (result->pre_pio1_padoe & V30_AD_BUS_MASK) == 0u;
     const int observer_dma = start_observer_dma(observer);
     result->observer_dma_pre = dma_remaining(observer_dma);
     result->pre_release_clean =
@@ -460,6 +466,7 @@ static void run_test(pc1c_sm_t *clock,
         pio_sm_is_rx_fifo_empty(observer->pio, observer->sm) &&
         pio_sm_is_tx_fifo_empty(responder->pio, responder->sm) &&
         result->observer_dma_pre == TRACE_DEPTH &&
+        result->clock_direction_armed &&
         !gpio_get(V30_PIN_CLK) &&
         (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
 
@@ -568,6 +575,9 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
     printf("PRE-RESET EVENT LEAK      = %s\n",
            result->pre_release_clean ? "NO" : "YES / INVALID");
+    printf("PIO1 pre-release OE       = %08lX %s\n",
+           (unsigned long)result->pre_pio1_padoe,
+           result->clock_direction_armed ? "CLK-ONLY PASS" : "FAIL");
     printf("FIRST post-reset address  = %s",
            result->first_address_ok ? "FFFF0 PASS" : "FAIL");
     if (result->trace_count > 0u)

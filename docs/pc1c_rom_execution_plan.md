@@ -269,6 +269,7 @@ Required result:
 
 ```text
 FIRST post-reset address  = FFFF0 PASS
+PIO1 pre-release OE       = 00200000 CLK-ONLY PASS
 FIRST cycle type          = MEMORY READ PASS
 T1 capture phase errors   = 0 PASS
 DMA observer first address= FFFF0 PASS
