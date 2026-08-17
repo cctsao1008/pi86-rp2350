@@ -143,9 +143,9 @@ The V30 sees its normal 20-bit physical address space (`00000h`-`FFFFFh`). The R
 
 Current peripheral state:
 
-- **8259A-compatible PIC** — validated
-- **8253/8254-class PIT path** — channel 0 / IRQ0 validated
-- **8255-compatible PPI** — planned
+- **8259A-compatible PIC** — interrupt controller; manages IRQs and delivers interrupts to the V30 — validated
+- **8253/8254-class PIT** — programmable timer; provides periodic timing such as IRQ0 — channel 0 / IRQ0 validated
+- **8255-compatible PPI** — programmable parallel I/O controller for general-purpose ports and external control signals — planned
 - **UART / keyboard / display / storage services** — future integration as required by the BIOS/DOS path
 
 These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
