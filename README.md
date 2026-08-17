@@ -216,9 +216,19 @@ References are grouped by scope.
 
 ### CPU and bus
 
-- **NEC V20/V30 User's Manual** — normative reference for the physical V30, bus cycles, reset, interrupts, memory, and I/O
+- **NEC V20/V30 User's Manual** — normative reference for the physical V30, pin functions, bus cycles, reset, interrupts, memory, and I/O
 - **NEC 16-bit V-series Instruction Manual** — normative V30 ISA reference
 - **Intel 8086 family documentation** — architectural and software-compatibility reference
+
+### V30 vs. Intel 8086 compatibility
+
+The NEC V30 is broadly 8086-compatible at the software and system-architecture level, but it is **not treated as electrically or pin-for-pin identical to an Intel 8086**.
+
+For this project:
+
+- **NEC V30 documentation is authoritative for pin functions, bus timing, reset, interrupt, and electrical behavior.**
+- **Intel 8086 documentation is used as an architectural and software-compatibility reference.**
+- Pin names, multiplexed functions, timing details, and implementation-specific behavior are checked against the actual NEC V30 device rather than inferred from Intel 8086 documentation alone.
 
 Where NEC V30-specific behavior differs from Intel 8086 behavior, NEC documentation takes precedence because the target CPU is a physical V30.
 
