@@ -1,16 +1,17 @@
 /*
  * PC1-C0B address-qualified reset-vector response at 0.300 MHz.
  *
- * PIO0 captures an early T1 address/control snapshot. The M33 classifies each
- * cycle and performs an internal-SRAM ROM lookup. PIO1 consumes exactly one
- * command per ASTB cycle, drives only qualified ROM reads, and releases AD at
- * H2. Observing a fetch at F0000 is the CPU-visible far-jump discriminator.
+ * PIO1 owns the synchronized clock, T1 capture, and AD response state machines.
+ * The M33 classifies each current-cycle snapshot and performs an internal-SRAM
+ * ROM lookup. PIO0 remains passive; DMA drains its address observer into SRAM.
+ * Observing a fetch at F0000 is the CPU-visible far-jump discriminator.
  */
 
 #include <stdbool.h>
 #include <stdio.h>
 
 #include "hardware/clocks.h"
+#include "hardware/dma.h"
 #include "hardware/pio.h"
 #include "hardware/structs/sio.h"
 #include "hardware/sync.h"
@@ -20,6 +21,7 @@
 #include "pc1b_first_cycle_phase_capture.pio.h"
 #include "pc1c_early_cycle_capture.pio.h"
 #include "pc1c_qualified_ad.pio.h"
+#include "perf_ale_observer.pio.h"
 #include "perf_continuous_clock.pio.h"
 
 #define PC1C0B_V30_HZ             300000u
@@ -63,23 +65,31 @@ typedef struct {
     bool first_address_ok;
     bool first_memory_read;
     bool first_response_phase_ok;
+    bool dma_observer_first_ok;
     bool far_target_seen;
     bool terminal_safe;
     uint32_t service_cycles;
+    uint32_t capture_phase_errors;
     uint32_t rom_hits;
     uint32_t unsupported_cycles;
     uint32_t deadline_misses;
     uint32_t late_response_commands;
     uint32_t tx_backpressure;
     uint32_t unqualified_drive_commands;
+    uint32_t observer_dma_pre;
+    uint32_t observer_dma_post;
+    uint32_t observer_fifo_residue;
     uint8_t required_hit_mask;
     trace_entry_t trace[TRACE_DEPTH];
     uint trace_count;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
     uint phase_count;
+    uint32_t observer_raw[TRACE_DEPTH];
+    uint observer_count;
 } pc1c0b_result_t;
 
 static uint8_t g_reset_rom[RESET_ROM_SIZE];
+static uint32_t g_observer_dma_words[TRACE_DEPTH];
 
 static const uint8_t ad_pins[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -206,12 +216,12 @@ static void route_ad_to_responder(const pc1c_sm_t *responder) {
 }
 
 static void clock_init(pc1c_sm_t *clock) {
-    clock->pio = pio0;
+    clock->pio = pio1;
     clock->sm = pio_claim_unused_sm(clock->pio, true);
     clock->offset = pio_add_program(clock->pio, &perf_continuous_clk_program);
 }
 
-static void clock_start_300khz(pc1c_sm_t *clock) {
+static void clock_prepare_300khz(pc1c_sm_t *clock) {
     pio_sm_set_enabled(clock->pio, clock->sm, false);
     gpio_init(V30_PIN_CLK);
     gpio_disable_pulls(V30_PIN_CLK);
@@ -224,6 +234,12 @@ static void clock_start_300khz(pc1c_sm_t *clock) {
     pio_gpio_init(clock->pio, V30_PIN_CLK);
     pio_sm_set_consecutive_pindirs(clock->pio, clock->sm, V30_PIN_CLK, 1u, true);
     hard_assert(pio_sm_init(clock->pio, clock->sm, clock->offset, &c) == PICO_OK);
+    pio_sm_set_pins_with_mask(clock->pio, clock->sm, 0u,
+                              1u << V30_PIN_CLK);
+}
+
+static void clock_start_300khz(pc1c_sm_t *clock) {
+    clock_prepare_300khz(clock);
     pio_sm_set_enabled(clock->pio, clock->sm, true);
 }
 
@@ -251,7 +267,7 @@ static bool wait_reset_clocks(uint count) {
 }
 
 static void bus_capture_init(pc1c_sm_t *capture) {
-    capture->pio = pio0;
+    capture->pio = pio1;
     capture->sm = pio_claim_unused_sm(capture->pio, true);
     capture->offset = pio_add_program(capture->pio,
                                       &pc1c_early_cycle_capture_program);
@@ -275,6 +291,40 @@ static void phase_capture_init(pc1c_sm_t *phase) {
     pio_sm_set_enabled(phase->pio, phase->sm, false);
 }
 
+static void observer_init(pc1c_sm_t *observer) {
+    observer->pio = pio0;
+    observer->sm = pio_claim_unused_sm(observer->pio, true);
+    observer->offset = pio_add_program(observer->pio,
+                                       &perf_ale_observer_program);
+    pio_sm_config c =
+        perf_ale_observer_program_get_default_config(observer->offset);
+    sm_config_set_in_pins(&c, 0u);
+    sm_config_set_jmp_pin(&c, V30_PIN_ASTB);
+    sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
+    hard_assert(pio_sm_init(observer->pio, observer->sm,
+                            observer->offset, &c) == PICO_OK);
+    pio_sm_set_enabled(observer->pio, observer->sm, false);
+}
+
+static int start_observer_dma(const pc1c_sm_t *observer) {
+    const int channel = dma_claim_unused_channel(true);
+    dma_channel_config c = dma_channel_get_default_config((uint)channel);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, false);
+    channel_config_set_write_increment(&c, true);
+    channel_config_set_dreq(&c,
+                            pio_get_dreq(observer->pio, observer->sm, false));
+    channel_config_set_high_priority(&c, true);
+    dma_channel_configure((uint)channel, &c, g_observer_dma_words,
+                          &observer->pio->rxf[observer->sm],
+                          TRACE_DEPTH, true);
+    return channel;
+}
+
+static uint32_t dma_remaining(int channel) {
+    return dma_channel_hw_addr((uint)channel)->transfer_count & 0x0FFFFFFFu;
+}
+
 static void responder_init(pc1c_sm_t *responder) {
     responder->pio = pio1;
     responder->sm = pio_claim_unused_sm(responder->pio, true);
@@ -291,6 +341,15 @@ static void arm_sm(pc1c_sm_t *sm) {
     pio_sm_clear_fifos(sm->pio, sm->sm);
     pio_sm_restart(sm->pio, sm->sm);
     pio_sm_exec(sm->pio, sm->sm, pio_encode_jmp(sm->offset));
+}
+
+static void responder_preserve_clock_direction(pc1c_sm_t *responder) {
+    pio_sm_put_blocking(responder->pio, responder->sm,
+                        1u << (V30_PIN_CLK - OUT_BASE));
+    pio_sm_exec(responder->pio, responder->sm,
+                pio_encode_pull(false, false));
+    pio_sm_exec(responder->pio, responder->sm,
+                pio_encode_mov(pio_y, pio_osr));
 }
 
 static inline uint32_t response_command(uint16_t response, bool drive) {
@@ -328,6 +387,9 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
         }
 
         const uint32_t cycle_raw = pio_sm_get(capture->pio, capture->sm);
+        if (!sample_bit(cycle_raw, V30_PIN_ASTB) ||
+            !sample_bit(cycle_raw, V30_PIN_CLK))
+            ++result->capture_phase_errors;
         const uint32_t address = decode_address(cycle_raw);
         const lane_mask_t lanes = decode_lanes(cycle_raw);
         const bool memory_read = is_memory_read(cycle_raw);
@@ -367,9 +429,12 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
 static void run_test(pc1c_sm_t *clock,
                      pc1c_sm_t *capture,
                      pc1c_sm_t *phase,
+                     pc1c_sm_t *observer,
                      pc1c_sm_t *responder,
                      pc1c0b_result_t *result) {
     *result = (pc1c0b_result_t){0};
+    for (uint i = 0u; i < TRACE_DEPTH; ++i)
+        g_observer_dma_words[i] = 0u;
     gpio_put(V30_PIN_INTR, false);
     gpio_put(V30_PIN_RESET, true);
     route_ad_to_sio_high_z();
@@ -378,26 +443,35 @@ static void run_test(pc1c_sm_t *clock,
     result->reset_ok = wait_reset_clocks(RESET_CLOCKS);
     clock_stop_low(clock);
 
+    clock_prepare_300khz(clock);
     arm_sm(capture);
     arm_sm(phase);
+    arm_sm(observer);
     arm_sm(responder);
+    responder_preserve_clock_direction(responder);
     pio_sm_exec(responder->pio, responder->sm,
                 pio_encode_mov(pio_pindirs, pio_null));
     route_ad_to_responder(responder);
+    const int observer_dma = start_observer_dma(observer);
+    result->observer_dma_pre = dma_remaining(observer_dma);
     result->pre_release_clean =
         pio_sm_is_rx_fifo_empty(capture->pio, capture->sm) &&
         pio_sm_is_rx_fifo_empty(phase->pio, phase->sm) &&
+        pio_sm_is_rx_fifo_empty(observer->pio, observer->sm) &&
         pio_sm_is_tx_fifo_empty(responder->pio, responder->sm) &&
+        result->observer_dma_pre == TRACE_DEPTH &&
+        !gpio_get(V30_PIN_CLK) &&
         (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
 
     pio_enable_sm_mask_in_sync(pio0,
-        (1u << capture->sm) | (1u << phase->sm));
-    pio_sm_set_enabled(responder->pio, responder->sm, true);
+        (1u << phase->sm) | (1u << observer->sm));
 
     if (result->reset_ok && result->pre_release_clean) {
         const uint32_t irq_state = save_and_disable_interrupts();
         gpio_put(V30_PIN_RESET, false);
-        clock_start_300khz(clock);
+        pio_enable_sm_mask_in_sync(pio1,
+            (1u << clock->sm) | (1u << capture->sm) |
+            (1u << responder->sm));
         service_bus(capture, responder, result,
                     time_us_64() + timeout_us_from_clocks(RUN_TIMEOUT_CLOCKS));
         gpio_put(V30_PIN_RESET, true);
@@ -410,6 +484,7 @@ static void run_test(pc1c_sm_t *clock,
 
     pio_sm_set_enabled(capture->pio, capture->sm, false);
     pio_sm_set_enabled(phase->pio, phase->sm, false);
+    pio_sm_set_enabled(observer->pio, observer->sm, false);
     pio_sm_set_enabled(responder->pio, responder->sm, false);
     pio_sm_exec(responder->pio, responder->sm,
                 pio_encode_mov(pio_pindirs, pio_null));
@@ -419,6 +494,22 @@ static void run_test(pc1c_sm_t *clock,
         result->phase_raw[result->phase_count++] =
             pio_sm_get(phase->pio, phase->sm);
     }
+
+    for (uint spin = 0u;
+         spin < 1024u &&
+         !pio_sm_is_rx_fifo_empty(observer->pio, observer->sm);
+         ++spin)
+        tight_loop_contents();
+    result->observer_fifo_residue =
+        pio_sm_get_rx_fifo_level(observer->pio, observer->sm);
+    result->observer_dma_post = dma_remaining(observer_dma);
+    dma_channel_abort((uint)observer_dma);
+    result->observer_count = TRACE_DEPTH - result->observer_dma_post;
+    for (uint i = 0u; i < result->observer_count; ++i)
+        result->observer_raw[i] = g_observer_dma_words[i];
+    result->dma_observer_first_ok = result->observer_count > 0u &&
+        decode_address(result->observer_raw[0]) == 0xFFFF0u;
+    dma_channel_unclaim((uint)observer_dma);
 
     route_ad_to_sio_high_z();
     gpio_put(V30_PIN_INTR, false);
@@ -441,6 +532,9 @@ static void run_test(pc1c_sm_t *clock,
 static bool result_valid(const pc1c0b_result_t *result) {
     return result->reset_ok && result->pre_release_clean &&
            result->first_address_ok && result->first_memory_read &&
+           result->dma_observer_first_ok &&
+           result->observer_fifo_residue == 0u &&
+           result->capture_phase_errors == 0u &&
            result->phase_count == FIRST_PHASE_COUNT;
 }
 
@@ -466,7 +560,9 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("\nPC1-C0B Qualified Reset-Vector Response - 0.300 MHz\n");
     printf("RESET qualification : clock-only; response/capture SMs disabled\n");
     printf("Measurement epoch   : arm after RESET clocks with CLK stopped LOW\n");
-    printf("Response path       : PIO0 early-T1 capture -> M33 SRAM lookup -> PIO1 AD/PINDIRS\n");
+    printf("Realtime engine     : PIO1 synchronized CLK + T1 capture + AD/PINDIRS\n");
+    printf("Response policy     : M33 current-cycle SRAM lookup -> PIO1 TX FIFO\n");
+    printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
@@ -479,6 +575,18 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("\n");
     printf("FIRST cycle type          = %s\n",
            result->first_memory_read ? "MEMORY READ PASS" : "FAIL");
+    printf("T1 capture phase errors   = %lu %s\n",
+           (unsigned long)result->capture_phase_errors,
+           result->capture_phase_errors == 0u ? "PASS" : "FAIL");
+    printf("DMA observer first address= %s\n",
+           result->dma_observer_first_ok ? "FFFF0 PASS" : "FAIL");
+    printf("DMA observer words        = %u (remain %lu/%lu)\n",
+           result->observer_count,
+           (unsigned long)result->observer_dma_post,
+           (unsigned long)result->observer_dma_pre);
+    printf("DMA observer FIFO residue = %lu %s\n",
+           (unsigned long)result->observer_fifo_residue,
+           result->observer_fifo_residue == 0u ? "PASS" : "FAIL");
     printf("FIRST response at R2/F2/R3= %s\n",
            result->first_response_phase_ok ? "00EA PASS" : "FAIL");
     printf("Required ROM hit mask     = %02X %s\n", result->required_hit_mask,
@@ -512,6 +620,12 @@ static void print_result(const pc1c0b_result_t *result) {
                entry->response,
                (unsigned long)entry->cycle_raw);
     }
+
+    printf("\n[DMA PASSIVE ADDRESS TRACE]\n");
+    for (uint i = 0u; i < result->observer_count; ++i)
+        printf("%02u = %05lX raw=%08lX\n", i,
+               (unsigned long)decode_address(result->observer_raw[i]),
+               (unsigned long)result->observer_raw[i]);
 
     static const char *const phase_names[FIRST_PHASE_COUNT] = {
         "AF", "R1", "F1", "R2", "F2", "R3"
@@ -553,14 +667,15 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
 
-    pc1c_sm_t clock, capture, phase, responder;
+    pc1c_sm_t clock, capture, phase, observer, responder;
     clock_init(&clock);
     bus_capture_init(&capture);
     phase_capture_init(&phase);
+    observer_init(&observer);
     responder_init(&responder);
 
     pc1c0b_result_t result;
-    run_test(&clock, &capture, &phase, &responder, &result);
+    run_test(&clock, &capture, &phase, &observer, &responder, &result);
     print_result(&result);
     fflush(stdout);
     while (true) tight_loop_contents();

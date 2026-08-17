@@ -194,12 +194,16 @@ target_include_directories(pc1c_qualified_reset_vector PRIVATE
 target_link_libraries(pc1c_qualified_reset_vector
     pico_stdlib
     hardware_clocks
+    hardware_dma
     hardware_pio
     hardware_sync
 )
 
 pico_generate_pio_header(pc1c_qualified_reset_vector
     ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_qualified_reset_vector
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_ale_observer.pio
 )
 pico_generate_pio_header(pc1c_qualified_reset_vector
     ${CMAKE_CURRENT_LIST_DIR}/pc1c_early_cycle_capture.pio

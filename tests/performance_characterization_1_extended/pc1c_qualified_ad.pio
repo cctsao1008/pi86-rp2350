@@ -4,9 +4,13 @@
 ;   bits  0..27: encoded GPIO0..27 output bitmap
 ;   bit      28: drive enable (1 = drive, 0 = remain high-Z)
 ;
-; The CPU supplies the command only after the paired PIO0 address/control
-; capture has classified the cycle. Consuming a command for misses keeps the
-; responder aligned with the bus even when it must not drive.
+; The CPU supplies the command after the PIO1 T1 capture has classified the
+; current cycle. Consuming a command for misses keeps the responder aligned
+; with the bus even when it must not drive.
+;
+; Y is preloaded by the host with the PIO1 direction bits that must remain
+; outputs when AD is released. C0B places CLK on the same PIO, so Y preserves
+; GPIO21 while clearing the scattered AD directions.
 
 .pio_version rp2350
 .program pc1c_qualified_ad
@@ -27,8 +31,8 @@ hold_fall_loop:
     wait 1 gpio 21
     wait 0 gpio 21
     jmp x-- hold_fall_loop
-    mov pindirs, null
+    mov pindirs, y
 
 no_drive:
-    mov pindirs, null
+    mov pindirs, y
 .wrap
