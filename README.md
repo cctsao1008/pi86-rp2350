@@ -1,10 +1,10 @@
 # pi86-rp2350
 
-**A real NEC V30, with RP2350 PIO and DMA acting as its programmable chipset.**
+**A real NEC V30, with Raspberry Pi RP2350 PIO and DMA acting as its programmable chipset.**
 
-`pi86-rp2350` evolves the original Pi86 physical V20/V30 computer into an RP2350-based **V30 companion-chip architecture**.
+`pi86-rp2350` evolves the original Pi86 physical V20/V30 computer into a Raspberry Pi RP2350-based **V30 companion-chip architecture**.
 
-The project preserves the **physical NEC V30 CPU** while moving clock generation, bus control, ROM/RAM service, interrupt/timer peripherals, storage, display, and debugging into a bare-metal RP2350 system.
+The project preserves the **physical NEC V30 CPU** while moving clock generation, bus control, ROM/RAM service, interrupt/timer peripherals, storage, display, and debugging into a bare-metal Raspberry Pi RP2350 system.
 
 The **current implementation targets the NEC V30**; V20 remains part of the original Pi86 compatibility lineage and reference model.
 
@@ -24,11 +24,11 @@ programmable V30 companion chipset
 
 ## Architecture thesis
 
-The RP2350 is treated as a **programmable chipset**, not as a faster Linux host running Pi86-style GPIO polling.
+The Raspberry Pi RP2350 is treated as a **programmable chipset**, not as a faster Linux host running Pi86-style GPIO polling.
 
 The central engineering question is:
 
-> How far can an RP2350 act as a programmable chipset around a real NEC V20/V30 — from reset-vector execution through ROM, RAM, peripherals, BIOS services, and eventually a bootable PC-class system?
+> How far can an RP2350 act as a programmable chipset around a real NEC V30 — from reset-vector execution through ROM, RAM, peripherals, BIOS services, and eventually a bootable PC-class system?
 
 The core design rule is:
 
@@ -79,14 +79,14 @@ PIO and DMA remain on the hardest real-time path; dual-core partitioning keeps s
                                 v
               +------------------------------------+
               |        Waveshare RP2350-PiZero     |
-              |              RP2350B               |
+              |      Raspberry Pi RP2350B MCU      |
               |                                    |
               |  PIO0  clock / passive observe     |
               |  PIO1  AD bus response             |
               |  DMA   deterministic transfers     |
               |                                    |
-              |  real-time core   decode/service   |
-              |  service core     USB/storage/etc  |
+              |  real-time core   bus supervision  |
+              |  service core     system services  |
               +------+-----------+----------+------+
                      |           |          |
                      v           v          v
@@ -103,8 +103,8 @@ The Raspberry Pi **physical 40-pin header position** is treated as the cross-pla
 
 ## Hardware baseline
 
-- **Host / chipset:** Waveshare RP2350-PiZero
-- **MCU:** RP2350B
+- **Host board:** Waveshare RP2350-PiZero
+- **MCU / programmable chipset:** Raspberry Pi RP2350B
 - **CPU:** NEC V30 `D70116C-8` / `uPD70116C-8`
 - **Installed CPU marking:** `1020VD002`
 - **CPU interface:** original Homebrew8088 Pi86 V20/V30 HAT
@@ -135,7 +135,7 @@ The project separates three memory roles:
 | External Flash | RP2350 firmware, BIOS, option/test ROM images |
 | MicroSD | PC storage and persistent disk images |
 
-The V30 sees its normal 20-bit physical address space (`00000h`-`FFFFFh`). The RP2350 maps V30 memory and I/O transactions onto SRAM, PSRAM, Flash, or virtual-device backends.
+The V30 sees its normal 20-bit physical address space (`00000h`-`FFFFFh`). The RP2350 maps V30 memory transactions onto SRAM, PSRAM, or Flash-backed regions, while I/O-space transactions are dispatched to software-defined peripheral backends.
 
 Current peripheral state:
 
@@ -169,7 +169,7 @@ It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is su
 
 Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
 
-## Target progression
+## System capability progression
 
 This is the intended **system-capability progression**, not the chronological order of hardware validation.
 
@@ -207,7 +207,7 @@ The project has two execution domains.
 - CMake
 - picotool
 
-### V30 side
+### NEC V30 side
 
 - 16-bit x86/V30 assembly
 - **NASM** for ROM, diagnostic, monitor, and BIOS-side test images
@@ -228,14 +228,7 @@ References are grouped by scope.
 
 At the software and system-architecture level, the **NEC V20 corresponds broadly to the Intel 8088 class**, while the **NEC V30 corresponds broadly to the Intel 8086 class**. They are not treated here as electrically or pin-for-pin identical devices.
 
-For this project:
-
-- **NEC V20/V30 documentation is authoritative for NEC pin functions, bus timing, reset, interrupt, and electrical behavior.**
-- **Intel 8088/8086 documentation is used as an architectural and software-compatibility reference.**
-- Pin names, multiplexed functions, timing details, and implementation-specific behavior are checked against the actual NEC device rather than inferred from Intel documentation alone.
-- **The active `pi86-rp2350` implementation and hardware validation target the NEC V30.**
-
-Where NEC V30-specific behavior differs from Intel 8086 behavior, NEC documentation takes precedence for the active implementation.
+For `pi86-rp2350`, **NEC documentation is authoritative for physical pin functions, bus timing, reset, interrupt, and electrical behavior; Intel 8088/8086 documentation is used as an architectural and software-compatibility reference. The active implementation and hardware validation target the NEC V30.**
 
 ### Raspberry Pi RP2350 platform
 
@@ -265,7 +258,7 @@ Raw hardware evidence such as scope captures, photographs, logs, benchmarks, man
 
 ## Build
 
-The main RP2350 build dependencies are repository-pinned for reproducibility. Pico SDK and picotool are Git submodules; dependency initialization therefore uses `--recursive`.
+The main Raspberry Pi RP2350 build dependencies are repository-pinned for reproducibility. Pico SDK and picotool are Git submodules; dependency initialization therefore uses `--recursive`.
 
 ### Prerequisites
 
@@ -339,7 +332,7 @@ Normal builds use the repository-pinned Pico SDK and do not require a global `PI
 
 The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V30-class processor, observe the control/address phases, and service memory and I/O transactions in software. Its approximately 0.3 MHz operating point is used here as a historical comparison baseline.
 
-`pi86-rp2350` preserves the physical CPU and HAT interface while replacing the Linux/GPIO-driven control model with a bare-metal RP2350 architecture centered on PIO, DMA, deterministic timing, and explicit hardware validation.
+`pi86-rp2350` preserves the physical CPU and HAT interface while replacing the Linux/GPIO-driven control model with a bare-metal Raspberry Pi RP2350 architecture centered on PIO, DMA, deterministic timing, and explicit hardware validation.
 
 The intent is therefore not merely to **port Pi86**. The longer-term objective is to explore whether the RP2350 can function as a compact, programmable implementation of much of the chipset traditionally surrounding an 8086-class processor.
 
