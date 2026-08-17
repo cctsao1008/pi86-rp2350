@@ -39,6 +39,9 @@
 #define RESET_ROM_BASE           0xFFFF0u
 #define RESET_ROM_SIZE                 6u
 #define FAR_TARGET                0xF0000u
+#define ADDRESS_GPIO_MASK (V30_AD_BUS_MASK | (1u << V30_PIN_A16) | \
+                           (1u << V30_PIN_A17) | (1u << V30_PIN_A18) | \
+                           (1u << V30_PIN_A19))
 
 typedef enum {
     LANES_NONE = 0,
@@ -55,7 +58,6 @@ typedef struct {
 
 typedef struct {
     uint32_t cycle_raw;
-    uint32_t address;
     uint16_t response;
     lane_mask_t lanes;
     bool memory_read;
@@ -94,10 +96,12 @@ typedef struct {
 } pc1c0b_result_t;
 
 static uint8_t g_reset_rom[RESET_ROM_SIZE];
+static uint32_t g_reset_address_keys[RESET_ROM_SIZE];
 static uint32_t g_reset_word_commands[RESET_ROM_SIZE / 2u];
 static uint32_t g_reset_low_commands[RESET_ROM_SIZE];
 static uint32_t g_reset_high_commands[RESET_ROM_SIZE];
 static uint32_t g_observer_dma_words[OBSERVER_DEPTH];
+static uint32_t g_far_target_key;
 
 static const uint8_t ad_pins[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -151,39 +155,51 @@ static inline uint32_t encode_gpio_word(uint16_t value) {
     return encoded;
 }
 
+static inline uint32_t encode_gpio_address(uint32_t address) {
+    uint32_t encoded = encode_gpio_word((uint16_t)address);
+    if (address & (1u << 16)) encoded |= 1u << V30_PIN_A16;
+    if (address & (1u << 17)) encoded |= 1u << V30_PIN_A17;
+    if (address & (1u << 18)) encoded |= 1u << V30_PIN_A18;
+    if (address & (1u << 19)) encoded |= 1u << V30_PIN_A19;
+    return encoded;
+}
+
 static inline uint32_t encoded_drive_command(uint16_t value) {
     return encode_gpio_word(value) | (1u << RESPONSE_VALID_BIT);
 }
 
-static inline bool reset_rom_read(uint32_t address,
-                                  lane_mask_t lanes,
-                                  uint16_t *value,
-                                  uint32_t *command) {
+static inline bool reset_rom_lookup_raw(uint32_t cycle_raw,
+                                        lane_mask_t lanes,
+                                        uint16_t *value,
+                                        uint32_t *command,
+                                        uint8_t *word_index) {
+    const uint32_t key = cycle_raw & ADDRESS_GPIO_MASK;
     if (lanes == LANES_WORD) {
-        if (address < RESET_ROM_BASE ||
-            address + 1u >= RESET_ROM_BASE + RESET_ROM_SIZE)
-            return false;
-        const uint32_t offset = address - RESET_ROM_BASE;
+        uint32_t offset;
+        if (key == g_reset_address_keys[0]) offset = 0u;
+        else if (key == g_reset_address_keys[2]) offset = 2u;
+        else if (key == g_reset_address_keys[4]) offset = 4u;
+        else return false;
         *value = (uint16_t)g_reset_rom[offset] |
                  ((uint16_t)g_reset_rom[offset + 1u] << 8);
         *command = g_reset_word_commands[offset >> 1u];
+        *word_index = (uint8_t)(offset >> 1u);
         return true;
     }
 
-    if (address < RESET_ROM_BASE ||
-        address >= RESET_ROM_BASE + RESET_ROM_SIZE)
-        return false;
-
-    const uint8_t byte = g_reset_rom[address - RESET_ROM_BASE];
-    if (lanes == LANE_LOW) {
-        *value = byte;
-        *command = g_reset_low_commands[address - RESET_ROM_BASE];
-        return true;
-    }
-    if (lanes == LANE_HIGH) {
-        *value = (uint16_t)byte << 8;
-        *command = g_reset_high_commands[address - RESET_ROM_BASE];
-        return true;
+    if (lanes == LANE_LOW || lanes == LANE_HIGH) {
+        for (uint32_t offset = 0u; offset < RESET_ROM_SIZE; ++offset) {
+            if (key != g_reset_address_keys[offset]) continue;
+            const uint8_t byte = g_reset_rom[offset];
+            if (lanes == LANE_LOW) {
+                *value = byte;
+                *command = g_reset_low_commands[offset];
+            } else {
+                *value = (uint16_t)byte << 8;
+                *command = g_reset_high_commands[offset];
+            }
+            return true;
+        }
     }
     return false;
 }
@@ -371,7 +387,6 @@ static void responder_preserve_clock_direction(pc1c_sm_t *responder) {
 
 static inline void remember_trace(pc1c0b_result_t *result,
                                   uint32_t cycle_raw,
-                                  uint32_t address,
                                   lane_mask_t lanes,
                                   bool memory_read,
                                   bool rom_hit,
@@ -380,7 +395,6 @@ static inline void remember_trace(pc1c0b_result_t *result,
     trace_entry_t *entry = &result->trace[result->trace_count++];
     *entry = (trace_entry_t){
         .cycle_raw = cycle_raw,
-        .address = address,
         .response = response,
         .lanes = lanes,
         .memory_read = memory_read,
@@ -392,23 +406,29 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
                                               pc1c_sm_t *responder,
                                               pc1c0b_result_t *result,
                                               uint64_t deadline) {
-    while (time_us_64() <= deadline && !result->far_target_seen) {
+    uint32_t empty_polls = 0u;
+    while (!result->far_target_seen) {
         if (pio_sm_is_rx_fifo_empty(capture->pio, capture->sm)) {
+            if (((++empty_polls & 0x3fu) == 0u) &&
+                time_us_64() > deadline)
+                return;
             tight_loop_contents();
             continue;
         }
+        empty_polls = 0u;
 
         const uint32_t cycle_raw = pio_sm_get(capture->pio, capture->sm);
         if (!sample_bit(cycle_raw, V30_PIN_ASTB) ||
             sample_bit(cycle_raw, V30_PIN_CLK))
             ++result->capture_phase_errors;
-        const uint32_t address = decode_address(cycle_raw);
         const lane_mask_t lanes = decode_lanes(cycle_raw);
         const bool memory_read = is_memory_read(cycle_raw);
         uint16_t response = 0u;
         uint32_t command = 0u;
+        uint8_t word_index = 0xFFu;
         const bool rom_hit = memory_read &&
-            reset_rom_read(address, lanes, &response, &command);
+            reset_rom_lookup_raw(cycle_raw, lanes, &response, &command,
+                                 &word_index);
 
         if (pio_sm_is_tx_fifo_full(responder->pio, responder->sm)) {
             ++result->tx_backpressure;
@@ -423,19 +443,19 @@ static void __not_in_flash_func(service_bus)(pc1c_sm_t *capture,
         ++result->service_cycles;
         if (rom_hit) {
             ++result->rom_hits;
-            if (address == 0xFFFF0u) result->required_hit_mask |= 1u << 0;
-            if (address == 0xFFFF2u) result->required_hit_mask |= 1u << 1;
-            if (address == 0xFFFF4u) result->required_hit_mask |= 1u << 2;
+            if (word_index < 3u)
+                result->required_hit_mask |= (uint8_t)(1u << word_index);
         } else {
             ++result->unsupported_cycles;
         }
         if (rom_hit && !memory_read)
             ++result->unqualified_drive_commands;
 
-        remember_trace(result, cycle_raw, address, lanes,
-                       memory_read, rom_hit, response);
+        remember_trace(result, cycle_raw, lanes, memory_read, rom_hit,
+                       response);
 
-        if (memory_read && address == FAR_TARGET)
+        if (memory_read &&
+            (cycle_raw & ADDRESS_GPIO_MASK) == g_far_target_key)
             result->far_target_seen = true;
     }
 }
@@ -536,7 +556,8 @@ static void run_test(pc1c_sm_t *clock,
                             !gpio_get(V30_PIN_CLK) &&
                             ad_is_sio_high_z();
     result->first_address_ok = result->trace_count > 0u &&
-                              result->trace[0].address == 0xFFFF0u;
+        (result->trace[0].cycle_raw & ADDRESS_GPIO_MASK) ==
+            g_reset_address_keys[0];
     result->first_memory_read = result->trace_count > 0u &&
                                 result->trace[0].memory_read;
     if (result->phase_count == FIRST_PHASE_COUNT) {
@@ -582,7 +603,7 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("Realtime engine     : PIO1 synchronized CLK + early-T1 capture + AD/PINDIRS\n");
     printf("Capture settling    : %u PIO cycles after ASTB rise\n",
            CAPTURE_SETTLE_CYCLES);
-    printf("Response policy     : M33 precompiled SRAM descriptor -> PIO1 TX FIFO\n");
+    printf("Response policy     : M33 raw-key SRAM descriptor -> PIO1 TX FIFO\n");
     printf("Observer path       : passive PIO0 -> DMA -> SRAM trace\n");
     printf("Late-drive gate     : PIO1 requires command before first post-ASTB CLK fall\n");
     printf("ROM bytes           : EA 00 00 00 F0 90 at FFFF0\n");
@@ -596,7 +617,8 @@ static void print_result(const pc1c0b_result_t *result) {
     printf("FIRST post-reset address  = %s",
            result->first_address_ok ? "FFFF0 PASS" : "FAIL");
     if (result->trace_count > 0u)
-        printf(" (observed %05lX)", (unsigned long)result->trace[0].address);
+        printf(" (observed %05lX)",
+               (unsigned long)decode_address(result->trace[0].cycle_raw));
     printf("\n");
     printf("FIRST cycle type          = %s\n",
            result->first_memory_read ? "MEMORY READ PASS" : "FAIL");
@@ -639,7 +661,7 @@ static void print_result(const pc1c0b_result_t *result) {
     for (uint i = 0u; i < result->trace_count; ++i) {
         const trace_entry_t *entry = &result->trace[i];
         printf("%02u  %05lX  %-5s %-4s  %s  %04X     %08lX\n",
-               i, (unsigned long)entry->address,
+               i, (unsigned long)decode_address(entry->cycle_raw),
                entry->memory_read ? "MEMR" : "OTHER",
                lane_name(entry->lanes), entry->rom_hit ? "YES" : "NO ",
                entry->response,
@@ -691,6 +713,8 @@ int main(void) {
     };
     for (uint i = 0u; i < RESET_ROM_SIZE; ++i) g_reset_rom[i] = image[i];
     for (uint i = 0u; i < RESET_ROM_SIZE; ++i) {
+        g_reset_address_keys[i] =
+            encode_gpio_address(RESET_ROM_BASE + i) & ADDRESS_GPIO_MASK;
         g_reset_low_commands[i] = encoded_drive_command(g_reset_rom[i]);
         g_reset_high_commands[i] =
             encoded_drive_command((uint16_t)g_reset_rom[i] << 8);
@@ -700,6 +724,7 @@ int main(void) {
             ((uint16_t)g_reset_rom[i * 2u + 1u] << 8);
         g_reset_word_commands[i] = encoded_drive_command(word);
     }
+    g_far_target_key = encode_gpio_address(FAR_TARGET) & ADDRESS_GPIO_MASK;
 
     prepare_header_high_z();
     init_control_outputs();

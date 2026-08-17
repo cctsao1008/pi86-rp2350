@@ -209,7 +209,7 @@ Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.
 
 ### PC1-C0B: Qualified Reset-Vector Response
 
-**Status: IMPLEMENTED / PHYSICAL VALIDATION PENDING.**
+**Status: IMPLEMENTED / RAW-KEY REVISION AWAITING PHYSICAL VALIDATION.**
 
 Return only the reset-vector far jump from address-qualified ROM. All other cycles use an explicit unsupported-read policy.
 
@@ -223,7 +223,8 @@ The first 0.300 MHz implementation deliberately keeps the lookup path simple and
 
 ```text
 PIO1 synchronized CLK + early-T1 capture + AD response
-  -> M33 current-cycle precompiled SRAM descriptor lookup
+  -> M33 current-cycle masked raw-GPIO key lookup
+  -> precompiled SRAM response descriptor
   -> one command per ASTB cycle
   -> PIO1 TX FIFO
   -> encoded scattered AD bitmap + PINDIRS
@@ -238,10 +239,11 @@ accepts commands through the validated AF-to-F1 preparation interval. Commands
 that arrive after the first post-ASTB CLK fall are consumed as alignment tokens
 but are hardware-gated from driving AD.
 
-The reset-ROM backend precompiles word and byte-lane responses into complete
-GPIO0-27 command descriptors before RESET release. The timed path performs an
-address-qualified SRAM index and does not encode sixteen scattered AD bits per
-cycle.
+The reset-ROM backend precompiles both masked raw-GPIO address keys and word or
+byte-lane GPIO0-27 response descriptors before RESET release. The timed path
+compares the current physical snapshot directly with those keys and submits the
+descriptor before any diagnostic address decoding or trace formatting. It does
+not encode or decode sixteen scattered AD bits per response cycle.
 
 The first physical C0B run confirmed correct post-fall address classification,
 but the response command missed R2 because the paired capture was not published
@@ -251,6 +253,13 @@ therefore samples the address and minimum-mode controls eight PIO cycles after
 ASTB rises (about 53 ns at the default 150 MHz PIO clock), while CLK remains
 low. This is still a lookup of the current physical cycle; it does not predict
 the next address or index a transaction-count response stream.
+
+The first AF-to-F1-gated build still submitted commands late and consumed only
+the first two reset-vector words. The raw-key revision removes generic 20-bit
+address decoding and per-poll timer reads from the response-critical path. Its
+acceptance criterion is unchanged: all three reset-ROM words must be qualified,
+no command may be late at F1, and the CPU must fetch the far-jump target at
+`F0000`.
 
 The six-byte reset ROM is:
 
