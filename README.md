@@ -199,7 +199,7 @@ Clock frequency alone is not the project goal. The objective is to preserve dete
 
 The project has two execution domains.
 
-### RP2350 side
+### Raspberry Pi RP2350 side
 
 - C / C++
 - Raspberry Pi Pico SDK
@@ -237,7 +237,7 @@ For this project:
 
 Where NEC V30-specific behavior differs from Intel 8086 behavior, NEC documentation takes precedence for the active implementation.
 
-### RP2350 platform
+### Raspberry Pi RP2350 platform
 
 - **Raspberry Pi RP2350 Datasheet** — silicon, GPIO, PIO, DMA, QMI, SRAM, timing, and electrical behavior
 - **Raspberry Pi Pico SDK documentation** — firmware API and build-system reference
