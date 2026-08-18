@@ -137,37 +137,16 @@ The project separates three memory roles:
 
 The V30 sees its normal 20-bit physical address space (`00000h`-`FFFFFh`). The RP2350 maps V30 memory transactions onto SRAM, PSRAM, or Flash-backed regions, while I/O-space transactions are dispatched to software-defined peripheral backends.
 
-Current peripheral state:
+The I/O-space architecture is intended to support software-defined PC-class peripheral backends such as:
 
-- **8259A-compatible PIC** — interrupt controller; manages IRQs and delivers interrupts to the V30 — validated
-- **8253/8254-class PIT** — programmable timer; provides periodic timing such as IRQ0 — channel 0 / IRQ0 validated
-- **8255-compatible PPI** — programmable parallel I/O controller for general-purpose ports and external control signals — planned
-- **UART / keyboard / display / storage services** — future integration as required by the BIOS/DOS path
+- **8259A-compatible PIC** — interrupt controller
+- **8253/8254-class PIT** — programmable interval timer
+- **8255-compatible PPI** — programmable parallel I/O controller
+- **UART / keyboard / display / storage services** — system-service backends as required by the BIOS/DOS path
 
 These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
 
-## Validation status
-
-**Headline result: the fixed-response PIO-direct path has been validated from 0.300 to 8.000 MHz on physical NEC V30 hardware.**
-
-| Area | State |
-|---|---|
-| Physical NEC V30 bring-up | Validated |
-| Basic memory / I/O bus transactions | Validated |
-| Maskable interrupt entry | Validated |
-| 8259A-compatible PIC | Validated |
-| PIT channel 0 / IRQ0 path | Validated |
-| Fixed-response PIO-direct timing path | Validated from 0.300 to 8.000 MHz |
-| Address-qualified ROM execution | In progress |
-| General 8 MHz ROM/RAM service | Not yet validated |
-| 8255-compatible PPI | Planned |
-| BIOS / DOS boot | Planned |
-
-The fixed-response result proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly across the tested range.
-
-It does **not** claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz.
-
-Detailed performance-characterization stages, experimental boundaries, and current execution status are tracked in GitHub Issues rather than in this README.
+Current validation results, performance characterization, and active engineering work are tracked in the project issues and validation records rather than in this README.
 
 Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md), [`docs/validation/`](docs/validation/), and the project issue tracker.
 
