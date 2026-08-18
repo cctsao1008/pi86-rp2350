@@ -158,14 +158,20 @@ These peripherals are parallel branches of the V30 I/O-space architecture rather
 | 8259A-compatible PIC | Validated |
 | PIT channel 0 / IRQ0 path | Validated |
 | PC1-B fixed-response PIO-direct path | Validated from 0.300 to 8.000 MHz |
-| **PC1-C address-qualified ROM execution** | **Active** |
+| PC1-C0A address capture | Validated at 0.300 MHz |
+| PC1-C0B qualified reset-vector response | Validated at 0.300 MHz |
+| **PC1-C0C SRAM ROM execution** | **Active** |
 | General 8 MHz ROM/RAM service | Not yet validated |
 | 8255-compatible PPI | Planned |
 | BIOS / DOS boot | Planned |
 
 PC1-B proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly at every tested clock point.
 
-It does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That is the PC1-C boundary.
+PC1-C0A then validates physical address/control capture, while PC1-C0B proves CPU-visible consumption of an address-qualified reset-vector far jump from `FFFF0` to `F0000`.
+
+**Current boundary:** serve actual executable ROM at `F0000` from the address-qualified SRAM-backed ROM path and reach a deterministic CPU-visible checkpoint.
+
+The project does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That remains a later PC1-C validation boundary.
 
 Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
 
