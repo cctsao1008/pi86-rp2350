@@ -157,23 +157,19 @@ These peripherals are parallel branches of the V30 I/O-space architecture rather
 | Maskable interrupt entry | Validated |
 | 8259A-compatible PIC | Validated |
 | PIT channel 0 / IRQ0 path | Validated |
-| PC1-B fixed-response PIO-direct path | Validated from 0.300 to 8.000 MHz |
-| PC1-C0A address capture | Validated at 0.300 MHz |
-| PC1-C0B qualified reset-vector response | Validated at 0.300 MHz |
-| **PC1-C0C SRAM ROM execution** | **Active** |
+| Fixed-response PIO-direct timing path | Validated from 0.300 to 8.000 MHz |
+| Address-qualified ROM execution | In progress |
 | General 8 MHz ROM/RAM service | Not yet validated |
 | 8255-compatible PPI | Planned |
 | BIOS / DOS boot | Planned |
 
-PC1-B proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO1 TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly at every tested clock point.
+The fixed-response result proves that a pre-staged V30 instruction response can travel through RP2350 SRAM, DMA, the PIO TX FIFO, and PIO-controlled scattered AD pins/PINDIRS quickly enough for the physical V30 to execute correctly across the tested range.
 
-PC1-C0A then validates physical address/control capture, while PC1-C0B proves CPU-visible consumption of an address-qualified reset-vector far jump from `FFFF0` to `F0000`.
+It does **not** claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz.
 
-**Current boundary:** serve actual executable ROM at `F0000` from the address-qualified SRAM-backed ROM path and reach a deterministic CPU-visible checkpoint.
+Detailed performance-characterization stages, experimental boundaries, and current execution status are tracked in GitHub Issues rather than in this README.
 
-The project does **not** yet claim that arbitrary address-to-data ROM or RAM lookup is sustainable at 8 MHz. That remains a later PC1-C validation boundary.
-
-Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md) and [`docs/validation/`](docs/validation/).
+Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md), [`docs/validation/`](docs/validation/), and the project issue tracker.
 
 ## System capability progression
 
@@ -218,7 +214,7 @@ The project has two execution domains.
 - 16-bit x86/V30 assembly
 - **NASM** for ROM, diagnostic, monitor, and BIOS-side test images
 
-NASM-generated flat binaries can be embedded or mapped as V30 ROM images for hardware execution tests such as PC1-C.
+NASM-generated flat binaries can be embedded or mapped as V30 ROM images for physical hardware execution tests.
 
 ## Reference model
 
@@ -303,12 +299,6 @@ Build the primary firmware:
 
 ```bash
 ./scripts/build.sh --target pi86_rp2350
-```
-
-Build the PC1-B validation target:
-
-```bash
-./scripts/build.sh --target pc1b_pio_direct_post_reset_epoch_sweep
 ```
 
 ### PowerShell
