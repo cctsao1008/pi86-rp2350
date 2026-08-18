@@ -209,16 +209,6 @@ For `pi86-rp2350`, **NEC documentation is authoritative for physical pin functio
 
 - [**Homebrew8088 Pi86 project**](https://www.homebrew8088.com/home/raspberry-pi-second-project) and original V20/V30 HAT — historical architecture, source/physical-interface compatibility, BIOS/toolchain model, and the approximately 0.3 MHz comparison baseline
 
-## Documentation
-
-- [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
-- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
-- [`docs/bringup.md`](docs/bringup.md) — gate sequence and current validation state
-- [`docs/validation/`](docs/validation/) — physical hardware validation records
-- [`docs/development/build_and_toolchain.md`](docs/development/build_and_toolchain.md) — build environment, dependencies, toolchain, and build commands
-
-Raw hardware evidence such as scope captures, photographs, logs, benchmarks, manuals/datasheets, and long-form experimental reports is archived separately.
-
 ## Project provenance
 
 `pi86-rp2350` builds directly on the [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its physical V20/V30 HAT.
@@ -234,3 +224,13 @@ GitHub stores source, architecture, build metadata, and validation summaries. Ra
 ## License
 
 No project license has been selected yet. Upstream Pi86 licensing and derivative-code obligations must be reviewed before Pi86 source code is imported or redistributed by this repository.
+
+## Documentation
+
+- [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
+- [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
+- [`docs/bringup.md`](docs/bringup.md) — gate sequence and current validation state
+- [`docs/validation/`](docs/validation/) — physical hardware validation records
+- [`docs/development/build_and_toolchain.md`](docs/development/build_and_toolchain.md) — build environment, dependencies, toolchain, and build commands
+
+Raw hardware evidence such as scope captures, photographs, logs, benchmarks, manuals/datasheets, and long-form experimental reports is archived separately.
