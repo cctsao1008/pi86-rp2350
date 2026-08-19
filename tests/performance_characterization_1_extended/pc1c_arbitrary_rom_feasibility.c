@@ -425,6 +425,20 @@ static void run_stage(probe_sm_t *clock, probe_sm_t *selector,
             time_us_64() + timeout_us_from_clocks(STAGE_TIMEOUT_CLOCKS);
         while (dma_remaining(rx_dma) != 0u && time_us_64() <= deadline)
             tight_loop_contents();
+
+        /*
+         * Selection intentionally completes during T1, before the passive
+         * AF/R1/F1/R2/F2/R3 instrument can collect its six snapshots. Keep
+         * the qualified clock running until that independent witness is
+         * complete. Stopping as soon as selector RX DMA finished produced a
+         * false FAIL whose phase count depended on M33 scheduling latency.
+         */
+        while (dma_remaining(rx_dma) == 0u &&
+               pio_sm_get_rx_fifo_level(phase->pio, phase->sm) <
+                   FIRST_PHASE_COUNT &&
+               time_us_64() <= deadline)
+            tight_loop_contents();
+
         gpio_put(V30_PIN_RESET, true);
         clock_stop_low(clock);
         restore_interrupts(irq_state);
