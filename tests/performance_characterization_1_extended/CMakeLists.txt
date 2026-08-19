@@ -256,3 +256,50 @@ pico_generate_pio_header(pc1c_sram_rom_execution
 pico_enable_stdio_usb(pc1c_sram_rom_execution 1)
 pico_enable_stdio_uart(pc1c_sram_rom_execution 0)
 pico_add_extra_outputs(pc1c_sram_rom_execution)
+
+pi86_add_v30_rom(pc1c_native_bios_hello_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/rom/pc1c_native_bios_hello.asm"
+    SYMBOL pc1c_native_bios_hello_rom
+)
+
+add_executable(pc1c_native_bios_hello
+    pc1c_sram_rom_execution.c
+)
+
+target_compile_definitions(pc1c_native_bios_hello PRIVATE
+    PC1C_NATIVE_BIOS_HELLO=1
+    PC1C_ROM_HEADER=\"pc1c_native_bios_hello_rom.h\"
+    PC1C_ROM_DATA=pc1c_native_bios_hello_rom_data
+    PC1C_ROM_SIZE=pc1c_native_bios_hello_rom_size
+    PC1C_ROM_SHA256=pc1c_native_bios_hello_rom_sha256
+)
+
+target_include_directories(pc1c_native_bios_hello PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_native_bios_hello
+    pc1c_native_bios_hello_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_native_bios_hello
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_native_bios_hello
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
+)
+pico_generate_pio_header(pc1c_native_bios_hello
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_native_bios_hello
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_native_bios_hello 1)
+pico_enable_stdio_uart(pc1c_native_bios_hello 0)
+pico_add_extra_outputs(pc1c_native_bios_hello)

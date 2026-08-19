@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "hardware/clocks.h"
 #include "hardware/dma.h"
@@ -20,7 +21,13 @@
 #include "pc1b_first_cycle_phase_capture.pio.h"
 #include "pc1c_pio_rom_sequencer.pio.h"
 #include "pc1c_sram_rom_execution_observer.pio.h"
-#include "pc1c0c_sram_rom.h"
+#ifndef PC1C_ROM_HEADER
+#define PC1C_ROM_HEADER "pc1c0c_sram_rom.h"
+#define PC1C_ROM_DATA pc1c0c_sram_rom_data
+#define PC1C_ROM_SIZE pc1c0c_sram_rom_size
+#define PC1C_ROM_SHA256 pc1c0c_sram_rom_sha256
+#endif
+#include PC1C_ROM_HEADER
 #include "perf_continuous_clock.pio.h"
 #include "v30/v30_pins.h"
 
@@ -40,6 +47,8 @@
 #define V30_ROM_BASE                  0xF0000u
 #define SEQUENCE_MAX                      32u
 #define CHECKPOINT_RESPONSES               4u
+#define DIAGNOSTIC_PORT                0x00E9u
+#define DIAGNOSTIC_MAX_BYTES               32u
 #define QUALIFIED_T1_CONTROL_BITS ((1u << V30_PIN_ASTB) | \
                                    (1u << V30_PIN_IOM) | \
                                    (1u << V30_PIN_INTAK))
@@ -64,6 +73,7 @@ typedef struct {
     lane_mask_t lanes;
     bool memory_read;
     bool memory_write;
+    bool io_write;
     bool rom_hit;
 } bus_trace_t;
 
@@ -79,6 +89,7 @@ typedef struct {
     bool signature_1234;
     bool signature_5678;
     bool signature_abcd;
+    bool diagnostic_ok;
     bool checkpoint_ok;
     bool dma_streams_complete;
     bool observer_tail_valid;
@@ -101,6 +112,8 @@ typedef struct {
     uint32_t deadline_misses;
     uint32_t unqualified_drive_commands;
     uint32_t checkpoint_reads;
+    uint32_t diagnostic_bytes;
+    char diagnostic[DIAGNOSTIC_MAX_BYTES + 1u];
     uint32_t observer_words;
     uint32_t observer_trailing_words;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
@@ -161,6 +174,17 @@ static bool is_memory_write(uint32_t raw) {
     return sample_bit(raw, V30_PIN_IOM) != 0u &&
            sample_bit(raw, V30_PIN_BUFRW) != 0u &&
            sample_bit(raw, V30_PIN_INTAK) != 0u;
+}
+
+static bool is_io_write(uint32_t raw) {
+    return sample_bit(raw, V30_PIN_IOM) == 0u &&
+           sample_bit(raw, V30_PIN_BUFRW) != 0u &&
+           sample_bit(raw, V30_PIN_INTAK) != 0u;
+}
+
+static uint8_t decode_bus_byte(uint32_t raw, lane_mask_t lanes) {
+    const uint16_t word = decode_ad(raw);
+    return lanes == LANE_HIGH ? (uint8_t)(word >> 8) : (uint8_t)word;
 }
 
 static uint32_t encode_gpio_word(uint16_t value) {
@@ -405,9 +429,9 @@ static bool lookup_rom_word(uint32_t address, uint16_t *word) {
         size = sizeof(reset_rom);
         offset = address - RESET_ROM_BASE;
     } else if (address >= V30_ROM_BASE &&
-               address < V30_ROM_BASE + pc1c0c_sram_rom_size) {
-        bytes = pc1c0c_sram_rom_data;
-        size = pc1c0c_sram_rom_size;
+               address < V30_ROM_BASE + PC1C_ROM_SIZE) {
+        bytes = PC1C_ROM_DATA;
+        size = PC1C_ROM_SIZE;
         offset = address - V30_ROM_BASE;
     } else {
         return false;
@@ -434,14 +458,14 @@ static void prepare_response_tables(void) {
         hard_assert(lookup_rom_word(address, &word));
         append_response(address, word);
     }
-    for (uint32_t offset = 0u; offset < pc1c0c_sram_rom_size; offset += 2u) {
+    for (uint32_t offset = 0u; offset < PC1C_ROM_SIZE; offset += 2u) {
         uint16_t word = 0u;
         hard_assert(lookup_rom_word(V30_ROM_BASE + offset, &word));
         append_response(V30_ROM_BASE + offset, word);
     }
-    hard_assert(pc1c0c_sram_rom_size >= 2u);
+    hard_assert(PC1C_ROM_SIZE >= 2u);
     g_checkpoint_address = V30_ROM_BASE +
-                           (uint32_t)pc1c0c_sram_rom_size - 2u;
+                           (uint32_t)PC1C_ROM_SIZE - 2u;
     uint16_t checkpoint_word = 0u;
     hard_assert(lookup_rom_word(g_checkpoint_address, &checkpoint_word));
     for (uint i = 1u; i < CHECKPOINT_RESPONSES; ++i)
@@ -464,6 +488,7 @@ static void classify_trace(pc1c0c_result_t *result) {
         entry->lanes = decode_lanes(entry->address_raw);
         entry->memory_read = is_memory_read(entry->address_raw);
         entry->memory_write = is_memory_write(entry->address_raw);
+        entry->io_write = is_io_write(entry->address_raw);
         const uint32_t address = decode_address(entry->address_raw);
         entry->rom_hit = entry->memory_read && entry->lanes == LANES_WORD &&
             lookup_rom_word(address, &entry->response);
@@ -487,7 +512,21 @@ static void classify_trace(pc1c0c_result_t *result) {
             if (address == 0xF0104u && data == 0xABCDu)
                 result->signature_abcd = true;
         }
+        if (entry->io_write &&
+            (entry->lanes == LANE_LOW || entry->lanes == LANE_HIGH) &&
+            decode_ad(entry->address_raw) == DIAGNOSTIC_PORT &&
+            result->diagnostic_bytes < DIAGNOSTIC_MAX_BYTES) {
+            result->diagnostic[result->diagnostic_bytes++] =
+                (char)decode_bus_byte(entry->data_raw, entry->lanes);
+        }
     }
+    result->diagnostic[result->diagnostic_bytes] = '\0';
+#ifdef PC1C_NATIVE_BIOS_HELLO
+    static const char expected[] = "HELLO RP2350\r\n";
+    result->diagnostic_ok =
+        result->diagnostic_bytes == sizeof(expected) - 1u &&
+        memcmp(result->diagnostic, expected, sizeof(expected) - 1u) == 0;
+#endif
     result->checkpoint_ok = result->checkpoint_reads >= CHECKPOINT_RESPONSES;
 }
 
@@ -638,9 +677,15 @@ static bool result_valid(const pc1c0c_result_t *result) {
 }
 
 static bool result_pass(const pc1c0c_result_t *result) {
+    const bool payload_ok =
+#ifdef PC1C_NATIVE_BIOS_HELLO
+        result->diagnostic_ok;
+#else
+        result->signature_1234 && result->signature_5678 &&
+        result->signature_abcd;
+#endif
     return result_valid(result) && result->first_response_phase_ok &&
-           result->far_target_seen && result->signature_1234 &&
-           result->signature_5678 && result->signature_abcd &&
+           result->far_target_seen && payload_ok &&
            result->checkpoint_ok && result->deadline_misses == 0u &&
            result->unqualified_drive_commands == 0u &&
            result->dma_streams_complete &&
@@ -661,11 +706,16 @@ static const char *lane_name(lane_mask_t lanes) {
 static const char *cycle_name(const bus_trace_t *entry) {
     if (entry->memory_read) return "MEMR";
     if (entry->memory_write) return "MEMW";
+    if (entry->io_write) return "IOW";
     return "OTHER";
 }
 
 static void print_result(const pc1c0c_result_t *result) {
+#ifdef PC1C_NATIVE_BIOS_HELLO
+    printf("\nPC1-C0C0-H Descriptor-Fed Native BIOS Hello - 0.300 MHz\n");
+#else
     printf("\nPC1-C0C0 Descriptor-Fed SRAM ROM Execution - 0.300 MHz\n");
+#endif
     printf("RESET qualification : clock-only; matcher/responder SMs disabled\n");
     printf("Measurement epoch   : arm after RESET clocks with CLK stopped LOW\n");
     printf("Realtime engine     : PIO1 synchronized CLK + exact matcher + AD/PINDIRS\n");
@@ -673,7 +723,7 @@ static void print_result(const pc1c0c_result_t *result) {
     printf("Current-cycle M33   : NONE\n");
     printf("Observer path       : passive PIO0 address/R2-data -> DMA -> SRAM\n");
     printf("ROM image           : %lu bytes at F0000; SHA-256 %s\n",
-           (unsigned long)pc1c0c_sram_rom_size, pc1c0c_sram_rom_sha256);
+           (unsigned long)PC1C_ROM_SIZE, PC1C_ROM_SHA256);
     printf("Input synchronizers : SDK defaults\n\n");
     printf("RESET clock count         = %s\n", result->reset_ok ? "PASS" : "FAIL");
     printf("PRE-RESET EVENT LEAK      = %s\n",
@@ -700,12 +750,27 @@ static void print_result(const pc1c0c_result_t *result) {
            result->first_response_phase_ok ? "00EA PASS" : "FAIL");
     printf("Far-jump target observed  = %s\n",
            result->far_target_seen ? "F0000 PASS" : "FAIL");
+#ifdef PC1C_NATIVE_BIOS_HELLO
+    printf("Diagnostic port 00E9 bytes= %lu/%u %s\n",
+           (unsigned long)result->diagnostic_bytes, 14u,
+           result->diagnostic_ok ? "PASS" : "FAIL");
+    printf("V30 diagnostic output     = \"");
+    for (uint i = 0u; i < result->diagnostic_bytes; ++i) {
+        const char ch = result->diagnostic[i];
+        if (ch == '\r') printf("\\r");
+        else if (ch == '\n') printf("\\n");
+        else if (ch >= 32 && ch <= 126) putchar(ch);
+        else printf("\\x%02X", (unsigned)(uint8_t)ch);
+    }
+    printf("\"\n");
+#else
     printf("Write F0100=1234          = %s\n",
            result->signature_1234 ? "PASS" : "FAIL");
     printf("Write F0102=5678          = %s\n",
            result->signature_5678 ? "PASS" : "FAIL");
     printf("Write F0104=ABCD          = %s\n",
            result->signature_abcd ? "PASS" : "FAIL");
+#endif
     printf("Checkpoint %05lX reads   = %lu/%u %s\n",
            (unsigned long)g_checkpoint_address,
            (unsigned long)result->checkpoint_reads, CHECKPOINT_RESPONSES,
@@ -774,7 +839,11 @@ static void print_result(const pc1c0c_result_t *result) {
 
     printf("\nMEASUREMENT EPOCH   = %s\n",
            result_valid(result) ? "VALID" : "INVALID");
+#ifdef PC1C_NATIVE_BIOS_HELLO
+    printf("PC1-C0C0-H RESULT   = %s\n",
+#else
     printf("PC1-C0C0 RESULT     = %s\n",
+#endif
            result_pass(result) ? "PASS" :
            (result_valid(result) ? "FAIL" : "INVALID"));
     printf("TERMINAL SAFE STATE = %s\n",
