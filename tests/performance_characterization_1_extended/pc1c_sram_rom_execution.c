@@ -81,6 +81,7 @@ typedef struct {
     bool signature_abcd;
     bool checkpoint_ok;
     bool dma_streams_complete;
+    bool observer_tail_valid;
     bool terminal_safe;
     uint32_t pre_pio1_padoe;
     uint32_t matcher_fifo_pre;
@@ -101,6 +102,7 @@ typedef struct {
     uint32_t unqualified_drive_commands;
     uint32_t checkpoint_reads;
     uint32_t observer_words;
+    uint32_t observer_trailing_words;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
     uint phase_count;
     bus_trace_t trace[OBSERVER_CYCLES];
@@ -599,6 +601,10 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
         pio_sm_get_rx_fifo_level(observer->pio, observer->sm);
     result->observer_dma_post = dma_remaining(observer_dma);
     result->observer_words = OBSERVER_WORDS - result->observer_dma_post;
+    result->observer_trailing_words = result->observer_words & 1u;
+    result->observer_tail_valid = result->observer_trailing_words == 0u ||
+        sample_bit(g_observer_dma_words[result->observer_words - 1u],
+                   V30_PIN_ASTB) != 0u;
 
     result->dma_observer_first_ok = result->observer_words >= 2u &&
         decode_address(g_observer_dma_words[0]) == RESET_ROM_BASE;
@@ -626,7 +632,7 @@ static bool result_valid(const pc1c0c_result_t *result) {
     return result->reset_ok && result->pre_release_clean &&
            result->first_address_ok && result->first_memory_read &&
            result->dma_observer_first_ok &&
-           (result->observer_words & 1u) == 0u &&
+           result->observer_tail_valid &&
            result->observer_fifo_residue == 0u &&
            result->phase_count == FIRST_PHASE_COUNT;
 }
@@ -718,8 +724,11 @@ static void print_result(const pc1c0c_result_t *result) {
     printf("Responder FIFO remain     = %lu %s\n",
            (unsigned long)result->responder_fifo_post,
            result->responder_fifo_post == 0u ? "PASS" : "FAIL");
-    printf("Observer words/residue    = %lu / %lu %s\n",
-           (unsigned long)result->observer_words,
+    printf("Observer complete cycles  = %u\n", result->trace_count);
+    printf("Observer terminal T1 tail = %lu %s\n",
+           (unsigned long)result->observer_trailing_words,
+           result->observer_tail_valid ? "VALID" : "INVALID");
+    printf("Observer FIFO residue     = %lu %s\n",
            (unsigned long)result->observer_fifo_residue,
            result->observer_fifo_residue == 0u ? "PASS" : "FAIL");
     printf("Response deadline misses  = %lu %s\n",
