@@ -85,11 +85,13 @@
 #define PC1C_DIAGNOSTIC_BUILD 1
 #define PC1C_RUN_TITLE \
     "PC1-C0C0-H Descriptor-Fed Native BIOS Hello - 0.300 MHz"
+#define PC1C_RESULT_LABEL "PC1-C0C0-H"
 static const char expected_diagnostic[] = "HELLO RP2350\r\n";
 #elif defined(PC1C_NATIVE_BIOS_FOUNDATION)
 #define PC1C_DIAGNOSTIC_BUILD 1
 #define PC1C_RUN_TITLE \
     "PC1-C0C0-B Native BIOS Foundation Regression - 0.300 MHz"
+#define PC1C_RESULT_LABEL "PC1-C0C0-B"
 static const char expected_diagnostic[] = "PI86 BIOS\r\n";
 #endif
 /* Exact early-T1 key for a word memory read: ASTB=1, IOM=1, INTAK=1,
@@ -1054,7 +1056,7 @@ static void print_result(const pc1c0c_result_t *result) {
     printf("\nMEASUREMENT EPOCH   = %s\n",
            result_valid(result) ? "VALID" : "INVALID");
 #ifdef PC1C_DIAGNOSTIC_BUILD
-    printf("PC1-C0C0-H RESULT   = %s\n",
+    printf("%s RESULT   = %s\n", PC1C_RESULT_LABEL,
 #else
     printf("PC1-C0C0 RESULT     = %s\n",
 #endif

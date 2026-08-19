@@ -52,3 +52,6 @@ BIOS architecture.
 Until C0C1 is complete, `pc1c_native_bios_foundation` is the physical BIOS
 regression and `pc1c_native_bios_hello` remains the earlier immutable HELLO
 milestone.
+
+The first foundation payload physically passed on 2026-08-20. See
+[`validation/pc1c0c_native_bios_foundation_validation.md`](validation/pc1c0c_native_bios_foundation_validation.md).
