@@ -173,7 +173,9 @@ execution milestone; it is not yet arbitrary-address ROM service.
 
 - [Complete physical validation evidence](docs/validation/pc1c0c_native_bios_hello_validation.md)
 - [Native BIOS diagnostic-console contract](docs/native_bios_diagnostic_console.md)
+- [Native BIOS source architecture](docs/native_bios_architecture.md)
 - [PC1-C0C1 arbitrary-address SRAM ROM architecture](docs/pc1c0c1_arbitrary_sram_rom_architecture.md)
+- [C0C1-A 32-entry selector physical validation](docs/validation/pc1c0c1a_selector_feasibility_validation.md)
 
 Other validation results, performance characterization, and active engineering
 work are tracked in the project issues and validation records.

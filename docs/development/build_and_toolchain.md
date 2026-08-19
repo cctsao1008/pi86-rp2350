@@ -89,6 +89,20 @@ The UF2 is generated at:
 build/tests/performance_characterization_1_extended/pc1c_native_bios_hello.uf2
 ```
 
+Build the structured Native BIOS foundation image and its descriptor-fed
+physical regression target:
+
+```bash
+./scripts/build.sh --target pc1c_native_bios_foundation
+```
+
+Generated files:
+
+```text
+build/tests/performance_characterization_1_extended/pc1c_native_bios_foundation.uf2
+build/tests/performance_characterization_1_extended/generated/native_bios_rom/native_bios_rom.bin
+```
+
 Build the PC1-C0C1-A non-driving arbitrary-selector feasibility test:
 
 ```bash

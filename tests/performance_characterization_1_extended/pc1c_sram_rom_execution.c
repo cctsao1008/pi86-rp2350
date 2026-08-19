@@ -9,6 +9,8 @@
  * This source builds two permanent golden-HAT regressions:
  *   pc1c_sram_rom_execution - memory-write signatures and JMP $ checkpoint;
  *   pc1c_native_bios_hello  - OUT 00E9h, AL diagnostic message and checkpoint.
+ * It also hosts pc1c_native_bios_foundation, which exercises the structured
+ * BIOS source tree through the same accepted descriptor-fed engine.
  *
  * Architectural boundary:
  *   The key/response order is compiled before RESET release. A physical cycle
@@ -76,6 +78,20 @@
 #define CHECKPOINT_RESPONSES               4u
 #define DIAGNOSTIC_PORT                0x00E9u
 #define DIAGNOSTIC_MAX_BYTES               32u
+
+/* Diagnostic-bearing ROM builds share the electrical and trace gates but
+ * retain distinct CPU-visible messages and engineering titles. */
+#if defined(PC1C_NATIVE_BIOS_HELLO)
+#define PC1C_DIAGNOSTIC_BUILD 1
+#define PC1C_RUN_TITLE \
+    "PC1-C0C0-H Descriptor-Fed Native BIOS Hello - 0.300 MHz"
+static const char expected_diagnostic[] = "HELLO RP2350\r\n";
+#elif defined(PC1C_NATIVE_BIOS_FOUNDATION)
+#define PC1C_DIAGNOSTIC_BUILD 1
+#define PC1C_RUN_TITLE \
+    "PC1-C0C0-B Native BIOS Foundation Regression - 0.300 MHz"
+static const char expected_diagnostic[] = "PI86 BIOS\r\n";
+#endif
 /* Exact early-T1 key for a word memory read: ASTB=1, IOM=1, INTAK=1,
  * BUFRW=0, A0=0, and UBE=0. Zero-valued fields are enforced implicitly
  * because the full raw GPIO bank is compared, not by this OR mask alone. */
@@ -637,11 +653,11 @@ static void classify_trace(pc1c0c_result_t *result) {
         }
     }
     result->diagnostic[result->diagnostic_bytes] = '\0';
-#ifdef PC1C_NATIVE_BIOS_HELLO
-    static const char expected[] = "HELLO RP2350\r\n";
+#ifdef PC1C_DIAGNOSTIC_BUILD
     result->diagnostic_ok =
-        result->diagnostic_bytes == sizeof(expected) - 1u &&
-        memcmp(result->diagnostic, expected, sizeof(expected) - 1u) == 0;
+        result->diagnostic_bytes == sizeof(expected_diagnostic) - 1u &&
+        memcmp(result->diagnostic, expected_diagnostic,
+               sizeof(expected_diagnostic) - 1u) == 0;
 #endif
     result->checkpoint_ok = result->checkpoint_reads >= CHECKPOINT_RESPONSES;
 }
@@ -826,7 +842,7 @@ static bool result_pass(const pc1c0c_result_t *result) {
     /* Each build selects its own CPU-visible payload discriminator while all
      * timing, transport, ownership, and terminal-safety gates remain shared. */
     const bool payload_ok =
-#ifdef PC1C_NATIVE_BIOS_HELLO
+#ifdef PC1C_DIAGNOSTIC_BUILD
         result->diagnostic_ok;
 #else
         result->signature_1234 && result->signature_5678 &&
@@ -874,7 +890,7 @@ static void print_readable_summary(const pc1c0c_result_t *result) {
     const bool bus_safety_ok = result->unqualified_drive_commands == 0u &&
         result->terminal_safe;
 
-#ifdef PC1C_NATIVE_BIOS_HELLO
+#ifdef PC1C_DIAGNOSTIC_BUILD
     printf("\n[V30 BIOS OUTPUT]\n");
     if (result->diagnostic_bytes == 0u) {
         printf("(no diagnostic output)\n");
@@ -889,7 +905,7 @@ static void print_readable_summary(const pc1c0c_result_t *result) {
     printf("Measurement epoch    %s\n", pass_fail(result_valid(result)));
     printf("Reset / FFFF0 fetch  %s\n", pass_fail(reset_vector_ok));
     printf("F0000 ROM execution  %s\n", pass_fail(rom_execution_ok));
-#ifdef PC1C_NATIVE_BIOS_HELLO
+#ifdef PC1C_DIAGNOSTIC_BUILD
     printf("Diagnostic I/O 00E9  %s\n", pass_fail(result->diagnostic_ok));
 #else
     printf("Memory signatures    %s\n",
@@ -906,8 +922,8 @@ static void print_result(const pc1c0c_result_t *result) {
      * perturb a V30 bus deadline or mask the raw physical evidence. */
     print_readable_summary(result);
     printf("\n[ENGINEERING DETAILS]\n");
-#ifdef PC1C_NATIVE_BIOS_HELLO
-    printf("\nPC1-C0C0-H Descriptor-Fed Native BIOS Hello - 0.300 MHz\n");
+#ifdef PC1C_DIAGNOSTIC_BUILD
+    printf("\n%s\n", PC1C_RUN_TITLE);
 #else
     printf("\nPC1-C0C0 Descriptor-Fed SRAM ROM Execution - 0.300 MHz\n");
 #endif
@@ -945,9 +961,10 @@ static void print_result(const pc1c0c_result_t *result) {
            result->first_response_phase_ok ? "00EA PASS" : "FAIL");
     printf("Far-jump target observed  = %s\n",
            result->far_target_seen ? "F0000 PASS" : "FAIL");
-#ifdef PC1C_NATIVE_BIOS_HELLO
-    printf("Diagnostic port 00E9 bytes= %lu/%u %s\n",
-           (unsigned long)result->diagnostic_bytes, 14u,
+#ifdef PC1C_DIAGNOSTIC_BUILD
+    printf("Diagnostic port 00E9 bytes= %lu/%lu %s\n",
+           (unsigned long)result->diagnostic_bytes,
+           (unsigned long)(sizeof(expected_diagnostic) - 1u),
            result->diagnostic_ok ? "PASS" : "FAIL");
     printf("V30 diagnostic output     = \"");
     for (uint i = 0u; i < result->diagnostic_bytes; ++i) {
@@ -1036,7 +1053,7 @@ static void print_result(const pc1c0c_result_t *result) {
 
     printf("\nMEASUREMENT EPOCH   = %s\n",
            result_valid(result) ? "VALID" : "INVALID");
-#ifdef PC1C_NATIVE_BIOS_HELLO
+#ifdef PC1C_DIAGNOSTIC_BUILD
     printf("PC1-C0C0-H RESULT   = %s\n",
 #else
     printf("PC1-C0C0 RESULT     = %s\n",

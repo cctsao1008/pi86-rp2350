@@ -304,6 +304,56 @@ pico_enable_stdio_usb(pc1c_native_bios_hello 1)
 pico_enable_stdio_uart(pc1c_native_bios_hello 0)
 pico_add_extra_outputs(pc1c_native_bios_hello)
 
+pi86_add_v30_rom(native_bios_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/native_bios.asm"
+    SYMBOL native_bios_rom
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/firmware/v30/bios/include/platform.inc"
+        "${PROJECT_SOURCE_DIR}/firmware/v30/bios/include/diagnostic_console.inc"
+)
+
+add_executable(pc1c_native_bios_foundation
+    pc1c_sram_rom_execution.c
+)
+
+target_compile_definitions(pc1c_native_bios_foundation PRIVATE
+    PC1C_NATIVE_BIOS_FOUNDATION=1
+    PC1C_ROM_HEADER="native_bios_rom.h"
+    PC1C_ROM_DATA=native_bios_rom_data
+    PC1C_ROM_SIZE=native_bios_rom_size
+    PC1C_ROM_SHA256=native_bios_rom_sha256
+)
+
+target_include_directories(pc1c_native_bios_foundation PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_native_bios_foundation
+    native_bios_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_native_bios_foundation
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_native_bios_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
+)
+pico_generate_pio_header(pc1c_native_bios_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_native_bios_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_native_bios_foundation 1)
+pico_enable_stdio_uart(pc1c_native_bios_foundation 0)
+pico_add_extra_outputs(pc1c_native_bios_foundation)
+
 add_executable(pc1c_arbitrary_rom_feasibility
     pc1c_arbitrary_rom_feasibility.c
 )

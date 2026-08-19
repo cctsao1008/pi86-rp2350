@@ -28,8 +28,10 @@ if(NOT version_result EQUAL 0 OR
     )
 endif()
 
+get_filename_component(source_dir "${SOURCE}" DIRECTORY)
+
 execute_process(
-    COMMAND "${NASM_EXECUTABLE}" -f bin -Wall -Werror
+    COMMAND "${NASM_EXECUTABLE}" -f bin -Wall -Werror "-I${source_dir}/"
             -o "${OUTPUT}" "${SOURCE}"
     RESULT_VARIABLE assemble_result
     OUTPUT_VARIABLE assemble_output
