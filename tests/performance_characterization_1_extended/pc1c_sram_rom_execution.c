@@ -5,6 +5,22 @@
  * Two DMA channels feed bounded key/response tables from SRAM, so the M33 is
  * absent from every current-cycle response. PIO0 passively captures address,
  * control, and R2 data snapshots through a third DMA channel.
+ *
+ * This source builds two permanent golden-HAT regressions:
+ *   pc1c_sram_rom_execution - memory-write signatures and JMP $ checkpoint;
+ *   pc1c_native_bios_hello  - OUT 00E9h, AL diagnostic message and checkpoint.
+ *
+ * Architectural boundary:
+ *   The key/response order is compiled before RESET release. A physical cycle
+ *   must still match its exact address/control key, but this is not the
+ *   arbitrary-address PC1-C0C1 service. Unexpected cycles remain high-Z and do
+ *   not advance the descriptor streams. Do not add an M33 lookup, SIO-targeted
+ *   DMA, or speculative fallback to the current-cycle path.
+ *
+ * Safety boundary:
+ *   Before and after the measurement, RESET is high, CLK is low, and every AD
+ *   pin is SIO input/high-Z. PIO1 may own AD only for a matched memory-read data
+ *   phase. See docs/pc1c_rom_execution_plan.md and ADR 0003.
  */
 
 #include <stdbool.h>
@@ -21,6 +37,9 @@
 #include "pc1b_first_cycle_phase_capture.pio.h"
 #include "pc1c_pio_rom_sequencer.pio.h"
 #include "pc1c_sram_rom_execution_observer.pio.h"
+
+/* The same bus engine is compiled against either the signature ROM or the
+ * Native BIOS HELLO ROM. CMake overrides these four symbols for the latter. */
 #ifndef PC1C_ROM_HEADER
 #define PC1C_ROM_HEADER "pc1c0c_sram_rom.h"
 #define PC1C_ROM_DATA pc1c0c_sram_rom_data
@@ -31,6 +50,7 @@
 #include "perf_continuous_clock.pio.h"
 #include "v30/v30_pins.h"
 
+/* Test envelope and bounded evidence storage. */
 #define PC1C0C_V30_HZ                 300000u
 #define RESET_CLOCKS                      20u
 #define SIGNAL_TIMEOUT_CLOCKS             64u
@@ -39,9 +59,16 @@
 #define OBSERVER_WORDS    (OBSERVER_CYCLES * 2u)
 #define OBSERVER_PRINT_DEPTH              40u
 #define FIRST_PHASE_COUNT                  6u
+/*
+ * PIO1 response descriptor, shifted right by the responder SM:
+ *   bits  0..27 = GPIO0..27 output bitmap;
+ *   bit      28 = response valid / enable AD PINDIRS.
+ */
 #define OUT_BASE                           0u
 #define OUT_COUNT                         28u
 #define RESPONSE_VALID_BIT                28u
+
+/* CPU-visible ROM windows and maximum known-path descriptor count. */
 #define RESET_ROM_BASE               0xFFFF0u
 #define RESET_ROM_SIZE                     6u
 #define V30_ROM_BASE                  0xF0000u
@@ -49,11 +76,15 @@
 #define CHECKPOINT_RESPONSES               4u
 #define DIAGNOSTIC_PORT                0x00E9u
 #define DIAGNOSTIC_MAX_BYTES               32u
+/* Exact early-T1 key for a word memory read: ASTB=1, IOM=1, INTAK=1,
+ * BUFRW=0, A0=0, and UBE=0. Zero-valued fields are enforced implicitly
+ * because the full raw GPIO bank is compared, not by this OR mask alone. */
 #define QUALIFIED_T1_CONTROL_BITS ((1u << V30_PIN_ASTB) | \
                                    (1u << V30_PIN_IOM) | \
                                    (1u << V30_PIN_INTAK))
 
 typedef enum {
+    /* Values deliberately form a two-bit low/high lane mask. */
     LANES_NONE = 0,
     LANE_LOW = 1,
     LANE_HIGH = 2,
@@ -67,6 +98,7 @@ typedef struct {
 } pc1c_sm_t;
 
 typedef struct {
+    /* One decoded pair from the passive PIO0 observer DMA stream. */
     uint32_t address_raw;
     uint32_t data_raw;
     uint16_t response;
@@ -78,6 +110,7 @@ typedef struct {
 } bus_trace_t;
 
 typedef struct {
+    /* Qualification and CPU-visible discriminators. */
     bool reset_ok;
     bool pre_release_clean;
     bool clock_direction_armed;
@@ -94,6 +127,8 @@ typedef struct {
     bool dma_streams_complete;
     bool observer_tail_valid;
     bool terminal_safe;
+
+    /* Pre/post resource state proves the run was cleanly armed and drained. */
     uint32_t pre_pio1_padoe;
     uint32_t matcher_fifo_pre;
     uint32_t responder_fifo_pre;
@@ -106,6 +141,8 @@ typedef struct {
     uint32_t observer_dma_pre;
     uint32_t observer_dma_post;
     uint32_t observer_fifo_residue;
+
+    /* Derived evidence counters; none are used to drive the physical bus. */
     uint32_t qualified_pairs;
     uint32_t rom_hits;
     uint32_t unsupported_cycles;
@@ -114,6 +151,8 @@ typedef struct {
     uint32_t checkpoint_reads;
     uint32_t diagnostic_bytes;
     char diagnostic[DIAGNOSTIC_MAX_BYTES + 1u];
+
+    /* Raw observer/phase evidence retained until the run is over. */
     uint32_t observer_words;
     uint32_t observer_trailing_words;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
@@ -122,6 +161,8 @@ typedef struct {
     uint trace_count;
 } pc1c0c_result_t;
 
+/* Paired, immutable while RESET is released. Index n in both arrays describes
+ * one expected ROM read. DMA only transports these words to PIO1. */
 static uint32_t g_sequence_keys[SEQUENCE_MAX];
 static uint32_t g_sequence_responses[SEQUENCE_MAX];
 static uint32_t g_sequence_count;
@@ -135,6 +176,8 @@ static const uint8_t ad_pins[16] = {
     V30_PIN_AD12, V30_PIN_AD13, V30_PIN_AD14, V30_PIN_AD15,
 };
 
+/* Raw snapshots are whole GPIO banks. All V30 decode must go through the
+ * canonical scattered-pin map rather than assuming AD is numerically packed. */
 static inline uint32_t sample_bit(uint32_t sample, uint gpio) {
     return (sample >> gpio) & 1u;
 }
@@ -147,6 +190,7 @@ static uint16_t decode_ad(uint32_t sample) {
 }
 
 static uint32_t decode_address(uint32_t sample) {
+    /* During ASTB-high T1, AD15:AD0 still carries A15:A0. */
     uint32_t address = decode_ad(sample);
     address |= sample_bit(sample, V30_PIN_A16) << 16;
     address |= sample_bit(sample, V30_PIN_A17) << 17;
@@ -156,6 +200,9 @@ static uint32_t decode_address(uint32_t sample) {
 }
 
 static lane_mask_t decode_lanes(uint32_t raw) {
+    /* V30 byte-lane truth table sampled during the address phase:
+     *   A0=0, UBE=0 -> 16-bit word; A0=0, UBE=1 -> low byte;
+     *   A0=1, UBE=0 -> high byte; A0=1, UBE=1 -> no active lane. */
     const bool a0 = sample_bit(raw, V30_PIN_AD0) != 0u;
     const bool ube_n = sample_bit(raw, V30_PIN_UBE) != 0u;
     if (!a0 && !ube_n) return LANES_WORD;
@@ -165,29 +212,37 @@ static lane_mask_t decode_lanes(uint32_t raw) {
 }
 
 static bool is_memory_read(uint32_t raw) {
+    /* Minimum mode: IOM=1 selects memory, BUFRW=0 selects read, and active-low
+     * INTAK must be deasserted so interrupt acknowledge is never a MEMR. */
     return sample_bit(raw, V30_PIN_IOM) != 0u &&
            sample_bit(raw, V30_PIN_BUFRW) == 0u &&
            sample_bit(raw, V30_PIN_INTAK) != 0u;
 }
 
 static bool is_memory_write(uint32_t raw) {
+    /* Keep cycle-type predicates explicit. They are evidence classifiers and
+     * document the exact control levels accepted by the physical tests. */
     return sample_bit(raw, V30_PIN_IOM) != 0u &&
            sample_bit(raw, V30_PIN_BUFRW) != 0u &&
            sample_bit(raw, V30_PIN_INTAK) != 0u;
 }
 
 static bool is_io_write(uint32_t raw) {
+    /* IOM=0 distinguishes the I/O address space from physical memory. */
     return sample_bit(raw, V30_PIN_IOM) == 0u &&
            sample_bit(raw, V30_PIN_BUFRW) != 0u &&
            sample_bit(raw, V30_PIN_INTAK) != 0u;
 }
 
 static uint8_t decode_bus_byte(uint32_t raw, lane_mask_t lanes) {
+    /* Odd ports such as 00E9h place their byte on AD15:AD8. */
     const uint16_t word = decode_ad(raw);
     return lanes == LANE_HIGH ? (uint8_t)(word >> 8) : (uint8_t)word;
 }
 
 static uint32_t encode_gpio_word(uint16_t value) {
+    /* Expand a logical V30 word into the 28-bit PIO OUT window. Bits for
+     * non-AD GPIOs stay zero; pin muxing and PINDIRS provide final ownership. */
     uint32_t encoded = 0u;
     for (uint bit = 0u; bit < 16u; ++bit) {
         if ((value & (1u << bit)) != 0u)
@@ -197,6 +252,7 @@ static uint32_t encode_gpio_word(uint16_t value) {
 }
 
 static uint32_t encode_gpio_address(uint32_t address) {
+    /* Build the exact raw early-T1 address component expected from the V30. */
     uint32_t encoded = encode_gpio_word((uint16_t)address);
     if (address & (1u << 16)) encoded |= 1u << V30_PIN_A16;
     if (address & (1u << 17)) encoded |= 1u << V30_PIN_A17;
@@ -206,15 +262,21 @@ static uint32_t encode_gpio_address(uint32_t address) {
 }
 
 static uint32_t encoded_drive_command(uint16_t value) {
+    /* Bit 28 is consumed after OUT PINS,28. A clear bit is the explicit
+     * no-drive sentinel used for qualified observation without AD ownership. */
     return encode_gpio_word(value) | (1u << RESPONSE_VALID_BIT);
 }
 
 static uint64_t timeout_us_from_clocks(uint32_t clocks) {
+    /* Round up so host-side polling never expires before the requested number
+     * of configured V30 clocks, then add a small scheduling margin. */
     return ((uint64_t)clocks * 1000000ull + PC1C0C_V30_HZ - 1u) /
            PC1C0C_V30_HZ + 2u;
 }
 
 static void prepare_header_high_z(void) {
+    /* Establish a fail-safe baseline before any PIO program is loaded. The
+     * complete legacy GPIO0-27 data plane begins as input with no pulls. */
     for (uint gpio = 0u; gpio <= 27u; ++gpio) {
         gpio_init(gpio);
         gpio_set_dir(gpio, GPIO_IN);
@@ -234,6 +296,8 @@ static void init_control_outputs(void) {
 }
 
 static void route_ad_to_sio_high_z(void) {
+    /* Function selection and OE are both normalized: merely clearing PIO
+     * PINDIRS is insufficient evidence once ownership returns to firmware. */
     for (uint bit = 0u; bit < 16u; ++bit)
         gpio_set_function(ad_pins[bit], GPIO_FUNC_SIO);
     sio_hw->gpio_oe_clr = V30_AD_BUS_MASK;
@@ -248,6 +312,8 @@ static bool ad_is_sio_high_z(void) {
 }
 
 static void route_ad_to_responder(const pc1c_sm_t *responder) {
+    /* PIO1 receives pin-mux ownership here, but the responder's PINDIRS remain
+     * input until a valid descriptor reaches the qualified data phase. */
     for (uint bit = 0u; bit < 16u; ++bit)
         pio_gpio_init(responder->pio, ad_pins[bit]);
 }
@@ -259,6 +325,8 @@ static void clock_init(pc1c_sm_t *clock) {
 }
 
 static void clock_prepare(pc1c_sm_t *clock) {
+    /* The two-instruction PIO program toggles CLK once per instruction, hence
+     * sys_clk / (2 * requested V30 clock). Preparation always parks CLK low. */
     pio_sm_set_enabled(clock->pio, clock->sm, false);
     gpio_init(V30_PIN_CLK);
     gpio_disable_pulls(V30_PIN_CLK);
@@ -281,6 +349,8 @@ static void clock_start(pc1c_sm_t *clock) {
 }
 
 static void clock_stop_low(pc1c_sm_t *clock) {
+    /* Reassert deterministic terminal ownership through SIO. Do not leave the
+     * external CPU clock at an unknown PIO phase after RESET is asserted. */
     pio_sm_set_enabled(clock->pio, clock->sm, false);
     gpio_init(V30_PIN_CLK);
     gpio_disable_pulls(V30_PIN_CLK);
@@ -289,6 +359,9 @@ static void clock_stop_low(pc1c_sm_t *clock) {
 }
 
 static bool wait_reset_clocks(uint count) {
+    /* Qualify complete high/low clock pairs while every response/observer SM
+     * is disabled. This creates the clean RESET-only epoch used by all PC1-C
+     * tests and catches a missing or stuck clock before bus ownership changes. */
     const uint64_t edge_timeout = timeout_us_from_clocks(SIGNAL_TIMEOUT_CLOCKS);
     for (uint i = 0u; i < count; ++i) {
         uint64_t deadline = time_us_64() + edge_timeout;
@@ -304,6 +377,8 @@ static bool wait_reset_clocks(uint count) {
 }
 
 static void matcher_init(pc1c_sm_t *matcher) {
+    /* IN base 0 makes MOV ISR,PINS capture the full GPIO bank without shifting
+     * the scattered address/control signals into a synthetic layout. */
     matcher->pio = pio1;
     matcher->sm = pio_claim_unused_sm(matcher->pio, true);
     matcher->offset = pio_add_program(matcher->pio,
@@ -317,6 +392,8 @@ static void matcher_init(pc1c_sm_t *matcher) {
 }
 
 static void responder_init(pc1c_sm_t *responder) {
+    /* Right shift is part of the descriptor ABI: OUT PINS consumes bits 0..27,
+     * then OUT X consumes response-valid bit 28. */
     responder->pio = pio1;
     responder->sm = pio_claim_unused_sm(responder->pio, true);
     responder->offset = pio_add_program(
@@ -331,6 +408,8 @@ static void responder_init(pc1c_sm_t *responder) {
 }
 
 static void phase_capture_init(pc1c_sm_t *phase) {
+    /* One-shot first-cycle R1/F1/R2/F2/R3 evidence is intentionally separate
+     * from the continuous observer so the response window has its own gate. */
     phase->pio = pio0;
     phase->sm = pio_claim_unused_sm(phase->pio, true);
     phase->offset = pio_add_program(
@@ -345,6 +424,8 @@ static void phase_capture_init(pc1c_sm_t *phase) {
 }
 
 static void observer_init(pc1c_sm_t *observer) {
+    /* Joined RX FIFO plus paced DMA provides room for paired T1/R2 snapshots
+     * without putting the M33 in the observation path. */
     observer->pio = pio0;
     observer->sm = pio_claim_unused_sm(observer->pio, true);
     observer->offset = pio_add_program(
@@ -360,6 +441,8 @@ static void observer_init(pc1c_sm_t *observer) {
 }
 
 static void arm_sm(pc1c_sm_t *sm) {
+    /* Restart clears execution state but does not imply a known PC; executing
+     * JMP offset explicitly parks every SM at its program entry while disabled. */
     pio_sm_set_enabled(sm->pio, sm->sm, false);
     pio_sm_clear_fifos(sm->pio, sm->sm);
     pio_sm_restart(sm->pio, sm->sm);
@@ -367,6 +450,10 @@ static void arm_sm(pc1c_sm_t *sm) {
 }
 
 static void responder_preserve_clock_direction(pc1c_sm_t *responder) {
+    /* The responder releases AD with MOV PINDIRS,Y. Y must therefore contain
+     * only the CLK direction bit: CLK remains an output, every AD pin returns
+     * to input. Loading Y via injected instructions avoids consuming a normal
+     * response descriptor from the DMA-fed FIFO. */
     pio_sm_put_blocking(responder->pio, responder->sm,
                         1u << (V30_PIN_CLK - OUT_BASE));
     pio_sm_exec(responder->pio, responder->sm,
@@ -377,6 +464,9 @@ static void responder_preserve_clock_direction(pc1c_sm_t *responder) {
 
 static int start_pio_tx_dma(const pc1c_sm_t *sm, const uint32_t *table,
                             uint32_t count) {
+    /* One 32-bit SRAM word per PIO TX request. The peripheral address is fixed;
+     * only the immutable table pointer advances. High priority reduces refill
+     * jitter but correctness still requires the pre-release FIFO gate. */
     const int channel = dma_claim_unused_channel(true);
     dma_channel_config c = dma_channel_get_default_config((uint)channel);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
@@ -390,6 +480,8 @@ static int start_pio_tx_dma(const pc1c_sm_t *sm, const uint32_t *table,
 }
 
 static int start_observer_dma(const pc1c_sm_t *observer) {
+    /* Mirror of the TX path: fixed PIO RX FIFO source, incrementing SRAM
+     * destination, and RX DREQ pacing. The buffer stores raw evidence only. */
     const int channel = dma_claim_unused_channel(true);
     dma_channel_config c = dma_channel_get_default_config((uint)channel);
     channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
@@ -405,10 +497,13 @@ static int start_observer_dma(const pc1c_sm_t *observer) {
 }
 
 static uint32_t dma_remaining(int channel) {
+    /* RP2350 transfer_count exposes mode bits above the live 28-bit count. */
     return dma_channel_hw_addr((uint)channel)->transfer_count & 0x0FFFFFFFu;
 }
 
 static bool wait_fifo_primed(const pc1c_sm_t *sm, uint32_t level) {
+    /* Four words fill a normal PIO TX FIFO. RESET must remain asserted until
+     * matcher and responder both have an equal, immediately available prefix. */
     const uint64_t deadline = time_us_64() + 10000u;
     while (time_us_64() <= deadline) {
         if (pio_sm_get_tx_fifo_level(sm->pio, sm->sm) >= level) return true;
@@ -418,6 +513,8 @@ static bool wait_fifo_primed(const pc1c_sm_t *sm, uint32_t level) {
 }
 
 static bool lookup_rom_word(uint32_t address, uint16_t *word) {
+    /* This lookup runs only before RESET release and while classifying retained
+     * evidence after the run. It is never a current-cycle response service. */
     static const uint8_t reset_rom[RESET_ROM_SIZE] = {
         0xEAu, 0x00u, 0x00u, 0x00u, 0xF0u, 0x90u,
     };
@@ -436,6 +533,8 @@ static bool lookup_rom_word(uint32_t address, uint16_t *word) {
     } else {
         return false;
     }
+    /* C0C0 descriptors serve aligned word reads. The final byte of an odd-sized
+     * image would be zero-extended, although generated test ROMs are padded. */
     if ((offset & 1u) != 0u || offset >= size) return false;
     *word = bytes[offset];
     if (offset + 1u < size) *word |= (uint16_t)bytes[offset + 1u] << 8;
@@ -443,6 +542,9 @@ static bool lookup_rom_word(uint32_t address, uint16_t *word) {
 }
 
 static void append_response(uint32_t address, uint16_t word) {
+    /* Array indices are the pairing contract consumed by the two independent
+     * DMA channels. The key is an exact early-T1 raw bank; the response is a
+     * scattered-GPIO bitmap plus bit-28 drive authorization. */
     hard_assert(g_sequence_count < SEQUENCE_MAX);
     g_sequence_keys[g_sequence_count] = QUALIFIED_T1_CONTROL_BITS |
         encode_gpio_address(address);
@@ -451,6 +553,9 @@ static void append_response(uint32_t address, uint16_t word) {
 }
 
 static void prepare_response_tables(void) {
+    /* Compile the single known execution path before any physical activity:
+     * reset-vector words, every sequential program word, then extra copies of
+     * the final JMP $ word so repeated checkpoint fetches are measurable. */
     g_sequence_count = 0u;
     for (uint32_t address = RESET_ROM_BASE;
          address < RESET_ROM_BASE + RESET_ROM_SIZE; address += 2u) {
@@ -473,11 +578,16 @@ static void prepare_response_tables(void) {
 }
 
 static void stop_dma(int channel) {
+    /* Abort is harmless after normal completion and also bounds cleanup after
+     * an invalid epoch. Unclaim only after every post-run counter is sampled. */
     dma_channel_abort((uint)channel);
     dma_channel_unclaim((uint)channel);
 }
 
 static void classify_trace(pc1c0c_result_t *result) {
+    /* Observer DMA framing is [T1 address/control, R2 data] per complete cycle.
+     * Classification happens only after RESET is reasserted and cannot affect
+     * what the V30 consumed. */
     result->trace_count = result->observer_words / 2u;
     if (result->trace_count > OBSERVER_CYCLES)
         result->trace_count = OBSERVER_CYCLES;
@@ -493,6 +603,8 @@ static void classify_trace(pc1c0c_result_t *result) {
         entry->rom_hit = entry->memory_read && entry->lanes == LANES_WORD &&
             lookup_rom_word(address, &entry->response);
         if (entry->rom_hit) {
+            /* Comparing retained R2 data with ROM content is the physical
+             * response-deadline discriminator, not a software completion bit. */
             ++result->rom_hits;
             if (decode_ad(entry->data_raw) != entry->response)
                 ++result->deadline_misses;
@@ -504,6 +616,8 @@ static void classify_trace(pc1c0c_result_t *result) {
         if (entry->memory_read && address == g_checkpoint_address)
             ++result->checkpoint_reads;
         if (entry->memory_write && entry->lanes == LANES_WORD) {
+            /* The signature ROM exposes CPU progress through qualified writes;
+             * no RAM backend is implied by observing these payloads. */
             const uint16_t data = decode_ad(entry->data_raw);
             if (address == 0xF0100u && data == 0x1234u)
                 result->signature_1234 = true;
@@ -516,6 +630,8 @@ static void classify_trace(pc1c0c_result_t *result) {
             (entry->lanes == LANE_LOW || entry->lanes == LANE_HIGH) &&
             decode_ad(entry->address_raw) == DIAGNOSTIC_PORT &&
             result->diagnostic_bytes < DIAGNOSTIC_MAX_BYTES) {
+            /* 00E9h is odd, so the validated HELLO path normally selects the
+             * high lane. Keep low-lane decoding generic for future consoles. */
             result->diagnostic[result->diagnostic_bytes++] =
                 (char)decode_bus_byte(entry->data_raw, entry->lanes);
         }
@@ -533,16 +649,22 @@ static void classify_trace(pc1c0c_result_t *result) {
 static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
                      pc1c_sm_t *phase, pc1c_sm_t *observer,
                      pc1c_sm_t *responder, pc1c0c_result_t *result) {
+    /* Phase 0 - force a known safe baseline before generating RESET clocks. */
     *result = (pc1c0c_result_t){0};
     for (uint i = 0u; i < OBSERVER_WORDS; ++i) g_observer_dma_words[i] = 0u;
     gpio_put(V30_PIN_INTR, false);
     gpio_put(V30_PIN_RESET, true);
     route_ad_to_sio_high_z();
 
+    /* Phase 1 - clock-only RESET qualification. No matcher, responder, phase
+     * capture, or observer SM is enabled in this interval. */
     clock_start(clock);
     result->reset_ok = wait_reset_clocks(RESET_CLOCKS);
     clock_stop_low(clock);
 
+    /* Phase 2 - with RESET still asserted and CLK stopped low, restart every
+     * SM, install the responder's CLK-only release mask, start DMA, and fill
+     * both response FIFOs. No CPU-visible bus cycle is allowed yet. */
     clock_prepare(clock);
     arm_sm(matcher);
     arm_sm(phase);
@@ -566,6 +688,8 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
     result->matcher_dma_pre = dma_remaining(matcher_dma);
     result->responder_dma_pre = dma_remaining(responder_dma);
 
+    /* Pin mux may now point AD at PIO1, but PINDIRS must still prove CLK-only.
+     * This separates functional ownership from electrical output enable. */
     route_ad_to_responder(responder);
     result->pre_pio1_padoe = pio1->dbg_padoe;
     result->clock_direction_armed =
@@ -582,10 +706,15 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
         result->clock_direction_armed && !gpio_get(V30_PIN_CLK) &&
         (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
 
+    /* Passive instruments arm first. RESET is still high, so any RX event here
+     * would invalidate the clean measurement epoch. */
     pio_enable_sm_mask_in_sync(pio0,
         (1u << phase->sm) | (1u << observer->sm));
 
     if (result->reset_ok && result->pre_release_clean) {
+        /* Phase 3 - release RESET and start clock/matcher/responder on one PIO1
+         * cycle boundary. Mask M33 interrupts so host-side service cannot add
+         * nondeterministic latency around the bounded physical run. */
         const uint32_t irq_state = save_and_disable_interrupts();
         gpio_put(V30_PIN_RESET, false);
         pio_enable_sm_mask_in_sync(pio1,
@@ -593,6 +722,9 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
             (1u << responder->sm));
         const uint64_t deadline =
             time_us_64() + timeout_us_from_clocks(RUN_TIMEOUT_CLOCKS);
+        /* Response-stream exhaustion is the deterministic stop trigger. The
+         * matcher can ignore unrelated cycles indefinitely without consuming
+         * the final response, so the outer timeout still bounds failure. */
         while ((dma_remaining(responder_dma) != 0u ||
                 !pio_sm_is_tx_fifo_empty(responder->pio, responder->sm)) &&
                time_us_64() <= deadline)
@@ -600,6 +732,8 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
         if (dma_remaining(responder_dma) == 0u &&
             pio_sm_is_tx_fifo_empty(responder->pio, responder->sm))
             busy_wait_us_32((uint32_t)timeout_us_from_clocks(2u));
+        /* Reassert RESET before stopping CLK; the terminal contract requires
+         * the external CPU halted before any responder/observer teardown. */
         gpio_put(V30_PIN_RESET, true);
         clock_stop_low(clock);
         restore_interrupts(irq_state);
@@ -608,6 +742,9 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
         clock_stop_low(clock);
     }
 
+    /* Phase 4 - sample transport state before disabling or aborting anything.
+     * A response word is complete only when it is absent from both DMA and TX
+     * FIFO, hence the remaining-count calculation below. */
     result->matcher_dma_post = dma_remaining(matcher_dma);
     result->responder_dma_post = dma_remaining(responder_dma);
     result->matcher_fifo_post = pio_sm_get_tx_fifo_level(matcher->pio,
@@ -621,6 +758,8 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
     result->dma_streams_complete = result->matcher_dma_post == 0u &&
         result->responder_dma_post == 0u;
 
+    /* Disable all non-clock SMs, then explicitly force responder PINDIRS to
+     * zero. SIO high-Z normalization occurs after evidence extraction. */
     pio_sm_set_enabled(matcher->pio, matcher->sm, false);
     pio_sm_set_enabled(phase->pio, phase->sm, false);
     pio_sm_set_enabled(observer->pio, observer->sm, false);
@@ -628,6 +767,7 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
     pio_sm_exec(responder->pio, responder->sm,
                 pio_encode_mov(pio_pindirs, pio_null));
 
+    /* The first-cycle instrument is one-shot and yields at most six words. */
     while (!pio_sm_is_rx_fifo_empty(phase->pio, phase->sm) &&
            result->phase_count < FIRST_PHASE_COUNT) {
         result->phase_raw[result->phase_count++] =
@@ -640,6 +780,9 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
         pio_sm_get_rx_fifo_level(observer->pio, observer->sm);
     result->observer_dma_post = dma_remaining(observer_dma);
     result->observer_words = OBSERVER_WORDS - result->observer_dma_post;
+    /* RESET may truncate the next speculative cycle after its early-T1 push.
+     * Accept one odd tail only when that retained word still has ASTB high;
+     * never count it as a complete T1/R2 pair. */
     result->observer_trailing_words = result->observer_words & 1u;
     result->observer_tail_valid = result->observer_trailing_words == 0u ||
         sample_bit(g_observer_dma_words[result->observer_words - 1u],
@@ -658,6 +801,7 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
     }
     classify_trace(result);
 
+    /* Phase 5 - DMA teardown and final electrical normalization. */
     stop_dma(matcher_dma);
     stop_dma(responder_dma);
     stop_dma(observer_dma);
@@ -668,6 +812,8 @@ static void run_test(pc1c_sm_t *clock, pc1c_sm_t *matcher,
 }
 
 static bool result_valid(const pc1c0c_result_t *result) {
+    /* VALID means the measurement epoch and evidence framing are trustworthy.
+     * It is intentionally distinct from the CPU-visible functional PASS. */
     return result->reset_ok && result->pre_release_clean &&
            result->first_address_ok && result->first_memory_read &&
            result->dma_observer_first_ok &&
@@ -677,6 +823,8 @@ static bool result_valid(const pc1c0c_result_t *result) {
 }
 
 static bool result_pass(const pc1c0c_result_t *result) {
+    /* Each build selects its own CPU-visible payload discriminator while all
+     * timing, transport, ownership, and terminal-safety gates remain shared. */
     const bool payload_ok =
 #ifdef PC1C_NATIVE_BIOS_HELLO
         result->diagnostic_ok;
@@ -711,6 +859,8 @@ static const char *cycle_name(const bus_trace_t *entry) {
 }
 
 static void print_result(const pc1c0c_result_t *result) {
+    /* USB reporting is strictly post-run. None of these formatting paths can
+     * perturb a V30 bus deadline or mask the raw physical evidence. */
 #ifdef PC1C_NATIVE_BIOS_HELLO
     printf("\nPC1-C0C0-H Descriptor-Fed Native BIOS Hello - 0.300 MHz\n");
 #else
@@ -803,6 +953,8 @@ static void print_result(const pc1c0c_result_t *result) {
            (unsigned long)result->unqualified_drive_commands,
            result->unqualified_drive_commands == 0u ? "PASS" : "FAIL");
 
+    /* Print a bounded prefix for CDC readability; the complete raw capture
+     * remains in SRAM for classification and retained-cycle accounting. */
     printf("\n[PASSIVE ADDRESS / R2-DATA TRACE]\n");
     printf("idx address type lanes addr_raw data_raw data hit\n");
     const uint print_count = result->trace_count < OBSERVER_PRINT_DEPTH ?
@@ -852,10 +1004,14 @@ static void print_result(const pc1c0c_result_t *result) {
 }
 
 int main(void) {
+    /* Generate every known-path descriptor before touching the external bus. */
     prepare_response_tables();
     prepare_header_high_z();
     init_control_outputs();
     route_ad_to_sio_high_z();
+    /* RESET is already asserted and AD is high-Z while waiting for a host.
+     * Waiting here guarantees the one-shot validation report is not lost to
+     * USB enumeration; USB is never serviced during the timed run itself. */
     stdio_init_all();
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
@@ -867,6 +1023,7 @@ int main(void) {
     observer_init(&observer);
     responder_init(&responder);
 
+    /* Static storage keeps the large observer trace off the M33 stack. */
     static pc1c0c_result_t result;
     run_test(&clock, &matcher, &phase, &observer, &responder, &result);
     print_result(&result);

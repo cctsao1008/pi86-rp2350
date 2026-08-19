@@ -15,9 +15,23 @@
  * The physical Raspberry Pi header position is the hardware ABI.  The values
  * below are the RP2350 GPIO numbers actually routed to those positions on the
  * RP2350-PiZero.
+ *
+ * Bus ownership used by the PC1 PIO-direct engine:
+ *   V30 -> RP2350: ASTB, IOM, BUFRW, UBE, INTAK, A16-A19
+ *   RP2350 -> V30: CLK, RESET, INTR
+ *   bidirectional: AD0-AD15 (address from V30, qualified read data from RP2350)
+ *
+ * AD0-AD15 are intentionally scattered across GPIO0-27. Never treat the
+ * numerical RP2350 GPIO range as a packed V30 data word; use the encode/decode
+ * helpers or V30_AD_BUS_MASK. PIO response programs use a full GPIO0-27 bitmap
+ * and PINDIRS to change ownership only during the qualified data phase.
  */
 
-/* Control signals. */
+/*
+ * Control signals use the NEC minimum-mode names present on this HAT.
+ * UBE and INTAK are active low. IOM is high for memory and low for I/O;
+ * BUFRW is low for read and high for write in the validated classifications.
+ */
 #define V30_PIN_CLK    21u  /* RPi physical pin 40 */
 #define V30_PIN_RESET  16u  /* RPi physical pin 36 */
 #define V30_PIN_ASTB    9u  /* RPi physical pin 32 */
@@ -33,7 +47,11 @@
 #define V30_PIN_BHE  V30_PIN_UBE
 #define V30_PIN_INTA V30_PIN_INTAK
 
-/* Multiplexed address/data bus. */
+/*
+ * Multiplexed address/data bus. During ASTB/T1 it carries A15:A0; during the
+ * data phase it carries D15:D0. For a byte cycle, AD0/A0 and UBE select the
+ * active low or high byte lane before AD is repurposed as data.
+ */
 #define V30_PIN_AD0    26u  /* RPi physical pin 37 */
 #define V30_PIN_AD1    19u  /* RPi physical pin 35 */
 #define V30_PIN_AD2    13u  /* RPi physical pin 33 */
@@ -51,7 +69,7 @@
 #define V30_PIN_AD14    2u  /* RPi physical pin 3  */
 #define V30_PIN_AD15    4u  /* RPi physical pin 8  */
 
-/* High address bus. */
+/* High address bus is V30-driven and remains address-only during the cycle. */
 #define V30_PIN_A16     5u  /* RPi physical pin 10 */
 #define V30_PIN_A17    18u  /* RPi physical pin 12 */
 #define V30_PIN_A18    23u  /* RPi physical pin 16 */

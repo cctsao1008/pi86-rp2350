@@ -9,6 +9,8 @@
 ;   5 R3    : third CLK rise
 ;
 ; Configure IN base to GPIO0 and join RX FIFO so all six snapshots fit.
+; This is a one-shot passive instrument: after R3 it parks forever and never
+; writes pins/PINDIRS. Firmware restarts the SM before each measurement epoch.
 
 .program pc1b_first_cycle_phase_capture
     wait 0 gpio 9
@@ -38,4 +40,6 @@
     push block
 
 phase_capture_done:
+    ; Do not wrap into a second bus cycle: these six words are the canonical
+    ; first-response timing discriminator used by the C0C0 regressions.
     jmp phase_capture_done
