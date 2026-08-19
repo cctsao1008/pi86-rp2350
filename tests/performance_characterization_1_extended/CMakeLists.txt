@@ -383,3 +383,33 @@ pico_generate_pio_header(pc1c_arbitrary_rom_feasibility
 pico_enable_stdio_usb(pc1c_arbitrary_rom_feasibility 1)
 pico_enable_stdio_uart(pc1c_arbitrary_rom_feasibility 0)
 pico_add_extra_outputs(pc1c_arbitrary_rom_feasibility)
+
+add_executable(pc1c_arbitrary_rom_response
+    pc1c_arbitrary_rom_response.c
+)
+
+target_include_directories(pc1c_arbitrary_rom_response PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_arbitrary_rom_response
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_arbitrary_rom_response
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_arbitrary_rom_response
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_arbitrary_rom_response.pio
+)
+pico_generate_pio_header(pc1c_arbitrary_rom_response
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+
+pico_enable_stdio_usb(pc1c_arbitrary_rom_response 1)
+pico_enable_stdio_uart(pc1c_arbitrary_rom_response 0)
+pico_add_extra_outputs(pc1c_arbitrary_rom_response)

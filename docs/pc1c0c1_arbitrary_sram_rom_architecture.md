@@ -114,6 +114,28 @@ See
 The UF2 is generated at
 `build/tests/performance_characterization_1_extended/pc1c_arbitrary_rom_feasibility.uf2`.
 
+#### A2 same-cycle response instrument
+
+`pc1c_arbitrary_rom_response` joins the current-address selector to PIO1
+AD/PINDIRS ownership. One UF2 repeats hit depths 1, 4, 8, 16, and 32, then a
+depth-32 exact miss. A response is authorized only if the selected descriptor
+reaches a PIO-local ASTB-high gate; late selection and misses never enable AD.
+
+PIO2 owns the test clock so PIO1 can release its complete output-direction
+group with `MOV PINDIRS, NULL`. PIO0 remains the independent passive address
+and AF/R1/F1/R2/F2/R3 witness. The target retains default input synchronizers,
+fresh post-reset epochs, DMA/FIFO accounting, and terminal high-Z checks.
+
+This stage proves only the first selected reset-vector word. It does not claim
+table rewind, refill, or arbitrary multi-cycle execution.
+
+```bash
+./scripts/build.sh --target pc1c_arbitrary_rom_response
+```
+
+The UF2 is generated at
+`build/tests/performance_characterization_1_extended/pc1c_arbitrary_rom_response.uf2`.
+
 ### C0C1-B: bounded arbitrary-address ROM window
 
 - declare base, size, alignment, and lane rules;

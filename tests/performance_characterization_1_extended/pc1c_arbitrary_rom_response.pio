@@ -1,0 +1,75 @@
+; PC1-C0C1-A2 current-address selector with same-cycle AD response.
+;
+; TX table entry (three 32-bit words):
+;   word 3n + 0 = exact raw early-T1 GPIO key
+;   word 3n + 1 = encoded GPIO0-27 response + validity bit 28
+;   word 3n + 2 = one-based table ordinal
+;
+; RX evidence on a match:
+;   word 0 = selected ordinal
+;   word 1 = raw GPIO immediately before the ASTB-high deadline gate
+;
+; The target entry is deliberately last. A mismatch consumes the remaining
+; two words and continues scanning. If the selected descriptor reaches the
+; gate after ASTB has fallen, the SM takes the release path and never enables
+; PINDIRS. Exact misses eventually block on an empty TX FIFO and remain high-Z.
+;
+; Configure IN base GPIO0, OUT base GPIO0/count 28, right-shift OUT, and JMP pin
+; ASTB. Only the scattered AD pins are muxed to PIO1. The test clock is owned by
+; PIO2 so MOV PINDIRS,NULL can release the complete PIO1 output group safely.
+
+.pio_version rp2350
+.program pc1c_arbitrary_rom_response
+
+    wait 0 gpio 9              ; clean arming boundary
+    wait 1 gpio 9              ; first post-reset ASTB rise
+    nop [7]                    ; accepted synchronized-input settling interval
+    mov x, pins                ; current physical early-T1 key
+
+search:
+    pull block                 ; candidate key
+    mov y, osr
+    jmp x!=y mismatch
+
+    pull block                 ; encoded response descriptor
+    out pins, 28               ; preload output latches while AD is high-Z
+    out x, 1                   ; response-valid bit
+    pull block                 ; selected one-based ordinal
+    mov isr, osr
+    push block                 ; RX[0]: ordinal
+    mov isr, pins
+    push block                 ; RX[1]: exact deadline-gate snapshot
+    jmp pin armed              ; ASTB high authorizes a pending response
+    jmp release                ; late selection: never drive
+
+armed:
+    wait 0 gpio 9              ; drive immediately after address phase
+    jmp !x release             ; invalid descriptor remains high-Z
+    mov pindirs, ~null         ; enable only PIO1-muxed scattered AD pins
+
+    set x, 1                  ; release at accepted H2 boundary
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+
+release:
+    mov pindirs, null          ; AD returns high-Z; CLK is owned by PIO2
+done:
+    jmp done                   ; one-shot stage; firmware restarts the SM
+
+mismatch:
+    pull block                 ; discard nonmatching response descriptor
+    pull block                 ; discard nonmatching ordinal
+    jmp search
+
+; Independent one-shot PIO0 witness of the first physical early-T1 address.
+.program pc1c_a2_first_address_observer
+
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+observer_done:
+    jmp observer_done
