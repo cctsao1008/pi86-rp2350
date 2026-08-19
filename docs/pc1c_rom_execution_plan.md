@@ -313,7 +313,22 @@ Physical evidence is recorded in
 
 ### PC1-C0C: SRAM ROM Execution
 
-Serve the code at `F0000`, prove immediate operands, and reach the checkpoint.
+**PC1-C0C0 descriptor-fed micro-ROM: PASS at 0.300 MHz.**
+
+The V30 executed a 28-byte NASM image at `F0000`, loaded three immediate
+values, wrote `1234`, `5678`, and `ABCD` to physical `F0100`, `F0102`, and
+`F0104`, then produced four qualified fetches of the `JMP $` checkpoint at
+`F001A`. Two DMA channels fed bounded SRAM key/descriptor tables into the
+PIO1 matcher and responder; PIO0 and a third DMA channel retained independent
+address and R2-data evidence. The M33 did not participate in current-cycle
+service.
+
+This result proves execution from a bounded, address-qualified descriptor
+sequence. It does not claim arbitrary/random-access SRAM ROM service; that is
+the next PC1-C0C increment.
+
+Physical evidence is recorded in
+[`validation/pc1c0c_descriptor_fed_sram_rom_validation.md`](validation/pc1c0c_descriptor_fed_sram_rom_validation.md).
 
 ### PC1-C1: Diagnostic Port
 
