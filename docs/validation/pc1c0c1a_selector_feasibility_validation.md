@@ -4,7 +4,7 @@
 - Hardware: Waveshare RP2350-PiZero with physical NEC V30 Pi86 HAT
 - Configured V30 clock: 0.300 MHz
 - Target: `pc1c_arbitrary_rom_feasibility`
-- Firmware commit: `a8291a5`
+- Firmware commit: `48f542a`
 - UF2 size: 82,944 bytes
 - UF2 SHA-256: `1A271EC9569E07C93FB35A97C7CDCA92FDA97FF26DF766D80F01DB7CA768CF73`
 - Input synchronizers: SDK defaults

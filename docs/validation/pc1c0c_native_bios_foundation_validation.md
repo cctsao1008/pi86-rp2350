@@ -4,7 +4,7 @@
 - Hardware: Waveshare RP2350-PiZero with physical NEC V30 Pi86 HAT
 - Configured V30 clock: 0.300 MHz
 - Target: `pc1c_native_bios_foundation`
-- Firmware commit: `7334525`
+- Firmware commit: `84d7e68`
 - UF2 size: 98,816 bytes
 - UF2 SHA-256: `BED80E1DE174157829F360F2F55A8490FB189536DD259FA2FE6556866DDB649A`
 - ROM size: 40 bytes
@@ -159,7 +159,7 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
 ```
 
 The final `PC1-C0C0-H` text above is a reporting-label defect in tested commit
-`7334525`; the preceding target title and all electrical/functional gates are
+`84d7e68`; the preceding target title and all electrical/functional gates are
 the C0C0-B foundation test. A subsequent source-only fix selects the result
 label by build target.
 
