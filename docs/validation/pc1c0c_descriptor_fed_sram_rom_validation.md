@@ -143,3 +143,15 @@ prove arbitrary or random-access SRAM ROM service: the expected physical read
 sequence is prestaged, and unrelated reads remain high-Z without advancing the
 tables. The next boundary is an address-indexed service while preserving the
 same exact PIO1 timing and passive PIO0/DMA evidence.
+
+## Permanent regression role
+
+This accepted descriptor-fed target remains a golden-HAT regression even after
+PC1-C0C1 development begins. It provides a bounded, reproducible check of RESET
+qualification, DMA-fed PIO matching, scattered AD/PINDIRS response, passive
+PIO0 observation, checkpoint execution, and terminal bus safety.
+
+The follow-on `PC1-C0C0-H` target uses the same accepted engine to execute a
+Native BIOS program that writes `HELLO RP2350\r\n` to diagnostic port `0xE9`.
+See
+[`pc1c0c_native_bios_hello_validation.md`](pc1c0c_native_bios_hello_validation.md).

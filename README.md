@@ -147,7 +147,28 @@ The I/O-space architecture is intended to support software-defined PC-class peri
 
 These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
 
-Current validation results, performance characterization, and active engineering work are tracked in the project issues and validation records rather than in this README.
+### Current milestone: Native BIOS says HELLO
+
+On 2026-08-19, the physical V30 completed the `PC1-C0C0-H` Native BIOS
+diagnostic path at 0.300 MHz. It fetched the reset vector at `FFFF0`, executed
+a 48-byte ROM at `F0000`, issued fourteen real byte-wide I/O writes to port
+`00E9`, and reached its final `JMP $` checkpoint. The passive PIO0/DMA trace
+reconstructed the exact CPU-visible output:
+
+```text
+HELLO RP2350
+```
+
+All 30 descriptor-qualified ROM responses completed with zero deadline misses
+and zero unqualified drive commands. This is a bounded, descriptor-fed
+execution milestone; it is not yet arbitrary-address ROM service.
+
+- [Complete physical validation evidence](docs/validation/pc1c0c_native_bios_hello_validation.md)
+- [Native BIOS diagnostic-console contract](docs/native_bios_diagnostic_console.md)
+- [PC1-C0C1 arbitrary-address SRAM ROM architecture](docs/pc1c0c1_arbitrary_sram_rom_architecture.md)
+
+Other validation results, performance characterization, and active engineering
+work are tracked in the project issues and validation records.
 
 Development is gate-based and hardware-validated. Acceptance is based on **CPU-visible behavior on the physical V30**, not merely completion of a host-side code path. See [`docs/bringup.md`](docs/bringup.md), [`docs/validation/`](docs/validation/), and the project issue tracker.
 
@@ -231,6 +252,8 @@ No project license has been selected yet. Upstream Pi86 licensing and derivative
 - [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
 - [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) — current HAT assessment, limitations, and staged improvement strategy
+- [`docs/native_bios_diagnostic_console.md`](docs/native_bios_diagnostic_console.md) — early Native BIOS `0xE9` output contract
+- [`docs/pc1c0c1_arbitrary_sram_rom_architecture.md`](docs/pc1c0c1_arbitrary_sram_rom_architecture.md) — next arbitrary-address ROM-service boundary
 - [`docs/bringup.md`](docs/bringup.md) — gate sequence and current validation state
 - [`docs/validation/`](docs/validation/) — physical hardware validation records
 - [`docs/development/build_and_toolchain.md`](docs/development/build_and_toolchain.md) — build environment, dependencies, toolchain, and build commands

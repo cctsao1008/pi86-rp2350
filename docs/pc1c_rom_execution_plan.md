@@ -102,30 +102,40 @@ PIO1 TX FIFO -> AD drive -> H2 release
 - No FIFO starvation or response-deadline miss is observed.
 - Terminal state is RESET high, CLK low, AD high-Z.
 
-## PC1-C1: Mini BIOS diagnostic output
+## PC1-C0C0-H: Native BIOS diagnostic output
 
-After PC1-C0, extend the ROM with the smallest CPU-to-companion output path:
+The descriptor-fed C0C0 engine was extended with the smallest complete
+CPU-to-companion output path:
 
 ```asm
-MOV AL,'O'
+MOV DX,0E9h
+MOV AL,'H'
 OUT 0E9h,AL
-MOV AL,'K'
+; ... HELLO RP2350, CR, LF ...
 OUT 0E9h,AL
 JMP $
 ```
 
-Port `0xE9` is initially a project diagnostic port, not a claim of IBM PC hardware compatibility. The RP2350 captures the I/O writes and mirrors them to USB CDC.
+Port `0xE9` is the project's early Native BIOS diagnostic console, not a claim
+of IBM PC hardware compatibility. PIO0 and DMA capture the physical I/O writes;
+the RP2350 validates and reports the completed string over USB CDC after the
+bounded run.
 
 Acceptance:
 
 ```text
 V30 ROM execution       PASS
-I/O writes to 00E9      'O' 'K'
-USB diagnostic output   OK
+I/O writes to 00E9      14/14
+diagnostic output        HELLO RP2350 CR LF
 final checkpoint        PASS
 ```
 
-This is the first Mini BIOS signature: ROM-to-CPU-to-I/O-to-host behavior in one physical execution chain.
+**Status: PASS on physical V30 hardware at 0.300 MHz.** Complete evidence is in
+[`validation/pc1c0c_native_bios_hello_validation.md`](validation/pc1c0c_native_bios_hello_validation.md).
+
+This is the first Native BIOS signature: ROM-to-CPU-to-I/O-to-host behavior in
+one physical execution chain. It remains a C0C0 regression because the ROM-read
+path is prestaged; PC1-C0C1 is reserved for arbitrary-address service.
 
 ## Frequency policy
 
@@ -325,14 +335,43 @@ service.
 
 This result proves execution from a bounded, address-qualified descriptor
 sequence. It does not claim arbitrary/random-access SRAM ROM service; that is
-the next PC1-C0C increment.
+the PC1-C0C1 boundary.
 
 Physical evidence is recorded in
 [`validation/pc1c0c_descriptor_fed_sram_rom_validation.md`](validation/pc1c0c_descriptor_fed_sram_rom_validation.md).
 
-### PC1-C1: Diagnostic Port
+The descriptor-fed engine is retained permanently as a reproducible golden-HAT
+regression. C0C1 may add a separate responder but must not mutate or weaken the
+accepted C0C0 targets.
 
-Capture `OUT 0E9h, AL` and publish the Mini BIOS signature over USB CDC.
+### PC1-C0C0-H: Native BIOS HELLO RP2350
+
+**PASS on physical V30 hardware at 0.300 MHz.** The V30 executed a 48-byte ROM,
+performed fourteen byte writes to diagnostic port `00E9`, produced
+`HELLO RP2350\r\n`, and reached the checkpoint with 30/30 qualified response
+pairs, zero deadline misses, and zero unqualified drives.
+
+Build target:
+
+```text
+pc1c_native_bios_hello
+```
+
+Console contract:
+[`native_bios_diagnostic_console.md`](native_bios_diagnostic_console.md).
+Physical evidence:
+[`validation/pc1c0c_native_bios_hello_validation.md`](validation/pc1c0c_native_bios_hello_validation.md).
+
+### PC1-C0C1: Arbitrary-Address Internal-SRAM ROM
+
+Select every supported response from the current physical address rather than
+from an expected path position. Taken branches, repeated fetches, and non-linear
+control flow must work without descriptor-order prestaging. The current HAT may
+support only deterministic on-chip hits; unsupported cycles remain observable
+and high-Z. V3.0 must expose controllable `READY` for bounded miss handling.
+
+Architecture:
+[`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md).
 
 ### PC1-C2: Address-Qualified Frequency Sweep
 

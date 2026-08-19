@@ -1,6 +1,6 @@
 # ADR 0003: Require READY or Deterministic Hits for General Memory
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-08-19
 
 ## Context
@@ -51,6 +51,11 @@ Primary references:
 
 The current standard-C-8 HAT must not use clock stretching or clock stopping
 as the correctness mechanism for a general memory-service miss.
+
+The consolidated V3.0 HAT shall expose a deterministic, PIO-controllable
+`READY` path. This is a required capability, not an optional optimization: it
+provides the bounded wait-state contract for dynamic ROM/RAM/peripheral misses
+that cannot be guaranteed as fixed-latency on-chip hits.
 
 Every CPU-visible service on the current HAT must follow one of these policies:
 

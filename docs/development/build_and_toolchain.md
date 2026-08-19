@@ -77,6 +77,18 @@ Build the initial PC1-C0C0 ROM image without changing a PC1-C0B target:
 ./scripts/build.sh --target pc1c0c_sram_rom_image
 ```
 
+Build the physical Native BIOS `HELLO RP2350` diagnostic test:
+
+```bash
+./scripts/build.sh --target pc1c_native_bios_hello
+```
+
+The UF2 is generated at:
+
+```text
+build/tests/performance_characterization_1_extended/pc1c_native_bios_hello.uf2
+```
+
 Build the primary firmware:
 
 ```bash
