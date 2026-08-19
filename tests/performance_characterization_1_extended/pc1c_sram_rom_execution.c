@@ -858,9 +858,54 @@ static const char *cycle_name(const bus_trace_t *entry) {
     return "OTHER";
 }
 
+static const char *pass_fail(bool pass) {
+    return pass ? "PASS" : "FAIL";
+}
+
+static void print_readable_summary(const pc1c0c_result_t *result) {
+    const bool reset_vector_ok = result->reset_ok &&
+        result->first_address_ok && result->first_memory_read &&
+        result->first_response_phase_ok;
+    const bool rom_execution_ok = result->far_target_seen &&
+        result->checkpoint_ok;
+    const bool response_path_ok = result->deadline_misses == 0u &&
+        result->dma_streams_complete &&
+        result->qualified_pairs == g_sequence_count;
+    const bool bus_safety_ok = result->unqualified_drive_commands == 0u &&
+        result->terminal_safe;
+
+#ifdef PC1C_NATIVE_BIOS_HELLO
+    printf("\n[V30 BIOS OUTPUT]\n");
+    if (result->diagnostic_bytes == 0u) {
+        printf("(no diagnostic output)\n");
+    } else {
+        fwrite(result->diagnostic, 1u, result->diagnostic_bytes, stdout);
+        if (result->diagnostic[result->diagnostic_bytes - 1u] != '\n')
+            putchar('\n');
+    }
+#endif
+
+    printf("\n[SUMMARY]\n");
+    printf("Measurement epoch    %s\n", pass_fail(result_valid(result)));
+    printf("Reset / FFFF0 fetch  %s\n", pass_fail(reset_vector_ok));
+    printf("F0000 ROM execution  %s\n", pass_fail(rom_execution_ok));
+#ifdef PC1C_NATIVE_BIOS_HELLO
+    printf("Diagnostic I/O 00E9  %s\n", pass_fail(result->diagnostic_ok));
+#else
+    printf("Memory signatures    %s\n",
+           pass_fail(result->signature_1234 && result->signature_5678 &&
+                     result->signature_abcd));
+#endif
+    printf("Response path        %s\n", pass_fail(response_path_ok));
+    printf("Bus ownership/safety %s\n", pass_fail(bus_safety_ok));
+    printf("Overall result       %s\n", pass_fail(result_pass(result)));
+}
+
 static void print_result(const pc1c0c_result_t *result) {
     /* USB reporting is strictly post-run. None of these formatting paths can
      * perturb a V30 bus deadline or mask the raw physical evidence. */
+    print_readable_summary(result);
+    printf("\n[ENGINEERING DETAILS]\n");
 #ifdef PC1C_NATIVE_BIOS_HELLO
     printf("\nPC1-C0C0-H Descriptor-Fed Native BIOS Hello - 0.300 MHz\n");
 #else
