@@ -155,7 +155,7 @@ The I/O-space architecture is intended to support software-defined PC-class peri
 
 These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
 
-### Current milestone: Native BIOS says HELLO
+## Current milestone: Native BIOS says HELLO
 
 On 2026-08-19, the physical V30 completed the `PC1-C0C0-H` Native BIOS
 diagnostic path at 0.300 MHz. It fetched the reset vector at `FFFF0`, executed
@@ -256,10 +256,6 @@ GitHub stores source, architecture, build metadata, and validation summaries. Ra
 Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its creator for the V20/V30 HAT design, software architecture, and documentation that provided the foundation for this work.
 
 `pi86-rp2350` preserves that physical interface while exploring a new implementation based on Raspberry Pi RP2350 PIO, DMA, and deterministic software-defined chipset functions.
-
-## License
-
-No project license has been selected yet. Upstream Pi86 licensing and derivative-code obligations must be reviewed before Pi86 source code is imported or redistributed by this repository.
 
 ## Documentation
 
