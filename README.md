@@ -110,7 +110,7 @@ The Raspberry Pi **physical 40-pin header position** is treated as the cross-pla
 - **CPU interface:** original Homebrew8088 Pi86 V20/V30 HAT
 - **Mechanical interface:** Raspberry Pi-compatible physical 40-pin header
 - **Current HAT:** retained as the physically validated golden reference
-- **Future hardware:** reversible diagnostic interposer first; buffered companion-chip board only after schematic/timing review
+- **Future hardware:** one consolidated V3.0 buffered companion-chip board with the legacy 40-pin data plane and a separate real-time control connector
 - **External RAM target:** APS6404L-class 8 MB PSRAM
 - **Onboard Flash:** 16 MB
 - **Storage target:** onboard MicroSD
