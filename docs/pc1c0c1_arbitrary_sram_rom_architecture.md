@@ -101,6 +101,12 @@ This probe contains no AD/PINDIRS drive operation. A physical PASS establishes
 only a bounded non-driving selector depth; it does not complete C0C1 or prove
 that the selected word can yet be driven within the same cycle.
 
+The physical 2026-08-20 baseline passed at every tested depth through 32. At
+depth 32, PIO1 selected `00EAh` at ordinal 32 while ASTB was still high; DMA,
+FIFO, phase-witness, passive-ownership, and terminal-safety gates also passed.
+See
+[`validation/pc1c0c1a_selector_feasibility_validation.md`](validation/pc1c0c1a_selector_feasibility_validation.md).
+
 ```bash
 ./scripts/build.sh --target pc1c_arbitrary_rom_feasibility
 ```
