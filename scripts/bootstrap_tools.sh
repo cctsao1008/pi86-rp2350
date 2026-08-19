@@ -11,6 +11,8 @@ picotool_install="${tools_root}/picotool-install"
 picotool_cmake_dir="${picotool_install}/picotool"
 picotool_bin="${picotool_cmake_dir}/picotool"
 
+"${script_dir}/bootstrap_nasm.sh"
+
 if [[ ! -f "${sdk_path}/pico_sdk_init.cmake" ]]; then
     cat >&2 <<EOF
 ERROR: Pico SDK submodule is missing or incomplete:

@@ -215,3 +215,10 @@ pico_generate_pio_header(pc1c_qualified_reset_vector
 pico_enable_stdio_usb(pc1c_qualified_reset_vector 1)
 pico_enable_stdio_uart(pc1c_qualified_reset_vector 0)
 pico_add_extra_outputs(pc1c_qualified_reset_vector)
+
+include("${PROJECT_SOURCE_DIR}/cmake/V30Rom.cmake")
+
+pi86_add_v30_rom(pc1c0c_sram_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/rom/pc1c0c_sram_rom.asm"
+    SYMBOL pc1c0c_sram_rom
+)

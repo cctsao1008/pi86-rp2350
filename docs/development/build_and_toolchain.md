@@ -32,7 +32,8 @@ The main Raspberry Pi RP2350 build dependencies are repository-pinned for reprod
 - Arm GNU Toolchain supported by the pinned Pico SDK
 - `pkg-config`
 - `libusb-1.0` development files
-- **NASM 3.x** for V30/8086 ROM and diagnostic images
+- `curl`, `tar`, `make`, and a host C compiler to bootstrap the pinned NASM
+- **NASM 3.02**, installed repository-locally by the bootstrap script
 - Ninja optional but recommended
 
 The project uses the Pico SDK board definition `waveshare_rp2350_pizero`.
@@ -56,6 +57,24 @@ git submodule update --init --recursive
 ```bash
 ./scripts/bootstrap_tools.sh
 ./scripts/build.sh --clean
+```
+
+The bootstrap downloads the official NASM 3.02 source archive, verifies
+SHA-256
+`87336eba53b4acfe917424ab5d500d2b0054d9f5148d35c2273ccf2cfb712f0d`,
+and installs the host tool under `.tools/nasm-3.02`. It does not modify the WSL
+system packages.
+
+To prepare only NASM:
+
+```bash
+./scripts/bootstrap_nasm.sh
+```
+
+Build the initial PC1-C0C0 ROM image without changing a PC1-C0B target:
+
+```bash
+./scripts/build.sh --target pc1c0c_sram_rom_image
 ```
 
 Build the primary firmware:
