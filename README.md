@@ -251,6 +251,12 @@ The intent is therefore not merely to **port Pi86**. The longer-term objective i
 
 GitHub stores source, architecture, build metadata, and validation summaries. Raw hardware evidence is archived separately.
 
+## Acknowledgements
+
+Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its creator for the V20/V30 HAT design, software architecture, and documentation that provided the foundation for this work.
+
+`pi86-rp2350` preserves that physical interface while exploring a new implementation based on Raspberry Pi RP2350 PIO, DMA, and deterministic software-defined chipset functions.
+
 ## License
 
 No project license has been selected yet. Upstream Pi86 licensing and derivative-code obligations must be reviewed before Pi86 source code is imported or redistributed by this repository.
