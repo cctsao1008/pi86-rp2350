@@ -10,6 +10,14 @@ The **current implementation targets the NEC V30**; V20 remains part of the orig
 
 This is **not** an x86 emulator running on the RP2350.
 
+<p align="center">
+  <img src="docs/images/nec-v30-pi86-hat-rp2350-pizero.jpg" width="500" alt="Physical NEC V30 on the original Pi86 V20/V30 HAT connected to a Waveshare RP2350-PiZero">
+</p>
+
+<p align="center">
+  <em>Physical NEC D70116C-8 (V30) on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
+</p>
+
 ```text
 Physical NEC V30
         +
