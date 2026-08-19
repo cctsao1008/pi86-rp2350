@@ -109,7 +109,8 @@ The Raspberry Pi **physical 40-pin header position** is treated as the cross-pla
 - **Installed CPU marking:** `1020VD002`
 - **CPU interface:** original Homebrew8088 Pi86 V20/V30 HAT
 - **Mechanical interface:** Raspberry Pi-compatible physical 40-pin header
-- **HAT redesign:** not planned
+- **Current HAT:** retained as the physically validated golden reference
+- **Future hardware:** reversible diagnostic interposer first; buffered companion-chip board only after schematic/timing review
 - **External RAM target:** APS6404L-class 8 MB PSRAM
 - **Onboard Flash:** 16 MB
 - **Storage target:** onboard MicroSD
@@ -229,6 +230,7 @@ No project license has been selected yet. Upstream Pi86 licensing and derivative
 
 - [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
+- [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) — current HAT assessment, limitations, and staged improvement strategy
 - [`docs/bringup.md`](docs/bringup.md) — gate sequence and current validation state
 - [`docs/validation/`](docs/validation/) — physical hardware validation records
 - [`docs/development/build_and_toolchain.md`](docs/development/build_and_toolchain.md) — build environment, dependencies, toolchain, and build commands
