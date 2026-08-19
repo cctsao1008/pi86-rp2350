@@ -82,6 +82,32 @@ consumed it.
 - prove deterministic hit and explicit high-Z miss behavior;
 - do not claim a ROM range until every address in it has the same guarantee.
 
+#### Implemented non-driving feasibility instrument
+
+`pc1c_arbitrary_rom_feasibility` is the first C0C1-A measurement target. One
+UF2 runs fresh qualified RESET epochs with selector-table depths 1, 4, 8, 16,
+and 32. Each internal-SRAM table entry is a three-word tuple containing the
+raw early-T1 key, candidate ROM word, and ordinal. The target `FFFF0` entry is
+deliberately last, so each stage measures the worst case for that depth.
+
+PIO1 captures the physical raw key and scans the DMA-fed table without an M33
+round trip. It returns the selected word, ordinal, and a completion GPIO
+snapshot through its RX FIFO to DMA. A stage passes only when selection is
+correct and the completion snapshot still has ASTB high, before the validated
+response deadline. An independent PIO0/DMA witness, first-cycle phase capture,
+passive AD ownership, and terminal safe-state checks remain enabled.
+
+This probe contains no AD/PINDIRS drive operation. A physical PASS establishes
+only a bounded non-driving selector depth; it does not complete C0C1 or prove
+that the selected word can yet be driven within the same cycle.
+
+```bash
+./scripts/build.sh --target pc1c_arbitrary_rom_feasibility
+```
+
+The UF2 is generated at
+`build/tests/performance_characterization_1_extended/pc1c_arbitrary_rom_feasibility.uf2`.
+
 ### C0C1-B: bounded arbitrary-address ROM window
 
 - declare base, size, alignment, and lane rules;

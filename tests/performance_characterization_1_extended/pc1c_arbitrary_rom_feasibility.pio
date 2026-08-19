@@ -1,0 +1,68 @@
+; PC1-C0C1-A non-driving current-address selector feasibility probe.
+;
+; The selector captures the physical early-T1 GPIO bank, then searches an
+; SRAM-fed table whose entries are streamed through the TX FIFO by DMA:
+;
+;   word 3n + 0 = exact raw GPIO key
+;   word 3n + 1 = candidate ROM value (diagnostic only; never driven)
+;   word 3n + 2 = one-based table ordinal
+;
+; A mismatch consumes the complete entry and continues searching. A match
+; emits four RX words:
+;
+;   0 = captured early-T1 raw GPIO bank
+;   1 = raw GPIO bank immediately after the matching value became available
+;   2 = selected candidate ROM value
+;   3 = selected one-based ordinal
+;
+; Firmware requires RX word 1 to retain ASTB=1. This proves that the selected
+; value was available before ASTB fall, where the accepted responder would
+; begin its data phase. The program has no OUT/SET/PINDIRS instructions and
+; cannot drive AD. It measures selector feasibility; it is not a ROM service.
+;
+; Configure IN base to GPIO0. Keep normal (unjoined) TX and RX FIFOs because
+; both directions are DMA-paced during the same physical cycle.
+
+.pio_version rp2350
+.program pc1c_arbitrary_selector_probe
+
+    wait 0 gpio 9              ; ignore any active cycle while arming
+    wait 1 gpio 9              ; ASTB rise begins the first post-reset T1
+    nop [7]                    ; validated synchronized-input settling interval
+    mov isr, pins
+    mov x, isr                 ; X retains the current physical key
+    push block                 ; RX[0]: captured early-T1 bank
+
+search:
+    pull block                 ; candidate key
+    mov y, osr
+    jmp x!=y mismatch
+
+    pull block                 ; matching candidate value is now available
+    mov isr, pins
+    push block                 ; RX[1]: selector-completion phase marker
+    mov isr, osr
+    push block                 ; RX[2]: selected value
+    pull block
+    mov isr, osr
+    push block                 ; RX[3]: selected ordinal
+    wait 0 gpio 9
+done:
+    jmp done                   ; one-shot probe; firmware restarts every stage
+
+mismatch:
+    pull block                 ; discard nonmatching value
+    pull block                 ; discard nonmatching ordinal
+    jmp search
+
+; Independent PIO0 witness of the same first early-T1 address. This program is
+; also one-shot and passive, and is drained into SRAM by its own DMA channel.
+.program pc1c_c0c1_first_address_observer
+
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+observer_done:
+    jmp observer_done

@@ -89,6 +89,18 @@ The UF2 is generated at:
 build/tests/performance_characterization_1_extended/pc1c_native_bios_hello.uf2
 ```
 
+Build the PC1-C0C1-A non-driving arbitrary-selector feasibility test:
+
+```bash
+./scripts/build.sh --target pc1c_arbitrary_rom_feasibility
+```
+
+The UF2 is generated at:
+
+```text
+build/tests/performance_characterization_1_extended/pc1c_arbitrary_rom_feasibility.uf2
+```
+
 Build the primary firmware:
 
 ```bash
