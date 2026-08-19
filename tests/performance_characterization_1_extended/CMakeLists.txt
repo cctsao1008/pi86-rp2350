@@ -222,3 +222,37 @@ pi86_add_v30_rom(pc1c0c_sram_rom
     SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/rom/pc1c0c_sram_rom.asm"
     SYMBOL pc1c0c_sram_rom
 )
+
+add_executable(pc1c_sram_rom_execution
+    pc1c_sram_rom_execution.c
+)
+
+target_include_directories(pc1c_sram_rom_execution PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_sram_rom_execution
+    pc1c0c_sram_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_sram_rom_execution
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_sram_rom_execution
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
+)
+pico_generate_pio_header(pc1c_sram_rom_execution
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_sram_rom_execution
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_sram_rom_execution 1)
+pico_enable_stdio_uart(pc1c_sram_rom_execution 0)
+pico_add_extra_outputs(pc1c_sram_rom_execution)

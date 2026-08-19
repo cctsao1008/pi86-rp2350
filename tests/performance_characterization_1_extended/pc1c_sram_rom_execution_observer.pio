@@ -1,0 +1,27 @@
+; PC1-C0C0 passive address/control and write-data observer.
+;
+; Each physical ASTB cycle emits two whole-bank GPIO snapshots:
+;   1. early T1, after the same eight-cycle synchronizer settling interval used
+;      by the PIO1 matcher;
+;   2. R2, where V30 write data and PIO1 read response data are stable.
+;
+; Configure IN base to GPIO0 and join the RX FIFO. This program never writes
+; pins or PINDIRS.
+
+.pio_version rp2350
+.program pc1c_sram_rom_execution_observer
+
+.wrap_target
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+.wrap
