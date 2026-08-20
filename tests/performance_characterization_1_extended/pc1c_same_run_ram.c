@@ -48,7 +48,7 @@
 #define RAM_SLOT_ADDRESS               0x00100u
 #define RAM_MIRROR_ADDRESS             0x00102u
 #define RAM_TEST_WORD                   0x1234u
-#define CHECKPOINT_WORD_ADDRESS        (BIOS_BASE + 0x000Eu)
+#define CHECKPOINT_WORD_ADDRESS        (BIOS_BASE + 0x0010u)
 #define OUT_COUNT                          28u
 #define DESC_DRIVE                   (1u << 28)
 #define DESC_DYNAMIC                 (1u << 29)

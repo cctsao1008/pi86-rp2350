@@ -14,7 +14,7 @@ start:
     mov [0x0100], ax
     mov bx, [0x0100]
     mov [0x0102], bx
+    nop                         ; align the self-loop to an even bus word
 
 checkpoint:
     jmp checkpoint
-    nop                         ; unreachable padding keeps ROM word-complete
