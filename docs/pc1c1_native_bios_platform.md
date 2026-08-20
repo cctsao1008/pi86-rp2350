@@ -131,6 +131,13 @@ must not encode or predict fetch order.
 - install and fetch an IVT entry below `00400h`;
 - execute repeated `INT 10h/AH=0Eh` and `IRET` paths.
 
+The 2026-08-20 B2-A physical baseline passed a deliberately bounded two-epoch
+form of this gate. Epoch A learned the V30's real `000C/F000/F046` INT stack
+writes; Epoch B replayed them through the current-address table and completed
+`IRET` to the BIOS checkpoint. This proves the physical IVT, stack transaction,
+and IRET path, but not general or same-run coherent RAM. See
+[`validation/pc1c0c1b2a_int10_stack_validation.md`](validation/pc1c0c1b2a_int10_stack_validation.md).
+
 ### PC1-C1 loader and interactive console
 
 - validate and copy embedded flash images before RESET release;

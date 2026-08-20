@@ -60,3 +60,7 @@ milestone.
 
 The first foundation payload physically passed on 2026-08-20. See
 [`validation/pc1c0c_native_bios_foundation_validation.md`](validation/pc1c0c_native_bios_foundation_validation.md).
+
+The bounded two-epoch `INT 10h`/stack/`IRET` path also physically passed on
+2026-08-20. See
+[`validation/pc1c0c1b2a_int10_stack_validation.md`](validation/pc1c0c1b2a_int10_stack_validation.md).

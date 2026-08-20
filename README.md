@@ -179,6 +179,7 @@ execution milestone; it is not yet arbitrary-address ROM service.
 - [C0C1-A 32-entry selector physical validation](docs/validation/pc1c0c1a_selector_feasibility_validation.md)
 - [C0C1-A2 same-cycle response physical validation](docs/validation/pc1c0c1a2_same_cycle_response_validation.md)
 - [C0C1-B1 bounded multi-cycle ROM physical validation](docs/validation/pc1c0c1b1_bounded_rom_validation.md)
+- [C0C1-B2-A INT 10h stack physical validation](docs/validation/pc1c0c1b2a_int10_stack_validation.md)
 - [PC1-C1 Native BIOS execution platform](docs/pc1c1_native_bios_platform.md)
 
 Other validation results, performance characterization, and active engineering
