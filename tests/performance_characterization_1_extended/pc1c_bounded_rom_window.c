@@ -168,9 +168,10 @@ static void prepare_table_stream(void) {
     uint32_t prototype[BLOCK_WORDS];
     uint32_t slot = 0u;
     const uint32_t dummy_count = TABLE_ENTRIES - image_words - 3u;
-    for (uint32_t i = 0u; i < dummy_count; ++i)
-        append_entry(prototype, slot++, 0xE0000u + i * 2u,
-                     (uint16_t)(0xD000u | i));
+    /* B1 proves multi-cycle lookup-state rewind before re-characterizing the
+     * larger sentinel-table deadline. Keep every live reset/BIOS word within
+     * ordinal 23; unused capacity follows it and is drained after a hit. */
+    append_entry(prototype, slot++, RESET_ROM_BASE, 0x00EAu);
     append_entry(prototype, slot++, RESET_ROM_BASE + 2u, 0x0000u);
     append_entry(prototype, slot++, RESET_ROM_BASE + 4u, 0x90F0u);
     for (uint32_t i = 0u; i < image_words; ++i) {
@@ -179,7 +180,9 @@ static void prepare_table_stream(void) {
         hard_assert(rom_word(address, &value));
         append_entry(prototype, slot++, address, value);
     }
-    append_entry(prototype, slot++, RESET_ROM_BASE, 0x00EAu);
+    for (uint32_t i = 0u; i < dummy_count; ++i)
+        append_entry(prototype, slot++, 0xE0000u + i * 2u,
+                     (uint16_t)(0xD000u | i));
     hard_assert(slot == TABLE_ENTRIES);
     prototype[TABLE_ENTRIES * ENTRY_WORDS] = 1u;
 
@@ -425,6 +428,28 @@ static void print_result(const result_t *r) {
     printf("ROM image                = %lu bytes; SHA-256 %s\n",
            (unsigned long)native_bios_rom_size, native_bios_rom_sha256);
     printf("TERMINAL SAFE STATE      = %s\n", pf(r->terminal_safe));
+    printf("\n[FIRST-CYCLE PHASE TRACE]\n");
+    static const char *const phase_name[FIRST_PHASE_COUNT] = {
+        "AF", "R1", "F1", "R2", "F2", "R3"
+    };
+    for (uint32_t i = 0u; i < r->phase_count; ++i)
+        printf("%s raw=%08lX ASTB=%lu CLK=%lu AD=%04X\n", phase_name[i],
+               (unsigned long)r->phase_raw[i],
+               (unsigned long)bit(r->phase_raw[i], V30_PIN_ASTB),
+               (unsigned long)bit(r->phase_raw[i], V30_PIN_CLK),
+               decode_ad(r->phase_raw[i]));
+    printf("\n[PASSIVE ADDRESS / R2-DATA TRACE]\n");
+    uint32_t shown = r->complete_cycles < 24u ? r->complete_cycles : 24u;
+    for (uint32_t i = 0u; i < shown; ++i) {
+        uint32_t a = g_observer[i * 2u], d = g_observer[i * 2u + 1u];
+        uint16_t expected_word = 0u;
+        bool hit = memory_read(a) && rom_word(decode_address(a), &expected_word);
+        printf("%02lu addr=%05lX addr_raw=%08lX data_raw=%08lX data=%04X hit=%s",
+               (unsigned long)i, (unsigned long)decode_address(a),
+               (unsigned long)a, (unsigned long)d, decode_ad(d), hit ? "YES" : "NO");
+        if (hit) printf(" expected=%04X", expected_word);
+        printf("\n");
+    }
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
 }
 
