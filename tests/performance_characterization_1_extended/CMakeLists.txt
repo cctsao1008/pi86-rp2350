@@ -450,3 +450,45 @@ pico_generate_pio_header(pc1c_bounded_rom_window
 pico_enable_stdio_usb(pc1c_bounded_rom_window 1)
 pico_enable_stdio_uart(pc1c_bounded_rom_window 0)
 pico_add_extra_outputs(pc1c_bounded_rom_window)
+
+pi86_add_v30_rom(int10_stack_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/int10_stack_test.asm"
+    SYMBOL int10_stack_rom
+)
+
+add_executable(pc1c_int10_stack
+    pc1c_int10_stack.c
+)
+
+target_include_directories(pc1c_int10_stack PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_int10_stack
+    int10_stack_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_int10_stack
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_int10_stack
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(pc1c_int10_stack
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(pc1c_int10_stack
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_int10_stack
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_int10_stack 1)
+pico_enable_stdio_uart(pc1c_int10_stack 0)
+pico_add_extra_outputs(pc1c_int10_stack)
