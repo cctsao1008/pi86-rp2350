@@ -49,6 +49,11 @@ BIOS architecture.
 7. Add PC-compatible interrupt services only after their hardware contracts
    are independently validated.
 
+The agreed PC1-C1 integration contract, including the initial memory map,
+Flash image manifest, `INT 10h/AH=0Eh`, structured completion port, and CDC
+console separation, is defined in
+[`pc1c1_native_bios_platform.md`](pc1c1_native_bios_platform.md).
+
 Until C0C1 is complete, `pc1c_native_bios_foundation` is the physical BIOS
 regression and `pc1c_native_bios_hello` remains the earlier immutable HELLO
 milestone.

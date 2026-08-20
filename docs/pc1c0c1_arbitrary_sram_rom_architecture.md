@@ -150,6 +150,18 @@ depth-32 exact miss. All hits reached the ASTB-high deadline gate and produced
 - include taken conditional branches and a non-linear jump target;
 - retain exact passive address and R2-data evidence.
 
+The first implementation uses a finite execution budget made from repeated
+copies of one identical table. Every physical ASTB cycle begins at the first
+entry and PIO1 selects by the current early-T1 key. A PIO-local end marker
+turns table exhaustion into an explicit high-Z miss and returns the selector
+to the next ASTB boundary. Repetition provides transport capacity only; table
+content is independent of the V30's fetch order.
+
+The initial guarantee remains the physically accepted 32-entry worst-case
+scan depth. See
+[`pc1c1_native_bios_platform.md`](pc1c1_native_bios_platform.md) for the
+larger BIOS, Flash-loader, software-INT, and CDC integration gates.
+
 ### C0C1-C: generalization and READY boundary
 
 - determine the largest provable current-HAT hit set;
