@@ -136,6 +136,11 @@ table rewind, refill, or arbitrary multi-cycle execution.
 The UF2 is generated at
 `build/tests/performance_characterization_1_extended/pc1c_arbitrary_rom_response.uf2`.
 
+The physical 2026-08-20 baseline passed every hit depth through 32 and the
+depth-32 exact miss. All hits reached the ASTB-high deadline gate and produced
+`00EAh` at R2/F2/R3; the miss produced zero drive authorizations. See
+[`validation/pc1c0c1a2_same_cycle_response_validation.md`](validation/pc1c0c1a2_same_cycle_response_validation.md).
+
 ### C0C1-B: bounded arbitrary-address ROM window
 
 - declare base, size, alignment, and lane rules;

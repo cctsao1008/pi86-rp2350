@@ -177,6 +177,7 @@ execution milestone; it is not yet arbitrary-address ROM service.
 - [Native BIOS foundation physical validation](docs/validation/pc1c0c_native_bios_foundation_validation.md)
 - [PC1-C0C1 arbitrary-address SRAM ROM architecture](docs/pc1c0c1_arbitrary_sram_rom_architecture.md)
 - [C0C1-A 32-entry selector physical validation](docs/validation/pc1c0c1a_selector_feasibility_validation.md)
+- [C0C1-A2 same-cycle response physical validation](docs/validation/pc1c0c1a2_same_cycle_response_validation.md)
 
 Other validation results, performance characterization, and active engineering
 work are tracked in the project issues and validation records.
