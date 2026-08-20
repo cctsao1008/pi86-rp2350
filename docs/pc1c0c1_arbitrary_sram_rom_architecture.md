@@ -162,6 +162,14 @@ scan depth. See
 [`pc1c1_native_bios_platform.md`](pc1c1_native_bios_platform.md) for the
 larger BIOS, Flash-loader, software-INT, and CDC integration gates.
 
+The 2026-08-20 C0C1-B1 physical baseline passed 64 complete cycles through a
+32-entry table plus sentinel. It returned 32 exact current-address ROM hits,
+kept 32 unsupported cycles high-Z, printed `PI86 BIOS`, and repeated the final
+checkpoint ten times. The live reset/BIOS set occupies ordinals 1 through 23;
+this result must not be restated as an ordinal-32 deadline guarantee for the
+sentinel-bearing program. See
+[`validation/pc1c0c1b1_bounded_rom_validation.md`](validation/pc1c0c1b1_bounded_rom_validation.md).
+
 ### C0C1-C: generalization and READY boundary
 
 - determine the largest provable current-HAT hit set;
