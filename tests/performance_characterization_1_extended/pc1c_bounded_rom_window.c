@@ -406,11 +406,16 @@ static void run(engine_sm_t *clock, engine_sm_t *response,
            r->phase_count < FIRST_PHASE_COUNT)
         r->phase_raw[r->phase_count++] = pio_sm_get(phase->pio, phase->sm);
     stop_dma(tx); stop_dma(obs); ad_to_sio();
-    r->first_address_ok = r->complete_cycles && decode_address(g_observer[0]) == RESET_ROM_BASE;
+    /* Classification establishes complete_cycles from the retained DMA word
+     * count. Do it before evaluating trace[0], otherwise a valid FFFF0 first
+     * cycle is falsely rejected because the zero-initialized count is used. */
+    classify(r);
+    r->first_address_ok = r->complete_cycles &&
+        decode_address(g_observer[0]) == RESET_ROM_BASE;
     r->first_response_ok = r->phase_count == FIRST_PHASE_COUNT &&
         decode_ad(r->phase_raw[3]) == 0x00EAu &&
         decode_ad(r->phase_raw[4]) == 0x00EAu && decode_ad(r->phase_raw[5]) == 0x00EAu;
-    classify(r); r->terminal_safe = safe_terminal();
+    r->terminal_safe = safe_terminal();
 }
 
 static const char *pf(bool value) { return value ? "PASS" : "FAIL"; }
