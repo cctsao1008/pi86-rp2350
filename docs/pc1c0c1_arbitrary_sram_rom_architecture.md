@@ -170,6 +170,24 @@ this result must not be restated as an ordinal-32 deadline guarantee for the
 sentinel-bearing program. See
 [`validation/pc1c0c1b1_bounded_rom_validation.md`](validation/pc1c0c1b1_bounded_rom_validation.md).
 
+### C0C1-B2: same-run one-slot RAM
+
+The 2026-08-20 C0C1-B2-B physical baseline passed one live word at `00100h`.
+Epoch A used the accepted bounded ROM selector to learn only the real fetch
+order; its unsupported RAM read returned `0100h`, and the V30 consequently
+wrote `0100h` to `00102h`. Under RESET, the M33 compiled 30 exact keys but did
+not copy or predict RAM data. Epoch B used a 9-word PIO matcher and a 23-word
+PIO capture/replay responder. It captured the V30's `00100h=1234h` write,
+returned `1234h` on the later read in the same run, and the V30 wrote `1234h`
+to `00102h`. All 30 pairs completed, both DMA streams reached zero, and the
+terminal bus state was safe.
+
+This proves same-run write-to-read coherence without a current-cycle M33
+round trip. It remains a single PIO-local slot on a learned finite execution
+path; it does not satisfy the general arbitrary-address RAM acceptance
+criteria. See
+[`validation/pc1c0c1b2b_same_run_ram_validation.md`](validation/pc1c0c1b2b_same_run_ram_validation.md).
+
 ### C0C1-C: generalization and READY boundary
 
 - determine the largest provable current-HAT hit set;
