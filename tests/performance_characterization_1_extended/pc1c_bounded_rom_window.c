@@ -54,6 +54,9 @@ typedef struct { PIO pio; uint sm; uint offset; } engine_sm_t;
 typedef struct {
     bool reset_ok;
     bool clean_epoch;
+    bool tx_primed;
+    bool pio2_clock_only;
+    bool clock_low_before_release;
     bool first_address_ok;
     bool first_response_ok;
     bool far_target_seen;
@@ -66,6 +69,7 @@ typedef struct {
     uint32_t post_pio1_oe;
     uint32_t tx_dma_pre;
     uint32_t tx_dma_post;
+    uint32_t tx_fifo_pre;
     uint32_t observer_words;
     uint32_t complete_cycles;
     uint32_t supported_reads;
@@ -358,11 +362,15 @@ static void run(engine_sm_t *clock, engine_sm_t *response,
     uint64_t prime_end = time_us_64() + 10000u;
     while (pio_sm_get_tx_fifo_level(response->pio, response->sm) < 4u &&
            time_us_64() <= prime_end) tight_loop_contents();
+    r->tx_fifo_pre = pio_sm_get_tx_fifo_level(response->pio, response->sm);
+    r->tx_primed = r->tx_fifo_pre == 4u;
     r->tx_dma_pre = dma_remain(tx); r->pre_pio1_oe = pio1->dbg_padoe;
     r->pre_pio2_oe = pio2->dbg_padoe;
-    r->clean_epoch = r->reset_ok && r->tx_dma_pre > 0u &&
-        r->pre_pio1_oe == 0u && r->pre_pio2_oe == (1u << V30_PIN_CLK) &&
-        !gpio_get(V30_PIN_CLK);
+    r->pio2_clock_only = r->pre_pio2_oe == (1u << V30_PIN_CLK);
+    r->clock_low_before_release = !gpio_get(V30_PIN_CLK);
+    r->clean_epoch = r->reset_ok && r->tx_primed && r->tx_dma_pre > 0u &&
+        r->pre_pio1_oe == 0u && r->pio2_clock_only &&
+        r->clock_low_before_release;
 
     pio_enable_sm_mask_in_sync(pio0, (1u << observer->sm) | (1u << phase->sm));
     if (r->clean_epoch) {
@@ -418,6 +426,14 @@ static void print_result(const result_t *r) {
     printf("Table shape              = 32 entries + sentinel\n");
     printf("Execution budget         = %u identical table blocks\n", EXECUTION_BUDGET_CYCLES);
     printf("Current-cycle M33        = NONE\n");
+    printf("RESET clock qualification= %s\n", pf(r->reset_ok));
+    printf("TX FIFO primed           = %lu/4 %s\n",
+           (unsigned long)r->tx_fifo_pre, pf(r->tx_primed));
+    printf("PIO1 pre-release OE      = %08lX %s\n",
+           (unsigned long)r->pre_pio1_oe, pf(r->pre_pio1_oe == 0u));
+    printf("PIO2 pre-release OE      = %08lX CLK-ONLY %s\n",
+           (unsigned long)r->pre_pio2_oe, pf(r->pio2_clock_only));
+    printf("CLK stopped LOW          = %s\n", pf(r->clock_low_before_release));
     printf("Observer complete cycles = %lu/%u\n", (unsigned long)r->complete_cycles,
            OBSERVER_CYCLES);
     printf("Unsupported/high-Z cycles= %lu\n", (unsigned long)r->unsupported_cycles);
