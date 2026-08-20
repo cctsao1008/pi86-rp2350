@@ -438,6 +438,9 @@ pico_generate_pio_header(pc1c_bounded_rom_window
     ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
 )
 pico_generate_pio_header(pc1c_bounded_rom_window
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(pc1c_bounded_rom_window
     ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
 )
 pico_generate_pio_header(pc1c_bounded_rom_window

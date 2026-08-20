@@ -27,6 +27,7 @@
 #include "native_bios_rom.h"
 #include "pc1b_first_cycle_phase_capture.pio.h"
 #include "pc1c_bounded_rom_window.pio.h"
+#include "pc1c_reset_clock_qualifier.pio.h"
 #include "pc1c_sram_rom_execution_observer.pio.h"
 #include "perf_continuous_clock.pio.h"
 #include "v30/v30_pins.h"
@@ -249,15 +250,21 @@ static void clock_stop_low(engine_sm_t *s) {
     gpio_put(V30_PIN_CLK, false); gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
 }
 
-static bool reset_clocks(uint32_t count) {
-    for (uint32_t i = 0u; i < count; ++i) {
-        uint64_t end = time_us_64() + timeout_us(64u);
-        while (!gpio_get(V30_PIN_CLK) && time_us_64() <= end) tight_loop_contents();
-        if (!gpio_get(V30_PIN_CLK)) return false;
-        end = time_us_64() + timeout_us(64u);
-        while (gpio_get(V30_PIN_CLK) && time_us_64() <= end) tight_loop_contents();
-        if (gpio_get(V30_PIN_CLK)) return false;
-    }
+static void reset_qualifier_init(engine_sm_t *s) {
+    s->pio = pio2; s->sm = pio_claim_unused_sm(s->pio, true);
+    s->offset = pio_add_program(s->pio, &pc1c_reset_clock_qualifier_program);
+    pio_sm_config c = pc1c_reset_clock_qualifier_program_get_default_config(s->offset);
+    sm_config_set_in_pins(&c, 0u);
+    hard_assert(pio_sm_init(s->pio, s->sm, s->offset, &c) == PICO_OK);
+    pio_sm_set_enabled(s->pio, s->sm, false);
+}
+
+static bool wait_reset_qualification(const engine_sm_t *s) {
+    uint64_t end = time_us_64() + timeout_us(RESET_CLOCKS + 64u);
+    while (pio_sm_is_rx_fifo_empty(s->pio, s->sm) && time_us_64() <= end)
+        tight_loop_contents();
+    if (pio_sm_is_rx_fifo_empty(s->pio, s->sm)) return false;
+    (void)pio_sm_get(s->pio, s->sm);
     return true;
 }
 
@@ -349,11 +356,16 @@ static void classify(result_t *r) {
 }
 
 static void run(engine_sm_t *clock, engine_sm_t *response,
-                engine_sm_t *observer, engine_sm_t *phase, result_t *r) {
+                engine_sm_t *reset_qualifier, engine_sm_t *observer,
+                engine_sm_t *phase, result_t *r) {
     memset(r, 0, sizeof *r); memset(g_observer, 0, sizeof g_observer);
     gpio_put(V30_PIN_RESET, true); ad_to_sio();
-    clock_prepare(clock); pio_sm_set_enabled(clock->pio, clock->sm, true);
-    r->reset_ok = reset_clocks(RESET_CLOCKS); clock_stop_low(clock);
+    clock_prepare(clock); arm(reset_qualifier);
+    pio_enable_sm_mask_in_sync(pio2,
+        (1u << clock->sm) | (1u << reset_qualifier->sm));
+    r->reset_ok = wait_reset_qualification(reset_qualifier);
+    clock_stop_low(clock);
+    pio_sm_set_enabled(reset_qualifier->pio, reset_qualifier->sm, false);
 
     clock_prepare(clock); arm(response); arm(observer); arm(phase);
     pio_sm_exec(response->pio, response->sm, pio_encode_mov(pio_pindirs, pio_null));
@@ -472,9 +484,11 @@ static void print_result(const result_t *r) {
 int main(void) {
     header_high_z(); controls_init(); ad_to_sio(); prepare_table_stream();
     stdio_init_all(); while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
-    engine_sm_t clock, response, observer, phase;
-    clock_init(&clock); response_init(&response); observer_init(&observer); phase_init(&phase);
-    result_t result; run(&clock, &response, &observer, &phase, &result);
+    engine_sm_t clock, reset_qualifier, response, observer, phase;
+    clock_init(&clock); reset_qualifier_init(&reset_qualifier);
+    response_init(&response); observer_init(&observer); phase_init(&phase);
+    result_t result;
+    run(&clock, &response, &reset_qualifier, &observer, &phase, &result);
     print_result(&result); fflush(stdout);
     while (true) tight_loop_contents();
 }
