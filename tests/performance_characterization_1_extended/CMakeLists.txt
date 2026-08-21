@@ -537,3 +537,48 @@ pico_generate_pio_header(pc1c_same_run_ram
 pico_enable_stdio_usb(pc1c_same_run_ram 1)
 pico_enable_stdio_uart(pc1c_same_run_ram 0)
 pico_add_extra_outputs(pc1c_same_run_ram)
+
+pi86_add_v30_rom(multi_slot_ram_test_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/multi_slot_ram_test.asm"
+    SYMBOL multi_slot_ram_test_rom
+)
+
+add_executable(pc1c_multi_slot_ram
+    pc1c_multi_slot_ram.c
+)
+
+target_include_directories(pc1c_multi_slot_ram PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_multi_slot_ram
+    multi_slot_ram_test_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_multi_slot_ram
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_multi_slot_ram
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(pc1c_multi_slot_ram
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_multi_slot_ram.pio
+)
+pico_generate_pio_header(pc1c_multi_slot_ram
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(pc1c_multi_slot_ram
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_multi_slot_ram
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_multi_slot_ram 1)
+pico_enable_stdio_uart(pc1c_multi_slot_ram 0)
+pico_add_extra_outputs(pc1c_multi_slot_ram)
