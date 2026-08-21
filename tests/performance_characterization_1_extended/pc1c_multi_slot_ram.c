@@ -23,11 +23,17 @@
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
 
+#ifndef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
 #include "pc1b_first_cycle_phase_capture.pio.h"
+#endif
 #include "pc1c_bounded_rom_window.pio.h"
 #include "pc1c_reset_clock_qualifier.pio.h"
 #include "pc1c_multi_slot_ram.pio.h"
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+#include "pc1c_byte_write_phase_observer.pio.h"
+#else
 #include "pc1c_sram_rom_execution_observer.pio.h"
+#endif
 #include "perf_continuous_clock.pio.h"
 #include "multi_slot_ram_test_rom.h"
 #include "v30/v30_pins.h"
@@ -40,7 +46,12 @@
 #define BLOCK_WORDS (TABLE_ENTRIES * ENTRY_WORDS + 1u)
 #define EXECUTION_BUDGET_CYCLES           128u
 #define OBSERVER_CYCLES                    96u
-#define OBSERVER_WORDS (OBSERVER_CYCLES * 2u)
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+#define OBSERVER_STRIDE                      6u
+#else
+#define OBSERVER_STRIDE                      2u
+#endif
+#define OBSERVER_WORDS (OBSERVER_CYCLES * OBSERVER_STRIDE)
 #define FIRST_PHASE_COUNT                   6u
 #define MAX_SEQUENCE                       96u
 #define RESET_ROM_BASE                0xFFFF0u
@@ -63,10 +74,13 @@ typedef struct {
     uint32_t fifo0_pre, fifo1_pre, observer_words, complete_cycles;
     uint32_t supported_reads, unsupported_cycles, checkpoint_reads;
     uint32_t qualified_pairs, phase_count, phase_raw[FIRST_PHASE_COUNT];
-    uint32_t ram_write_mask, ram_read_mask, mirror_write_mask;
+    uint32_t ram_write_seen_mask, ram_write_mask, ram_read_mask, mirror_write_mask;
     uint16_t ram_write_value[RAM_CASES];
     uint16_t ram_read_value[RAM_CASES];
     uint16_t mirror_write_value[RAM_CASES];
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+    uint32_t ram_write_phase_raw[RAM_CASES][5];
+#endif
 } result_t;
 
 static const uint32_t ram_address[RAM_CASES] = {
@@ -211,9 +225,9 @@ static int ram_case(uint32_t address) {
 static bool compile_dynamic_sequence(uint32_t observer_words) {
     g_sequence_count = 0u;
     uint32_t write_mask = 0u, read_mask = 0u;
-    uint32_t cycles = observer_words / 2u;
+    uint32_t cycles = observer_words / OBSERVER_STRIDE;
     for (uint32_t i = 0u; i < cycles && g_sequence_count < MAX_SEQUENCE; ++i) {
-        uint32_t raw = g_observer[i * 2u];
+        uint32_t raw = g_observer[i * OBSERVER_STRIDE];
         uint32_t address = decode_address(raw);
         uint16_t value;
         uint32_t descriptor = 0u;
@@ -317,12 +331,18 @@ static bool wait_reset_qualification(const engine_sm_t *s) {
 
 static void observer_init(engine_sm_t *s) {
     s->pio = pio0; s->sm = pio_claim_unused_sm(s->pio, true);
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+    s->offset = pio_add_program(s->pio, &pc1c_byte_write_phase_observer_program);
+    pio_sm_config c = pc1c_byte_write_phase_observer_program_get_default_config(s->offset);
+#else
     s->offset = pio_add_program(s->pio, &pc1c_sram_rom_execution_observer_program);
     pio_sm_config c = pc1c_sram_rom_execution_observer_program_get_default_config(s->offset);
+#endif
     sm_config_set_in_pins(&c, 0u); sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(s->pio, s->sm, s->offset, &c) == PICO_OK);
 }
 
+#ifndef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
 static void phase_init(engine_sm_t *s) {
     s->pio = pio0; s->sm = pio_claim_unused_sm(s->pio, true);
     s->offset = pio_add_program(s->pio, &pc1b_first_cycle_phase_capture_program);
@@ -330,6 +350,7 @@ static void phase_init(engine_sm_t *s) {
     sm_config_set_in_pins(&c, 0u); sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(s->pio, s->sm, s->offset, &c) == PICO_OK);
 }
+#endif
 
 static void arm(engine_sm_t *s) {
     pio_sm_set_enabled(s->pio, s->sm, false); pio_sm_clear_fifos(s->pio, s->sm);
@@ -394,10 +415,16 @@ static void qualify_reset(engine_sm_t *clock, engine_sm_t *qualifier,
 
 static void classify(result_t *r) {
     r->supported_reads_ok = true;
-    r->complete_cycles = r->observer_words / 2u;
+    r->complete_cycles = r->observer_words / OBSERVER_STRIDE;
     uint32_t mirror_ordinal = 0u;
     for (uint32_t i = 0u; i < r->complete_cycles; ++i) {
-        uint32_t a = g_observer[i * 2u], d = g_observer[i * 2u + 1u];
+        uint32_t base = i * OBSERVER_STRIDE;
+        uint32_t a = g_observer[base];
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+        uint32_t d = g_observer[base + 3u]; /* R2, retained for baseline comparison. */
+#else
+        uint32_t d = g_observer[base + 1u];
+#endif
         uint32_t address = decode_address(a);
         uint16_t expected;
         if (memory_read(a) && rom_word(address, &expected)) {
@@ -411,7 +438,12 @@ static void classify(result_t *r) {
             ++r->checkpoint_reads;
         int c = ram_case(address);
         if (c >= 0 && memory_write(a)) {
+            r->ram_write_seen_mask |= 1u << c;
             r->ram_write_value[c] = decode_ad(d);
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+            for (uint32_t p = 0u; p < 5u; ++p)
+                r->ram_write_phase_raw[c][p] = g_observer[base + 1u + p];
+#endif
             if (r->ram_write_value[c] == expected_bus_value[c])
                 r->ram_write_mask |= 1u << c;
         }
@@ -433,10 +465,22 @@ static void classify(result_t *r) {
     r->checkpoint_ok = r->checkpoint_reads >= 4u;
     r->first_address_ok = r->complete_cycles &&
         decode_address(g_observer[0]) == RESET_ROM_BASE;
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+    if (r->complete_cycles) {
+        for (uint32_t p = 0u; p < 5u; ++p)
+            r->phase_raw[p + 1u] = g_observer[1u + p];
+        r->phase_count = FIRST_PHASE_COUNT;
+    }
     r->first_response_ok = r->phase_count == FIRST_PHASE_COUNT &&
         decode_ad(r->phase_raw[3]) == 0x00EAu &&
         decode_ad(r->phase_raw[4]) == 0x00EAu &&
         decode_ad(r->phase_raw[5]) == 0x00EAu;
+#else
+    r->first_response_ok = r->phase_count == FIRST_PHASE_COUNT &&
+        decode_ad(r->phase_raw[3]) == 0x00EAu &&
+        decode_ad(r->phase_raw[4]) == 0x00EAu &&
+        decode_ad(r->phase_raw[5]) == 0x00EAu;
+#endif
     r->terminal_safe = safe_terminal();
 }
 
@@ -448,10 +492,14 @@ static void finish_observation(engine_sm_t *response0, engine_sm_t *response1,
     if (response0) pio_sm_set_enabled(response0->pio, response0->sm, false);
     if (response1) pio_sm_set_enabled(response1->pio, response1->sm, false);
     pio_sm_set_enabled(observer->pio, observer->sm, false);
+#ifndef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
     pio_sm_set_enabled(phase->pio, phase->sm, false);
     while (!pio_sm_is_rx_fifo_empty(phase->pio, phase->sm) &&
            r->phase_count < FIRST_PHASE_COUNT)
         r->phase_raw[r->phase_count++] = pio_sm_get(phase->pio, phase->sm);
+#else
+    (void)phase;
+#endif
     stop_dma(obs); ad_to_sio(); classify(r);
 }
 
@@ -470,7 +518,10 @@ static void run_learn(engine_sm_t *clock, engine_sm_t *response,
                       engine_sm_t *phase, result_t *r) {
     memset(r, 0, sizeof *r); memset(g_observer, 0, sizeof g_observer);
     qualify_reset(clock, qualifier, r);
-    clock_prepare(clock); arm(response); arm(observer); arm(phase);
+    clock_prepare(clock); arm(response); arm(observer);
+#ifndef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+    arm(phase);
+#endif
     pio_sm_exec(response->pio, response->sm, pio_encode_mov(pio_pindirs, pio_null));
     for (uint i = 0u; i < 16u; ++i) pio_gpio_init(response->pio, ad_pins[i]);
     int tx = tx_dma(response, g_table_stream,
@@ -487,7 +538,11 @@ static void run_learn(engine_sm_t *clock, engine_sm_t *response,
     r->clock_low_before_release = !gpio_get(V30_PIN_CLK);
     r->clean_epoch = r->reset_ok && r->tx_primed && r->tx0_pre > 0u &&
         r->pre_pio1_oe == 0u && r->pio2_clock_only && r->clock_low_before_release;
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+    pio_sm_set_enabled(pio0, observer->sm, true);
+#else
     pio_enable_sm_mask_in_sync(pio0, (1u << observer->sm) | (1u << phase->sm));
+#endif
     if (r->clean_epoch) {
         uint32_t irq = save_and_disable_interrupts();
         gpio_put(V30_PIN_RESET, false);
@@ -668,7 +723,13 @@ static void print_result(const result_t *r, const char *epoch, bool dynamic) {
     printf("\n[PASSIVE ADDRESS / R2-DATA TRACE]\n");
     uint32_t shown = r->complete_cycles < 48u ? r->complete_cycles : 48u;
     for (uint32_t i = 0u; i < shown; ++i) {
-        uint32_t a = g_observer[i * 2u], d = g_observer[i * 2u + 1u];
+        uint32_t base = i * OBSERVER_STRIDE;
+        uint32_t a = g_observer[base];
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+        uint32_t d = g_observer[base + 3u];
+#else
+        uint32_t d = g_observer[base + 1u];
+#endif
         printf("%02lu addr=%05lX type=%s data=%04X addr_raw=%08lX data_raw=%08lX\n",
                (unsigned long)i, (unsigned long)decode_address(a),
                memory_read(a) ? "MEMR" : memory_write(a) ? "MEMW" :
@@ -678,6 +739,72 @@ static void print_result(const result_t *r, const char *epoch, bool dynamic) {
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
 }
 
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+static void print_byte_write_phase_result(const result_t *r) {
+    bool pass = r->reset_ok && r->clean_epoch && r->first_address_ok &&
+        r->first_response_ok && r->far_target_seen && r->supported_reads_ok &&
+        (r->ram_write_seen_mask & 0x0Fu) == 0x0Fu &&
+        (r->ram_write_mask & 0x03u) == 0x03u && r->checkpoint_ok &&
+        r->observer_words == OBSERVER_WORDS && r->terminal_safe;
+
+    printf("\n[SUMMARY]\n");
+    printf("Measurement epoch        %s\n", pf(r->clean_epoch));
+    printf("Reset / FFFF0 fetch      %s\n", pf(r->reset_ok && r->first_address_ok));
+    printf("First response 00EA      %s\n", pf(r->first_response_ok));
+    printf("F0000 ROM execution      %s\n", pf(r->far_target_seen));
+    printf("ROM response data        %s (%lu reads)\n", pf(r->supported_reads_ok),
+           (unsigned long)r->supported_reads);
+    printf("WORD writes at R2        %s (%04X / %04X)\n",
+           pf((r->ram_write_mask & 0x03u) == 0x03u),
+           r->ram_write_value[0], r->ram_write_value[1]);
+    printf("LOW8 write cycle seen    %s\n", pf(r->ram_write_seen_mask & (1u << 2)));
+    printf("HIGH8 write cycle seen   %s\n", pf(r->ram_write_seen_mask & (1u << 3)));
+    printf("Checkpoint loop          %s (%lu reads)\n", pf(r->checkpoint_ok),
+           (unsigned long)r->checkpoint_reads);
+    printf("Bus ownership/safety     %s\n", pf(r->terminal_safe));
+    printf("C0C1-B2-C0 RESULT        %s\n", pf(pass));
+
+    printf("\n[ENGINEERING DETAILS]\n");
+    printf("PC1-C0C1-B2-C0 Passive Byte-Write Phase Characterization - 0.300 MHz\n");
+    printf("Response engine          = bounded internal-SRAM ROM only\n");
+    printf("Byte-write observer      = passive PIO0 -> DMA -> internal SRAM\n");
+    printf("Captured phases          = R1 F1 R2 F2 R3\n");
+    printf("RAM drive policy         = NONE\n");
+    printf("Input synchronizers      = SDK defaults\n");
+    printf("Observer complete cycles = %lu/%u\n",
+           (unsigned long)r->complete_cycles, OBSERVER_CYCLES);
+
+    static const char *const phase_name[5] = {"R1", "F1", "R2", "F2", "R3"};
+    static const char *const case_name[2] = {"LOW8 00104", "HIGH8 00105"};
+    for (uint32_t c = 2u; c < 4u; ++c) {
+        printf("\n[%s WRITE PHASE TRACE]\n", case_name[c - 2u]);
+        for (uint32_t p = 0u; p < 5u; ++p) {
+            uint32_t raw = r->ram_write_phase_raw[c][p];
+            printf("%s raw=%08lX ASTB=%lu CLK=%lu AD=%04X\n",
+                   phase_name[p], (unsigned long)raw,
+                   (unsigned long)bit(raw, V30_PIN_ASTB),
+                   (unsigned long)bit(raw, V30_PIN_CLK), decode_ad(raw));
+        }
+    }
+    printf("\nInterpretation: compare LOW8 AD7:0 and HIGH8 AD15:8 across phases.\n");
+    printf("No RAM response was driven; C0C1-B2-C remains open.\n");
+    printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
+}
+#endif
+
+#ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
+int main(void) {
+    header_high_z(); controls_init(); ad_to_sio(); prepare_bounded_table();
+    stdio_init_all(); while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
+    engine_sm_t clock, qualifier, observer, bounded;
+    clock_init(&clock); reset_qualifier_init(&qualifier);
+    observer_init(&observer); bounded_response_init(&bounded);
+    result_t result;
+    run_learn(&clock, &bounded, &qualifier, &observer, NULL, &result);
+    print_byte_write_phase_result(&result); fflush(stdout);
+    while (true) tight_loop_contents();
+}
+#else
 int main(void) {
     header_high_z(); controls_init(); ad_to_sio(); prepare_bounded_table();
     stdio_init_all(); while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
@@ -716,3 +843,4 @@ int main(void) {
     fflush(stdout);
     while (true) tight_loop_contents();
 }
+#endif
