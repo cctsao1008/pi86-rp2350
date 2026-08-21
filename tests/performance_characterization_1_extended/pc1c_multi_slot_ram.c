@@ -1021,7 +1021,14 @@ int main(void) {
     clock_init(&clock); reset_qualifier_init(&qualifier);
     observer_init(&observer); phase_init(&phase); bounded_response_init(&bounded);
     result_t learn, replay;
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+    uint32_t epoch_a_heartbeat = g_dc_heartbeat;
+#endif
     run_learn(&clock, &bounded, &qualifier, &observer, &phase, &learn);
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+    __dmb();
+    dc_result.heartbeat &= g_dc_heartbeat != epoch_a_heartbeat;
+#endif
     bool sequence_ok = compile_dynamic_sequence(learn.observer_words);
     print_result(&learn, "EPOCH-A LEARN", false); fflush(stdout);
 
