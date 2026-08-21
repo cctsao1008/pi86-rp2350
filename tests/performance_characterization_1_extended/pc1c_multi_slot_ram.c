@@ -54,6 +54,7 @@
 #define OBSERVER_WORDS (OBSERVER_CYCLES * OBSERVER_STRIDE)
 #define FIRST_PHASE_COUNT                   6u
 #define MAX_SEQUENCE                       96u
+#define MAX_DESCRIPTOR_WORDS   (MAX_SEQUENCE + RAM_CASES)
 #define RESET_ROM_BASE                0xFFFF0u
 #define BIOS_BASE                     0xF0000u
 #define RAM_CASES                           4u
@@ -71,7 +72,8 @@ typedef struct {
     bool far_target_seen, supported_reads_ok, checkpoint_ok, terminal_safe;
     uint32_t pre_pio1_oe, pre_pio2_oe, post_pio1_oe;
     uint32_t tx0_pre, tx0_post, tx1_pre, tx1_post;
-    uint32_t fifo0_pre, fifo1_pre, observer_words, complete_cycles;
+    uint32_t fifo0_pre, fifo1_pre, fifo0_post, fifo1_post;
+    uint32_t observer_words, complete_cycles;
     uint32_t supported_reads, unsupported_cycles, checkpoint_reads;
     uint32_t qualified_pairs, phase_count, phase_raw[FIRST_PHASE_COUNT];
     uint32_t ram_write_seen_mask, ram_write_mask, ram_read_mask, mirror_write_mask;
@@ -104,8 +106,8 @@ static const uint8_t storage_slot[RAM_CASES] = {1u, 2u, 3u, 3u};
 static uint32_t g_table_stream[EXECUTION_BUDGET_CYCLES * BLOCK_WORDS];
 static uint32_t g_observer[OBSERVER_WORDS];
 static uint32_t g_keys[MAX_SEQUENCE + 1u];
-static uint32_t g_descriptors[MAX_SEQUENCE];
-static uint32_t g_sequence_count;
+static uint32_t g_descriptors[MAX_DESCRIPTOR_WORDS];
+static uint32_t g_sequence_count, g_descriptor_count;
 
 static const uint8_t ad_pins[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -229,7 +231,7 @@ static int ram_case(uint32_t address) {
  * Mirror writes and all other cycles consume no key and cannot authorize
  * PINDIRS. Slot 3 is reused only after the low-byte read has completed. */
 static bool compile_dynamic_sequence(uint32_t observer_words) {
-    g_sequence_count = 0u;
+    g_sequence_count = 0u; g_descriptor_count = 0u;
     uint32_t write_mask = 0u, read_mask = 0u;
     uint32_t cycles = observer_words / OBSERVER_STRIDE;
     for (uint32_t i = 0u; i < cycles && g_sequence_count < MAX_SEQUENCE; ++i) {
@@ -237,7 +239,7 @@ static bool compile_dynamic_sequence(uint32_t observer_words) {
         uint32_t address = decode_address(raw);
         uint16_t value;
         uint32_t descriptor = 0u;
-        bool include = false;
+        bool include = false, indexed_get = false;
         if (memory_read(raw) && rom_word(address, &value)) {
             descriptor = encode_word(value) | DESC_DRIVE;
             include = true;
@@ -248,19 +250,25 @@ static bool compile_dynamic_sequence(uint32_t observer_words) {
                 write_mask |= 1u << c; include = true;
             } else if (c >= 0 && memory_read(raw) && !(read_mask & (1u << c))) {
                 descriptor = DESC_SLOT(storage_slot[c]) | DESC_DRIVE;
-                read_mask |= 1u << c; include = true;
+                read_mask |= 1u << c; include = true; indexed_get = true;
             }
         }
         if (include) {
             g_keys[g_sequence_count] = raw;
-            g_descriptors[g_sequence_count] = descriptor;
+            g_descriptors[g_descriptor_count++] = descriptor;
+            /* RP2350 MOV OSR, RXFIFO[y] is encoded in the PULL instruction
+             * class and also consumes one word from the TX FIFO/DREQ path in
+             * current silicon (raspberrypi/pico-sdk#2350). Keep the real
+             * descriptor stream aligned by placing one disposable word
+             * immediately after every indexed GET descriptor. */
+            if (indexed_get) g_descriptors[g_descriptor_count++] = 0u;
             ++g_sequence_count;
         }
     }
     /* The final successful match still pulls a successor key. */
     g_keys[g_sequence_count] = 0xFFFFFFFFu;
     return write_mask == 0x0Fu && read_mask == 0x0Fu &&
-           g_sequence_count >= 16u &&
+           g_sequence_count >= 16u && g_descriptor_count <= MAX_DESCRIPTOR_WORDS &&
            g_sequence_count < MAX_SEQUENCE;
 }
 
@@ -607,7 +615,7 @@ static void run_dynamic(engine_sm_t *clock, engine_sm_t *matcher,
     pio_sm_exec(matcher->pio, matcher->sm, pio_encode_pull(false, false));
     pio_sm_exec(matcher->pio, matcher->sm, pio_encode_mov(pio_y, pio_osr));
     int key_dma = tx_dma(matcher, &g_keys[1], g_sequence_count);
-    int desc_dma = tx_dma(responder, g_descriptors, g_sequence_count);
+    int desc_dma = tx_dma(responder, g_descriptors, g_descriptor_count);
     int obs = observer_dma(observer);
     uint64_t end = time_us_64() + 10000u;
     while ((pio_sm_get_tx_fifo_level(matcher->pio, matcher->sm) < 4u ||
@@ -640,7 +648,11 @@ static void run_dynamic(engine_sm_t *clock, engine_sm_t *matcher,
         restore_interrupts(irq);
     }
     r->tx0_post = dma_remain(key_dma); r->tx1_post = dma_remain(desc_dma);
-    r->qualified_pairs = g_sequence_count - r->tx1_post;
+    r->fifo0_post = pio_sm_get_tx_fifo_level(matcher->pio, matcher->sm);
+    r->fifo1_post = pio_sm_get_tx_fifo_level(responder->pio, responder->sm);
+    uint32_t pending_keys = r->tx0_post + r->fifo0_post;
+    r->qualified_pairs = pending_keys < g_sequence_count ?
+        g_sequence_count - pending_keys : 0u;
     pio_sm_set_enabled(matcher->pio, matcher->sm, false);
     pio_sm_set_enabled(responder->pio, responder->sm, false);
     pio_sm_exec(responder->pio, responder->sm, pio_encode_mov(pio_pindirs, pio_null));
@@ -658,7 +670,7 @@ static void print_result(const result_t *r, const char *epoch, bool dynamic) {
     if (dynamic) pass = pass && r->ram_read_mask == 0x0Fu &&
         r->mirror_write_mask == 0x0Fu &&
         r->qualified_pairs == g_sequence_count && r->tx0_post == 0u &&
-        r->tx1_post == 0u;
+        r->tx1_post == 0u && r->fifo0_post == 0u && r->fifo1_post == 0u;
     printf("\n[%s SUMMARY]\n", epoch);
     printf("Measurement epoch        %s\n", pf(r->clean_epoch));
     printf("Reset / FFFF0 fetch      %s\n", pf(r->reset_ok && r->first_address_ok));
@@ -698,6 +710,9 @@ static void print_result(const result_t *r, const char *epoch, bool dynamic) {
     printf("Indexed PUTGET storage   = %s\n",
            dynamic ? pf(r->putget_ok) : "NOT USED");
     printf("Learned exact pairs      = %lu\n", (unsigned long)g_sequence_count);
+    printf("Descriptor words/padding = %lu/%lu\n",
+           (unsigned long)g_descriptor_count,
+           (unsigned long)(g_descriptor_count - g_sequence_count));
     printf("PIO-qualified pairs      = %lu/%lu\n", (unsigned long)r->qualified_pairs,
            (unsigned long)g_sequence_count);
     printf("RESET clock qualification= %s\n", pf(r->reset_ok));
@@ -715,6 +730,8 @@ static void print_result(const result_t *r, const char *epoch, bool dynamic) {
     printf("DMA remain key/desc      = %lu/%lu -> %lu/%lu\n",
            (unsigned long)r->tx0_pre, (unsigned long)r->tx1_pre,
            (unsigned long)r->tx0_post, (unsigned long)r->tx1_post);
+    printf("FIFO remain key/desc     = %lu/%lu\n",
+           (unsigned long)r->fifo0_post, (unsigned long)r->fifo1_post);
     printf("ROM image                = %lu bytes; SHA-256 %s\n",
            (unsigned long)multi_slot_ram_test_rom_size,
            multi_slot_ram_test_rom_sha256);
@@ -842,6 +859,7 @@ int main(void) {
             replay.mirror_write_mask == 0x0Fu &&
             replay.checkpoint_ok && replay.qualified_pairs == g_sequence_count &&
             replay.tx0_post == 0u && replay.tx1_post == 0u &&
+            replay.fifo0_post == 0u && replay.fifo1_post == 0u &&
             replay.observer_words == OBSERVER_WORDS && replay.terminal_safe;
         printf("\nC0C1-B2-C OVERALL RESULT = %s\n", pf(overall));
     } else {
