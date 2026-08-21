@@ -682,6 +682,58 @@ pico_enable_stdio_usb(pc1c_dual_core_service_output 1)
 pico_enable_stdio_uart(pc1c_dual_core_service_output 0)
 pico_add_extra_outputs(pc1c_dual_core_service_output)
 
+# DC-B1-A replays authentic retained PIO0/DMA GPIO words through the same
+# bounded realtime-to-service ring. It proves ordered active consumption and
+# exact counted/nonblocking overflow while the service consumer is stalled.
+# This is a transport feasibility gate; simultaneous long-running V30/CDC
+# stress remains DC-B1-B.
+add_executable(pc1c_dual_core_trace_backpressure
+    pc1c_multi_slot_ram.c
+)
+
+target_compile_definitions(pc1c_dual_core_trace_backpressure PRIVATE
+    PC1C_DUAL_CORE_FOUNDATION=1
+    PC1C_DUAL_CORE_SERVICE_OUTPUT=1
+    PC1C_DUAL_CORE_LIVE_TRANSPORT=1
+)
+
+target_include_directories(pc1c_dual_core_trace_backpressure PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_dual_core_trace_backpressure
+    multi_slot_ram_test_rom
+    pico_stdlib
+    pico_multicore
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_dual_core_trace_backpressure
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_dual_core_trace_backpressure
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(pc1c_dual_core_trace_backpressure
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_multi_slot_ram.pio
+)
+pico_generate_pio_header(pc1c_dual_core_trace_backpressure
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(pc1c_dual_core_trace_backpressure
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_dual_core_trace_backpressure
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_dual_core_trace_backpressure 1)
+pico_enable_stdio_uart(pc1c_dual_core_trace_backpressure 0)
+pico_add_extra_outputs(pc1c_dual_core_trace_backpressure)
+
 # Preserve pc1c_multi_slot_ram as the B2-C regression while compiling the same
 # orchestration code with a wider passive observer. This target does not run
 # Epoch B or drive RAM data; it only locates the V30 byte-write data-valid phase.

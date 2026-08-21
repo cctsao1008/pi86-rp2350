@@ -129,6 +129,10 @@ typedef enum {
 #ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
     DC_PHASE_SERVICE_REPORT,
 #endif
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+    DC_PHASE_TRACE_REPLAY_ACTIVE,
+    DC_PHASE_TRACE_REPLAY_DRAIN,
+#endif
 } dc_phase_t;
 
 typedef struct {
@@ -136,6 +140,21 @@ typedef struct {
     bool overflow_nonblocking, stall_isolated, resume;
     uint32_t trace_count, command_count, overflow_drops;
 } dc_result_t;
+
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+typedef struct {
+    bool active_order, active_no_drops;
+    bool stalled_overflow, post_stall_order;
+    uint32_t active_count, active_drops;
+    uint32_t stalled_accepted, stalled_drops, drained_count;
+} dc_b1a_result_t;
+
+#define DC_B1_ACK_ACTIVE_DONE 0xB101u
+#define DC_B1_ACK_DRAIN_DONE  0xB102u
+static volatile bool g_dc_b1_producer_done;
+static volatile uint32_t g_dc_b1_count;
+static volatile bool g_dc_b1_order;
+#endif
 
 #ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
 /* DC-B0 transfers immutable post-run evidence, never a current-cycle request.
@@ -156,6 +175,9 @@ typedef struct {
     bool sequence_ok;
     bool epoch_b_ran;
     bool b2c_overall;
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+    dc_b1a_result_t b1a;
+#endif
 } dc_service_report_t;
 
 static dc_service_report_t g_dc_service_report;
@@ -204,6 +226,39 @@ static void dc_service_core(void) {
             __dmb();
             g_dc_ack = DC_PHASE_COMMAND_FILL;
             while (g_dc_phase == DC_PHASE_COMMAND_FILL) tight_loop_contents();
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+        } else if (phase == DC_PHASE_TRACE_REPLAY_ACTIVE) {
+            uint32_t value, count = 0u;
+            bool order = true;
+            g_dc_ack = DC_PHASE_TRACE_REPLAY_ACTIVE;
+            while (!g_dc_b1_producer_done ||
+                   g_dc_trace_ring.read_index != g_dc_trace_ring.write_index) {
+                if (!pi86_spsc_u32_try_pop(&g_dc_trace_ring, &value)) continue;
+                if (count >= OBSERVER_WORDS || value != g_observer[count])
+                    order = false;
+                count++;
+            }
+            g_dc_b1_count = count;
+            g_dc_b1_order = order;
+            __dmb();
+            g_dc_ack = DC_B1_ACK_ACTIVE_DONE;
+            while (g_dc_phase == DC_PHASE_TRACE_REPLAY_ACTIVE)
+                tight_loop_contents();
+        } else if (phase == DC_PHASE_TRACE_REPLAY_DRAIN) {
+            uint32_t value, count = 0u;
+            bool order = true;
+            while (pi86_spsc_u32_try_pop(&g_dc_trace_ring, &value)) {
+                if (count >= PI86_SPSC_U32_CAPACITY ||
+                    value != g_observer[count]) order = false;
+                count++;
+            }
+            g_dc_b1_count = count;
+            g_dc_b1_order = order;
+            __dmb();
+            g_dc_ack = DC_B1_ACK_DRAIN_DONE;
+            while (g_dc_phase == DC_PHASE_TRACE_REPLAY_DRAIN)
+                tight_loop_contents();
+#endif
         } else if (phase == DC_PHASE_STALL) {
             __dmb();
             g_dc_ack = DC_PHASE_STALL;
@@ -309,6 +364,75 @@ static void dc_leave_stall(dc_result_t *r, uint32_t stalled_heartbeat) {
     uint32_t heartbeat = g_dc_heartbeat;
     r->resume = r->resume && ack && dc_wait_change(&g_dc_heartbeat, heartbeat);
 }
+
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+static void dc_b1_ring_reset(void) {
+    g_dc_trace_ring.write_index = 0u;
+    g_dc_trace_ring.read_index = 0u;
+    g_dc_trace_ring.producer_drops = 0u;
+    __dmb();
+}
+
+static void dc_b1a_run(dc_b1a_result_t *r) {
+    memset(r, 0, sizeof *r);
+
+    /* Active-consumer pass. The delay models a bounded raw-record source rate;
+     * it never waits for consumer capacity. Every try_push remains nonblocking. */
+    dc_b1_ring_reset();
+    g_dc_b1_producer_done = false;
+    g_dc_b1_count = 0u;
+    g_dc_b1_order = false;
+    __dmb();
+    dc_set_phase(DC_PHASE_TRACE_REPLAY_ACTIVE);
+    bool active_ready = dc_wait_equal(&g_dc_ack, DC_PHASE_TRACE_REPLAY_ACTIVE);
+    bool all_pushed = active_ready;
+    for (uint32_t i = 0u; i < OBSERVER_WORDS; ++i) {
+        all_pushed &= pi86_spsc_u32_try_push(&g_dc_trace_ring, g_observer[i]);
+        busy_wait_us_32(5u);
+    }
+    __dmb();
+    g_dc_b1_producer_done = true;
+    bool active_done = dc_wait_equal(&g_dc_ack, DC_B1_ACK_ACTIVE_DONE);
+    r->active_count = g_dc_b1_count;
+    r->active_drops = g_dc_trace_ring.producer_drops;
+    r->active_order = active_done && g_dc_b1_order &&
+        r->active_count == OBSERVER_WORDS;
+    r->active_no_drops = all_pushed && r->active_drops == 0u;
+    dc_set_phase(DC_PHASE_RUN);
+    dc_wait_equal(&g_dc_ack, DC_PHASE_RUN);
+
+    /* Stalled-consumer pass. Exactly one ringful is retained and every later
+     * authentic record is counted and dropped without waiting. */
+    dc_b1_ring_reset();
+    __dmb();
+    dc_set_phase(DC_PHASE_STALL);
+    bool stalled = dc_wait_equal(&g_dc_ack, DC_PHASE_STALL);
+    for (uint32_t i = 0u; i < OBSERVER_WORDS; ++i)
+        pi86_spsc_u32_try_push(&g_dc_trace_ring, g_observer[i]);
+    r->stalled_accepted = g_dc_trace_ring.write_index -
+        g_dc_trace_ring.read_index;
+    r->stalled_drops = g_dc_trace_ring.producer_drops;
+    r->stalled_overflow = stalled &&
+        r->stalled_accepted == PI86_SPSC_U32_CAPACITY &&
+        r->stalled_drops == OBSERVER_WORDS - PI86_SPSC_U32_CAPACITY;
+
+    g_dc_b1_count = 0u;
+    g_dc_b1_order = false;
+    __dmb();
+    dc_set_phase(DC_PHASE_TRACE_REPLAY_DRAIN);
+    bool drained = dc_wait_equal(&g_dc_ack, DC_B1_ACK_DRAIN_DONE);
+    r->drained_count = g_dc_b1_count;
+    r->post_stall_order = drained && g_dc_b1_order &&
+        r->drained_count == PI86_SPSC_U32_CAPACITY;
+    dc_set_phase(DC_PHASE_RUN);
+    dc_wait_equal(&g_dc_ack, DC_PHASE_RUN);
+}
+
+static bool dc_b1a_pass(const dc_b1a_result_t *r) {
+    return r->active_order && r->active_no_drops && r->stalled_overflow &&
+        r->post_stall_order;
+}
+#endif
 
 static void dc_print_result(const dc_result_t *r, bool regression) {
     bool overall = r->startup && r->heartbeat && r->trace_order &&
@@ -972,6 +1096,29 @@ static void dc_print_service_report(void) {
            (unsigned long)report->replay.complete_cycles);
 
     dc_print_result(&report->dc, report->b2c_overall);
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+    printf("\n[DC-B1-A AUTHENTIC TRACE BACKPRESSURE]\n");
+    printf("Source records             = retained PIO0/DMA GPIO words\n");
+    printf("Active transport ordering  = %s (%lu/%u)\n",
+           pf(report->b1a.active_order),
+           (unsigned long)report->b1a.active_count, OBSERVER_WORDS);
+    printf("Active transport drops     = %lu %s\n",
+           (unsigned long)report->b1a.active_drops,
+           pf(report->b1a.active_no_drops));
+    printf("Stalled consumer accepted  = %lu/%u\n",
+           (unsigned long)report->b1a.stalled_accepted,
+           PI86_SPSC_U32_CAPACITY);
+    printf("Stalled consumer drops     = %lu/%u %s\n",
+           (unsigned long)report->b1a.stalled_drops,
+           OBSERVER_WORDS - PI86_SPSC_U32_CAPACITY,
+           pf(report->b1a.stalled_overflow));
+    printf("Post-stall drain ordering  = %s (%lu/%u)\n",
+           pf(report->b1a.post_stall_order),
+           (unsigned long)report->b1a.drained_count,
+           PI86_SPSC_U32_CAPACITY);
+    printf("Producer wait on full ring = NONE PASS\n");
+    printf("DC-B1-A RESULT             = %s\n", pf(dc_b1a_pass(&report->b1a)));
+#endif
     printf("\nDC-B0 SERVICE OUTPUT RESULT = %s\n", pf(dc_b0));
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
     fflush(stdout);
@@ -1181,6 +1328,9 @@ int main(void) {
 #ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
     bool epoch_b_ran = false;
 #endif
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+    dc_b1a_result_t b1a = {0};
+#endif
     if (sequence_ok && learn.reset_ok && learn.clean_epoch &&
         learn.first_address_ok && learn.first_response_ok &&
         learn.far_target_seen && learn.supported_reads_ok &&
@@ -1228,12 +1378,18 @@ int main(void) {
 #endif
     }
 #ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+    if (b2c_overall) dc_b1a_run(&b1a);
+#endif
     g_dc_service_report.learn = learn;
     if (epoch_b_ran) g_dc_service_report.replay = replay;
     g_dc_service_report.dc = dc_result;
     g_dc_service_report.sequence_ok = sequence_ok;
     g_dc_service_report.epoch_b_ran = epoch_b_ran;
     g_dc_service_report.b2c_overall = b2c_overall;
+#ifdef PC1C_DUAL_CORE_LIVE_TRANSPORT
+    g_dc_service_report.b1a = b1a;
+#endif
     __dmb();
     dc_set_phase(DC_PHASE_SERVICE_REPORT);
 #elif defined(PC1C_DUAL_CORE_FOUNDATION)
