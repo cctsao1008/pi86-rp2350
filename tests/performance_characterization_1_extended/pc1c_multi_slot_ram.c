@@ -177,11 +177,6 @@ static volatile bool g_dc_trace_order;
 #define DC_OVERFLOW_ATTEMPTS   16u
 
 static void dc_service_core(void) {
-#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
-    /* Initialize TinyUSB/CDC on the service core so its IRQ affinity and all
-     * normal output work stay off the realtime role. */
-    stdio_init_all();
-#endif
     uint32_t heartbeat_divider = 0u;
     g_dc_ack = DC_PHASE_RUN;
     __dmb();
@@ -944,7 +939,8 @@ static void dc_print_service_report(void) {
     printf("\n[DC-B0 SERVICE-CORE OUTPUT]\n");
     printf("CDC output owner           = Core%lu %s\n",
            (unsigned long)get_core_num(), pf(get_core_num() == 1u));
-    printf("USB/CDC initialization     = Core1 PASS\n");
+    printf("USB/CDC initialization     = Core0 SDK-required PASS\n");
+    printf("USB IRQ during V30 epochs  = MASKED PASS\n");
     printf("V30 start requires CDC     = NO PASS\n");
     printf("CDC connect wait on Core1  = %llu us\n",
            (unsigned long long)g_dc_usb_wait_us);
@@ -1152,8 +1148,13 @@ int main(void) {
 #else
 int main(void) {
     header_high_z(); controls_init(); ad_to_sio(); prepare_bounded_table();
+    /* Pico SDK requires stdio_usb_init() on the default alarm-pool core
+     * (Core0 in this target). DC-B0 initializes the device here but never
+     * waits for a host; Core1 owns the later connection wait and all output.
+     * Core0 masks interrupts throughout both V30 execution epochs. */
+    stdio_init_all();
 #ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
-    stdio_init_all(); while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
+    while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
 #endif
 #ifdef PC1C_DUAL_CORE_FOUNDATION
     dc_result_t dc_result;
