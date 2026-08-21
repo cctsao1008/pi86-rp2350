@@ -225,7 +225,9 @@ regressions.
 
 ### DC-B: trace and USB separation
 
-Status: **DC-B0 fixed in `19a4291`, awaiting physical acceptance**.
+Status: **DC-B0 physically accepted at 0.300 MHz on 2026-08-22**.
+
+Evidence: `validation/dc_b0_service_core_output_validation.md`.
 
 - real-time side publishes raw fixed-size records only;
 - service side performs decode, formatting, and CDC output;
@@ -260,8 +262,13 @@ DC-B0 physical acceptance requires:
 - a late USB connection receives a complete report;
 - terminal bus ownership remains safe.
 
-CDC disconnect/reconnect during longer-running V30 operation and deliberate
-CDC backpressure remain DC-B1 work even after the one-shot DC-B0 gate passes.
+The corrected `19a4291` target passed physically. Core1 waited 6,189,335 us
+for a terminal and then emitted the retained report from its first line. Both
+B2-C epochs, 52/52 PIO-qualified pairs, service-side raw-trace decoding, the
+complete DC-A isolation regression, and terminal safety passed.
+
+CDC disconnect/reconnect during longer-running V30 operation, live bounded
+trace transport, and deliberate CDC backpressure remain DC-B1 work.
 
 ### DC-C: image and console services
 
