@@ -58,7 +58,7 @@
 #define BIOS_BASE                     0xF0000u
 #define RAM_CASES                           4u
 #define MIRROR_PORT                      0x00E8u
-#define CHECKPOINT_WORD_ADDRESS        (BIOS_BASE + 0x0026u)
+#define CHECKPOINT_WORD_ADDRESS        (BIOS_BASE + 0x002Au)
 #define OUT_COUNT                          28u
 #define DESC_DRIVE                   (1u << 28)
 #define DESC_SLOT(slot)       ((uint32_t)(slot) << 29)

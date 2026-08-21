@@ -4,7 +4,7 @@ org 0
 ; PC1-C0C1-B2-C two-word and byte-lane coherence proof.
 ; Every read result is mirrored to diagnostic I/O port 00E8h so the passive
 ; observer proves what the V30 consumed, not only what PIO drove. The compact
-; 40-byte image keeps the bounded Epoch-A live ROM set at ordinal 23.
+; 44-byte image remains well inside the bounded 32-entry Epoch-A ROM table.
 
 start:
     cli
@@ -21,14 +21,17 @@ start:
     mov ax, [0x0100]
     out dx, ax
 
-    ; AL is 34h after the WORD0 read. Slot 3 is reused only after the complete
-    ; LOW write/read/output sequence has finished.
+    ; Epoch A deliberately leaves RAM reads unsupported, so never derive a
+    ; later write payload from such a read. Reload the known byte before each
+    ; write; Epoch B can then prove that the PIO-local slot returns it.
+    mov al, 0x34
     mov [0x0104], al
     mov al, [0x0104]
     out dx, al
 
-    ; Writing AL to odd 0105h exercises the physical high byte lane. The V30
-    ; routes the later high-lane read back into AL before the low-lane I/O proof.
+    ; Writing the same known byte to odd 0105h exercises the physical high
+    ; lane. The later high-lane read must route that byte back into AL.
+    mov al, 0x34
     mov [0x0105], al
     mov al, [0x0105]
     out dx, al
