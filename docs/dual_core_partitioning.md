@@ -44,6 +44,9 @@ Physical PC1-C evidence established that:
 - PIO-local exact matching and PIO-direct AD/PINDIRS response meet the deadline;
 - C0C1-B2-B can capture a live V30 RAM write and replay it later in the same run
   entirely inside PIO1, with no current-cycle M33 work;
+- C0C1-B2-C can retain two independent words, preserve low/high byte-lane
+  coherence, consume all 52 learned pairs, and drain both key/descriptor paths
+  with no current-cycle M33 work;
 - PIO0/DMA can retain passive evidence without driving the bus.
 
 Therefore the real-time core may prepare, supervise, and refill the data plane,
@@ -226,9 +229,10 @@ A dual-core change is accepted only when all relevant items pass:
 - role ownership and memory-ordering rules are documented in code;
 - the measured core placement is recorded before it becomes a platform ABI.
 
-## Relationship to the next RAM gate
+## Relationship to the accepted RAM gate
 
-Dual-core infrastructure does not replace C0C1-B2-C. The immediate memory gate
-remains two or more independently addressed live RAM words plus low/high byte
-lane coherence. DC-A may be developed alongside it only while it remains
-strictly non-driving and cannot affect current-cycle response timing.
+C0C1-B2-C passed physically on 2026-08-21 with two independently addressed
+live words, low/high byte-lane coherence, 52/52 qualified pairs, zero DMA/FIFO
+residue, and a safe terminal state. DC-A is therefore the next infrastructure
+gate. It remains strictly non-driving and cannot affect current-cycle response
+timing; `pc1c_multi_slot_ram` remains the permanent CPU-visible regression.
