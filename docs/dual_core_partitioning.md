@@ -270,6 +270,27 @@ complete DC-A isolation regression, and terminal safety passed.
 CDC disconnect/reconnect during longer-running V30 operation, live bounded
 trace transport, and deliberate CDC backpressure remain DC-B1 work.
 
+#### DC-B1-A: authentic trace backpressure feasibility
+
+Status: **implemented in `74145bb`, awaiting physical acceptance**.
+
+The separate `pc1c_dual_core_trace_backpressure` target retains the accepted
+DC-B0/DC-A/B2-C execution and then replays all 192 authentic raw GPIO words
+captured by PIO0/DMA through the bounded Core0-to-Core1 SPSC ring.
+
+Two post-run transport stages are intentionally separated from current-cycle
+V30 response:
+
+1. with Core1 consuming, all 192 words must arrive in order with zero drops;
+2. with Core1 stalled, exactly 64 words must be retained and the remaining 128
+   attempts must be counted and dropped without producer waiting; after resume,
+   the retained 64 words must drain in order.
+
+This gate validates record ABI, ordering, capacity, overflow accounting, and
+resume behavior using real trace content. It is not yet simultaneous live V30
+and CDC stress. DC-B1-B remains responsible for repeated/long-running V30
+epochs during actual disconnect, reconnect, and output backpressure.
+
 ### DC-C: image and console services
 
 - validate and copy Flash ROM images outside RESET release;
