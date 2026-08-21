@@ -89,6 +89,12 @@ static const uint32_t ram_address[RAM_CASES] = {
 static const uint16_t expected_bus_value[RAM_CASES] = {
     0x1234u, 0x5678u, 0x0034u, 0x3400u,
 };
+/* Only the selected physical byte lane is meaningful during an 8-bit bus
+ * cycle. The other AD lane is not part of the transfer and may retain an
+ * address-like value; it must never participate in validation. */
+static const uint16_t ram_bus_mask[RAM_CASES] = {
+    0xFFFFu, 0xFFFFu, 0x00FFu, 0xFF00u,
+};
 static const uint16_t expected_mirror_value[RAM_CASES] = {
     0x1234u, 0x5678u, 0x0034u, 0x0034u,
 };
@@ -439,7 +445,7 @@ static void classify(result_t *r) {
         int c = ram_case(address);
         if (c >= 0 && memory_write(a)) {
             r->ram_write_seen_mask |= 1u << c;
-            r->ram_write_value[c] = decode_ad(d);
+            r->ram_write_value[c] = decode_ad(d) & ram_bus_mask[c];
 #ifdef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
             for (uint32_t p = 0u; p < 5u; ++p)
                 r->ram_write_phase_raw[c][p] = g_observer[base + 1u + p];
@@ -449,7 +455,7 @@ static void classify(result_t *r) {
         }
         for (uint32_t m = 0u; m < RAM_CASES; ++m) {
             if (memory_read(a) && address == ram_address[m]) {
-                r->ram_read_value[m] = decode_ad(d);
+                r->ram_read_value[m] = decode_ad(d) & ram_bus_mask[m];
                 if (r->ram_read_value[m] == expected_bus_value[m])
                     r->ram_read_mask |= 1u << m;
             }
@@ -457,7 +463,8 @@ static void classify(result_t *r) {
         if (io_write(a) && address == MIRROR_PORT &&
             mirror_ordinal < RAM_CASES) {
             uint32_t m = mirror_order[mirror_ordinal++];
-            r->mirror_write_value[m] = decode_ad(d);
+            uint16_t mask = m < 2u ? 0xFFFFu : 0x00FFu;
+            r->mirror_write_value[m] = decode_ad(d) & mask;
             if (r->mirror_write_value[m] == expected_mirror_value[m])
                 r->mirror_write_mask |= 1u << m;
         }
@@ -687,6 +694,7 @@ static void print_result(const result_t *r, const char *epoch, bool dynamic) {
            dynamic ? "exact matcher + indexed PUTGET responder (8+24 words)" :
                      "bounded 32-entry ROM selector (32 words)");
     printf("PIO-local RAM slots      = WORD0:1 WORD1:2 BYTE:3\n");
+    printf("Byte-cycle validation    = ACTIVE LANE ONLY\n");
     printf("Indexed PUTGET storage   = %s\n",
            dynamic ? pf(r->putget_ok) : "NOT USED");
     printf("Learned exact pairs      = %lu\n", (unsigned long)g_sequence_count);
