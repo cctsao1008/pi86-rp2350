@@ -225,13 +225,38 @@ regressions.
 
 ### DC-B: trace and USB separation
 
-Status: **next gate**.
+Status: **DC-B0 implemented in `464561e`, awaiting physical acceptance**.
 
 - real-time side publishes raw fixed-size records only;
 - service side performs decode, formatting, and CDC output;
 - remove live-run `printf` and USB work from the real-time side;
 - demonstrate unchanged PC1-C regression output with CDC connected,
   disconnected, and backpressured.
+
+The separate `pc1c_dual_core_service_output` target is the DC-B0 baseline. It
+keeps the accepted DC-A and B2-C realtime engines, but Core0 no longer
+initializes USB, waits for CDC, decodes the retained trace, or formats output.
+Core1 initializes USB/CDC, which keeps normal USB IRQ affinity on the service
+role. PIO0/DMA writes immutable pairs of 32-bit address/data GPIO snapshots to
+SRAM; after the V30 reaches RESET-high, CLK-low, AD-high-Z, Core0 publishes
+that buffer and a result snapshot with a memory barrier.
+
+Core1 may then wait indefinitely for `stdio_usb_connected()`. A late terminal
+connection must receive the report from its first line because no output is
+attempted before connection. This wait cannot delay the V30: Core0 never waits
+for the report acknowledgement or for CDC capacity.
+
+DC-B0 physical acceptance requires:
+
+- output identifies Core1 as both USB initializer and CDC owner;
+- the compact Epoch-A and Epoch-B summaries pass;
+- service-side decoding reconstructs retained raw address/data records;
+- the complete DC-A result and B2-C regression remain PASS;
+- a late USB connection receives a complete report;
+- terminal bus ownership remains safe.
+
+CDC disconnect/reconnect during longer-running V30 operation and deliberate
+CDC backpressure remain DC-B1 work even after the one-shot DC-B0 gate passes.
 
 ### DC-C: image and console services
 
