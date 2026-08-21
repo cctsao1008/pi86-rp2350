@@ -74,6 +74,12 @@ The two RP2350 Arm cores are intentionally separated by responsibility so higher
 
 PIO and DMA remain on the hardest real-time path; dual-core partitioning keeps supervisory and service workloads from becoming part of that critical timing loop.
 
+The numbered Core 0/Core 1 placement is intentionally provisional. The fixed
+contract is PIO/DMA current-cycle ownership, a real-time control-plane role,
+and an asynchronous service role. See
+[`docs/dual_core_partitioning.md`](docs/dual_core_partitioning.md) for the
+ownership, queue, failure-isolation, measurement, and rollout requirements.
+
 ```text
                      +----------------------+
                      |     Physical V30     |

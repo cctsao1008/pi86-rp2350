@@ -76,6 +76,12 @@ One M33 role is reserved for work that must remain close to the bus but cannot b
 
 The exact Core 0/Core 1 assignment remains provisional until contention and interrupt behavior are measured.
 
+The normative workload and inter-core communication rules are defined in
+[`dual_core_partitioning.md`](dual_core_partitioning.md). In particular, the
+real-time M33 role supervises and prepares future responses; it is not assumed
+to complete a no-wait current V30 cycle. That hard deadline remains owned by
+PIO/DMA unless a separately validated READY-based contract applies.
+
 ### Service plane
 
 The other M33 role owns work that must not block a V30 response:
