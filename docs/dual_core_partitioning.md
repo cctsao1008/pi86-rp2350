@@ -5,7 +5,8 @@
 - Status: adopted architecture guideline
 - Date: 2026-08-21
 - Target: physical NEC V30 with RP2350B companion chipset
-- DC-A implementation: commit `6e20b4a`, awaiting physical acceptance
+- DC-A implementation: commits `6e20b4a` and `5de4874`, physically accepted
+- DC-A evidence: `validation/dc_a_dual_core_foundation_validation.md`
 
 This document defines logical ownership between the RP2350 hard-real-time data
 plane, the real-time M33 role, and the service M33 role. It does not permanently
@@ -191,6 +192,8 @@ use `realtime_core` and `service_core`, not assumptions tied to `core0` or
 
 ### DC-A: non-driving infrastructure
 
+Status: **physically accepted at 0.300 MHz on 2026-08-21**.
+
 - start the second M33 role without changing any V30 response;
 - add bounded SPSC trace and command rings;
 - keep RESET and bus ownership on the existing real-time role;
@@ -213,11 +216,16 @@ The test performs these checks around the unchanged B2-C run:
 6. prove B2-C still passes while the heartbeat remains frozen, then resume
    Core1 and prove the heartbeat restarts.
 
-Passing a local build is not physical acceptance. DC-A remains open until its
-CDC output reports `DC-A RESULT = PASS` together with the complete B2-C PASS
-and terminal RESET-high, CLK-low, AD-high-Z state.
+The physical run reported `DC-A RESULT = PASS` together with the complete B2-C
+PASS and terminal RESET-high, CLK-low, AD-high-Z state. It preserved 64/64
+trace words and 32/32 command words in order, counted 16 non-blocking full-ring
+drops, isolated a Core1 stall throughout Epoch B, and resumed the service
+heartbeat afterward. DC-A is accepted; these checks remain permanent dual-core
+regressions.
 
 ### DC-B: trace and USB separation
+
+Status: **next gate**.
 
 - real-time side publishes raw fixed-size records only;
 - service side performs decode, formatting, and CDC output;
@@ -255,6 +263,8 @@ A dual-core change is accepted only when all relevant items pass:
 
 C0C1-B2-C passed physically on 2026-08-21 with two independently addressed
 live words, low/high byte-lane coherence, 52/52 qualified pairs, zero DMA/FIFO
-residue, and a safe terminal state. DC-A is therefore the next infrastructure
-gate. It remains strictly non-driving and cannot affect current-cycle response
-timing; `pc1c_multi_slot_ram` remains the permanent CPU-visible regression.
+residue, and a safe terminal state. DC-A subsequently passed with ordered
+bounded rings, non-blocking overflow, active-service heartbeat, forced-service
+stall isolation, and service resume. `pc1c_multi_slot_ram` remains the
+permanent CPU-visible regression and `pc1c_dual_core_foundation` remains the
+dual-core isolation regression as DC-B begins.

@@ -188,7 +188,21 @@ execution milestone; it is not yet arbitrary-address ROM service.
 - [C0C1-B2-A INT 10h stack physical validation](docs/validation/pc1c0c1b2a_int10_stack_validation.md)
 - [C0C1-B2-B same-run one-slot RAM physical validation](docs/validation/pc1c0c1b2b_same_run_ram_validation.md)
 - [C0C1-B2-C multi-slot and byte-lane RAM physical validation](docs/validation/pc1c0c1b2c_multi_slot_ram_validation.md)
+- [DC-A dual-core foundation physical validation](docs/validation/dc_a_dual_core_foundation_validation.md)
 - [PC1-C1 Native BIOS execution platform](docs/pc1c1_native_bios_platform.md)
+
+### Dual-core foundation physically accepted
+
+On 2026-08-21, DC-A proved that the physical V30 bus path remains independent
+of the RP2350 service core. Bounded shared-SRAM trace and command rings
+preserved 64/64 and 32/32 words in order, full-ring writes produced 16 counted
+non-blocking drops, and the complete B2-C RAM regression passed while Core1 was
+deliberately stalled. Core1 then resumed normally. The run ended RESET-high,
+CLK-low, and AD-high-Z.
+
+DC-B is the next dual-core gate: move raw trace decoding, formatting, and USB
+CDC output to the service role, then prove that CDC disconnect and backpressure
+cannot alter V30-visible behavior.
 
 Other validation results, performance characterization, and active engineering
 work are tracked in the project issues and validation records.
