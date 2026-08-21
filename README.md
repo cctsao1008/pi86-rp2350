@@ -190,6 +190,7 @@ execution milestone; it is not yet arbitrary-address ROM service.
 - [C0C1-B2-C multi-slot and byte-lane RAM physical validation](docs/validation/pc1c0c1b2c_multi_slot_ram_validation.md)
 - [DC-A dual-core foundation physical validation](docs/validation/dc_a_dual_core_foundation_validation.md)
 - [DC-B0 service-core output physical validation](docs/validation/dc_b0_service_core_output_validation.md)
+- [DC-B1-A authentic trace backpressure physical validation](docs/validation/dc_b1a_trace_backpressure_validation.md)
 - [PC1-C1 Native BIOS execution platform](docs/pc1c1_native_bios_platform.md)
 
 ### Dual-core foundation physically accepted
@@ -206,6 +207,10 @@ without a CDC terminal, Core1 waited 6.19 seconds, then emitted the retained
 report from its first line and decoded raw PIO0/DMA trace records. DC-B1 is the
 next gate: live raw-record transport under CDC disconnect and backpressure,
 with counted non-blocking overflow and unchanged V30-visible behavior.
+DC-B1-A has now accepted the bounded transport itself using 192 authentic
+PIO0/DMA words, including exact 64-word retention and 128 counted drops under
+a stalled consumer. Simultaneous V30 execution and service stress remains
+DC-B1-B.
 
 Other validation results, performance characterization, and active engineering
 work are tracked in the project issues and validation records.

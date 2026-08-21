@@ -272,7 +272,9 @@ trace transport, and deliberate CDC backpressure remain DC-B1 work.
 
 #### DC-B1-A: authentic trace backpressure feasibility
 
-Status: **implemented in `74145bb`, awaiting physical acceptance**.
+Status: **physically accepted at 0.300 MHz on 2026-08-22**.
+
+Evidence: `validation/dc_b1a_trace_backpressure_validation.md`.
 
 The separate `pc1c_dual_core_trace_backpressure` target retains the accepted
 DC-B0/DC-A/B2-C execution and then replays all 192 authentic raw GPIO words
@@ -290,6 +292,11 @@ This gate validates record ABI, ordering, capacity, overflow accounting, and
 resume behavior using real trace content. It is not yet simultaneous live V30
 and CDC stress. DC-B1-B remains responsible for repeated/long-running V30
 epochs during actual disconnect, reconnect, and output backpressure.
+
+The physical run passed 192/192 ordered active words with zero drops, retained
+64/64 words while Core1 was stalled, counted 128/128 non-blocking drops, and
+drained the retained 64/64 words in order after resume. All DC-B0, DC-A, B2-C,
+and terminal safety checks also passed. DC-B1-A is accepted.
 
 ### DC-C: image and console services
 
