@@ -225,7 +225,7 @@ regressions.
 
 ### DC-B: trace and USB separation
 
-Status: **DC-B0 implemented in `464561e`, awaiting physical acceptance**.
+Status: **DC-B0 fixed in `19a4291`, awaiting physical acceptance**.
 
 - real-time side publishes raw fixed-size records only;
 - service side performs decode, formatting, and CDC output;
@@ -234,12 +234,15 @@ Status: **DC-B0 implemented in `464561e`, awaiting physical acceptance**.
   disconnected, and backpressured.
 
 The separate `pc1c_dual_core_service_output` target is the DC-B0 baseline. It
-keeps the accepted DC-A and B2-C realtime engines, but Core0 no longer
-initializes USB, waits for CDC, decodes the retained trace, or formats output.
-Core1 initializes USB/CDC, which keeps normal USB IRQ affinity on the service
-role. PIO0/DMA writes immutable pairs of 32-bit address/data GPIO snapshots to
-SRAM; after the V30 reaches RESET-high, CLK-low, AD-high-Z, Core0 publishes
-that buffer and a result snapshot with a memory barrier.
+keeps the accepted DC-A and B2-C realtime engines. Pico SDK requires
+`stdio_usb_init()` to run on the default alarm-pool core, which is Core0 in this
+target; attempting it on Core1 returns false and prevents USB enumeration.
+Core0 therefore initializes the USB device before V30 release but never waits
+for CDC and never decodes or formats output. Its interrupts, including USB,
+are masked throughout both V30 execution epochs. PIO0/DMA writes immutable
+pairs of 32-bit address/data GPIO snapshots to SRAM; after the V30 reaches
+RESET-high, CLK-low, AD-high-Z, Core0 publishes that buffer and a result
+snapshot with a memory barrier.
 
 Core1 may then wait indefinitely for `stdio_usb_connected()`. A late terminal
 connection must receive the report from its first line because no output is
@@ -248,7 +251,9 @@ for the report acknowledgement or for CDC capacity.
 
 DC-B0 physical acceptance requires:
 
-- output identifies Core1 as both USB initializer and CDC owner;
+- output identifies Core0 as the SDK-required USB initializer and Core1 as the
+  sole CDC output owner;
+- USB IRQs are reported masked during both V30 epochs;
 - the compact Epoch-A and Epoch-B summaries pass;
 - service-side decoding reconstructs retained raw address/data records;
 - the complete DC-A result and B2-C regression remain PASS;
