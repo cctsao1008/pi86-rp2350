@@ -5,6 +5,7 @@
 - Status: adopted architecture guideline
 - Date: 2026-08-21
 - Target: physical NEC V30 with RP2350B companion chipset
+- DC-A implementation: commit `6e20b4a`, awaiting physical acceptance
 
 This document defines logical ownership between the RP2350 hard-real-time data
 plane, the real-time M33 role, and the service M33 role. It does not permanently
@@ -194,6 +195,27 @@ use `realtime_core` and `service_core`, not assumptions tied to `core0` or
 - add bounded SPSC trace and command rings;
 - keep RESET and bus ownership on the existing real-time role;
 - prove boot, idle, saturation, overflow, and service-core-stall behavior.
+
+The dedicated `pc1c_dual_core_foundation` target implements this gate without
+changing the accepted `pc1c_multi_slot_ram` target. Its provisional placement
+is Core0=realtime and Core1=service. Core1 has no GPIO, PIO, DMA, RESET, or CDC
+authority: after the SDK boot handshake it accesses only shared SRAM rings,
+phase/ack words, and a heartbeat.
+
+The test performs these checks around the unchanged B2-C run:
+
+1. start Core1 and observe a changing heartbeat;
+2. fill a 64-word realtime-to-service trace ring and verify ordered drain;
+3. attempt 16 additional writes while full and prove counted, non-blocking
+   drops;
+4. transfer 32 ordered service-to-realtime command words;
+5. stop Core1 for the entire Epoch-B V30 regression;
+6. prove B2-C still passes while the heartbeat remains frozen, then resume
+   Core1 and prove the heartbeat restarts.
+
+Passing a local build is not physical acceptance. DC-A remains open until its
+CDC output reports `DC-A RESULT = PASS` together with the complete B2-C PASS
+and terminal RESET-high, CLK-low, AD-high-Z state.
 
 ### DC-B: trace and USB separation
 
