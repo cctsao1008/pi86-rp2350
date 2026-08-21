@@ -632,6 +632,56 @@ pico_enable_stdio_usb(pc1c_dual_core_foundation 1)
 pico_enable_stdio_uart(pc1c_dual_core_foundation 0)
 pico_add_extra_outputs(pc1c_dual_core_foundation)
 
+# DC-B0 retains the complete DC-A/B2-C realtime regression but removes USB
+# connection and human-readable formatting from Core0. After the V30 reaches
+# its safe terminal state, Core0 publishes immutable result/raw-trace ownership
+# and Core1 alone waits for CDC, decodes PIO0/DMA records, and formats output.
+add_executable(pc1c_dual_core_service_output
+    pc1c_multi_slot_ram.c
+)
+
+target_compile_definitions(pc1c_dual_core_service_output PRIVATE
+    PC1C_DUAL_CORE_FOUNDATION=1
+    PC1C_DUAL_CORE_SERVICE_OUTPUT=1
+)
+
+target_include_directories(pc1c_dual_core_service_output PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_dual_core_service_output
+    multi_slot_ram_test_rom
+    pico_stdlib
+    pico_multicore
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_dual_core_service_output
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_dual_core_service_output
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(pc1c_dual_core_service_output
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_multi_slot_ram.pio
+)
+pico_generate_pio_header(pc1c_dual_core_service_output
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(pc1c_dual_core_service_output
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_dual_core_service_output
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_dual_core_service_output 1)
+pico_enable_stdio_uart(pc1c_dual_core_service_output 0)
+pico_add_extra_outputs(pc1c_dual_core_service_output)
+
 # Preserve pc1c_multi_slot_ram as the B2-C regression while compiling the same
 # orchestration code with a wider passive observer. This target does not run
 # Epoch B or drive RAM data; it only locates the V30 byte-write data-valid phase.

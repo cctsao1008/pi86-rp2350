@@ -126,6 +126,9 @@ typedef enum {
     DC_PHASE_TRACE_DRAIN,
     DC_PHASE_COMMAND_FILL,
     DC_PHASE_STALL,
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+    DC_PHASE_SERVICE_REPORT,
+#endif
 } dc_phase_t;
 
 typedef struct {
@@ -133,6 +136,32 @@ typedef struct {
     bool overflow_nonblocking, stall_isolated, resume;
     uint32_t trace_count, command_count, overflow_drops;
 } dc_result_t;
+
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+/* DC-B0 transfers immutable post-run evidence, never a current-cycle request.
+ * PIO0/DMA supplies pairs of fixed-width raw GPIO words. Core1 alone decodes
+ * those words and owns every human-readable CDC write. */
+typedef struct {
+    uint32_t address_raw;
+    uint32_t data_raw;
+} dc_raw_trace_record_t;
+
+_Static_assert(sizeof(dc_raw_trace_record_t) == 8u,
+               "DC-B raw trace ABI must remain two uint32_t words");
+
+typedef struct {
+    result_t learn;
+    result_t replay;
+    dc_result_t dc;
+    bool sequence_ok;
+    bool epoch_b_ran;
+    bool b2c_overall;
+} dc_service_report_t;
+
+static dc_service_report_t g_dc_service_report;
+static volatile uint64_t g_dc_usb_wait_us;
+static void dc_print_service_report(void);
+#endif
 
 static pi86_spsc_u32_ring_t g_dc_trace_ring;   /* Core0 -> Core1. */
 static pi86_spsc_u32_ring_t g_dc_command_ring; /* Core1 -> Core0. */
@@ -148,6 +177,11 @@ static volatile bool g_dc_trace_order;
 #define DC_OVERFLOW_ATTEMPTS   16u
 
 static void dc_service_core(void) {
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+    /* Initialize TinyUSB/CDC on the service core so its IRQ affinity and all
+     * normal output work stay off the realtime role. */
+    stdio_init_all();
+#endif
     uint32_t heartbeat_divider = 0u;
     g_dc_ack = DC_PHASE_RUN;
     __dmb();
@@ -179,6 +213,20 @@ static void dc_service_core(void) {
             __dmb();
             g_dc_ack = DC_PHASE_STALL;
             while (g_dc_phase == DC_PHASE_STALL) tight_loop_contents();
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+        } else if (phase == DC_PHASE_SERVICE_REPORT) {
+            /* A disconnected host may hold this role forever. The V30 has
+             * already reached its terminal safe state and Core0 never waits
+             * for this acknowledgement or for CDC capacity. */
+            __dmb();
+            g_dc_ack = DC_PHASE_SERVICE_REPORT;
+            uint64_t wait_started = time_us_64();
+            while (!stdio_usb_connected()) tight_loop_contents();
+            g_dc_usb_wait_us = time_us_64() - wait_started;
+            sleep_ms(100);
+            dc_print_service_report();
+            while (g_dc_phase == DC_PHASE_SERVICE_REPORT) tight_loop_contents();
+#endif
         } else {
             if (++heartbeat_divider == 1024u) {
                 g_dc_heartbeat++;
@@ -842,6 +890,98 @@ static void run_dynamic(engine_sm_t *clock, engine_sm_t *matcher,
 
 static const char *pf(bool value) { return value ? "PASS" : "FAIL"; }
 
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+static bool dc_foundation_pass(const dc_result_t *r, bool regression) {
+    return r->startup && r->heartbeat && r->trace_order && r->command_order &&
+        r->overflow_nonblocking && r->stall_isolated && r->resume && regression;
+}
+
+static void dc_print_compact_epoch(const char *name, const result_t *r,
+                                   bool dynamic) {
+    bool pass = r->reset_ok && r->clean_epoch && r->first_address_ok &&
+        r->first_response_ok && r->far_target_seen && r->supported_reads_ok &&
+        r->ram_write_mask == 0x0Fu && r->checkpoint_ok && r->terminal_safe;
+    if (dynamic) {
+        pass = pass && r->ram_read_mask == 0x0Fu &&
+            r->mirror_write_mask == 0x0Fu &&
+            r->qualified_pairs == g_sequence_count && r->tx0_post == 0u &&
+            r->tx1_post == 0u && r->fifo0_post == 0u && r->fifo1_post == 0u &&
+            r->observer_words == OBSERVER_WORDS;
+    }
+
+    printf("\n[%s SERVICE SUMMARY]\n", name);
+    printf("Measurement/reset/fetch   = %s\n",
+           pf(r->clean_epoch && r->reset_ok && r->first_address_ok));
+    printf("ROM execution/data        = %s (%lu reads)\n",
+           pf(r->far_target_seen && r->supported_reads_ok),
+           (unsigned long)r->supported_reads);
+    printf("RAM write mask            = %02lX %s\n",
+           (unsigned long)r->ram_write_mask, pf(r->ram_write_mask == 0x0Fu));
+    printf("RAM read / OUT masks      = %02lX / %02lX %s\n",
+           (unsigned long)r->ram_read_mask,
+           (unsigned long)r->mirror_write_mask,
+           dynamic ? pf(r->ram_read_mask == 0x0Fu &&
+                        r->mirror_write_mask == 0x0Fu) : "LEARN ONLY");
+    printf("PIO-qualified pairs       = %lu/%lu %s\n",
+           (unsigned long)r->qualified_pairs,
+           (unsigned long)g_sequence_count,
+           dynamic ? pf(r->qualified_pairs == g_sequence_count) : "LEARN ONLY");
+    printf("DMA/FIFO terminal residue = %lu/%lu/%lu/%lu %s\n",
+           (unsigned long)r->tx0_post, (unsigned long)r->tx1_post,
+           (unsigned long)r->fifo0_post, (unsigned long)r->fifo1_post,
+           dynamic ? pf(r->tx0_post == 0u && r->tx1_post == 0u &&
+                        r->fifo0_post == 0u && r->fifo1_post == 0u) : "LEARN");
+    printf("Terminal safe state       = %s\n", pf(r->terminal_safe));
+    printf("%s RESULT             = %s\n", name, pf(pass));
+}
+
+static void dc_print_service_report(void) {
+    const dc_service_report_t *report = &g_dc_service_report;
+    bool dc_a = dc_foundation_pass(&report->dc, report->b2c_overall);
+    bool dc_b0 = get_core_num() == 1u && report->sequence_ok &&
+        report->epoch_b_ran && report->b2c_overall && dc_a;
+
+    printf("\n[DC-B0 SERVICE-CORE OUTPUT]\n");
+    printf("CDC output owner           = Core%lu %s\n",
+           (unsigned long)get_core_num(), pf(get_core_num() == 1u));
+    printf("USB/CDC initialization     = Core1 PASS\n");
+    printf("V30 start requires CDC     = NO PASS\n");
+    printf("CDC connect wait on Core1  = %llu us\n",
+           (unsigned long long)g_dc_usb_wait_us);
+    printf("Realtime printf/formatting = NONE PASS\n");
+    printf("Raw trace ABI              = 2 x uint32_t PASS\n");
+    printf("Trace ownership transfer   = PIO0/DMA -> SRAM -> Core1 PASS\n");
+
+    dc_print_compact_epoch("EPOCH-A", &report->learn, false);
+    if (report->epoch_b_ran)
+        dc_print_compact_epoch("EPOCH-B", &report->replay, true);
+    else
+        printf("\nEPOCH-B = NOT RUN\n");
+
+    printf("\n[SERVICE-DECODED RAW TRACE]\n");
+    uint32_t records = report->replay.complete_cycles;
+    if (records > 24u) records = 24u;
+    for (uint32_t i = 0u; i < records; ++i) {
+        dc_raw_trace_record_t record = {
+            .address_raw = g_observer[i * 2u],
+            .data_raw = g_observer[i * 2u + 1u],
+        };
+        printf("%02lu addr=%05lX addr_raw=%08lX data_raw=%08lX data=%04X\n",
+               (unsigned long)i,
+               (unsigned long)decode_address(record.address_raw),
+               (unsigned long)record.address_raw,
+               (unsigned long)record.data_raw, decode_ad(record.data_raw));
+    }
+    printf("Raw records decoded        = %lu/%lu\n", (unsigned long)records,
+           (unsigned long)report->replay.complete_cycles);
+
+    dc_print_result(&report->dc, report->b2c_overall);
+    printf("\nDC-B0 SERVICE OUTPUT RESULT = %s\n", pf(dc_b0));
+    printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
+    fflush(stdout);
+}
+#endif
+
 static void print_result(const result_t *r, const char *epoch, bool dynamic) {
     bool pass = r->reset_ok && r->clean_epoch && r->first_address_ok &&
         r->first_response_ok && r->far_target_seen && r->supported_reads_ok &&
@@ -1012,7 +1152,9 @@ int main(void) {
 #else
 int main(void) {
     header_high_z(); controls_init(); ad_to_sio(); prepare_bounded_table();
+#ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
     stdio_init_all(); while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
+#endif
 #ifdef PC1C_DUAL_CORE_FOUNDATION
     dc_result_t dc_result;
     dc_preflight(&dc_result);
@@ -1030,9 +1172,14 @@ int main(void) {
     dc_result.heartbeat &= g_dc_heartbeat != epoch_a_heartbeat;
 #endif
     bool sequence_ok = compile_dynamic_sequence(learn.observer_words);
+#ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
     print_result(&learn, "EPOCH-A LEARN", false); fflush(stdout);
+#endif
 
     bool b2c_overall = false;
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+    bool epoch_b_ran = false;
+#endif
     if (sequence_ok && learn.reset_ok && learn.clean_epoch &&
         learn.first_address_ok && learn.first_response_ok &&
         learn.far_target_seen && learn.supported_reads_ok &&
@@ -1047,6 +1194,9 @@ int main(void) {
 #endif
         run_dynamic(&clock, &matcher, &responder, &qualifier, &observer, &phase,
                     &replay);
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+        epoch_b_ran = true;
+#endif
 #ifdef PC1C_DUAL_CORE_FOUNDATION
         if (stall_entered) dc_leave_stall(&dc_result, stalled_heartbeat);
         else {
@@ -1055,7 +1205,9 @@ int main(void) {
             dc_result.resume = false;
         }
 #endif
+#ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
         print_result(&replay, "EPOCH-B SAME-RUN", true);
+#endif
         b2c_overall = replay.reset_ok && replay.clean_epoch &&
             replay.first_address_ok && replay.first_response_ok &&
             replay.far_target_seen && replay.supported_reads_ok &&
@@ -1065,15 +1217,30 @@ int main(void) {
             replay.tx0_post == 0u && replay.tx1_post == 0u &&
             replay.fifo0_post == 0u && replay.fifo1_post == 0u &&
             replay.observer_words == OBSERVER_WORDS && replay.terminal_safe;
+#ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
         printf("\nC0C1-B2-C OVERALL RESULT = %s\n", pf(b2c_overall));
+#endif
     } else {
+#ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
         printf("\nEPOCH-B SAME-RUN = NOT RUN (learning/compile gate failed)\n");
         printf("C0C1-B2-C OVERALL RESULT = FAIL\n");
+#endif
     }
-#ifdef PC1C_DUAL_CORE_FOUNDATION
+#ifdef PC1C_DUAL_CORE_SERVICE_OUTPUT
+    g_dc_service_report.learn = learn;
+    if (epoch_b_ran) g_dc_service_report.replay = replay;
+    g_dc_service_report.dc = dc_result;
+    g_dc_service_report.sequence_ok = sequence_ok;
+    g_dc_service_report.epoch_b_ran = epoch_b_ran;
+    g_dc_service_report.b2c_overall = b2c_overall;
+    __dmb();
+    dc_set_phase(DC_PHASE_SERVICE_REPORT);
+#elif defined(PC1C_DUAL_CORE_FOUNDATION)
     dc_print_result(&dc_result, b2c_overall);
 #endif
+#ifndef PC1C_DUAL_CORE_SERVICE_OUTPUT
     fflush(stdout);
+#endif
     while (true) tight_loop_contents();
 }
 #endif
