@@ -583,6 +583,55 @@ pico_enable_stdio_usb(pc1c_multi_slot_ram 1)
 pico_enable_stdio_uart(pc1c_multi_slot_ram 0)
 pico_add_extra_outputs(pc1c_multi_slot_ram)
 
+# DC-A keeps the accepted B2-C bus engine on Core0 and adds a deliberately
+# non-driving Core1 service role.  Its SRAM SPSC rings, overflow handling,
+# heartbeat and forced service stall are exercised around the unchanged bus
+# regression.  The target is separate so the accepted B2-C UF2 remains stable.
+add_executable(pc1c_dual_core_foundation
+    pc1c_multi_slot_ram.c
+)
+
+target_compile_definitions(pc1c_dual_core_foundation PRIVATE
+    PC1C_DUAL_CORE_FOUNDATION=1
+)
+
+target_include_directories(pc1c_dual_core_foundation PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(pc1c_dual_core_foundation
+    multi_slot_ram_test_rom
+    pico_stdlib
+    pico_multicore
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(pc1c_dual_core_foundation
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(pc1c_dual_core_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(pc1c_dual_core_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_multi_slot_ram.pio
+)
+pico_generate_pio_header(pc1c_dual_core_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(pc1c_dual_core_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(pc1c_dual_core_foundation
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(pc1c_dual_core_foundation 1)
+pico_enable_stdio_uart(pc1c_dual_core_foundation 0)
+pico_add_extra_outputs(pc1c_dual_core_foundation)
+
 # Preserve pc1c_multi_slot_ram as the B2-C regression while compiling the same
 # orchestration code with a wider passive observer. This target does not run
 # Epoch B or drive RAM data; it only locates the V30 byte-write data-valid phase.

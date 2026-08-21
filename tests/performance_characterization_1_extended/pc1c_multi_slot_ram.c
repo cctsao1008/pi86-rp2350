@@ -21,6 +21,10 @@
 #include "hardware/pio.h"
 #include "hardware/structs/sio.h"
 #include "hardware/sync.h"
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+#include "pico/multicore.h"
+#include "runtime/spsc_u32_ring.h"
+#endif
 #include "pico/stdlib.h"
 
 #ifndef PC1C_BYTE_WRITE_PHASE_CHARACTERIZATION
@@ -85,6 +89,8 @@ typedef struct {
 #endif
 } result_t;
 
+static const char *pf(bool value);
+
 static const uint32_t ram_address[RAM_CASES] = {
     0x00100u, 0x00102u, 0x00104u, 0x00105u,
 };
@@ -108,6 +114,180 @@ static uint32_t g_observer[OBSERVER_WORDS];
 static uint32_t g_keys[MAX_SEQUENCE + 1u];
 static uint32_t g_descriptors[MAX_DESCRIPTOR_WORDS];
 static uint32_t g_sequence_count, g_descriptor_count;
+
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+/*
+ * DC-A deliberately gives Core1 no bus authority.  Core0 remains the proven
+ * realtime owner while Core1 exercises only bounded SRAM messaging.  Numbered
+ * core placement is provisional; the ownership contract is the architecture.
+ */
+typedef enum {
+    DC_PHASE_RUN = 1u,
+    DC_PHASE_TRACE_DRAIN,
+    DC_PHASE_COMMAND_FILL,
+    DC_PHASE_STALL,
+} dc_phase_t;
+
+typedef struct {
+    bool startup, heartbeat, trace_order, command_order;
+    bool overflow_nonblocking, stall_isolated, resume;
+    uint32_t trace_count, command_count, overflow_drops;
+} dc_result_t;
+
+static pi86_spsc_u32_ring_t g_dc_trace_ring;   /* Core0 -> Core1. */
+static pi86_spsc_u32_ring_t g_dc_command_ring; /* Core1 -> Core0. */
+static volatile uint32_t g_dc_phase = DC_PHASE_RUN;
+static volatile uint32_t g_dc_ack;
+static volatile uint32_t g_dc_heartbeat;
+static volatile uint32_t g_dc_trace_count;
+static volatile bool g_dc_trace_order;
+
+#define DC_WAIT_TIMEOUT_US 500000u
+#define DC_TRACE_WORDS         64u
+#define DC_COMMAND_WORDS       32u
+#define DC_OVERFLOW_ATTEMPTS   16u
+
+static void dc_service_core(void) {
+    uint32_t heartbeat_divider = 0u;
+    g_dc_ack = DC_PHASE_RUN;
+    __dmb();
+
+    while (true) {
+        uint32_t phase = g_dc_phase;
+        if (phase == DC_PHASE_TRACE_DRAIN) {
+            uint32_t value, expected = 0u;
+            bool order = true;
+            while (expected < DC_TRACE_WORDS) {
+                if (!pi86_spsc_u32_try_pop(&g_dc_trace_ring, &value)) continue;
+                if (value != expected) order = false;
+                expected++;
+            }
+            g_dc_trace_count = expected;
+            g_dc_trace_order = order;
+            __dmb();
+            g_dc_ack = DC_PHASE_TRACE_DRAIN;
+            while (g_dc_phase == DC_PHASE_TRACE_DRAIN) tight_loop_contents();
+        } else if (phase == DC_PHASE_COMMAND_FILL) {
+            for (uint32_t value = 0u; value < DC_COMMAND_WORDS; ++value) {
+                while (!pi86_spsc_u32_try_push(&g_dc_command_ring, value))
+                    tight_loop_contents();
+            }
+            __dmb();
+            g_dc_ack = DC_PHASE_COMMAND_FILL;
+            while (g_dc_phase == DC_PHASE_COMMAND_FILL) tight_loop_contents();
+        } else if (phase == DC_PHASE_STALL) {
+            __dmb();
+            g_dc_ack = DC_PHASE_STALL;
+            while (g_dc_phase == DC_PHASE_STALL) tight_loop_contents();
+        } else {
+            if (++heartbeat_divider == 1024u) {
+                g_dc_heartbeat++;
+                heartbeat_divider = 0u;
+            }
+            if (g_dc_ack != DC_PHASE_RUN) {
+                __dmb();
+                g_dc_ack = DC_PHASE_RUN;
+            }
+        }
+    }
+}
+
+static bool dc_wait_equal(volatile uint32_t *value, uint32_t expected) {
+    uint64_t deadline = time_us_64() + DC_WAIT_TIMEOUT_US;
+    while (*value != expected && time_us_64() < deadline) tight_loop_contents();
+    __dmb();
+    return *value == expected;
+}
+
+static bool dc_wait_change(volatile uint32_t *value, uint32_t previous) {
+    uint64_t deadline = time_us_64() + DC_WAIT_TIMEOUT_US;
+    while (*value == previous && time_us_64() < deadline) tight_loop_contents();
+    __dmb();
+    return *value != previous;
+}
+
+static void dc_set_phase(dc_phase_t phase) {
+    g_dc_phase = (uint32_t)phase;
+    __dmb();
+}
+
+static void dc_preflight(dc_result_t *r) {
+    memset(r, 0, sizeof *r);
+    multicore_launch_core1(dc_service_core);
+    r->startup = dc_wait_equal(&g_dc_ack, DC_PHASE_RUN);
+
+    uint32_t heartbeat = g_dc_heartbeat;
+    r->heartbeat = dc_wait_change(&g_dc_heartbeat, heartbeat);
+
+    bool initial_fill = true;
+    for (uint32_t value = 0u; value < DC_TRACE_WORDS; ++value)
+        initial_fill &= pi86_spsc_u32_try_push(&g_dc_trace_ring, value);
+    bool all_rejected = true;
+    for (uint32_t i = 0u; i < DC_OVERFLOW_ATTEMPTS; ++i)
+        all_rejected &= !pi86_spsc_u32_try_push(&g_dc_trace_ring, 0xBAD00000u + i);
+    r->overflow_drops = g_dc_trace_ring.producer_drops;
+    r->overflow_nonblocking = initial_fill && all_rejected &&
+        r->overflow_drops == DC_OVERFLOW_ATTEMPTS;
+
+    dc_set_phase(DC_PHASE_TRACE_DRAIN);
+    bool trace_ack = dc_wait_equal(&g_dc_ack, DC_PHASE_TRACE_DRAIN);
+    r->trace_count = g_dc_trace_count;
+    r->trace_order = trace_ack && g_dc_trace_order &&
+        r->trace_count == DC_TRACE_WORDS;
+
+    dc_set_phase(DC_PHASE_COMMAND_FILL);
+    bool command_ack = dc_wait_equal(&g_dc_ack, DC_PHASE_COMMAND_FILL);
+    uint32_t value;
+    r->command_order = command_ack;
+    while (r->command_count < DC_COMMAND_WORDS &&
+           pi86_spsc_u32_try_pop(&g_dc_command_ring, &value)) {
+        if (value != r->command_count) r->command_order = false;
+        r->command_count++;
+    }
+    r->command_order &= r->command_count == DC_COMMAND_WORDS;
+
+    dc_set_phase(DC_PHASE_RUN);
+    r->resume = dc_wait_equal(&g_dc_ack, DC_PHASE_RUN);
+}
+
+static bool dc_enter_stall(uint32_t *heartbeat) {
+    dc_set_phase(DC_PHASE_STALL);
+    if (!dc_wait_equal(&g_dc_ack, DC_PHASE_STALL)) return false;
+    *heartbeat = g_dc_heartbeat;
+    __dmb();
+    return true;
+}
+
+static void dc_leave_stall(dc_result_t *r, uint32_t stalled_heartbeat) {
+    __dmb();
+    r->stall_isolated = g_dc_heartbeat == stalled_heartbeat;
+    dc_set_phase(DC_PHASE_RUN);
+    bool ack = dc_wait_equal(&g_dc_ack, DC_PHASE_RUN);
+    uint32_t heartbeat = g_dc_heartbeat;
+    r->resume = r->resume && ack && dc_wait_change(&g_dc_heartbeat, heartbeat);
+}
+
+static void dc_print_result(const dc_result_t *r, bool regression) {
+    bool overall = r->startup && r->heartbeat && r->trace_order &&
+        r->command_order && r->overflow_nonblocking && r->stall_isolated &&
+        r->resume && regression;
+    printf("\n[DC-A DUAL-CORE FOUNDATION]\n");
+    printf("Core placement             = Core0 realtime / Core1 service PROVISIONAL\n");
+    printf("Dual-core startup          = %s\n", pf(r->startup));
+    printf("Service-core heartbeat     = %s\n", pf(r->heartbeat));
+    printf("Trace ring ordering        = %s (%lu/%u)\n", pf(r->trace_order),
+           (unsigned long)r->trace_count, DC_TRACE_WORDS);
+    printf("Command ring ordering      = %s (%lu/%u)\n", pf(r->command_order),
+           (unsigned long)r->command_count, DC_COMMAND_WORDS);
+    printf("Queue overflow nonblocking = %s (%lu drops)\n",
+           pf(r->overflow_nonblocking), (unsigned long)r->overflow_drops);
+    printf("Service-core stall isolated= %s\n", pf(r->stall_isolated));
+    printf("Service-core resume        = %s\n", pf(r->resume));
+    printf("PC1-C B2-C regression      = %s\n", pf(regression));
+    printf("Bus ownership/safety       = %s\n", pf(regression));
+    printf("DC-A RESULT                = %s\n", pf(overall));
+}
+#endif
 
 static const uint8_t ad_pins[16] = {
     V30_PIN_AD0, V30_PIN_AD1, V30_PIN_AD2, V30_PIN_AD3,
@@ -833,6 +1013,10 @@ int main(void) {
 int main(void) {
     header_high_z(); controls_init(); ad_to_sio(); prepare_bounded_table();
     stdio_init_all(); while (!stdio_usb_connected()) sleep_ms(10); sleep_ms(100);
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+    dc_result_t dc_result;
+    dc_preflight(&dc_result);
+#endif
     engine_sm_t clock, qualifier, observer, phase, bounded;
     clock_init(&clock); reset_qualifier_init(&qualifier);
     observer_init(&observer); phase_init(&phase); bounded_response_init(&bounded);
@@ -841,6 +1025,7 @@ int main(void) {
     bool sequence_ok = compile_dynamic_sequence(learn.observer_words);
     print_result(&learn, "EPOCH-A LEARN", false); fflush(stdout);
 
+    bool b2c_overall = false;
     if (sequence_ok && learn.reset_ok && learn.clean_epoch &&
         learn.first_address_ok && learn.first_response_ok &&
         learn.far_target_seen && learn.supported_reads_ok &&
@@ -849,10 +1034,22 @@ int main(void) {
         remove_bounded_response(&bounded);
         engine_sm_t matcher, responder;
         dynamic_response_init(&matcher, &responder);
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+        uint32_t stalled_heartbeat = 0u;
+        bool stall_entered = dc_enter_stall(&stalled_heartbeat);
+#endif
         run_dynamic(&clock, &matcher, &responder, &qualifier, &observer, &phase,
                     &replay);
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+        if (stall_entered) dc_leave_stall(&dc_result, stalled_heartbeat);
+        else {
+            dc_result.stall_isolated = false;
+            dc_set_phase(DC_PHASE_RUN);
+            dc_result.resume = false;
+        }
+#endif
         print_result(&replay, "EPOCH-B SAME-RUN", true);
-        bool overall = replay.reset_ok && replay.clean_epoch &&
+        b2c_overall = replay.reset_ok && replay.clean_epoch &&
             replay.first_address_ok && replay.first_response_ok &&
             replay.far_target_seen && replay.supported_reads_ok &&
             replay.ram_write_mask == 0x0Fu && replay.ram_read_mask == 0x0Fu &&
@@ -861,11 +1058,14 @@ int main(void) {
             replay.tx0_post == 0u && replay.tx1_post == 0u &&
             replay.fifo0_post == 0u && replay.fifo1_post == 0u &&
             replay.observer_words == OBSERVER_WORDS && replay.terminal_safe;
-        printf("\nC0C1-B2-C OVERALL RESULT = %s\n", pf(overall));
+        printf("\nC0C1-B2-C OVERALL RESULT = %s\n", pf(b2c_overall));
     } else {
         printf("\nEPOCH-B SAME-RUN = NOT RUN (learning/compile gate failed)\n");
         printf("C0C1-B2-C OVERALL RESULT = FAIL\n");
     }
+#ifdef PC1C_DUAL_CORE_FOUNDATION
+    dc_print_result(&dc_result, b2c_overall);
+#endif
     fflush(stdout);
     while (true) tight_loop_contents();
 }
