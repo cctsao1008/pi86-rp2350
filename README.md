@@ -183,6 +183,30 @@ state, and success definition. The separate
 defines the Python-first and physical implementation gates without changing
 that accepted target.
 
+## Current milestone: the physical V30 replies through the AI mailbox
+
+On 2026-08-23, AI-B0 completed the first native message exchange on the
+physical NEC V30 at 0.200 MHz. The RP2350 staged `HELLO NEC V30` in its
+internal-SRAM response table. Native V30 code consumed and checksum-validated
+all seven words, then published:
+
+```text
+HELLO OPENAI CODEX
+```
+
+The reply crossed genuine word-I/O writes at mailbox TX port `00E2h`, followed
+by a commit at `00E6h`. All 77 supported current-address reads matched, no odd
+ROM fetch occurred, four checkpoint reads completed, and terminal
+RESET-high/CLK-low/AD-high-Z safety passed.
+
+This accepts the physical scripted mailbox gate, not yet the runtime-staged
+dual-core mailbox, USB HID transport, Python-to-hardware bridge, or Codex
+adapter. The retained 0.300 MHz target separately characterizes the current
+linear selector's response-drive boundary near its 31st search entry.
+
+- [AI-B0 physical mailbox validation](docs/validation/ai_b0_physical_mailbox_validation.md)
+- [AI Bridge implementation gates](docs/ai_bridge_implementation_plan.md)
+
 ## Current milestone: Native BIOS says HELLO
 
 On 2026-08-19, the physical V30 completed the `PC1-C0C0-H` Native BIOS
@@ -321,6 +345,7 @@ Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8
 - [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
 - [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) — accepted target architecture for a Codex-first greeting and native physical-V30 reply through the provider-neutral Host Bridge
 - [`docs/ai_bridge_implementation_plan.md`](docs/ai_bridge_implementation_plan.md) — Python-first protocol, physical mailbox, HID, and Codex integration gates
+- [`docs/validation/ai_b0_physical_mailbox_validation.md`](docs/validation/ai_b0_physical_mailbox_validation.md) — accepted physical V30 mailbox reply and measured 0.300 MHz linear-selector boundary
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
 - [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) — current HAT assessment, limitations, and staged improvement strategy
 - [`docs/native_bios_diagnostic_console.md`](docs/native_bios_diagnostic_console.md) — early Native BIOS `0xE9` output contract

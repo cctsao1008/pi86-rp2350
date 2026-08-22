@@ -57,6 +57,8 @@ conversation without claiming physical transport.
 
 ### AI-B0: physical scripted mailbox greeting
 
+Status: **ACCEPTED on physical hardware (2026-08-23)**
+
 Acceptance target: `ai_bridge_mailbox_200khz`
 
 Timing-characterization target: `ai_bridge_mailbox` (0.300 MHz)
@@ -71,8 +73,14 @@ AI-B0 is deliberately not the final asynchronous mailbox. Physical evidence at
 0.300 MHz established a response-drive limit near the 31st linear-search entry,
 while all earlier retained ROM responses remained coherent. The 0.200 MHz
 acceptance build lengthens the physical T1 window without changing input
-synchronizers, table contents, or bus ownership. It remains unaccepted until
-physical output reports `AI-B0 RESULT = PASS` with terminal high-Z safety.
+synchronizers, table contents, or bus ownership. Acceptance required physical
+`AI-B0 RESULT = PASS` output with terminal high-Z safety; the run below
+satisfies that gate.
+
+The accepted 0.200 MHz run returned `HELLO OPENAI CODEX`, completed 77
+supported reads with zero mismatches, observed the `00E2h` payload and `00E6h`
+commit, and reached four checkpoint reads. See
+[`validation/ai_b0_physical_mailbox_validation.md`](validation/ai_b0_physical_mailbox_validation.md).
 
 ### AI-B1: runtime-staged dual-core mailbox
 
