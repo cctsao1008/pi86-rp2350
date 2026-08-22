@@ -23,8 +23,9 @@ git pull origin main
 py -m pip install -r tools\ai_bridge\requirements.txt
 ```
 
-Python 3.10 or newer is recommended. Live capture uses `pyserial`; offline log
-validation uses only the Python standard library.
+Python 3.10 or newer is recommended. Live CDC capture uses `pyserial`; the
+composite bridge uses `hidapi`; offline log validation uses only the Python
+standard library.
 
 ## Find the RP2350 COM port
 
@@ -82,6 +83,55 @@ Do not type the greeting into a terminal while this profile is running. The
 profile owns the binary request and rejects output from a different ROM or
 clock identity.
 
+## Exchange over HID and explain the CDC evidence
+
+Flash `ai_bridge_hid_mailbox_600khz.uf2`. This enumerates one composite USB
+device with a generic 64-byte HID IN/OUT interface and a CDC log interface.
+The development USB identity is VID `CAFE`, PID `4011`; it is not a
+production-assigned identity.
+
+Find the new CDC COM port, then confirm that the HID interface is visible:
+
+```powershell
+py tools\ai_bridge\physical_validator.py --list-ports
+py tools\ai_bridge\v30bridge.py --list-devices
+```
+
+Run one physical exchange, replacing `COM14` when Windows assigns another
+port:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --exchange --port COM14 `
+  --output-dir D:\pi86-validation-logs
+```
+
+The tool opens CDC first so firmware may finish USB initialization, sends one
+exact 64-byte `HELLO NEC V30` request through HID OUT, receives the V30's exact
+64-byte reply through HID IN, and captures CDC without sending application
+data over it. Overall PASS requires the HID reply and CDC acceptance profile
+to agree on the sequence, V30 output, 0.600 MHz engine, mailbox activity,
+deadline gate, and final electrical state.
+
+Every run preserves two artifacts:
+
+- `.log`: the unmodified CDC byte stream and canonical physical evidence;
+- `.json`: request/reply records, hashes, HID identity, every CDC check, bus
+  safety, paths, and a deterministic plain-language explanation.
+
+The console explanation is derived only from named validation checks. It tells
+the physical story—reset-vector fetch, ROM execution, atomic mailbox
+publication, seven V30 reads, V30 reply/commit, and terminal high-Z—but never
+replaces the raw evidence. For an agent-friendly single JSON value:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --exchange --port COM14 --json `
+  --output-dir D:\pi86-validation-logs
+```
+
+The JSON command is the intended Codex boundary. Python remains responsible
+for USB discovery and deterministic validation; Codex consumes the stable
+result instead of interpreting free-form terminal text.
+
 ## Revalidate saved evidence
 
 An existing capture can be checked without hardware or `pyserial`:
@@ -97,8 +147,9 @@ reads, XOR witness, commit, qualified-pair counts, drained DMA streams, zero
 deadline misses, ROM identity, and terminal electrical state. Any `FAIL` or
 `INVALID` token rejects the transcript.
 
-Use `--profile ai-b1-b` when revalidating an AI-B1-B capture. Offline mode does
-not transmit another request; it only reapplies the named acceptance contract.
+Use `--profile ai-b1-b` for AI-B1-B and `--profile ai-b2-hid` for composite
+CDC evidence. Offline mode does not transmit another request; it only reapplies
+the named acceptance contract and prints the same deterministic explanation.
 
 ## Exit status
 

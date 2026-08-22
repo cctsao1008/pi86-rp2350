@@ -10,6 +10,8 @@ sys.path.insert(0, str(TOOLS))
 from physical_validator import (  # noqa: E402
     AI_B1_A,
     AI_B1_B,
+    AI_B2_HID,
+    explain_output,
     normalize_output,
     validate_output,
 )
@@ -17,6 +19,49 @@ from protocol import Message, TYPE_HELLO  # noqa: E402
 
 
 class PhysicalValidatorTests(unittest.TestCase):
+    HID_OUTPUT = """[HOST MAILBOX INPUT]
+HELLO NEC V30
+[V30 MAILBOX OUTPUT]
+HELLO OPENAI CODEX
+[SUMMARY]
+Measurement epoch          PASS
+Reset / FFFF0 fetch        PASS
+First response 00EA        PASS
+F0000 ROM execution        PASS
+Windows HID 64-byte record PASS (sequence 1)
+Core1 complete record      PASS
+Core0 immutable staging    PASS
+Deferred DMA reload gate   PASS (8/8 words)
+V30 STATUS 00E0 transition PASS (0 -> 1)
+Publication after NOT_READY PASS
+Atomic DMA publication     PASS
+Mailbox RX I/O 00E4        PASS (7/7 words)
+V30 input XOR at 00E8      PASS
+Mailbox TX I/O 00E2        PASS
+Mailbox commit I/O 00E6    PASS
+HID reply 64-byte record   PASS (64/64 bytes)
+CDC validation log role    RECEIVE-ONLY PASS
+ROM/mailbox key collisions 0 PASS
+Current-cycle M33          NONE
+USB IRQ during V30 epoch   MASKED PASS
+Bus ownership/safety       PASS
+AI-B2-HID RESULT           PASS
+[ENGINEERING DETAILS]
+AI-B2-HID Composite Mailbox - 0.600 MHz
+Host transport             = Windows USB HID 64-byte record; CDC log only
+USB identity               = VID CAFE PID 4011
+PIO instruction words      = 12 + 13 = 25/32
+STATUS observations        = 2 (first 0000, second 0001)
+ROM qualified pairs        = 121/121 PASS
+Mailbox qualified pairs    = 9/9 PASS
+Mailbox DMA live pre/post  = key 0/0 response 0/0
+Mailbox DMA reload count   = key 8 response 8 PASS
+Response deadline misses   = 0 PASS
+ROM image                  = 230 bytes; SHA-256 4fceb34847a713477ce45e4b23a06770d212044f5704154e35b4d94ab1701cb4
+TERMINAL SAFE STATE        = PASS
+CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
+"""
+
     @classmethod
     def setUpClass(cls) -> None:
         evidence = (
@@ -65,6 +110,29 @@ class PhysicalValidatorTests(unittest.TestCase):
         self.assertEqual(request.message_type, TYPE_HELLO)
         self.assertEqual(request.sequence, 1)
         self.assertEqual(request.payload, b"HELLO NEC V30")
+
+    def test_ai_b2_hid_composite_profile_passes(self) -> None:
+        report = validate_output(self.HID_OUTPUT, AI_B2_HID)
+        self.assertTrue(report.passed, report.errors)
+        story = explain_output(self.HID_OUTPUT, report)
+        self.assertTrue(any("through HID" in sentence for sentence in story))
+        self.assertTrue(any("seven mailbox words" in sentence for sentence in story))
+        self.assertTrue(any("AD bus high-Z" in sentence for sentence in story))
+
+    def test_ai_b2_hid_rejects_cdc_command_transport(self) -> None:
+        corrupted = self.HID_OUTPUT.replace(
+            "Windows USB HID 64-byte record; CDC log only",
+            "Windows USB CDC binary record",
+        )
+        report = validate_output(corrupted, AI_B2_HID)
+        self.assertFalse(report.passed)
+        self.assertIn("missing or incorrect field: host transport identity", report.errors)
+
+    def test_ai_b2_hid_rejects_partial_hid_reply(self) -> None:
+        corrupted = self.HID_OUTPUT.replace("PASS (64/64 bytes)", "FAIL (32/64 bytes)")
+        report = validate_output(corrupted, AI_B2_HID)
+        self.assertFalse(report.passed)
+        self.assertTrue(any("HID reply record" in error for error in report.errors))
 
 
 if __name__ == "__main__":

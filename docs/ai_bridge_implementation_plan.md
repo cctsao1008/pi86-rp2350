@@ -181,8 +181,25 @@ require their own physical evidence.
 
 ### AI-B2: USB HID and Python Host Bridge
 
-Add a binary HID transport for the same 64-byte record. Python owns device
-discovery, timeout/retry behavior, transcript rendering, and semantic calls:
+The `ai_bridge_hid_mailbox_600khz` target adds CDC+HID composite transport
+without changing AI-B1-B's V30/PIO/DMA response plane. HID owns the same fixed
+64-byte request/reply ABI; CDC is receive-only physical evidence. Python owns
+device discovery, timeout behavior, exact record validation, raw evidence,
+deterministic explanation, and a stable JSON result for Codex.
+
+Implementation and local build/unit tests are complete. AI-B2 remains open
+until the composite UF2 passes Windows physical validation with the same V30
+reply and bus-safety regression.
+
+After composite acceptance, the next two message-level proofs are:
+
+1. a fresh host challenge processed by native V30 CRC16 code and returned over
+   HID, proving the answer cannot be a prerecorded string;
+2. a 10-round sequence-checked development smoke test with loss, ordering,
+   deadline, and bus-safety accounting. Larger soak counts are deliberately
+   outside the current milestone.
+
+The provider-neutral host API remains:
 
 ```text
 submit_ai_message(message)
@@ -190,7 +207,7 @@ receive_v30_message()
 query_bridge_status()
 ```
 
-The Python bridge is the integration oracle before Codex is connected.
+The Python bridge is the integration oracle and the stable Codex boundary.
 
 ### AI-B3: Codex Adapter
 

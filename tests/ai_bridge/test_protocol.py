@@ -9,7 +9,10 @@ from protocol import MESSAGE_SIZE, Message, TYPE_HELLO, TYPE_TEXT  # noqa: E402
 from v30bridge import (  # noqa: E402
     CANONICAL_GREETING,
     CANONICAL_REPLY,
+    hid_output_report,
+    normalize_hid_input,
     simulate_v30,
+    validate_reply,
 )
 
 
@@ -34,6 +37,27 @@ class ProtocolTests(unittest.TestCase):
     def test_bad_record_size_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
             Message.decode(b"short")
+
+    def test_hid_output_has_report_id_and_exact_abi(self) -> None:
+        record = Message(TYPE_HELLO, 1, CANONICAL_GREETING).encode()
+        report = hid_output_report(record)
+        self.assertEqual(len(report), MESSAGE_SIZE + 1)
+        self.assertEqual(report[0], 0)
+        self.assertEqual(report[1:], record)
+
+    def test_hid_input_accepts_platform_report_id(self) -> None:
+        record = Message(TYPE_TEXT, 1, CANONICAL_REPLY).encode()
+        self.assertEqual(normalize_hid_input(record), record)
+        self.assertEqual(normalize_hid_input(b"\0" + record), record)
+
+    def test_physical_reply_requires_sequence_and_payload(self) -> None:
+        valid = Message(TYPE_TEXT, 7, CANONICAL_REPLY).encode()
+        self.assertEqual(validate_reply(valid, 7).payload, CANONICAL_REPLY)
+        with self.assertRaises(ValueError):
+            validate_reply(valid, 8)
+        wrong = Message(TYPE_TEXT, 7, b"RECORDED STRING").encode()
+        with self.assertRaises(ValueError):
+            validate_reply(wrong, 7)
 
 
 if __name__ == "__main__":

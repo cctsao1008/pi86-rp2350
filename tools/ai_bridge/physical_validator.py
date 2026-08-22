@@ -187,7 +187,95 @@ AI_B1_B = ValidationProfile(
 )
 
 
-PROFILES = {profile.name: profile for profile in (AI_B1_A, AI_B1_B)}
+AI_B2_HID = ValidationProfile(
+    name="ai-b2-hid",
+    filename_prefix="ai_b2_hid",
+    end_marker="CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.",
+    checks=(
+        _line("host greeting", r"HELLO NEC V30"),
+        _line("V30 reply", r"HELLO OPENAI CODEX"),
+        _line("measurement epoch", r"Measurement epoch\s+PASS"),
+        _line("reset vector", r"Reset / FFFF0 fetch\s+PASS"),
+        _line("first response", r"First response 00EA\s+PASS"),
+        _line("ROM execution", r"F0000 ROM execution\s+PASS"),
+        _line(
+            "Windows HID binary record",
+            r"Windows HID 64-byte record\s+PASS \(sequence [0-9]+\)",
+        ),
+        _line("Core1 complete record", r"Core1 complete record\s+PASS"),
+        _line("Core0 immutable staging", r"Core0 immutable staging\s+PASS"),
+        _line(
+            "deferred DMA reload gate",
+            r"Deferred DMA reload gate\s+PASS \(8/8 words\)",
+        ),
+        _line(
+            "STATUS transition",
+            r"V30 STATUS 00E0 transition\s+PASS \(0 -> 1\)",
+        ),
+        _line("publication ordering", r"Publication after NOT_READY\s+PASS"),
+        _line("atomic publication", r"Atomic DMA publication\s+PASS"),
+        _line("mailbox RX", r"Mailbox RX I/O 00E4\s+PASS \(7/7 words\)"),
+        _line("V30 XOR witness", r"V30 input XOR at 00E8\s+PASS"),
+        _line("mailbox TX", r"Mailbox TX I/O 00E2\s+PASS"),
+        _line("mailbox commit", r"Mailbox commit I/O 00E6\s+PASS"),
+        _line(
+            "HID reply record",
+            r"HID reply 64-byte record\s+PASS \(64/64 bytes\)",
+        ),
+        _line(
+            "CDC receive-only role",
+            r"CDC validation log role\s+RECEIVE-ONLY PASS",
+        ),
+        _line("key collision gate", r"ROM/mailbox key collisions\s+0 PASS"),
+        _line("current-cycle M33", r"Current-cycle M33\s+NONE"),
+        _line("USB IRQ isolation", r"USB IRQ during V30 epoch\s+MASKED PASS"),
+        _line("bus safety", r"Bus ownership/safety\s+PASS"),
+        _line("AI-B2-HID result", r"AI-B2-HID RESULT\s+PASS"),
+        _line(
+            "clock and engine identity",
+            r"AI-B2-HID Composite Mailbox - 0\.600 MHz",
+        ),
+        _line(
+            "host transport identity",
+            r"Host transport\s+=\s+Windows USB HID 64-byte record; CDC log only",
+        ),
+        _line("USB development identity", r"USB identity\s+=\s+VID CAFE PID 4011"),
+        _line(
+            "PIO instruction budget",
+            r"PIO instruction words\s+=\s+12 \+ 13 = 25/32",
+        ),
+        _line(
+            "STATUS physical observations",
+            r"STATUS observations\s+=\s+2 \(first 0000, second 0001\)",
+        ),
+        _line("ROM qualified pairs", r"ROM qualified pairs\s+=\s+121/121 PASS"),
+        _line("mailbox qualified pairs", r"Mailbox qualified pairs\s+=\s+9/9 PASS"),
+        _line(
+            "mailbox DMA live count",
+            r"Mailbox DMA live pre/post\s+=\s+key 0/0 response 0/0",
+        ),
+        _line(
+            "mailbox DMA reload count",
+            r"Mailbox DMA reload count\s+=\s+key 8 response 8 PASS",
+        ),
+        _line("deadline gate", r"Response deadline misses\s+=\s+0 PASS"),
+        _line(
+            "ROM identity",
+            r"ROM image\s+=\s+230 bytes; SHA-256 "
+            r"4fceb34847a713477ce45e4b23a06770d212044f5704154e35b4d94ab1701cb4",
+        ),
+        _line("terminal safe state", r"TERMINAL SAFE STATE\s+=\s+PASS"),
+        _line(
+            "terminal electrical state",
+            r"CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z\.",
+        ),
+    ),
+)
+
+
+PROFILES = {
+    profile.name: profile for profile in (AI_B1_A, AI_B1_B, AI_B2_HID)
+}
 FAIL_TOKEN = re.compile(r"(?<![A-Za-z0-9_])(FAIL|INVALID)(?![A-Za-z0-9_])")
 
 
@@ -222,6 +310,82 @@ def validate_output(text: str, profile: ValidationProfile = AI_B1_A) -> Validati
         passed_checks=tuple(passed),
         errors=tuple(errors),
     )
+
+
+def explain_output(text: str, report: ValidationReport) -> tuple[str, ...]:
+    """Turn a CDC transcript into a deterministic physical-execution story.
+
+    This is deliberately not an AI summary.  Every sentence is selected from
+    the named acceptance checks, so the raw CDC log remains the canonical
+    evidence and the explanation is reproducible on Windows or in CI.
+    """
+
+    passed = set(report.passed_checks)
+    normalized = normalize_output(text)
+    story: list[str] = []
+
+    if "Windows HID binary record" in passed:
+        story.append(
+            "Windows delivered one complete 64-byte request through HID; "
+            "CDC carried validation output only."
+        )
+    elif "Windows binary record" in passed:
+        story.append("Windows delivered one complete 64-byte request through CDC.")
+
+    if {"reset vector", "first response", "ROM execution"} <= passed:
+        story.append(
+            "The physical V30 fetched FFFF0, received opcode 00EA, and executed "
+            "the internal-SRAM-backed ROM at F0000."
+        )
+
+    if {
+        "Core1 complete record",
+        "Core0 immutable staging",
+        "STATUS transition",
+        "publication ordering",
+        "atomic publication",
+    } <= passed:
+        story.append(
+            "Core1 accepted the complete host record; Core0 published immutable "
+            "mailbox data only after the V30 observed NOT_READY, then STATUS became READY."
+        )
+
+    if {"mailbox RX", "V30 XOR witness", "mailbox TX", "mailbox commit"} <= passed:
+        story.append(
+            "The V30 physically read all seven mailbox words, consumed them, "
+            "wrote its reply through port 00E2, and committed it through port 00E6."
+        )
+
+    if "HID reply record" in passed:
+        story.append(
+            "RP2350 returned the V30 reply to Windows as one complete 64-byte HID record."
+        )
+
+    if {"deadline gate", "key collision gate", "current-cycle M33"} <= passed:
+        story.append(
+            "PIO/DMA handled every qualified current bus cycle with zero deadline "
+            "misses and no ROM/mailbox key collision; M33 did not answer current cycles."
+        )
+
+    if {"bus safety", "terminal safe state", "terminal electrical state"} <= passed:
+        story.append(
+            "The run ended safely with RESET high, CLK low, and the multiplexed AD bus high-Z."
+        )
+
+    reply = re.search(r"(?m)^HELLO OPENAI CODEX\s*$", normalized)
+    if reply is not None and "V30 reply" in passed:
+        story.append('Observed V30 application reply: "HELLO OPENAI CODEX".')
+
+    if report.errors:
+        story.append(
+            "Acceptance failed: " + "; ".join(report.errors) + "."
+        )
+    elif report.passed:
+        story.append(
+            f"All {len(report.passed_checks)} deterministic {report.profile} "
+            "acceptance checks passed."
+        )
+    return tuple(story)
 
 
 def _serial_modules():
@@ -333,6 +497,12 @@ def print_report(report: ValidationReport) -> None:
     print(f"PYTHON VALIDATION RESULT = {'PASS' if report.passed else 'FAIL'}")
 
 
+def print_explanation(story: Iterable[str]) -> None:
+    print("\n[CDC LOG EXPLANATION]")
+    for index, sentence in enumerate(story, 1):
+        print(f"{index}. {sentence}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="capture or revalidate pi86-rp2350 physical evidence"
@@ -392,6 +562,7 @@ def main(argv: Iterable[str] | None = None) -> int:
 
     text = raw.decode("utf-8", errors="replace")
     report = validate_output(text, profile)
+    print_explanation(explain_output(text, report))
     print_report(report)
     return PASS_EXIT if report.passed else VALIDATION_EXIT
 
