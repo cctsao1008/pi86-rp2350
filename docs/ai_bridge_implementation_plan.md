@@ -223,6 +223,13 @@ two-line canonical transcript, a valid Host Bridge JSON result, and retained
 physical V30 bus evidence. A ChatGPT adapter is an equivalent later endpoint,
 not a different V30 transport.
 
+AI-B3 is accepted. On 2026-08-23, Codex directly invoked the Windows bridge,
+sent the canonical 64-byte HID greeting, received the physical V30's matching
+64-byte reply as structured JSON, and retained a simultaneous CDC transcript.
+All 38 deterministic checks and terminal bus safety passed. ChatGPT app/MCP
+integration remains an optional second adapter rather than a prerequisite for
+the accepted Codex-first goal.
+
 ## Evidence rule
 
 Build success, Python simulation, and physical validation are reported as

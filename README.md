@@ -208,12 +208,14 @@ OpenAI Codex > HELLO NEC V30  (HID, 64 bytes)
 NEC V30      > HELLO OPENAI CODEX  (HID, 64 bytes)
 ```
 
-This accepts AI-B2-HID and the Python Host Bridge. The user launched this
-accepted run; the next AI-B3 gate requires a Codex adapter to launch the same
-bridge and consume its JSON result directly. ChatGPT and other host adapters
-may use the same provider-neutral boundary. AI-B0 and AI-B1 remain permanent
-lower-level electrical and transport regressions.
+This accepts AI-B2-HID and the Python Host Bridge. Later on 2026-08-23, Codex
+directly launched the same Windows bridge, sent the first greeting, received
+the V30 reply as JSON, and independently retained the CDC evidence. That
+38/38-check run accepts AI-B3 and Codex as the first end-to-end host adapter.
+ChatGPT and other adapters may use the same provider-neutral boundary. AI-B0
+and AI-B1 remain permanent lower-level electrical and transport regressions.
 
+- [AI-B3 Codex-initiated physical validation](docs/validation/ai_b3_codex_initiated_greeting_validation.md)
 - [AI-B2-HID 0.600 MHz physical validation](docs/validation/ai_b2_hid_composite_600khz_validation.md)
 - [AI-B1-A 0.600 MHz physical validation](docs/validation/ai_b1a_runtime_mailbox_600khz_validation.md)
 - [AI-B0 physical mailbox validation](docs/validation/ai_b0_physical_mailbox_validation.md)
