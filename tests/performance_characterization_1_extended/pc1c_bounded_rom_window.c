@@ -106,6 +106,10 @@ typedef struct {
     uint32_t supported_reads;
     uint32_t unsupported_cycles;
     uint32_t checkpoint_reads;
+    uint32_t response_mismatches;
+    uint32_t first_mismatch_address;
+    uint16_t first_mismatch_expected;
+    uint16_t first_mismatch_observed;
     uint32_t phase_count;
     uint32_t phase_raw[FIRST_PHASE_COUNT];
     char diagnostic[32];
@@ -371,7 +375,15 @@ static void classify(result_t *r) {
         uint32_t address = decode_address(a); uint16_t expected_word;
         if (memory_read(a) && rom_word(address, &expected_word)) {
             ++r->supported_reads;
-            if (decode_ad(d) != expected_word) r->supported_reads_ok = false;
+            const uint16_t observed_word = decode_ad(d);
+            if (observed_word != expected_word) {
+                r->supported_reads_ok = false;
+                if (r->response_mismatches++ == 0u) {
+                    r->first_mismatch_address = address;
+                    r->first_mismatch_expected = expected_word;
+                    r->first_mismatch_observed = observed_word;
+                }
+            }
         } else {
             ++r->unsupported_cycles;
         }
@@ -379,8 +391,14 @@ static void classify(result_t *r) {
         if (address == checkpoint && memory_read(a)) ++r->checkpoint_reads;
         if (address == OUTPUT_PORT && io_write(a) && diag + 1u < sizeof r->diagnostic) {
             const uint16_t bus_word = decode_ad(d);
+#ifdef PI86_AI_BRIDGE_B0
+            r->diagnostic[diag++] = (char)(bus_word & 0xFFu);
+            if (!bit(a, V30_PIN_UBE) && diag + 1u < sizeof r->diagnostic)
+                r->diagnostic[diag++] = (char)(bus_word >> 8);
+#else
             r->diagnostic[diag++] = (char)((address & 1u) ?
                 (bus_word >> 8) : (bus_word & 0xFFu));
+#endif
         }
 #ifdef PI86_AI_BRIDGE_B0
         if (address == 0x00E6u && io_write(a) &&
@@ -472,8 +490,9 @@ static void print_result(const result_t *r) {
     printf("Reset / FFFF0 fetch      %s\n", pf(r->reset_ok && r->first_address_ok));
     printf("First response 00EA      %s\n", pf(r->first_response_ok));
     printf("F0000 ROM execution      %s\n", pf(r->far_target_seen));
-    printf("Current-address reads    %s (%lu hits)\n", pf(r->supported_reads_ok),
-           (unsigned long)r->supported_reads);
+    printf("Current-address reads    %s (%lu hits, %lu mismatches)\n",
+           pf(r->supported_reads_ok), (unsigned long)r->supported_reads,
+           (unsigned long)r->response_mismatches);
 #ifdef PI86_AI_BRIDGE_B0
     printf("Mailbox TX I/O %04X      %s\n", OUTPUT_PORT, pf(r->diagnostic_ok));
     printf("Mailbox commit I/O 00E6  %s\n", pf(r->mailbox_commit_ok));
@@ -500,6 +519,13 @@ static void print_result(const result_t *r) {
     printf("Observer complete cycles = %lu/%u\n", (unsigned long)r->complete_cycles,
            OBSERVER_CYCLES);
     printf("Unsupported/high-Z cycles= %lu\n", (unsigned long)r->unsupported_cycles);
+    printf("Response data mismatches = %lu %s\n",
+           (unsigned long)r->response_mismatches,
+           pf(r->response_mismatches == 0u));
+    if (r->response_mismatches != 0u)
+        printf("First mismatch           = %05lX expected %04X observed %04X\n",
+               (unsigned long)r->first_mismatch_address,
+               r->first_mismatch_expected, r->first_mismatch_observed);
     printf("DMA remain pre/post      = %lu/%lu\n", (unsigned long)r->tx_dma_pre,
            (unsigned long)r->tx_dma_post);
     printf("PIO1 OE pre/post         = %08lX/%08lX\n",

@@ -29,12 +29,13 @@ provider-neutral record. The C definition is
 | Port | Direction | Meaning |
 |---|---|---|
 | `00E0h` | V30 read | mailbox status |
-| `00E2h` | V30 write | V30-to-host transmit byte |
+| `00E2h` | V30 write | V30-to-host transmit data (byte or packed word) |
 | `00E4h` | V30 read | host-to-V30 receive byte |
 | `00E6h` | V30 read/write | control and message commit |
 
-These even ports use the low byte lane. `00E8h`, `00E9h`, and `00EAh` retain
-their established regression/diagnostic meanings.
+Byte cycles on these even ports use the low lane. A word write to `00E2h`
+publishes two consecutive payload bytes, low byte first. `00E8h`, `00E9h`, and
+`00EAh` retain their established regression/diagnostic meanings.
 
 READY is fixed high on the present HAT, so Core0 must stage a complete inbound
 message before exposing it to the V30. PIO/DMA, not an M33 current-cycle
@@ -64,7 +65,7 @@ physical V30 consumes and validates all greeting words, emits
 checkpoint loop. The existing PIO/DMA current-address responder owns AD and
 PINDIRS; the M33 is absent from current-cycle service.
 
-AI-B0 is deliberately not the final asynchronous mailbox. Its 48-entry search
+AI-B0 is deliberately not the final asynchronous mailbox. Its 41-entry search
 table is a new timing envelope and remains unaccepted until physical output
 reports `AI-B0 RESULT = PASS` with terminal high-Z safety.
 

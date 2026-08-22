@@ -17,44 +17,36 @@ org 0
 %define HOST_GREETING_XOR   0x7F20
 %define V30_REPLY_WORDS     9
 %define PI86_AI_CONTROL_COMMIT 0x01
-%define PI86_AI_CONTROL_ERROR  0x00
 
 global ai_bridge_entry
 ai_bridge_entry:
     cli
     cld
-    push cs
-    pop ds
+    ; RESET provides no usable stack.  Load DS directly from CS so the first
+    ; mailbox experiment remains stack-free just like the Native BIOS baseline.
+    mov ax, cs
+    mov ds, ax
 
     mov si, host_greeting - $$
     mov cx, HOST_GREETING_WORDS
-    xor bx, bx
+    mov bx, HOST_GREETING_XOR
 .consume_host_message:
     lodsw
     xor bx, ax
     loop .consume_host_message
 
-    cmp bx, HOST_GREETING_XOR
-    jne .message_error
+    or bx, bx
+    jne ai_bridge_checkpoint
 
     mov si, v30_reply - $$
-    mov cx, V30_REPLY_WORDS
+    ; LOOP left CX at zero.  OUTSW is native to the V30 and publishes two
+    ; mailbox bytes per physical word-I/O cycle without touching the stack.
+    mov cl, V30_REPLY_WORDS
     mov dx, PI86_AI_TX_DATA_PORT
-.send_reply:
-    lodsw
-    out dx, al
-    xchg al, ah
-    out dx, al
-    loop .send_reply
+    rep outsw
 
     mov dx, PI86_AI_CONTROL_PORT
     mov al, PI86_AI_CONTROL_COMMIT
-    out dx, al
-    jmp short ai_bridge_checkpoint
-
-.message_error:
-    mov dx, PI86_AI_CONTROL_PORT
-    mov al, PI86_AI_CONTROL_ERROR
     out dx, al
     jmp short ai_bridge_checkpoint
 
