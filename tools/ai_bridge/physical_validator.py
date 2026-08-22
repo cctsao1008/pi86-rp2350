@@ -378,7 +378,7 @@ def explain_output(text: str, report: ValidationReport) -> tuple[str, ...]:
 
     if report.errors:
         story.append(
-            "Acceptance failed: " + "; ".join(report.errors) + "."
+            "CDC evidence is incomplete or incorrect; acceptance did not pass."
         )
     elif report.passed:
         story.append(

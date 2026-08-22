@@ -297,6 +297,12 @@ def print_human_result(result: dict[str, Any]) -> None:
     for index, sentence in enumerate(result["cdc_validation"]["explanation"], 1):
         print(f"{index}. {sentence}")
 
+    cdc_errors = result["cdc_validation"]["errors"]
+    if cdc_errors:
+        print("\n[CDC VALIDATION ERRORS]")
+        for error in cdc_errors:
+            print(f"- {error}")
+
     print("\n[ARTIFACTS]")
     print(f"Raw CDC evidence = {result['cdc_validation']['raw_log']}")
     print(f"Codex JSON result = {result['result_json']}")
