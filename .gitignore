@@ -70,6 +70,7 @@ compile_commands.json
 # Temporary files
 *.tmp
 *.log
+!docs/validation/evidence/*.log
 *.bak
 *.swp
 *~

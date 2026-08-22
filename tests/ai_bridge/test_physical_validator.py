@@ -119,6 +119,17 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
         self.assertTrue(any("seven mailbox words" in sentence for sentence in story))
         self.assertTrue(any("AD bus high-Z" in sentence for sentence in story))
 
+    def test_committed_ai_b2_hid_evidence_passes(self) -> None:
+        evidence = (
+            ROOT
+            / "docs"
+            / "validation"
+            / "evidence"
+            / "ai_b2_hid_20260823_050201+0800.log"
+        ).read_text(encoding="utf-8")
+        report = validate_output(evidence, AI_B2_HID)
+        self.assertTrue(report.passed, report.errors)
+
     def test_ai_b2_hid_rejects_cdc_command_transport(self) -> None:
         corrupted = self.HID_OUTPUT.replace(
             "Windows USB HID 64-byte record; CDC log only",
