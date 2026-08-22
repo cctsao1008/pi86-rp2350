@@ -1,1457 +1,739 @@
-# AI Bridge Architecture
-
-> **Status:** Proposed architecture  
-> **Implementation:** Not yet implemented  
-> **Scope:** AI/host communication with a physical NEC V30 through the RP2350 service, authority, and deterministic execution planes.
+# [**pi86-rp2350**](https://github.com/cctsao1008/pi86-rp2350/tree/main) AI Bridge Architecture Design Note
 
 ## Working Title
 
 **A 1980s CPU Talks to AI**
 
-This document defines the architecture of an AI-facing bridge between a physical NEC V30 and a modern host through the RP2350.
+| Field | Value |
+|---|---|
+| Status | Accepted Target Architecture |
+| Scope | Bidirectional message exchange between a physical NEC V30 and OpenAI Codex |
+| Target platform | pi86-rp2350 V30 interface with an RP2350-based companion controller |
+| Document type | Architecture design note |
 
-The emphasis is on **system boundaries, responsibilities, interfaces, timing domains, and ownership**. It intentionally avoids project-specific validation gates, test IDs, and commissioning procedures.
+This document defines the target architecture for one specific interaction:
+
+```text
+OpenAI Codex > HELLO NEC V30
+
+NEC V30      > HELLO OPENAI CODEX
+```
+
+The hardware starts first. The physical NEC V30 boots, reaches its native message program, and exposes a ready mailbox through the RP2350. When the user later begins a Codex session, OpenAI Codex sends the first conversational message. That greeting crosses the Codex adapter, provider-neutral host bridge, USB, the RP2350, and the physical V30 bus. Native V30 code reads it and returns a reply through the same system boundaries to Codex.
+
+The document defines the system boundary, component responsibilities, message flow, timing separation, interfaces, and observable result. It does not define an implementation schedule, project validation sequence, or general-purpose service architecture.
 
 ---
 
 ## 1. Purpose
 
-The goal is not simply to make an old processor exchange text with AI.
-
-The goal is to explore how a slow, non-deterministic reasoning system can interact with a deterministic physical computer without entering its hard real-time execution path.
-
-The high-level model is:
+The purpose of the pi86-rp2350 AI Bridge is to establish genuine bidirectional communication between:
 
 ```text
-AI reasoning
-    ↓
-bounded authority
-    ↓
-deterministic execution
-    ↓
-physical system
+a physical NEC V30
+        ↕
+OpenAI Codex
 ```
 
-The physical NEC V30 provides a useful target because its external behavior is simple enough to observe directly and strict enough to expose architectural mistakes immediately.
+After the hardware has started and the V30 message interface is ready, OpenAI Codex initiates the conversation with:
+
+```text
+HELLO NEC V30
+```
+
+The physical V30 consumes that message and executes native code that replies:
+
+```text
+HELLO OPENAI CODEX
+```
+
+The reply crosses the V30 bus and RP2350 service path before being delivered to OpenAI Codex.
+
+The architectural objective is the complete end-to-end conversation. Both lines of the transcript represent one interaction involving native execution on the physical V30.
 
 ---
 
-## 2. Why This Architecture Exists
+## 2. Target Interaction
 
-AI systems operate at a fundamentally different timescale and with different execution semantics from a physical processor bus.
-
-AI interaction may take:
+The canonical interaction is:
 
 ```text
-tens of milliseconds
-hundreds of milliseconds
-seconds
+OpenAI Codex > HELLO NEC V30
+NEC V30      > HELLO OPENAI CODEX
 ```
 
-A V30 bus transaction operates at the cycle level.
-
-Therefore, AI cannot be inserted into the current-cycle response path.
-
-The architecture must instead convert:
+The causal path is:
 
 ```text
-slow / variable-latency intent
-```
-
-into:
-
-```text
-locally staged deterministic state
-```
-
-before the V30 consumes it.
-
-The RP2350 provides that decoupling.
-
-```text
-AI / Host
+OpenAI Codex
     ↓
-semantic request
+Codex Adapter
     ↓
-RP2350 service and authority layers
+Host Bridge API
     ↓
-locally prepared state
+USB
     ↓
-PIO / DMA
+RP2350 Core1
     ↓
-deterministic V30 interaction
+RP2350 Core0
+    ↓
+locally staged receive data
+    ↓
+RP2350 PIO / DMA
+    ↓
+physical V30 bus
+    ↓
+V30 native program reads the greeting
+    ↓
+V30-visible transmit interface
+    ↓
+physical V30 bus
+    ↓
+RP2350 PIO / DMA
+    ↓
+RP2350 Core0
+    ↓
+RP2350 Core1
+    ↓
+USB
+    ↓
+Host Bridge
+    ↓
+Codex Adapter
+    ↓
+OpenAI Codex receives the V30 reply
 ```
 
-This is the central architectural reason for the bridge.
-
-### Host-Side AI Adapter
-
-The host side should include an explicit **AI adapter** so that the RP2350 protocol is not coupled to a specific AI provider.
-
-```text
-AI / Codex
-    ↕
-AI adapter
-    ↕
-Host bridge
-    ↕
-USB HID
-    ↕
-RP2350
-```
-
-The RP2350 should understand semantic operations such as:
-
-```text
-SEND_MESSAGE
-QUERY_STATUS
-READ_MEMORY
-WRITE_MEMORY
-RUN_DIAGNOSTIC
-```
-
-It should not contain provider-specific concepts such as `Codex`.
-
-This keeps the architecture reusable:
-
-```text
-Codex
-another AI backend
-scripted test harness
-human terminal
-        ↓
-same host semantic API
-        ↓
-same RP2350 protocol
-```
+Each boundary has a defined owner and message representation.
 
 ---
 
-## 3. Architectural Value
+## 3. Architectural Scope
 
-The experiment is useful beyond retrocomputing.
+### Included
 
-It provides a compact platform for studying:
+- Codex generation of the opening greeting
+- native V30 consumption of the Codex greeting
+- native V30 generation of the reply
+- a V30-visible transmit and receive interface
+- deterministic V30 bus interaction through PIO and DMA
+- RP2350 Core0 and Core1 responsibility separation
+- USB communication with a host computer
+- a provider-neutral Host Bridge and a Codex-specific adapter
+- asynchronous delivery of the Codex greeting
+- delivery of the V30 reply to Codex
+- a human-readable conversation transcript
+- engineering evidence identifying the physical message path
 
-- separation of probabilistic reasoning from deterministic execution
-- temporal decoupling across very different latency domains
-- authority boundaries between AI, service software, supervisor, and physical bus
-- semantic commands versus physical signal control
-- ownership transfer between real-time and non-real-time planes
-- modernization of a legacy interface without modifying the legacy processor
-- externally observable evidence from a real physical execution path
+### Outside This Document
 
-The important property is not that the target happens to be a V30.
+- implementation order and project milestones
+- general-purpose AI, disk, network, compiler, or automation services
+- executable program delivery
+- a complete PC-compatible peripheral architecture
+- generalized machine-control policy
 
-The important property is that the V30 exposes the machine boundary clearly:
+These subjects may have separate design documents without changing the message bridge defined here.
+
+---
+
+## 4. Physical System
 
 ```text
-address
-data
+┌──────────────────┐
+│ Physical NEC V30 │
+└────────┬─────────┘
+         │ native address / data / control bus
+         ▼
+┌──────────────────────────┐
+│ Homebrew8088 / Pi86 HAT  │
+│ physical V30 interface   │
+└────────┬─────────────────┘
+         │ Raspberry Pi-compatible 40-pin boundary
+         ▼
+┌──────────────────────────┐
+│ Waveshare RP2350-PiZero  │
+│ PIO / DMA / Core0 / Core1│
+└────────┬─────────────────┘
+         │ USB
+         ▼
+┌──────────────────────────┐
+│ Host Bridge              │
+│ semantic bridge API      │
+└────────┬─────────────────┘
+         │
+         ▼
+┌──────────────────────────┐
+│ Codex Adapter            │
+│ provider-specific logic  │
+└────────┬─────────────────┘
+         │ OpenAI interface
+         ▼
+┌──────────────────────────┐
+│ OpenAI Codex             │
+└──────────────────────────┘
+```
+
+### Physical NEC V30
+
+The NEC V30 is the physical execution endpoint. It:
+
+- starts from its native reset vector
+- executes native V30/8086-compatible code
+- observes receive status
+- reads the Codex greeting
+- generates the native V30 reply
+- writes the reply through a V30-visible interface
+- confirms both greeting consumption and reply publication through native program behavior
+
+### Pi86 Physical Interface
+
+The Homebrew8088 / Pi86 hardware connects the V30 bus to the Raspberry Pi-compatible 40-pin boundary.
+
+Architecturally relevant signals include:
+
+```text
+AD0..AD15
+A16..A19
+ASTB / ALE
 RD
 WR
-READY
-INTA
-RESET
+IO/M
+byte-lane control
 CLK
+RESET
+READY
+interrupt-related control
 ```
 
-This makes the causal chain from high-level intent to physical execution unusually visible.
+The detailed GPIO and connector mapping belongs in the hardware-interface documentation.
 
-> **The V30 is useful precisely because its external behavior is simple, observable, and physically verifiable.**
+### RP2350 Controller
+
+The current controller is a Waveshare RP2350-PiZero based on RP2350B. It provides programmable I/O, DMA, internal SRAM, two processor cores, and USB device connectivity.
+
+### Host Bridge
+
+The host bridge terminates the RP2350 USB protocol and exposes a provider-neutral semantic API. It accepts complete AI messages, converts them into the structured message format used by the RP2350, receives complete V30-originated messages, and returns them to the AI-side adapter.
+
+Representative host-side semantics are:
+
+```text
+submit_ai_message(message)
+receive_v30_message()
+query_bridge_status()
+```
+
+The RP2350 and V30-facing protocol do not contain provider-specific concepts.
+
+The Host Bridge and Codex Adapter are **logical architectural components**. They may initially be implemented as modules within the same host process; the architecture defines a responsibility boundary, not a mandatory process boundary.
+
+### Codex Adapter
+
+The Codex adapter owns OpenAI Codex-specific integration:
+
+```text
+session / prompt handling
+provider-specific invocation
+provider configuration
+conversation context
+mapping between Codex turns and host-bridge messages
+```
+
+It converts Codex interaction into the provider-neutral Host Bridge API.
+
+### OpenAI Codex
+
+Codex is the named AI participant and initiator of the canonical conversation. Provider-specific details terminate in the Codex adapter and do not appear in the Host Bridge API, RP2350 protocol, or V30-visible interface.
 
 ---
 
-## 4. Feasibility Rationale
-
-The architecture is feasible because AI latency is not part of the V30 current-cycle response path.
-
-Wrong model:
+## 5. Responsibility Partition
 
 ```text
-V30 bus request
-→ RP2350
-→ USB
-→ AI inference
-→ USB
-→ RP2350
-→ V30 response
-```
-
-Correct model:
-
-```text
-AI / Host
-    ↓
-asynchronous semantic message
-    ↓
-RP2350 buffers / validates / stages state
-    ↓
-PIO / DMA
-    ↓
-deterministic V30 response
-```
-
-The key property is:
-
-> **The architecture converts an unbounded-latency AI interaction into locally staged deterministic state before the V30 consumes it.**
-
-The AI therefore works at the level of intent and messages.
-
-The RP2350 absorbs timing uncertainty.
-
-The V30 sees only a coherent local machine.
-
----
-
-## 5. What This Is — and Is Not
-
-### This is
-
-- a heterogeneous-system architecture experiment
-- a deterministic bridge between AI and a physical legacy CPU
-- an exploration of semantic-to-physical execution boundaries
-- an example of separating reasoning, authority, service, and timing-critical execution
-- a path toward AI interaction through historically natural computer interfaces
-
-### This is not
-
-- CPU emulation
-- AI inside the hard real-time bus loop
-- AI directly toggling V30 control signals
-- synchronous AI response to individual V30 bus cycles
-- a claim that the NEC V30 itself has modern performance or commercial relevance
-- a replacement for deterministic local control
-
-The cross-generational aspect makes the experiment memorable, but the technical objective is broader:
-
-> **to study how modern AI reasoning can remain separated from deterministic physical execution while still interacting with it meaningfully.**
-
----
-
-## 6. Current Hardware Platform
-
-The architecture is **RP2350-based**, while the current physical implementation uses a specific development board and preserves the physical lineage of the Homebrew8088 / Pi86 project.
-
-```text
-Physical NEC V30
-    │
-    │ native address / data / control bus
-    ▼
-Homebrew8088 / Pi86 PCB
-    │
-    │ Raspberry Pi-compatible 40-pin physical boundary
-    ▼
-Waveshare RP2350-PiZero
-    │
-    │ RP2350B + PIO + DMA + SRAM + USB
-    ▼
-Host PC
-    │
-    │ semantic host API / AI adapter
-    ▼
 OpenAI Codex
-```
-
-The distinction between architecture and implementation is intentional:
-
-```text
-Architecture
-    RP2350-based programmable chipset
-            │
-            ▼
-Current implementation
-    Waveshare RP2350-PiZero
-```
-
-This allows the controller board to change later without changing the architectural model.
-
-### Physical CPU / Interface Provenance
-
-The current V30-side hardware is based on the Homebrew8088 / Pi86 Raspberry Pi PCB project.
-
-The original Pi86 design used a Raspberry Pi to:
-
-- toggle the processor clock
-- observe the control bus
-- latch the address from ALE
-- provide requested memory or I/O read/write service
-
-The Homebrew8088 project reports an original operating speed of approximately 0.3 MHz and explicitly discusses NEC V20 / V30 processors.
-
-The present architecture preserves that **physical CPU and interface lineage**, but replaces the original Raspberry Pi software-driven chipset model with an RP2350 architecture built around:
-
-```text
-PIO / DMA
-    = deterministic current-cycle data path
-
-Core0
-    = authority / real-time supervision
-
-Core1
-    = service / external interface
-```
-
-The provenance is therefore part of the architecture story, but the current execution architecture is a redesign rather than a direct software port.
-
----
-
-## 7. Hardware Specifications Relevant to the Architecture
-
-Only hardware characteristics that materially affect the architecture are listed here.
-
-### NEC V30
-
-Current physical processor:
-
-```text
-NEC μPD70116C-8 (V30)
-```
-
-Architecturally relevant characteristics:
-
-| Characteristic | Relevance |
-|---|---|
-| 16-bit processor / 8086-compatible instruction environment | Native legacy execution target |
-| 20-bit physical address space | Up to 1 MiB directly addressable memory space |
-| 16-bit external data bus | Word and byte-lane behavior must be handled correctly |
-| Multiplexed AD15..AD0 address/data bus | Bus capture and response require phase-aware handling |
-| High address lines A19..A16 | Complete physical address qualification |
-| RESET starts execution at FFFF0h | Defines the native reset / ROM entry path |
-| Memory and I/O bus cycles | Allows RAM, ROM, mailbox, and peripheral service |
-| READY / interrupt / bus-control signals | Defines timing, wait-state, and interrupt integration boundaries |
-
-The V30 is valuable here not because of performance, but because its external machine boundary is explicit and observable.
-
-### Waveshare RP2350-PiZero
-
-Current controller board:
-
-```text
-Waveshare RP2350-PiZero
-```
-
-Architecturally relevant board / MCU characteristics:
-
-| Characteristic | Current relevance |
-|---|---|
-| RP2350B MCU | Main programmable-chipset controller |
-| Selectable dual Cortex-M33 or dual Hazard3 RISC-V cores | Two software execution roles can be partitioned into supervisor and service planes |
-| Up to 150 MHz core clock | Large timing margin relative to the legacy processor, without placing CPU software in the current-cycle path |
-| 520 KB on-chip SRAM | Descriptors, staged state, queues, trace data, immutable evidence |
-| 12 PIO state machines | Deterministic bus-response and passive-observation engines |
-| DMA engine | Autonomous movement of response and trace data |
-| USB 1.1 host/device controller | HID + CDC external interface |
-| 16 MB onboard NOR Flash | Firmware and persistent project assets |
-| Raspberry Pi-compatible 40-pin header | Practical physical integration with the Pi86 interface lineage |
-
-The RP2350B supports either a pair of Arm Cortex-M33 cores or a pair of Hazard3 RISC-V cores; these are alternative processor architectures, not four simultaneously active application cores.
-
-Board features such as DVI, TF-card, battery support, and optional PSRAM are not architectural requirements for the AI bridge and are intentionally excluded from the core design unless they acquire a defined system role later.
-
----
-
-## 8. Physical Bus and Board-Level Integration
-
-The hardware boundary should be described separately from the software execution planes.
-
-```text
-                         NEC V30
-                            │
-          ┌─────────────────┼─────────────────┐
-          │                 │                 │
-      Address/Data       Bus Control       Timing / State
-      AD0..AD15          RD / WR           CLK
-      A16..A19           ASTB              RESET
-      byte lane          IO/M              READY
-                         INTAK / status
-          │                 │                 │
-          └─────────────────┼─────────────────┘
-                            │
-                            ▼
-                  Homebrew8088 / Pi86
-                    physical interface
-                            │
-                  Raspberry Pi-compatible
-                      40-pin boundary
-                            │
-                            ▼
-                  Waveshare RP2350-PiZero
-                            │
-                            ▼
-                       RP2350B
-```
-
-Signal groups are treated architecturally:
-
-| Signal group | Architectural purpose |
-|---|---|
-| Address / data | Identifies and transfers V30 memory and I/O transactions |
-| Bus control | Qualifies transaction type and direction |
-| Timing | Defines when a response must be valid |
-| Reset / safe state | Controls processor startup and bounded shutdown |
-| Interrupt path | Supports future asynchronous peripheral delivery |
-| Passive observation | Captures evidence without taking bus ownership |
-
-The complete GPIO / 40-pin assignment belongs in a dedicated hardware-interface document rather than in this AI bridge architecture note.
-
----
-
-## 9. RP2350 Resource Allocation and Hardware-Driven Decisions
-
-### Resource Allocation
-
-| RP2350 resource | Architectural role |
-|---|---|
-| PIO1 | Deterministic V30 response engine |
-| PIO0 | Passive V30 bus observer |
-| DMA | Autonomous response / trace data movement |
-| Internal SRAM | Descriptors, locally staged state, queues, traces, immutable evidence |
-| Core0 | Authority, supervision, reset / clock / safe-state control |
-| Core1 | Service plane, HID / CDC, trace decode, host / AI bridge |
-| USB HID | Machine-facing semantic protocol |
-| USB CDC | Human-facing engineering / diagnostic interface |
-
-The value of the RP2350 is not merely that it is faster than the V30.
-
-Its architecture provides several different execution mechanisms:
-
-```text
-general-purpose cores
-+
-programmable I/O
-+
-DMA
-+
-local SRAM
-+
+      ↕
+Codex Adapter
+      ↕
+Host Bridge
+      ↕
 USB
-```
-
-Those resources allow responsibilities to be separated by timing and authority rather than placing all behavior in one software loop.
-
-### Hardware Constraints Driving the Architecture
-
-| Hardware / timing constraint | Architectural consequence |
-|---|---|
-| V30 current-cycle response has strict timing requirements | Current-cycle response stays in PIO / DMA |
-| AI latency is variable and effectively unbounded relative to a bus cycle | AI communication is asynchronous and buffered |
-| USB belongs to a slower, less deterministic timing domain | USB terminates in the service plane |
-| Core1 service load must not own physical bus timing | Core1 communicates through bounded ownership-transfer interfaces |
-| Physical V30 must observe a coherent local machine | AI intent is converted into RP2350-local staged state before becoming V30-visible |
-| V30 exposes separate memory / I/O semantics and byte lanes | The bridge must preserve transaction type, address qualification, and access width |
-| The Pi86 hardware defines an existing physical boundary | The new architecture adapts behind that boundary rather than requiring a new CPU-side interface |
-
-This relationship is central:
-
-```text
-hardware constraint
-        ↓
-architecture decision
-        ↓
-bounded interface
-        ↓
-deterministic implementation
-```
-
-## 10. System Architecture
-
-```text
-                         AI / Codex
-                             │
-                        semantic intent
-                             │
-                             ▼
-                         Host bridge
-                             │
-                         USB HID
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │      Core1      │
-                    │ Service Plane   │
-                    │ HID / CDC / AI  │
-                    └────────┬────────┘
-                             │
-                    bounded ownership
-                        transfer
-                             │
-                    ┌────────▼────────┐
-                    │      Core0      │
-                    │ Authority Plane │
-                    │ control / safe  │
-                    └────────┬────────┘
-                             │
-                       staged state
-                             │
-                    ┌────────▼────────┐
-                    │    PIO / DMA    │
-                    │ Hard RT Plane   │
-                    │ deterministic   │
-                    └────────┬────────┘
-                             │
-                       physical bus
-                             │
-                             ▼
-                    ┌─────────────────┐
-                    │    NEC V30      │
-                    │ native execution│
-                    └────────┬────────┘
-                             │
-                    Homebrew8088 / Pi86
-                    physical interface
-
-Current controller implementation:
-Waveshare RP2350-PiZero / RP2350B
-```
-
-A concise architectural model is:
-
-> **PIO/DMA owns determinism.  
-> Core0 owns authority.  
-> Core1 owns services.  
-> AI owns reasoning.**
-
----
-
-## 11. RP2350 Execution Planes
-
-The design is best understood as three execution planes.
-
-| Plane | Owner | Responsibility |
-|---|---|---|
-| Hard real-time data plane | PIO / DMA | V30 current-cycle response, capture, qualification |
-| Real-time supervisory plane | Core0 | Bus authority, reset/clock control, state preparation, ownership, safety |
-| Service / external-interface plane | Core1 | USB-facing services, trace processing, host protocol, AI bridge |
-
-This separation is more precise than treating the RP2350 as only two CPU cores.
-
----
-
-## 12. Hard Real-Time Data Plane
-
-The V30 current-cycle path belongs to PIO/DMA.
-
-```text
-V30 bus
-   ↕
-PIO response / observation
-   ↕
-DMA
-   ↕
-internal SRAM
-```
-
-Responsibilities include:
-
-- deterministic response timing
-- bus-cycle qualification
-- raw signal capture
-- movement of response / trace data
-- current-cycle behavior independent of host or AI latency
-
-The hard real-time path must never depend on:
-
-```text
-Core1
-USB
-Host software
-AI inference
-```
-
-The V30 must always see locally available, deterministic behavior.
-
----
-
-## 13. Real-Time Supervisory Plane
-
-Core0 supervises the deterministic data plane.
-
-Conceptually, Core0 owns:
-
-- V30 RESET
-- V30 clock control
-- bus ownership policy
-- PIO / DMA configuration
-- descriptor / matcher preparation
-- accepted state staging
-- execution control
-- safe-state transitions
-- publication of immutable evidence / results
-
-Core0 should not perform human-facing formatting or service-plane work.
-
-The distinction is:
-
-```text
-PIO/DMA
-   = executes timing-critical behavior
-
-Core0
-   = decides what deterministic behavior is authorized
-```
-
-This separates **determinism** from **authority**.
-
----
-
-## 14. Service and External-Interface Plane
-
-Core1 owns non-real-time services.
-
-Conceptually, Core1 owns:
-
-- HID protocol handling
-- CDC console handling
-- trace decode
-- host command parsing
-- AI bridge state machine
-- human-readable output
-- service heartbeat / diagnostics
-- non-real-time queue handling
-
-Core1 must not directly own:
-
-- V30 bus GPIO
-- PIO bus engines
-- DMA bus-response channels
-- V30 RESET
-- current-cycle bus authority
-
-All interaction with the real-time plane should cross a bounded ownership-transfer interface.
-
----
-
-## 15. Core-to-Core Boundary
-
-Use bounded single-producer / single-consumer communication between the two planes.
-
-### Core1 → Core0
-
-Carries accepted service requests:
-
-```text
-Host / AI request
-        ↓
-Core1 parses / validates
-        ↓
-immutable command object
-        ↓
-bounded SPSC command ring
-        ↓
-Core0 accepts at a legal boundary
-```
-
-Example semantic requests:
-
-```text
-RESET_V30
-RUN_V30
-SEND_V30_MESSAGE
-READ_MEMORY
-WRITE_MEMORY
-QUERY_STATUS
-```
-
-Core1 does not directly execute bus actions.
-
-### Core0 → Core1
-
-Carries immutable evidence and service-visible results:
-
-```text
-V30 / PIO / DMA
-        ↓
-Core0 validates / freezes result
-        ↓
-immutable result object
-        ↓
-bounded SPSC result ring
-        ↓
-Core1 decodes / formats / forwards
-```
-
-Ownership rule:
-
-> **Core0 publishes facts.  
-> Core1 interprets and exposes them.**
-
----
-
-## 16. USB Architecture
-
-Use a USB composite device.
-
-```text
-RP2350 USB Composite Device
-├── HID
-│   ├── structured commands
-│   ├── structured responses
-│   ├── status / events
-│   └── AI ↔ V30 transport
-│
-└── CDC
-    ├── engineering console
-    ├── diagnostic logs
-    ├── trace summaries
-    └── manual interaction
-```
-
-The division is:
-
-> **HID is the machine interface.  
-> CDC is the human interface.**
-
----
-
-## 17. USB Ownership
-
-USB controller / SDK constraints may require some initialization or low-level interrupt plumbing on Core0.
-
-That does not imply that USB application semantics belong to Core0.
-
-Preferred logical ownership:
-
-```text
-Core0
-├── required low-level USB init
-├── minimal IRQ plumbing
-├── real-time supervisor
-└── deterministic-plane ownership
-
-Core1
-├── HID parser
-├── HID response builder
-├── CDC console
-├── trace formatting
-└── AI bridge
-```
-
-If a low-level USB callback executes on Core0, it should remain minimal:
-
-```text
-receive
-↓
-copy / enqueue bounded object
-↓
-return
-```
-
-Avoid placing in that context:
-
-```text
-semantic parsing
-formatting
-trace decode
-blocking waits
-AI bridge logic
-```
-
----
-
-## 18. HID Protocol Role
-
-HID is the primary machine-facing control protocol.
-
-A fixed 64-byte report is sufficient for initial command / response traffic.
-
-Example layout:
-
-```text
-Byte 0      Report ID
-Byte 1      Command
-Byte 2      Flags
-Byte 3      Sequence
-Byte 4-5    Payload Length
-Byte 6-61   Payload
-Byte 62-63  Reserved / integrity field
-```
-
-Possible commands:
-
-```text
-GET_STATUS
-RESET_V30
-RUN_V30
-READ_MEM
-WRITE_MEM
-SEND_V30_MESSAGE
-READ_V30_MESSAGE
-GET_EVENT
-GET_TRACE_SUMMARY
-```
-
-The host utility should hide HID details from the AI layer.
-
-Example:
-
-```text
-v30ctl status
-v30ctl reset
-v30ctl mem-read 0x00100 2
-v30ctl mem-write 0x00100 0x1234
-v30ctl send "WHAT YEAR IS IT?"
-v30ctl recv
-```
-
-The AI interacts with a semantic API rather than raw USB packets.
-
----
-
-## 19. CDC Protocol Role
-
-CDC remains an engineering interface.
-
-Recommended responsibilities:
-
-```text
-help
-status
-reset
-trace
-diagnostic log
-human-readable event output
-```
-
-CDC should not become a second independent control architecture.
-
-Preferred rule:
-
-```text
-HID = authoritative machine protocol
-CDC = observation / manual console
-```
-
----
-
-## 20. AI Bridge Placement
-
-The AI bridge belongs above the service plane.
-
-```text
-                     AI / Codex
-                          │
-                    Host bridge
-                          │
-                         HID
-                          │
-                          ▼
-                    ┌──────────┐
-                    │  Core1   │
-                    │ service  │
-                    └────┬─────┘
-                         │
-                 semantic command
-                         │
-                    ┌────▼─────┐
-                    │  Core0   │
-                    │authority │
-                    └────┬─────┘
-                         │
-                  staged local state
-                         │
-                  ┌──────▼──────┐
-                  │  PIO / DMA  │
-                  │deterministic│
-                  └──────┬──────┘
-                         │
-                         ▼
-                        V30
-```
-
-AI never receives current-cycle ownership.
-
-AI works at the level of:
-
-```text
-intent
-command
-message
-analysis
-decision
-```
-
-RP2350 converts those into bounded, locally executable state.
-
----
-
-## 21. Demonstration Strategy
-
-The first demonstration should be intentionally simple:
-
-```text
-NEC V30      > HELLO AI
-
-OpenAI Codex > HELLO NEC V30
-```
-
-The message is simple; the architecture behind it is not.
-
-This first exchange makes the complete cross-domain path immediately understandable:
-
-```text
-V30 native code
-    ↓
-physical bus
-    ↓
-PIO / DMA
-    ↓
-Core0 authority
-    ↓
-Core1 service
-    ↓
-USB HID
-    ↓
-host AI adapter
-    ↓
-OpenAI Codex
-```
-
-The response then travels back through the same architectural boundaries until it becomes CPU-visible data consumed by the physical V30.
-
-### Level 1 — Communication
-
-```text
-V30 ↔ AI
-"HELLO"
-```
-
-This proves genuine bidirectional transport.
-
-### Level 2 — Information Exchange
-
-The next step should make the response dependent on information originating from the V30.
-
-Example:
-
-```text
-NEC V30      > 1234H + 5678H = ?
-
-OpenAI Codex > 68ACH
-```
-
-The V30 can consume the returned value and compare it with a locally computed result.
-
-```text
-V30 creates information
-        ↓
-AI reasons about information
-        ↓
-AI creates information
-        ↓
-V30 consumes information
-        ↓
-V30 verifies result
-```
-
-This is stronger than a canned greeting because the returned information depends on the V30-originated message.
-
-### Level 3 — Bounded Semantic Authority
-
-A later stage may allow AI to request an allowed high-level action:
-
-```text
-AI
- ↓
-RUN_DIAGNOSTIC 02
- ↓
-Core1 service plane
- ↓
-Core0 authority plane
- ↓
-accepted local action
- ↓
-V30 execution
- ↓
-result returned
-```
-
-The AI still does not receive raw physical bus authority.
-
-The intended progression is therefore:
-
-```text
-Communication
-    ↓
-Information exchange
-    ↓
-Bounded semantic authority
-```
-
-## 22. Asynchronous V30 ↔ AI Communication
-
-The V30 must not synchronously wait for AI inference as part of a bus cycle.
-
-Correct model:
-
-```text
-V30 submits message
-        ↓
-RP2350 accepts and buffers
-        ↓
-V30 continues / polls / waits for interrupt
-
-        ... asynchronous host / AI activity ...
-
-AI response arrives
-        ↓
-RP2350 stages response locally
-        ↓
-V30 observes RX_READY
-        ↓
-V30 reads response
-```
-
-This is the core **temporal decoupling** principle.
-
----
-
-## 23. Phase 1 — Proprietary V30 Mailbox
-
-The simplest initial V30-visible interface is a small I/O mailbox.
-
-Provisional example:
-
-```text
-E0h  STATUS
-E2h  TX_DATA
-E4h  RX_DATA
-E6h  CONTROL
-E8h  DEBUG_DATA
-E9h  DEBUG_CHAR
-```
-
-The exact addresses should remain architecture-dependent until integrated with the complete Pi86 I/O map.
-
-Possible status model:
-
-```text
-bit0  TX_READY
-bit1  RX_READY
-bit2  BUSY
-bit3  ERROR
-```
-
-Architecture:
-
-```text
-V30 OUT
-   ↓
-PIO / DMA
-   ↓
-Core0-authorized mailbox state
-   ↓
-Core1 service
-   ↓
-HID
-   ↓
-Host / AI
-```
-
-Return path:
-
-```text
-AI
- ↓
-HID
- ↓
-Core1
- ↓
-Core0-authorized response state
- ↓
-PIO / DMA
- ↓
-V30 IN
-```
-
----
-
-## 24. Phase 2 — Shared Memory
-
-For larger data, expose a V30-visible shared-memory region.
-
-Concept:
-
-```text
-V30 address space
-
-D0000h
-├── mailbox header
-├── command buffer
-├── response buffer
-└── payload area
-```
-
-Logical structure:
-
-```c
-struct v30_mailbox {
-    uint16_t command;
-    uint16_t status;
-    uint16_t sequence;
-    uint16_t length;
-    uint8_t  payload[256];
-};
-```
-
-Shared memory provides:
-
-- larger messages
-- lower per-byte I/O overhead
-- clearer producer / consumer semantics
-- natural extensibility toward structured services
-
----
-
-## 25. Phase 3 — Interrupt-Driven Delivery
-
-Polling is sufficient initially.
-
-A later architecture can provide asynchronous notification:
-
-```text
-AI response
-   ↓
-Host
-   ↓
-HID
-   ↓
-Core1
-   ↓
-Core0 stages accepted data
-   ↓
-IRQ pending
-   ↓
-V30 interrupt path
-   ↓
-V30 ISR
-   ↓
-message consumed
-```
-
-This fits naturally once an 8259-compatible interrupt architecture exists.
-
----
-
-## 26. Phase 4 — Software-Defined COM1
-
-The most historically natural long-term interface is a software-defined 8250 / 16450-compatible UART.
-
-```text
-AI / Codex
-    ↕
-Host bridge
-    ↕
-USB
-    ↕
-Core1 service
-    ↕
-Core0-authorized virtual peripheral state
-    ↕
-PIO / DMA
-    ↕
-virtual 8250 UART
-    ↕
-3F8h–3FFh / IRQ4
-    ↕
-NEC V30
-```
-
-From the V30 or DOS perspective:
-
-```text
-COM1
-```
-
-The V30 does not need to know that the remote endpoint is AI.
-
-That separation is architecturally valuable:
-
-```text
-V30 software
-      ↓
-standard historical peripheral abstraction
-      ↓
-RP2350 translation layer
-      ↓
-modern host
-      ↓
-AI
-```
-
----
-
-## 27. Timing Domains
-
-The complete system spans several very different timing domains.
-
-```text
-AI / Codex
-milliseconds → seconds
-        ↓
-Host application
-milliseconds
-        ↓
-USB / Core1 service plane
-microseconds → milliseconds
-        ↓
-Core0 supervisory plane
-bounded control handoff
-        ↓
-PIO / DMA data plane
-bus-cycle scale
-        ↓
+      ↕
+Core1 Service Plane
+      ↕
+Core0 Supervisory Plane
+      ↕
+PIO / DMA Data Plane
+      ↕
 Physical NEC V30
 ```
 
-The architecture must absorb latency between domains rather than propagate it downward.
+### PIO / DMA Data Plane
 
-This is why buffers, mailboxes, state machines, and explicit ownership boundaries are fundamental rather than incidental.
+PIO and DMA own the deterministic V30-facing behavior:
 
----
+- capture of qualified V30 I/O activity
+- delivery of locally prepared receive data
+- AD bus and PINDIRS timing
+- byte-lane handling
+- movement of bus records and message data
 
-## 28. Semantic Boundary
+### Core0 Supervisory Plane
 
-The AI should never manipulate raw physical signals directly.
+Core0 owns the RP2350 side of the V30 machine boundary:
 
-Avoid AI-level operations such as:
+- V30 RESET and clock supervision
+- PIO and DMA configuration
+- preparation and publication of local mailbox state
+- acceptance of a complete `AI_TO_V30_MESSAGE` from Core1
+- transition of the inbound message into V30-visible state
+- transfer of a completed `V30_TO_AI_MESSAGE` to Core1
 
-```text
-ASSERT_READY
-DRIVE_DATA_BUS
-TOGGLE_RD
-RESPOND_THIS_CYCLE
-```
+### Core1 Service Plane
 
-Prefer semantic operations:
+Core1 owns the external message service:
 
-```text
-SEND_MESSAGE
-READ_MEMORY
-WRITE_MEMORY
-RESET_MACHINE
-QUERY_STATUS
-START_PROGRAM
-```
+- USB application-level handling
+- inbound `AI_TO_V30_MESSAGE` reception
+- outbound `V30_TO_AI_MESSAGE` packaging
+- communication with the Host Bridge
+- CDC transcript and engineering output
+- service-plane buffering
 
-Translation occurs downward:
+Low-level USB initialization or interrupt plumbing may execute where required by the RP2350 SDK. USB application semantics remain part of the Core1 service role.
 
-```text
-AI intent
-   ↓
-semantic host command
-   ↓
-Core1 service object
-   ↓
-Core0-authorized state
-   ↓
-PIO/DMA deterministic behavior
-   ↓
-physical V30 bus
-```
+### Host Bridge
 
-This preserves the separation between:
+The host bridge owns the USB connection, provider-neutral message encoding and delivery, V30 reply reception, and bridge-level conversation logging.
 
-- reasoning
-- policy
-- authority
-- implementation
-- physical timing
+### Codex Adapter
+
+The Codex adapter owns Codex greeting acquisition, provider-specific interaction, delivery of the opening greeting into the Host Bridge API, and return of the V30-originated reply to Codex.
+
+### OpenAI Codex
+
+Codex produces the opening greeting and receives the V30-originated reply. It does not participate in V30 bus timing or RP2350-local delivery.
 
 ---
 
-## 29. End-to-End Conversation Architecture
+## 6. V30-Visible Message Interface
 
-A conceptual exchange:
+The V30 communicates through a compact I/O mailbox abstraction:
 
 ```text
-Physical V30
-    │
-    │ native code generates:
-    │ "WHAT YEAR IS IT?"
-    ▼
-V30-visible TX mailbox
-    ▼
-PIO / DMA
-    ▼
-Core0
-    ▼
-immutable service event
-    ▼
-Core1
-    ▼
-HID
-    ▼
-Host bridge
-    ▼
-AI
-    │
-    │ "2026"
-    ▼
-Host bridge
-    ▼
-HID
-    ▼
-Core1
-    ▼
-semantic response
-    ▼
-Core0
-    ▼
-locally staged RX state
-    ▼
-PIO / DMA
-    ▼
-V30-visible RX mailbox
-    ▼
-Physical V30 consumes response
+STATUS
+TX_DATA
+RX_DATA
+CONTROL
 ```
 
-This is a genuine bidirectional system interaction while preserving deterministic local execution.
+Final I/O addresses are defined by the pi86-rp2350 I/O map rather than by this document.
+
+`TX` and `RX` are named from the **V30 perspective**:
+
+```text
+TX = V30 → host / AI
+RX = host / AI → V30
+```
+
+### STATUS
+
+```text
+TX_READY
+TX_ACCEPTED
+RX_READY
+RX_END
+SERVICE_BUSY
+SERVICE_ERROR
+```
+
+### TX_DATA
+
+The V30 writes its reply bytes:
+
+```text
+H E L L O   O P E N A I   C O D E X
+```
+
+### RX_DATA
+
+The V30 reads the Codex greeting bytes:
+
+```text
+H E L L O   N E C   V 3 0
+```
+
+### CONTROL
+
+```text
+TX_BEGIN
+TX_COMMIT
+RX_ACK
+CLEAR_ERROR
+```
+
+The mailbox represents complete messages at the service boundary while preserving byte-oriented access for native V30 software.
+
+### Mailbox Ownership
+
+Each mailbox direction has exactly one producer and one consumer at each ownership state.
+
+Codex-to-V30 receive path:
+
+```text
+Core0 owns RX construction
+        ↓ publish / commit
+V30 owns the readable RX message
+        ↓ RX_ACK
+Core0 owns the RX buffer again
+```
+
+V30-to-Codex transmit path:
+
+```text
+V30 owns TX construction
+        ↓ TX_COMMIT
+Core0 owns the completed TX message
+        ↓ publish
+Core1 owns the service object
+        ↓ USB transfer complete
+Core1 releases the object
+```
+
+Ownership transfer occurs only at explicit message boundaries. No layer may modify a message after ownership has been transferred.
+
+The existing pi86-rp2350 diagnostic console remains a separate engineering interface and is not the AI message mailbox.
 
 ---
 
-## 30. Observability
-
-The architecture should expose two views of the same interaction.
-
-### Human-Facing Transcript
+## 7. Timing and Message Decoupling
 
 ```text
-NEC V30      > HELLO AI
+V30 bus cycle
+    ↕
+PIO / DMA cycle-exact behavior
+    ↕
+Core0 bounded supervision
+    ↕
+Core1 / USB service timing
+    ↕
+Host and Codex interaction timing
+```
+
+The V30 bus consumes RP2350-local state. The hardware and V30 native program reach `V30_READY` before the user begins the Codex interaction.
+
+Codex-to-V30 path:
+
+```text
+Codex greeting reaches the RP2350
+        ↓
+the complete greeting is stored locally
+        ↓
+RX_READY becomes V30-visible
+        ↓
+V30 reads locally available bytes
+```
+
+V30-to-Codex path:
+
+```text
+V30 writes reply bytes
+        ↓
+RP2350 captures and assembles the reply
+        ↓
+the complete reply enters the service path
+```
+
+The V30 may continue executing, poll status, or wait through a V30 software mechanism before the Codex greeting arrives. No V30 bus transaction remains open for the duration of the host or Codex interaction.
+
+---
+
+## 8. Core-to-Core Message Boundary
+
+Core0 and Core1 exchange bounded message objects through single-owner queues.
+
+### Codex to V30
+
+```text
+Core1 receives a complete AI_TO_V30_MESSAGE
+        ↓
+Core1 publishes the inbound message to Core0
+        ↓
+Core0 stages the message in local SRAM
+        ↓
+PIO / DMA exposes it through RX_DATA
+```
+
+### V30 to Codex
+
+```text
+PIO / DMA captures the V30 reply
+        ↓
+Core0 freezes the complete reply
+        ↓
+Core0 publishes a V30_TO_AI_MESSAGE to Core1
+        ↓
+Core1 transfers it over USB
+```
+
+A queue element contains:
+
+```text
+message type
+sequence
+length
+payload
+result status
+```
+
+Message ownership changes when a complete object is published across the boundary.
+
+---
+
+## 9. USB and Host Protocol
+
+The RP2350 appears to the host as a USB composite device:
+
+```text
+USB Composite Device
+├── HID machine-facing message transport
+└── CDC engineering console
+```
+
+### Machine-Facing Transport
+
+The machine transport carries:
+
+```text
+protocol version
+message type
+sequence
+payload length
+payload
+result status
+```
+
+USB HID provides the bounded machine-facing transport. The semantic message definition remains independent of the USB report layout.
+
+Representative message types are:
+
+```text
+AI_TO_V30_MESSAGE
+V30_TO_AI_MESSAGE
+QUERY_BRIDGE_STATUS
+BRIDGE_STATUS
+```
+
+### CDC Engineering Console
+
+CDC presents the human-readable transcript and compact engineering state:
+
+```text
+[CODEX]
+HELLO NEC V30
+
+[V30]
+HELLO OPENAI CODEX
+```
+
+CDC observes and reports the interaction carried by the machine-facing path.
+
+### Host Bridge API
+
+```text
+submit_ai_message(message)
+receive_v30_message()
+query_bridge_status()
+```
+
+### Codex Adapter API
+
+Conceptually, the Codex adapter maps provider-specific interaction onto the Host Bridge API:
+
+```text
+receive_codex_greeting()
+submit_ai_message(message)
+
+receive_v30_message()
+send_reply_to_codex(message)
+```
+
+Codex session behavior, provider configuration, prompt formatting, and provider-specific handling remain entirely inside the Codex adapter.
+
+---
+
+## 10. Codex-to-V30 Greeting Flow
+
+```text
+1. The hardware starts before the Codex interaction begins.
+2. The physical V30 reaches its native message program.
+3. The RP2350 reports `V30_READY` over USB HID to the Host Bridge.
+4. The user begins the Codex interaction.
+5. OpenAI Codex produces "HELLO NEC V30".
+6. The Codex Adapter submits the greeting as an `AI_TO_V30_MESSAGE` through the Host Bridge API.
+7. Core1 receives the complete greeting over USB.
+8. Core1 publishes the greeting to Core0.
+9. Core0 stages the greeting in RP2350 internal SRAM.
+10. The V30-visible mailbox reports RX_READY.
+11. The physical V30 reads the greeting through RX_DATA.
+12. The V30 acknowledges greeting consumption.
+```
+
+The first conversational message is generated by Codex after the already-running physical system reports that the V30 message interface is ready.
+
+---
+
+## 11. V30-to-Codex Reply Flow
+
+```text
+1. Native V30 code recognizes the completed Codex greeting.
+2. The V30 generates "HELLO OPENAI CODEX".
+3. The V30 writes the reply through TX_DATA.
+4. PIO / DMA captures the qualified V30 I/O transfers.
+5. Core0 publishes a complete `V30_TO_AI_MESSAGE`.
+6. Core1 packages the reply for USB transport.
+7. The Host Bridge receives the V30 reply.
+8. The Codex Adapter delivers the reply to OpenAI Codex.
+9. The bridge records completion of the conversation.
+```
+
+Completion occurs when OpenAI Codex receives the reply generated by native code on the physical V30.
+
+---
+
+## 12. Conversation State
+
+```text
+BOOT
+  ↓ physical V30 reaches its native message program
+V30_READY
+  ↓ user begins the Codex interaction
+AI_TO_V30_MESSAGE
+  ↓ complete greeting is staged locally
+V30_RX_READY
+  ↓ V30 reads the greeting and builds its native reply
+V30_REPLY_PENDING
+  ↓ V30 commits the complete reply
+V30_TO_AI_MESSAGE
+  ↓ Host Bridge and Codex Adapter deliver the reply
+CODEX_RX
+  ↓ Codex receives the V30 reply
+CONVERSATION_COMPLETE
+```
+
+The sequence identifier links:
+
+- Codex greeting
+- RP2350 inbound greeting message
+- V30 greeting consumption
+- V30 reply bytes
+- RP2350 outbound reply message
+- Codex receipt of the V30 reply
+
+---
+
+## 13. Observability
+
+The architecture exposes two synchronized views.
+
+### Human-Readable Conversation
+
+```text
 OpenAI Codex > HELLO NEC V30
+NEC V30      > HELLO OPENAI CODEX
 ```
 
-This makes the milestone immediately understandable.
-
-### Engineering View
+### Engineering Evidence
 
 ```text
-V30 TX message
-    ↓
-PIO / DMA qualified transfer
-    ↓
-Core0 publication
-    ↓
-Core1 service event
-    ↓
-USB HID transaction
-    ↓
-host AI adapter
-    ↓
-AI response
-    ↓
-Core1 receive
-    ↓
-Core0 authorized staging
-    ↓
-PIO / DMA deterministic delivery
-    ↓
-V30 CPU-visible consumption
+V30_READY published
+Codex greeting accepted by the Host Bridge
+Core1 inbound greeting received
+Core0 greeting staged
+V30 RX greeting bytes served
+V30 greeting consumption acknowledged
+V30 TX reply bytes captured
+Core0 outbound reply published
+Core1 USB reply transfer completed
+Codex received the V30 reply
 ```
 
-CDC is the natural place for human-readable diagnostics and trace summaries, while HID remains the authoritative machine-facing protocol.
+Compact evidence includes the conversation sequence, greeting and reply text, V30 I/O transfer count, Core0/Core1 publication state, USB state, V30 greeting consumption, and Codex receipt of the reply.
 
-This gives the same milestone both:
-
-- an immediately understandable story
-- an inspectable engineering path
-
-## 31. Architectural Evolution
-
-The communication architecture can evolve without changing the upper-level AI model.
-
-```text
-AI / Host API
-      │
-      ▼
-HID semantic protocol
-      │
-      ▼
-RP2350 service architecture
-      │
-      ├── proprietary I/O mailbox
-      │
-      ├── shared memory
-      │
-      ├── interrupt-driven service
-      │
-      └── virtual 8250 / COM1
-      │
-      ▼
-Physical V30
-```
-
-This allows the V30-facing implementation to become progressively more PC-compatible while preserving a stable host-facing abstraction.
+Raw bus traces remain engineering evidence. The transcript remains the canonical presentation of the completed interaction.
 
 ---
 
-## 32. Why the V30 Makes the Story Memorable
+## 14. Success Definition
 
-The cross-generational aspect is not the technical justification, but it is part of what makes the experiment memorable.
+The target interaction is complete when:
 
-```text
-1980s CPU
-   ↕
-physical deterministic bus
-   ↕
-2020s programmable microcontroller
-   ↕
-modern USB interface
-   ↕
-AI
-```
+1. A physical NEC V30 reaches its native program through the pi86-rp2350 bus architecture.
+2. The RP2350 reports that the V30 message interface is ready before the Codex interaction begins.
+3. OpenAI Codex generates `HELLO NEC V30` as the first conversational message.
+4. The greeting crosses the host, USB, and RP2350 message path.
+5. The greeting becomes locally staged V30-visible data.
+6. The physical V30 reads every greeting byte.
+7. Native V30 code generates `HELLO OPENAI CODEX` in reply.
+8. The reply crosses the physical V30 bus and RP2350 message path.
+9. The Codex Adapter delivers the V30-originated reply to OpenAI Codex.
+10. The system records completion of the same conversation sequence.
+11. CDC presents the complete human-readable conversation.
 
-The physical V30 does not change.
-
-The machine around it does.
-
-Potential article title:
-
-> **A 1980s CPU Talks to AI**
-
-Possible subtitle:
-
-> **A physical NEC V30, a Raspberry Pi RP2350, and an AI host — connected across four decades of computing.**
-
-Narrative progression:
+The visible result is:
 
 ```text
-The V30 said hello.
-        ↓
-Now it can remember.
-        ↓
-Now it can communicate.
-        ↓
-A 1980s CPU talks to AI.
+OpenAI Codex > HELLO NEC V30
+NEC V30      > HELLO OPENAI CODEX
 ```
 
 ---
 
-## 33. Architecture Summary
-
-The architecture intentionally separates four concerns:
+## 15. Architecture Summary
 
 ```text
-AI
-= reasoning
+OpenAI Codex
+    ↕ provider-specific interaction
+Codex Adapter
+    ↕ provider-neutral semantic message
+Host Bridge
+    ↕ structured USB HID message
+Core1 Service Plane
+    ↕ complete bounded message object
+Core0 Supervisory Plane
+    ↕ locally staged V30-visible state
+PIO / DMA Data Plane
+    ↕ deterministic physical bus transfer
+NEC V30 Native Program
+```
 
-Core1
-= services and external communication
+Responsibilities are:
+
+```text
+PIO / DMA
+    V30 bus timing and data transfer
 
 Core0
-= bounded authority and supervision
+    RP2350-side V30 machine boundary
 
-PIO / DMA
-= deterministic physical execution
+Core1
+    external message service
+
+Host Bridge
+    provider-neutral semantic bridge and USB transport
+
+Codex Adapter
+    Codex-specific integration
+
+OpenAI Codex
+    creates the opening greeting and receives the V30 reply
 ```
 
-The core principle is:
+The target is:
 
-> **Reasoning is slow and flexible.  
-> Authority is bounded.  
-> Execution is deterministic.  
-> The physical CPU sees only a coherent machine.**
+> **After the physical NEC V30 is running, OpenAI Codex sends “HELLO NEC V30.” The V30 consumes the greeting through its native bus interface and replies “HELLO OPENAI CODEX.”**
+
+---
 
 ## Hardware References
 

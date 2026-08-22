@@ -95,6 +95,15 @@ The other M33 role owns work that must not block a V30 response:
 
 Communication between the real-time and service roles should use bounded, lock-free queues or explicit ownership transfer. Slow service completion is never assumed to meet a bus-cycle deadline.
 
+The accepted AI Bridge target uses this service boundary for a Codex-first
+conversation with the physical V30. A provider-neutral Host Bridge terminates
+USB HID messages, while Codex-specific behavior remains in a separate logical
+Codex Adapter. Core1 exchanges complete `AI_TO_V30_MESSAGE` and
+`V30_TO_AI_MESSAGE` objects with Core0; the V30 bus consumes only locally
+staged state. See [`ai_bridge_architecture.md`](ai_bridge_architecture.md) for
+the canonical message flow, ownership, conversation state, and success
+definition.
+
 ## Scattered AD bus strategy
 
 The original HAT maps V30 AD0-AD15 across scattered RP2350 GPIOs. PC1-B proved the following approach:

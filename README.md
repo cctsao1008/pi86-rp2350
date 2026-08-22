@@ -161,6 +161,25 @@ The I/O-space architecture is intended to support software-defined PC-class peri
 
 These peripherals are parallel branches of the V30 I/O-space architecture rather than a strict implementation sequence.
 
+## Accepted target: OpenAI Codex greets the physical NEC V30
+
+The accepted AI Bridge target begins after the hardware and native V30 message
+program are already running. The RP2350 reports `V30_READY` over USB HID; when
+the user begins a Codex interaction, Codex sends the first conversational
+message and the physical V30 replies through its native bus interface:
+
+```text
+OpenAI Codex > HELLO NEC V30
+NEC V30      > HELLO OPENAI CODEX
+```
+
+The Host Bridge remains provider-neutral, while Codex-specific session behavior
+terminates in a host-side Codex Adapter. This is an accepted target architecture,
+not a claim that the end-to-end interaction has already been implemented. See
+[`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) for the
+canonical responsibilities, message ownership, HID/CDC boundary, conversation
+state, and success definition.
+
 ## Current milestone: Native BIOS says HELLO
 
 On 2026-08-19, the physical V30 completed the `PC1-C0C0-H` Native BIOS
@@ -297,7 +316,7 @@ Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8
 ## Documentation
 
 - [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
-- [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) — proposed architecture for asynchronous AI/host interaction with the physical V30 through bounded semantic authority and deterministic RP2350 execution
+- [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) — accepted target architecture for a Codex-first greeting and native physical-V30 reply through the provider-neutral Host Bridge
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
 - [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) — current HAT assessment, limitations, and staged improvement strategy
 - [`docs/native_bios_diagnostic_console.md`](docs/native_bios_diagnostic_console.md) — early Native BIOS `0xE9` output contract
