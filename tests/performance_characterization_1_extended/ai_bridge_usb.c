@@ -31,6 +31,27 @@ void pi86_ai_bridge_usb_task(void) {
     tud_task();
 }
 
+bool pi86_ai_bridge_cdc_write(const char *data, uint32_t length,
+                              uint32_t timeout_us) {
+    const uint64_t deadline = time_us_64() + timeout_us;
+    uint32_t offset = 0u;
+    while (offset < length && time_us_64() <= deadline) {
+        pi86_ai_bridge_usb_task();
+        if (!tud_cdc_connected()) continue;
+        const uint32_t available = tud_cdc_write_available();
+        if (available == 0u) {
+            tud_cdc_write_flush();
+            continue;
+        }
+        uint32_t count = length - offset;
+        if (count > available) count = available;
+        offset += tud_cdc_write(data + offset, count);
+        tud_cdc_write_flush();
+    }
+    pi86_ai_bridge_usb_task();
+    return offset == length;
+}
+
 bool pi86_ai_bridge_hid_take_record(
     uint8_t record[PI86_BRIDGE_MESSAGE_SIZE]) {
     if (!g_hid_out_ready || g_hid_out_taken) return false;

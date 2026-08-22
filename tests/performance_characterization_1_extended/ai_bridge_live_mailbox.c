@@ -25,6 +25,7 @@
 #undef AI_B1A_MAIN
 
 #include "hardware/regs/dma.h"
+#include <stdarg.h>
 
 #ifdef AI_BRIDGE_HID_TRANSPORT
 #include "ai_bridge_usb.h"
@@ -489,6 +490,20 @@ static bool ai_b1b_pass(const ai_b1b_result_t *r) {
         ;
 }
 
+#ifdef AI_BRIDGE_HID_TRANSPORT
+static int evidence_printf(const char *format, ...) {
+    char line[256];
+    va_list args;
+    va_start(args, format);
+    const int length = vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (length < 0 || (size_t)length >= sizeof line) return -1;
+    return pi86_ai_bridge_cdc_write(line, (uint32_t)length,
+                                    HOST_RECORD_TIMEOUT_US) ? length : -1;
+}
+#define printf(...) evidence_printf(__VA_ARGS__)
+#endif
+
 static void print_ai_b1b(const ai_b1b_result_t *r) {
     const pc1c0c_result_t *b = &r->base;
     printf("\n[HOST MAILBOX INPUT]\nHELLO NEC V30\n");
@@ -593,6 +608,10 @@ static void print_ai_b1b(const ai_b1b_result_t *r) {
     printf("TERMINAL SAFE STATE        = %s\n", pass_fail(b->terminal_safe));
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
 }
+
+#ifdef AI_BRIDGE_HID_TRANSPORT
+#undef printf
+#endif
 
 int main(void) {
     prepare_response_tables();

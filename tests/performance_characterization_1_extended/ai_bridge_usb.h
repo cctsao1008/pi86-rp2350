@@ -12,6 +12,8 @@
 
 void pi86_ai_bridge_usb_init(void);
 void pi86_ai_bridge_usb_task(void);
+bool pi86_ai_bridge_cdc_write(const char *data, uint32_t length,
+                              uint32_t timeout_us);
 bool pi86_ai_bridge_hid_take_record(
     uint8_t record[PI86_BRIDGE_MESSAGE_SIZE]);
 bool pi86_ai_bridge_hid_send_record(
