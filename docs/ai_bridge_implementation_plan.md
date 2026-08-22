@@ -163,6 +163,12 @@ STATUS ordering, simultaneous deferred-DMA publication, 121/121 ROM pairs, 9/9
 mailbox pairs, zero deadline misses, the exact 230-byte ROM identity, and the
 terminal RESET-high/CLK-low/AD-high-Z state.
 
+On RP2350 an untriggered `CHx_TRANS_COUNT` exposes the zero live counter; the
+programmed deferred count is the separate RELOAD value reported by
+`CHx_DBG_TCR`. The clean pre-release gate therefore requires live counts `0/0`,
+reload counts `8/8`, idle channels, and one prearmed NOT_READY word in each PIO
+FIFO. Treating the zero live count as an unarmed DMA is incorrect.
+
 #### AI-B1-C: sustained message exchange
 
 Repeat complete records in both directions, validate sequence and ownership

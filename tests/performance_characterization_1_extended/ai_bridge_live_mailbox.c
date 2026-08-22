@@ -23,6 +23,8 @@
 #undef PC1C_DUAL_SEQUENCER_HEADER
 #undef AI_B1A_MAIN
 
+#include "hardware/regs/dma.h"
+
 #define LIVE_STATUS_PORT                 0x00E0u
 #define LIVE_DATA_PORT                   0x00E4u
 #define LIVE_TX_PORT                     0x00E2u
@@ -51,6 +53,7 @@ typedef struct {
     bool first_not_ready_observed;
     bool publication_triggered;
     bool publication_atomic;
+    bool deferred_dma_armed;
     bool status_transition_ok;
     bool mailbox_reads_ok;
     bool checksum_ok;
@@ -68,6 +71,8 @@ typedef struct {
     uint32_t mailbox_pairs;
     uint32_t mailbox_key_dma_pre;
     uint32_t mailbox_response_dma_pre;
+    uint32_t mailbox_key_reload_pre;
+    uint32_t mailbox_response_reload_pre;
     uint32_t mailbox_key_dma_post;
     uint32_t mailbox_response_dma_post;
     uint32_t mailbox_matcher_fifo_pre;
@@ -175,6 +180,17 @@ static int configure_deferred_tx_dma(const pc1c_sm_t *sm,
     return channel;
 }
 
+static uint32_t dma_reload_count(int channel) {
+    /* RP2350 separates the programmed RELOAD count from the live counter.
+     * Before a deferred channel is triggered, CHx_TRANS_COUNT correctly reads
+     * zero; CHx_DBG_TCR is the hardware-backed proof that the next trigger will
+     * load the complete immutable stream. DMA channel register blocks use a
+     * 0x40-byte stride. */
+    const uintptr_t address = DMA_BASE + DMA_CH0_DBG_TCR_OFFSET +
+        (uintptr_t)(uint)channel * 0x40u;
+    return (*(const volatile uint32_t *)address) & 0x0FFFFFFFu;
+}
+
 static void classify_live_mailbox(ai_b1b_result_t *r) {
     for (uint32_t i = 0u; i < r->base.trace_count; ++i) {
         const bus_trace_t *entry = &r->base.trace[i];
@@ -278,6 +294,16 @@ static void run_ai_b1b(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
     b->responder_dma_pre = dma_remaining(rom_response_dma);
     r->mailbox_key_dma_pre = dma_remaining(mailbox_key_dma);
     r->mailbox_response_dma_pre = dma_remaining(mailbox_response_dma);
+    r->mailbox_key_reload_pre = dma_reload_count(mailbox_key_dma);
+    r->mailbox_response_reload_pre =
+        dma_reload_count(mailbox_response_dma);
+    r->deferred_dma_armed =
+        r->mailbox_key_dma_pre == 0u &&
+        r->mailbox_response_dma_pre == 0u &&
+        r->mailbox_key_reload_pre == LIVE_PUBLISHED_PAIRS &&
+        r->mailbox_response_reload_pre == LIVE_PUBLISHED_PAIRS &&
+        !dma_channel_is_busy((uint)mailbox_key_dma) &&
+        !dma_channel_is_busy((uint)mailbox_response_dma);
 
     route_ad_to_responder(rom_responder);
     b->pre_pio1_padoe = pio1->dbg_padoe;
@@ -292,10 +318,7 @@ static void run_ai_b1b(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
         b->matcher_fifo_pre == 4u && b->responder_fifo_pre == 4u &&
         r->mailbox_matcher_fifo_pre == 1u &&
         r->mailbox_responder_fifo_pre == 1u &&
-        r->mailbox_key_dma_pre == LIVE_PUBLISHED_PAIRS &&
-        r->mailbox_response_dma_pre == LIVE_PUBLISHED_PAIRS &&
-        !dma_channel_is_busy((uint)mailbox_key_dma) &&
-        !dma_channel_is_busy((uint)mailbox_response_dma) &&
+        r->deferred_dma_armed &&
         b->observer_dma_pre == OBSERVER_WORDS &&
         b->clock_direction_armed && r->key_sets_disjoint &&
         !gpio_get(V30_PIN_CLK) &&
@@ -416,6 +439,7 @@ static bool ai_b1b_pass(const ai_b1b_result_t *r) {
         b->deadline_misses == 0u && b->terminal_safe &&
         r->windows_record_complete && r->core1_record_complete &&
         r->core0_record_valid && r->staging_atomic &&
+        r->deferred_dma_armed &&
         r->first_not_ready_observed && r->publication_triggered &&
         r->publication_atomic && r->status_transition_ok &&
         r->mailbox_reads_ok && r->checksum_ok && r->reply_ok &&
@@ -443,6 +467,10 @@ static void print_ai_b1b(const ai_b1b_result_t *r) {
            pass_fail(r->core1_record_complete));
     printf("Core0 immutable staging    %s\n",
            pass_fail(r->core0_record_valid && r->staging_atomic));
+    printf("Deferred DMA reload gate   %s (%lu/%lu words)\n",
+           pass_fail(r->deferred_dma_armed),
+           (unsigned long)r->mailbox_key_reload_pre,
+           (unsigned long)r->mailbox_response_reload_pre);
     printf("V30 STATUS 00E0 transition %s (0 -> 1)\n",
            pass_fail(r->status_transition_ok));
     printf("Publication after NOT_READY%s\n",
@@ -487,11 +515,15 @@ static void print_ai_b1b(const ai_b1b_result_t *r) {
     printf("Mailbox qualified pairs    = %lu/%u %s\n",
            (unsigned long)r->mailbox_pairs, LIVE_TOTAL_PAIRS,
            pass_fail(r->mailbox_pairs == LIVE_TOTAL_PAIRS));
-    printf("Mailbox DMA pre/post       = key %lu/%lu response %lu/%lu\n",
+    printf("Mailbox DMA live pre/post  = key %lu/%lu response %lu/%lu\n",
            (unsigned long)r->mailbox_key_dma_pre,
            (unsigned long)r->mailbox_key_dma_post,
            (unsigned long)r->mailbox_response_dma_pre,
            (unsigned long)r->mailbox_response_dma_post);
+    printf("Mailbox DMA reload count   = key %lu response %lu %s\n",
+           (unsigned long)r->mailbox_key_reload_pre,
+           (unsigned long)r->mailbox_response_reload_pre,
+           pass_fail(r->deferred_dma_armed));
     printf("Response deadline misses   = %lu %s\n",
            (unsigned long)b->deadline_misses,
            pass_fail(b->deadline_misses == 0u));

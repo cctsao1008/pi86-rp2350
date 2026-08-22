@@ -124,6 +124,10 @@ AI_B1_B = ValidationProfile(
         _line("Core1 complete record", r"Core1 complete record\s+PASS"),
         _line("Core0 immutable staging", r"Core0 immutable staging\s+PASS"),
         _line(
+            "deferred DMA reload gate",
+            r"Deferred DMA reload gate\s+PASS \(8/8 words\)",
+        ),
+        _line(
             "STATUS transition",
             r"V30 STATUS 00E0 transition\s+PASS \(0 -> 1\)",
         ),
@@ -160,8 +164,12 @@ AI_B1_B = ValidationProfile(
             r"Mailbox qualified pairs\s+=\s+9/9 PASS",
         ),
         _line(
-            "mailbox DMA publication",
-            r"Mailbox DMA pre/post\s+=\s+key 8/0 response 8/0",
+            "mailbox DMA live count",
+            r"Mailbox DMA live pre/post\s+=\s+key 0/0 response 0/0",
+        ),
+        _line(
+            "mailbox DMA reload count",
+            r"Mailbox DMA reload count\s+=\s+key 8 response 8 PASS",
         ),
         _line("deadline gate", r"Response deadline misses\s+=\s+0 PASS"),
         _line(
