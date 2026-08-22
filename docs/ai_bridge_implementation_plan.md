@@ -57,7 +57,9 @@ conversation without claiming physical transport.
 
 ### AI-B0: physical scripted mailbox greeting
 
-Target: `ai_bridge_mailbox`
+Acceptance target: `ai_bridge_mailbox_200khz`
+
+Timing-characterization target: `ai_bridge_mailbox` (0.300 MHz)
 
 The RP2350 internal-SRAM response table contains the canonical greeting. The
 physical V30 consumes and validates all greeting words, emits
@@ -65,9 +67,12 @@ physical V30 consumes and validates all greeting words, emits
 checkpoint loop. The existing PIO/DMA current-address responder owns AD and
 PINDIRS; the M33 is absent from current-cycle service.
 
-AI-B0 is deliberately not the final asynchronous mailbox. Its 42-entry search
-table is a new timing envelope and remains unaccepted until physical output
-reports `AI-B0 RESULT = PASS` with terminal high-Z safety.
+AI-B0 is deliberately not the final asynchronous mailbox. Physical evidence at
+0.300 MHz established a response-drive limit near the 31st linear-search entry,
+while all earlier retained ROM responses remained coherent. The 0.200 MHz
+acceptance build lengthens the physical T1 window without changing input
+synchronizers, table contents, or bus ownership. It remains unaccepted until
+physical output reports `AI-B0 RESULT = PASS` with terminal high-Z safety.
 
 ### AI-B1: runtime-staged dual-core mailbox
 

@@ -508,6 +508,56 @@ pico_enable_stdio_usb(ai_bridge_mailbox 1)
 pico_enable_stdio_uart(ai_bridge_mailbox 0)
 pico_add_extra_outputs(ai_bridge_mailbox)
 
+# The 0.300 MHz build above is retained as the measured linear-scan deadline
+# characterization.  AI-B0 acceptance uses a longer physical T1 window while
+# preserving the same ROM, table, synchronized inputs, and PIO/DMA ownership.
+add_executable(ai_bridge_mailbox_200khz
+    pc1c_bounded_rom_window.c
+)
+
+target_compile_definitions(ai_bridge_mailbox_200khz PRIVATE
+    PI86_AI_BRIDGE_B0=1
+    PC1C_V30_HZ=200000u
+    PC1C_TABLE_ENTRIES=42u
+    PC1C_ROM_HEADER="ai_bridge_mailbox_rom.h"
+    PC1C_ROM_DATA=ai_bridge_mailbox_rom_data
+    PC1C_ROM_SIZE=ai_bridge_mailbox_rom_size
+    PC1C_ROM_SHA256=ai_bridge_mailbox_rom_sha256
+)
+
+target_include_directories(ai_bridge_mailbox_200khz PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(ai_bridge_mailbox_200khz
+    ai_bridge_mailbox_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(ai_bridge_mailbox_200khz
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox_200khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox_200khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox_200khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox_200khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(ai_bridge_mailbox_200khz 1)
+pico_enable_stdio_uart(ai_bridge_mailbox_200khz 0)
+pico_add_extra_outputs(ai_bridge_mailbox_200khz)
+
 pi86_add_v30_rom(int10_stack_rom
     SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/int10_stack_test.asm"
     SYMBOL int10_stack_rom

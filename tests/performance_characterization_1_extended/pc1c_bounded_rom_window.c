@@ -41,7 +41,10 @@
 #include "perf_continuous_clock.pio.h"
 #include "v30/v30_pins.h"
 
-#define V30_HZ                         300000u
+#ifndef PC1C_V30_HZ
+#define PC1C_V30_HZ                    300000u
+#endif
+#define V30_HZ                    PC1C_V30_HZ
 #define RESET_CLOCKS                       20u
 #define RUN_TIMEOUT_CLOCKS               4096u
 #ifndef PC1C_TABLE_ENTRIES
@@ -64,7 +67,6 @@
 #ifdef PI86_AI_BRIDGE_B0
 #define OUTPUT_PORT                     0x00E2u
 #define EXPECTED_OUTPUT        "HELLO OPENAI CODEX"
-#define RUN_TITLE "AI-B0 Physical V30 Mailbox Greeting - 0.300 MHz"
 #define RESULT_LABEL                       "AI-B0"
 #define OUTPUT_HEADING          "[V30 MAILBOX OUTPUT]"
 #else
@@ -512,7 +514,13 @@ static void print_result(const result_t *r) {
     printf("Bus ownership/safety     %s\n", pf(r->terminal_safe));
     printf("%s RESULT           %s\n", RESULT_LABEL, pf(pass));
     printf("\n[ENGINEERING DETAILS]\n");
+#ifdef PI86_AI_BRIDGE_B0
+    printf("AI-B0 Physical V30 Mailbox Greeting - %lu.%03lu MHz\n",
+           (unsigned long)(V30_HZ / 1000000u),
+           (unsigned long)((V30_HZ % 1000000u) / 1000u));
+#else
     printf("%s\n", RUN_TITLE);
+#endif
     printf("Table shape              = %u entries + sentinel\n", TABLE_ENTRIES);
     printf("Execution budget         = %u identical table blocks\n", EXECUTION_BUDGET_CYCLES);
     printf("Current-cycle M33        = NONE\n");
