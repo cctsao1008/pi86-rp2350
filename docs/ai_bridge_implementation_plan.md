@@ -187,9 +187,11 @@ without changing AI-B1-B's V30/PIO/DMA response plane. HID owns the same fixed
 device discovery, timeout behavior, exact record validation, raw evidence,
 deterministic explanation, and a stable JSON result for Codex.
 
-Implementation and local build/unit tests are complete. AI-B2 remains open
-until the composite UF2 passes Windows physical validation with the same V30
-reply and bus-safety regression.
+AI-B2-HID is accepted by Windows physical validation at 0.600 MHz. One run
+completed a 64-byte HID OUT request and matching 64-byte HID IN reply while
+receive-only CDC evidence passed 38/38 deterministic checks, zero deadline
+misses, and terminal bus safety. The exact raw log and JSON result are retained
+under `docs/validation/evidence/`.
 
 After composite acceptance, the next two message-level proofs are:
 
@@ -207,14 +209,19 @@ receive_v30_message()
 query_bridge_status()
 ```
 
-The Python bridge is the integration oracle and the stable Codex boundary.
+The Python bridge is the integration oracle and a provider-neutral host
+boundary. Codex is the first adapter target, not a transport requirement. A
+ChatGPT app/MCP adapter, OpenAI API client, or another host may invoke the same
+bridge without changing the V30-visible protocol or physical evidence rules.
 
 ### AI-B3: Codex Adapter
 
-Map Codex turns onto the provider-neutral Host Bridge API. Codex sends the
-first greeting only after the hardware has booted and the V30 mailbox reports
-ready. Completion requires the two-line canonical transcript plus retained
-physical V30 bus evidence.
+Map an AI host turn onto the provider-neutral Host Bridge API. The first
+accepted adapter is Codex: Codex sends the first greeting only after the
+hardware has booted and the V30 mailbox reports ready. Completion requires the
+two-line canonical transcript, a valid Host Bridge JSON result, and retained
+physical V30 bus evidence. A ChatGPT adapter is an equivalent later endpoint,
+not a different V30 transport.
 
 ## Evidence rule
 

@@ -175,7 +175,10 @@ NEC V30      > HELLO OPENAI CODEX
 
 The Host Bridge remains provider-neutral, while Codex-specific session behavior
 terminates in a host-side Codex Adapter. This is an accepted target architecture,
-not a claim that the end-to-end interaction has already been implemented. See
+not a requirement that every host be Codex. A ChatGPT app/MCP adapter, an
+OpenAI API client, or another program may call the same Python bridge without
+changing the 64-byte ABI or physical V30 evidence contract. Codex is the first
+target adapter because it can invoke the local Windows bridge directly. See
 [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) for the
 canonical responsibilities, message ownership, HID/CDC boundary, conversation
 state, and success definition. The separate
@@ -183,38 +186,35 @@ state, and success definition. The separate
 defines the Python-first and physical implementation gates without changing
 that accepted target.
 
-## Current milestone: runtime-staged mailbox at 0.600 MHz
+## Current milestone: physical CDC+HID AI Bridge at 0.600 MHz
 
-On 2026-08-23, AI-B1-A completed a runtime-staged dual-core message exchange
-on the physical NEC V30 at 0.600 MHz, twice the project's 0.300 MHz
-original-system baseline. Core1 transferred a complete provider-neutral
-64-byte record to Core0. Core0 validated and copied the complete record before
-publishing independent PIO/DMA mailbox descriptors.
+On 2026-08-23, AI-B2-HID completed a provider-neutral 64-byte bidirectional
+exchange with the physical NEC V30 at 0.600 MHz, twice the project's 0.300 MHz
+original-system baseline. Windows sent `HELLO NEC V30` as one complete HID OUT
+record. The native V30 program consumed all seven mailbox words and returned
+`HELLO OPENAI CODEX` as one complete HID IN record with the same sequence.
 
-Native V30 code read seven real words from mailbox RX port `00E4h`, produced a
-zero XOR witness at `00E8h`, and published:
+CDC carried receive-only physical evidence on the same composite USB device.
+The independent transcript proved reset-vector fetch, ROM execution, atomic
+publication after NOT_READY, the READY transition, seven native mailbox reads,
+reply/commit I/O, zero response-deadline misses, and terminal
+RESET-high/CLK-low/AD-high-Z safety. A Windows JSON result cross-validated HID
+and CDC with 38/38 deterministic checks and zero errors.
+
+The accepted physical exchange is:
 
 ```text
-HELLO OPENAI CODEX
+OpenAI Codex > HELLO NEC V30  (HID, 64 bytes)
+NEC V30      > HELLO OPENAI CODEX  (HID, 64 bytes)
 ```
 
-PIO1 ran independent ROM and mailbox matcher/responder pairs from 24 of its 32
-instruction words. All 48 ROM pairs and seven mailbox pairs completed, both
-response DMA streams drained, deadline misses remained zero, and terminal
-RESET-high/CLK-low/AD-high-Z safety passed. The M33 cores never resolved a
-current physical response cycle.
+This accepts AI-B2-HID and the Python Host Bridge. The user launched this
+accepted run; the next AI-B3 gate requires a Codex adapter to launch the same
+bridge and consume its JSON result directly. ChatGPT and other host adapters
+may use the same provider-neutral boundary. AI-B0 and AI-B1 remain permanent
+lower-level electrical and transport regressions.
 
-This accepts the bounded AI-B1-A runtime-staging gate. Live publication while
-the V30 is already polling, sustained multi-record exchange, USB HID, and the
-Codex adapter remain later gates. AI-B0 remains the permanent scripted and
-linear-selector regression.
-
-The next physical target is `ai_bridge_live_mailbox_600khz` (AI-B1-B). Its
-Windows validator sends the real 64-byte greeting over USB CDC. The V30 must
-observe STATUS `0000h` before Core0 atomically publishes the staged response,
-then observe `0001h`, consume the greeting, and return its native reply. This
-target is implemented but is not accepted until physical evidence passes.
-
+- [AI-B2-HID 0.600 MHz physical validation](docs/validation/ai_b2_hid_composite_600khz_validation.md)
 - [AI-B1-A 0.600 MHz physical validation](docs/validation/ai_b1a_runtime_mailbox_600khz_validation.md)
 - [AI-B0 physical mailbox validation](docs/validation/ai_b0_physical_mailbox_validation.md)
 - [AI Bridge implementation gates](docs/ai_bridge_implementation_plan.md)
