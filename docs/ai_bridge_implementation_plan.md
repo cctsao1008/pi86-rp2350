@@ -136,10 +136,32 @@ plane; live publication while the V30 is already polling remains AI-B1-B.
 
 #### AI-B1-B: live mailbox publication
 
-After AI-B1-A establishes the physical data plane, let the already-running V30
-observe not-ready state, then atomically observe ready after Core0 stages a new
-record. STATUS polling, RX data consumption, TX capture, and commit must remain
-bounded without a current-cycle M33 lookup.
+Status: **IMPLEMENTED LOCALLY; PHYSICAL 0.600 MHz EVIDENCE PENDING**
+
+Build target: `ai_bridge_live_mailbox_600khz`
+
+Windows sends one complete provider-neutral 64-byte binary record over CDC.
+Core1 receives the entire record and transfers it through the SPSC ownership
+boundary; Core0 validates it and prepares immutable key/response streams before
+the deterministic V30 epoch. No partial record becomes V30-visible.
+
+The already-running V30 first reads STATUS `00E0h` and must physically observe
+`0000h` (NOT_READY). The mailbox PIO matcher sets a dedicated relative witness
+IRQ only after authorizing that completed status cycle. Core0 polls that witness
+with interrupts masked, then atomically starts both preconfigured mailbox DMA
+channels. A bounded forward-only Native V30 path reads STATUS again and must
+observe `0001h` (READY), consumes all seven `00E4h` words, emits a zero XOR
+witness, returns `HELLO OPENAI CODEX`, and commits through `00E6h`.
+
+The USB record is accepted before RESET release because Pico SDK USB IRQs remain
+on Core0 and are masked during the V30 epoch. AI-B1-B proves Windows binary
+ingress plus live post-NOT_READY publication; it does not claim concurrent USB
+service during a physical bus cycle. That transport policy remains AI-B2.
+
+Physical acceptance requires the Windows `ai-b1-b` profile to prove `0 -> 1`
+STATUS ordering, simultaneous deferred-DMA publication, 121/121 ROM pairs, 9/9
+mailbox pairs, zero deadline misses, the exact 230-byte ROM identity, and the
+terminal RESET-high/CLK-low/AD-high-Z state.
 
 #### AI-B1-C: sustained message exchange
 

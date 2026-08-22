@@ -209,6 +209,12 @@ the V30 is already polling, sustained multi-record exchange, USB HID, and the
 Codex adapter remain later gates. AI-B0 remains the permanent scripted and
 linear-selector regression.
 
+The next physical target is `ai_bridge_live_mailbox_600khz` (AI-B1-B). Its
+Windows validator sends the real 64-byte greeting over USB CDC. The V30 must
+observe STATUS `0000h` before Core0 atomically publishes the staged response,
+then observe `0001h`, consume the greeting, and return its native reply. This
+target is implemented but is not accepted until physical evidence passes.
+
 - [AI-B1-A 0.600 MHz physical validation](docs/validation/ai_b1a_runtime_mailbox_600khz_validation.md)
 - [AI-B0 physical mailbox validation](docs/validation/ai_b0_physical_mailbox_validation.md)
 - [AI Bridge implementation gates](docs/ai_bridge_implementation_plan.md)

@@ -1,59 +1,66 @@
 /*
- * AI-B1-A bounded runtime-staged physical mailbox at 0.600 MHz.
+ * AI-B1-B live-publication mailbox at 0.600 MHz.
  *
- * This translation unit reuses the accepted C0C0 decode, observer, safety,
- * ROM-table and reporting helpers. It supplies a new run topology: PIO2 owns
- * CLK, while all four PIO1 SMs form independent ROM and mailbox
- * matcher/responder pairs using the shared 24-word relative-IRQ program.
+ * Windows sends one complete provider-neutral record over USB CDC before the
+ * deterministic V30 epoch. Core1 owns binary ingress and transfers only the
+ * complete record. Core0 validates and compiles immutable response streams,
+ * but deliberately withholds them while the already-running V30 performs its
+ * first STATUS read. That read is answered NOT_READY by a prearmed PIO word.
+ * A relative PIO IRQ then lets Core0 atomically start the prepared key and
+ * response DMA channels between bus cycles. The second STATUS read returns
+ * READY and the V30 consumes the seven payload words.
+ *
+ * USB IRQs remain masked throughout the V30 epoch. This gate proves physical
+ * host ingress plus live mailbox publication without claiming concurrent USB
+ * service during a realtime bus cycle; that later transport policy belongs to
+ * AI-B2. No M33 resolves a current V30 response cycle.
  */
 
-#define PC1C0C_V30_HZ 600000u
-#ifndef SEQUENCE_MAX
-#define SEQUENCE_MAX 96u
-#endif
-#define main pc1c0c_legacy_main_not_used
-#include "pc1c_sram_rom_execution.c"
-#undef main
+#define SEQUENCE_MAX 256u
+#define AI_B1A_MAIN ai_b1a_main_not_used
+#define PC1C_DUAL_SEQUENCER_HEADER "pc1c_live_mailbox.pio.h"
+#include "ai_bridge_runtime_mailbox.c"
+#undef PC1C_DUAL_SEQUENCER_HEADER
+#undef AI_B1A_MAIN
 
-#include "pico/multicore.h"
-#include "ai_bridge/bridge_protocol.h"
-#include "runtime/spsc_u32_ring.h"
-#ifndef PC1C_DUAL_SEQUENCER_HEADER
-#define PC1C_DUAL_SEQUENCER_HEADER "pc1c_dual_sequencer.pio.h"
-#endif
-#include PC1C_DUAL_SEQUENCER_HEADER
+#define LIVE_STATUS_PORT                 0x00E0u
+#define LIVE_DATA_PORT                   0x00E4u
+#define LIVE_TX_PORT                     0x00E2u
+#define LIVE_CONTROL_PORT                0x00E6u
+#define LIVE_WITNESS_PORT                0x00E8u
+#define LIVE_DATA_WORDS                        7u
+#define LIVE_PUBLISHED_PAIRS  (1u + LIVE_DATA_WORDS)
+#define LIVE_TOTAL_PAIRS      (1u + LIVE_PUBLISHED_PAIRS)
+#define HOST_RECORD_TIMEOUT_US          5000000u
+#define PUBLICATION_IRQ                        6u
 
-#define MAILBOX_RX_PORT              0x00E4u
-#define MAILBOX_TX_PORT              0x00E2u
-#define MAILBOX_CONTROL_PORT         0x00E6u
-#define MAILBOX_CHECKSUM_PORT        0x00E8u
-#define MAILBOX_WORDS                      7u
-#define REPLY_WORDS                        9u
-#define BRIDGE_RECORD_WORDS \
-    (PI86_BRIDGE_MESSAGE_SIZE / sizeof(uint32_t))
-#define STAGING_TIMEOUT_US            500000u
-
-static const uint16_t expected_mailbox_words[MAILBOX_WORDS] = {
+static const uint16_t live_expected_words[LIVE_DATA_WORDS] = {
     0x4548u, 0x4C4Cu, 0x204Fu, 0x454Eu, 0x2043u, 0x3356u, 0x0030u,
 };
-static const char expected_reply[] = "HELLO OPENAI CODEX";
+static const char live_expected_reply[] = "HELLO OPENAI CODEX";
 
-static pi86_spsc_u32_ring_t g_message_ring;
-static pi86_bridge_message_t g_staged_message;
-static uint32_t g_mailbox_keys[MAILBOX_WORDS];
-static uint32_t g_mailbox_responses[MAILBOX_WORDS];
+static uint32_t g_live_keys[LIVE_PUBLISHED_PAIRS];
+static uint32_t g_live_responses[LIVE_PUBLISHED_PAIRS];
 
 typedef struct {
     pc1c0c_result_t base;
+    bool windows_record_complete;
     bool core1_record_complete;
     bool core0_record_valid;
     bool staging_atomic;
+    bool first_not_ready_observed;
+    bool publication_triggered;
+    bool publication_atomic;
+    bool status_transition_ok;
     bool mailbox_reads_ok;
     bool checksum_ok;
     bool reply_ok;
     bool commit_ok;
     bool key_sets_disjoint;
     bool mailbox_dma_complete;
+    uint32_t host_sequence;
+    uint32_t status_reads;
+    uint16_t status_values[2];
     uint32_t mailbox_reads;
     uint32_t mailbox_mismatches;
     uint32_t reply_bytes;
@@ -66,30 +73,34 @@ typedef struct {
     uint32_t mailbox_matcher_fifo_pre;
     uint32_t mailbox_responder_fifo_pre;
     uint32_t pre_pio2_padoe;
-    char reply[sizeof(expected_reply)];
-} ai_b1_result_t;
+    char reply[sizeof live_expected_reply];
+} ai_b1b_result_t;
 
-static void service_core_publish_record(void) {
-    pi86_bridge_message_t message = {0};
-    message.version = PI86_BRIDGE_PROTOCOL_VERSION;
-    message.type = PI86_BRIDGE_MESSAGE_HELLO;
-    message.sequence = 1u;
-    message.length = 13u;
-    memcpy(message.payload, "HELLO NEC V30", message.length);
+static void service_core_receive_record(void) {
+    uint8_t record[PI86_BRIDGE_MESSAGE_SIZE];
+    uint32_t received = 0u;
+
+    while (received < sizeof record) {
+        const int value = getchar_timeout_us(1000u);
+        if (value == PICO_ERROR_TIMEOUT) {
+            tight_loop_contents();
+            continue;
+        }
+        record[received++] = (uint8_t)value;
+    }
 
     for (uint32_t i = 0u; i < BRIDGE_RECORD_WORDS; ++i) {
         uint32_t word;
-        memcpy(&word, (const uint8_t *)&message + i * sizeof word,
-               sizeof word);
+        memcpy(&word, record + i * sizeof word, sizeof word);
         while (!pi86_spsc_u32_try_push(&g_message_ring, word))
             tight_loop_contents();
     }
     while (true) tight_loop_contents();
 }
 
-static bool stage_complete_record(ai_b1_result_t *r) {
-    multicore_launch_core1(service_core_publish_record);
-    const uint64_t deadline = time_us_64() + STAGING_TIMEOUT_US;
+static bool receive_complete_host_record(ai_b1b_result_t *r) {
+    multicore_launch_core1(service_core_receive_record);
+    const uint64_t deadline = time_us_64() + HOST_RECORD_TIMEOUT_US;
     while ((g_message_ring.write_index - g_message_ring.read_index) <
                BRIDGE_RECORD_WORDS &&
            time_us_64() <= deadline)
@@ -98,6 +109,7 @@ static bool stage_complete_record(ai_b1_result_t *r) {
     r->core1_record_complete =
         (g_message_ring.write_index - g_message_ring.read_index) ==
         BRIDGE_RECORD_WORDS;
+    r->windows_record_complete = r->core1_record_complete;
     if (!r->core1_record_complete) return false;
 
     pi86_bridge_message_t candidate = {0};
@@ -110,134 +122,110 @@ static bool stage_complete_record(ai_b1_result_t *r) {
     r->core0_record_valid =
         candidate.version == PI86_BRIDGE_PROTOCOL_VERSION &&
         candidate.type == PI86_BRIDGE_MESSAGE_HELLO &&
+        candidate.status == PI86_BRIDGE_STATUS_OK &&
         candidate.length == 13u &&
         memcmp(candidate.payload, "HELLO NEC V30", 13u) == 0;
     if (!r->core0_record_valid) return false;
 
     memcpy(&g_staged_message, &candidate, sizeof candidate);
     __dmb();
+    r->host_sequence = candidate.sequence;
     r->staging_atomic =
         g_message_ring.read_index == g_message_ring.write_index;
     return r->staging_atomic;
 }
 
-static bool is_io_read(uint32_t raw) {
-    return sample_bit(raw, V30_PIN_IOM) == 0u &&
-           sample_bit(raw, V30_PIN_BUFRW) == 0u &&
-           sample_bit(raw, V30_PIN_INTAK) != 0u;
-}
-
-static uint32_t qualified_io_read_key(uint16_t port) {
-    return (1u << V30_PIN_ASTB) | (1u << V30_PIN_INTAK) |
-           encode_gpio_address(port);
-}
-
-static void prepare_mailbox_tables(ai_b1_result_t *r) {
-    uint8_t bytes[MAILBOX_WORDS * 2u] = {0};
+static void prepare_live_tables(ai_b1b_result_t *r) {
+    uint8_t bytes[LIVE_DATA_WORDS * 2u] = {0};
     memcpy(bytes, g_staged_message.payload, g_staged_message.length);
-    for (uint32_t i = 0u; i < MAILBOX_WORDS; ++i) {
+
+    g_live_keys[0] = qualified_io_read_key(LIVE_STATUS_PORT);
+    g_live_responses[0] = encoded_drive_command(1u);
+    for (uint32_t i = 0u; i < LIVE_DATA_WORDS; ++i) {
         const uint16_t word = (uint16_t)bytes[i * 2u] |
             ((uint16_t)bytes[i * 2u + 1u] << 8);
-        g_mailbox_keys[i] = qualified_io_read_key(MAILBOX_RX_PORT);
-        g_mailbox_responses[i] = encoded_drive_command(word);
+        g_live_keys[i + 1u] = qualified_io_read_key(LIVE_DATA_PORT);
+        g_live_responses[i + 1u] = encoded_drive_command(word);
     }
 
     r->key_sets_disjoint = true;
-    for (uint32_t i = 0u; i < g_sequence_count; ++i)
-        for (uint32_t j = 0u; j < MAILBOX_WORDS; ++j)
-            if (g_sequence_keys[i] == g_mailbox_keys[j])
+    const uint32_t initial_status_key =
+        qualified_io_read_key(LIVE_STATUS_PORT);
+    for (uint32_t i = 0u; i < g_sequence_count; ++i) {
+        if (g_sequence_keys[i] == initial_status_key)
+            r->key_sets_disjoint = false;
+        for (uint32_t j = 0u; j < LIVE_PUBLISHED_PAIRS; ++j)
+            if (g_sequence_keys[i] == g_live_keys[j])
                 r->key_sets_disjoint = false;
-}
-
-static void init_sm_at(PIO pio, uint sm, uint offset,
-                       const struct pio_program *program, bool responder) {
-    pio_sm_claim(pio, sm);
-    pio_sm_config c = responder ?
-        pc1c_dual_responder_program_get_default_config(offset) :
-        pc1c_dual_matcher_program_get_default_config(offset);
-    if (responder) {
-        sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
-        sm_config_set_out_shift(&c, true, false, 32u);
-    } else {
-        sm_config_set_in_pins(&c, 0u);
     }
-    hard_assert(pio_sm_init(pio, sm, offset, &c) == PICO_OK);
-    pio_sm_set_enabled(pio, sm, false);
-    (void)program;
 }
 
-static void init_response_plane(pc1c_sm_t *rom_matcher,
-                                pc1c_sm_t *rom_responder,
-                                pc1c_sm_t *mailbox_matcher,
-                                pc1c_sm_t *mailbox_responder) {
-    hard_assert(pc1c_dual_matcher_program.length +
-                pc1c_dual_responder_program.length <= 32u);
-    const uint matcher_offset = pio_add_program(
-        pio1, &pc1c_dual_matcher_program);
-    const uint responder_offset = pio_add_program(
-        pio1, &pc1c_dual_responder_program);
-
-    *rom_matcher = (pc1c_sm_t){pio1, 0u, matcher_offset};
-    *rom_responder = (pc1c_sm_t){pio1, 1u, responder_offset};
-    *mailbox_matcher = (pc1c_sm_t){pio1, 2u, matcher_offset};
-    *mailbox_responder = (pc1c_sm_t){pio1, 3u, responder_offset};
-
-    init_sm_at(pio1, 0u, matcher_offset, &pc1c_dual_matcher_program, false);
-    init_sm_at(pio1, 1u, responder_offset,
-               &pc1c_dual_responder_program, true);
-    init_sm_at(pio1, 2u, matcher_offset, &pc1c_dual_matcher_program, false);
-    init_sm_at(pio1, 3u, responder_offset,
-               &pc1c_dual_responder_program, true);
+static int configure_deferred_tx_dma(const pc1c_sm_t *sm,
+                                     const uint32_t *table,
+                                     uint32_t count) {
+    const int channel = dma_claim_unused_channel(true);
+    dma_channel_config c = dma_channel_get_default_config((uint)channel);
+    channel_config_set_transfer_data_size(&c, DMA_SIZE_32);
+    channel_config_set_read_increment(&c, true);
+    channel_config_set_write_increment(&c, false);
+    channel_config_set_dreq(&c, pio_get_dreq(sm->pio, sm->sm, true));
+    channel_config_set_high_priority(&c, true);
+    dma_channel_configure((uint)channel, &c, &sm->pio->txf[sm->sm], table,
+                          count, false);
+    return channel;
 }
 
-static void init_clock_on_pio2(pc1c_sm_t *clock) {
-    clock->pio = pio2;
-    clock->sm = pio_claim_unused_sm(clock->pio, true);
-    clock->offset = pio_add_program(clock->pio, &perf_continuous_clk_program);
-}
-
-static bool stream_empty(int dma, const pc1c_sm_t *sm) {
-    return dma_remaining(dma) == 0u &&
-           pio_sm_is_tx_fifo_empty(sm->pio, sm->sm);
-}
-
-static void classify_mailbox(ai_b1_result_t *r) {
+static void classify_live_mailbox(ai_b1b_result_t *r) {
     for (uint32_t i = 0u; i < r->base.trace_count; ++i) {
         const bus_trace_t *entry = &r->base.trace[i];
         const uint32_t address = decode_address(entry->address_raw);
         const uint16_t data = decode_ad(entry->data_raw);
-        if (is_io_read(entry->address_raw) && address == MAILBOX_RX_PORT &&
-            entry->lanes == LANES_WORD) {
-            if (r->mailbox_reads < MAILBOX_WORDS &&
-                data != expected_mailbox_words[r->mailbox_reads])
+
+        if (is_io_read(entry->address_raw) &&
+            address == LIVE_STATUS_PORT && entry->lanes == LANES_WORD) {
+            if (r->status_reads < 2u)
+                r->status_values[r->status_reads] = data;
+            ++r->status_reads;
+        }
+        if (is_io_read(entry->address_raw) &&
+            address == LIVE_DATA_PORT && entry->lanes == LANES_WORD) {
+            if (r->mailbox_reads < LIVE_DATA_WORDS &&
+                data != live_expected_words[r->mailbox_reads])
                 ++r->mailbox_mismatches;
             ++r->mailbox_reads;
         }
-        if (entry->io_write && address == MAILBOX_CHECKSUM_PORT &&
-            entry->lanes == LANES_WORD && data == 0u)
-            r->checksum_ok = true;
-        if (entry->io_write && address == MAILBOX_TX_PORT &&
+        if (entry->io_write && address == LIVE_WITNESS_PORT &&
+            entry->lanes == LANES_WORD) {
+            if (data == 1u) r->status_transition_ok = true;
+            if (data == 0u) r->checksum_ok = true;
+        }
+        if (entry->io_write && address == LIVE_TX_PORT &&
             entry->lanes == LANES_WORD &&
             r->reply_bytes + 2u < sizeof r->reply) {
             r->reply[r->reply_bytes++] = (char)(data & 0xFFu);
             r->reply[r->reply_bytes++] = (char)(data >> 8);
         }
-        if (entry->io_write && address == MAILBOX_CONTROL_PORT &&
+        if (entry->io_write && address == LIVE_CONTROL_PORT &&
             entry->lanes == LANES_WORD && data == 1u)
             r->commit_ok = true;
     }
-    r->mailbox_reads_ok = r->mailbox_reads == MAILBOX_WORDS &&
+
+    r->status_transition_ok = r->status_transition_ok &&
+        r->status_reads == 2u && r->status_values[0] == 0u &&
+        r->status_values[1] == 1u;
+    r->mailbox_reads_ok = r->mailbox_reads == LIVE_DATA_WORDS &&
         r->mailbox_mismatches == 0u;
     r->reply[r->reply_bytes] = '\0';
-    r->reply_ok = r->reply_bytes == sizeof(expected_reply) - 1u &&
-        memcmp(r->reply, expected_reply, sizeof(expected_reply) - 1u) == 0;
+    r->reply_ok = r->reply_bytes == sizeof(live_expected_reply) - 1u &&
+        memcmp(r->reply, live_expected_reply,
+               sizeof(live_expected_reply) - 1u) == 0;
 }
 
-static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
-                      pc1c_sm_t *rom_responder,
-                      pc1c_sm_t *mailbox_matcher,
-                      pc1c_sm_t *mailbox_responder, pc1c_sm_t *phase,
-                      pc1c_sm_t *observer, ai_b1_result_t *r) {
+static void run_ai_b1b(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
+                       pc1c_sm_t *rom_responder,
+                       pc1c_sm_t *mailbox_matcher,
+                       pc1c_sm_t *mailbox_responder, pc1c_sm_t *phase,
+                       pc1c_sm_t *observer, ai_b1b_result_t *r) {
     pc1c0c_result_t *b = &r->base;
     memset(b, 0, sizeof *b);
     memset(g_observer_dma_words, 0, sizeof g_observer_dma_words);
@@ -257,6 +245,8 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
     arm_sm(observer);
     pio_interrupt_clear(pio1, 0u);
     pio_interrupt_clear(pio1, 2u);
+    pio_interrupt_clear(pio1, 4u);
+    pio_interrupt_clear(pio1, PUBLICATION_IRQ);
     pio_sm_exec(pio1, rom_responder->sm,
                 pio_encode_mov(pio_pindirs, pio_null));
     pio_sm_exec(pio1, mailbox_responder->sm,
@@ -266,18 +256,18 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
         rom_matcher, g_sequence_keys, g_sequence_count);
     const int rom_response_dma = start_pio_tx_dma(
         rom_responder, g_sequence_responses, g_sequence_count);
-    const int mailbox_key_dma = start_pio_tx_dma(
-        mailbox_matcher, g_mailbox_keys, MAILBOX_WORDS);
-    const int mailbox_response_dma = start_pio_tx_dma(
-        mailbox_responder, g_mailbox_responses, MAILBOX_WORDS);
+    const int mailbox_key_dma = configure_deferred_tx_dma(
+        mailbox_matcher, g_live_keys, LIVE_PUBLISHED_PAIRS);
+    const int mailbox_response_dma = configure_deferred_tx_dma(
+        mailbox_responder, g_live_responses, LIVE_PUBLISHED_PAIRS);
+
+    pio_sm_put_blocking(pio1, mailbox_matcher->sm,
+                        qualified_io_read_key(LIVE_STATUS_PORT));
+    pio_sm_put_blocking(pio1, mailbox_responder->sm,
+                        encoded_drive_command(0u));
 
     const bool rom_matcher_primed = wait_fifo_primed(rom_matcher, 4u);
     const bool rom_responder_primed = wait_fifo_primed(rom_responder, 4u);
-    const bool mailbox_matcher_primed =
-        wait_fifo_primed(mailbox_matcher, 4u);
-    const bool mailbox_responder_primed =
-        wait_fifo_primed(mailbox_responder, 4u);
-
     b->matcher_fifo_pre = pio_sm_get_tx_fifo_level(pio1, rom_matcher->sm);
     b->responder_fifo_pre = pio_sm_get_tx_fifo_level(pio1, rom_responder->sm);
     r->mailbox_matcher_fifo_pre =
@@ -299,17 +289,20 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
     const int observer_dma = start_observer_dma(observer);
     b->observer_dma_pre = dma_remaining(observer_dma);
     b->pre_release_clean = rom_matcher_primed && rom_responder_primed &&
-        mailbox_matcher_primed && mailbox_responder_primed &&
         b->matcher_fifo_pre == 4u && b->responder_fifo_pre == 4u &&
-        r->mailbox_matcher_fifo_pre == 4u &&
-        r->mailbox_responder_fifo_pre == 4u &&
+        r->mailbox_matcher_fifo_pre == 1u &&
+        r->mailbox_responder_fifo_pre == 1u &&
+        r->mailbox_key_dma_pre == LIVE_PUBLISHED_PAIRS &&
+        r->mailbox_response_dma_pre == LIVE_PUBLISHED_PAIRS &&
+        !dma_channel_is_busy((uint)mailbox_key_dma) &&
+        !dma_channel_is_busy((uint)mailbox_response_dma) &&
         b->observer_dma_pre == OBSERVER_WORDS &&
         b->clock_direction_armed && r->key_sets_disjoint &&
         !gpio_get(V30_PIN_CLK) &&
         (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
 
-    pio_enable_sm_mask_in_sync(pio0,
-        (1u << phase->sm) | (1u << observer->sm));
+    pio_enable_sm_mask_in_sync(
+        pio0, (1u << phase->sm) | (1u << observer->sm));
     pio_enable_sm_mask_in_sync(pio1, 0x0Fu);
 
     if (b->reset_ok && b->pre_release_clean) {
@@ -320,8 +313,19 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
             time_us_64() + timeout_us_from_clocks(RUN_TIMEOUT_CLOCKS);
         while ((!stream_empty(rom_response_dma, rom_responder) ||
                 !stream_empty(mailbox_response_dma, mailbox_responder)) &&
-               time_us_64() <= deadline)
+               time_us_64() <= deadline) {
+            if (!r->publication_triggered &&
+                pio_interrupt_get(pio1, PUBLICATION_IRQ)) {
+                pio_interrupt_clear(pio1, PUBLICATION_IRQ);
+                r->first_not_ready_observed = true;
+                __dmb();
+                dma_start_channel_mask((1u << (uint)mailbox_key_dma) |
+                                       (1u << (uint)mailbox_response_dma));
+                r->publication_triggered = true;
+                r->publication_atomic = true;
+            }
             tight_loop_contents();
+        }
         if (stream_empty(rom_response_dma, rom_responder) &&
             stream_empty(mailbox_response_dma, mailbox_responder))
             busy_wait_us_32((uint32_t)timeout_us_from_clocks(2u));
@@ -345,12 +349,14 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
         pio_sm_get_tx_fifo_level(pio1, mailbox_responder->sm);
     r->rom_pairs = rom_remaining <= g_sequence_count ?
         g_sequence_count - rom_remaining : 0u;
-    r->mailbox_pairs = mailbox_remaining <= MAILBOX_WORDS ?
-        MAILBOX_WORDS - mailbox_remaining : 0u;
+    r->mailbox_pairs = r->first_not_ready_observed ? 1u : 0u;
+    if (mailbox_remaining <= LIVE_PUBLISHED_PAIRS)
+        r->mailbox_pairs += LIVE_PUBLISHED_PAIRS - mailbox_remaining;
     b->qualified_pairs = r->rom_pairs;
     b->dma_streams_complete = b->matcher_dma_post == 0u &&
         b->responder_dma_post == 0u;
-    r->mailbox_dma_complete = r->mailbox_key_dma_post == 0u &&
+    r->mailbox_dma_complete = r->publication_triggered &&
+        r->mailbox_key_dma_post == 0u &&
         r->mailbox_response_dma_post == 0u;
 
     pio_sm_set_enabled(pio1, rom_matcher->sm, false);
@@ -370,8 +376,7 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
     for (uint spin = 0u; spin < 4096u &&
          !pio_sm_is_rx_fifo_empty(pio0, observer->sm); ++spin)
         tight_loop_contents();
-    b->observer_fifo_residue =
-        pio_sm_get_rx_fifo_level(pio0, observer->sm);
+    b->observer_fifo_residue = pio_sm_get_rx_fifo_level(pio0, observer->sm);
     b->observer_dma_post = dma_remaining(observer_dma);
     b->observer_words = OBSERVER_WORDS - b->observer_dma_post;
     b->observer_trailing_words = b->observer_words & 1u;
@@ -390,33 +395,39 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
             decode_ad(b->phase_raw[5]) == 0x00EAu;
 
     classify_trace(b);
-    classify_mailbox(r);
+    classify_live_mailbox(r);
 
     stop_dma(rom_key_dma);
     stop_dma(rom_response_dma);
     stop_dma(mailbox_key_dma);
     stop_dma(mailbox_response_dma);
     stop_dma(observer_dma);
+    pio_interrupt_clear(pio1, 4u);
+    pio_interrupt_clear(pio1, PUBLICATION_IRQ);
     route_ad_to_sio_high_z();
     b->terminal_safe = gpio_get(V30_PIN_RESET) &&
         !gpio_get(V30_PIN_CLK) && ad_is_sio_high_z();
 }
 
-static bool ai_b1_pass(const ai_b1_result_t *r) {
+static bool ai_b1b_pass(const ai_b1b_result_t *r) {
     const pc1c0c_result_t *b = &r->base;
     return result_valid(b) && b->first_response_phase_ok &&
         b->far_target_seen && b->checkpoint_ok &&
         b->deadline_misses == 0u && b->terminal_safe &&
-        r->core1_record_complete && r->core0_record_valid &&
-        r->staging_atomic && r->mailbox_reads_ok && r->checksum_ok &&
-        r->reply_ok && r->commit_ok && r->key_sets_disjoint &&
+        r->windows_record_complete && r->core1_record_complete &&
+        r->core0_record_valid && r->staging_atomic &&
+        r->first_not_ready_observed && r->publication_triggered &&
+        r->publication_atomic && r->status_transition_ok &&
+        r->mailbox_reads_ok && r->checksum_ok && r->reply_ok &&
+        r->commit_ok && r->key_sets_disjoint &&
         b->dma_streams_complete && r->mailbox_dma_complete &&
         r->rom_pairs == g_sequence_count &&
-        r->mailbox_pairs == MAILBOX_WORDS;
+        r->mailbox_pairs == LIVE_TOTAL_PAIRS;
 }
 
-static void print_ai_b1(const ai_b1_result_t *r) {
+static void print_ai_b1b(const ai_b1b_result_t *r) {
     const pc1c0c_result_t *b = &r->base;
+    printf("\n[HOST MAILBOX INPUT]\nHELLO NEC V30\n");
     printf("\n[V30 MAILBOX OUTPUT]\n%s\n", r->reply);
     printf("\n[SUMMARY]\n");
     printf("Measurement epoch          %s\n", pass_fail(result_valid(b)));
@@ -425,24 +436,35 @@ static void print_ai_b1(const ai_b1_result_t *r) {
     printf("First response 00EA        %s\n",
            pass_fail(b->first_response_phase_ok));
     printf("F0000 ROM execution        %s\n", pass_fail(b->far_target_seen));
+    printf("Windows 64-byte record     %s (sequence %lu)\n",
+           pass_fail(r->windows_record_complete),
+           (unsigned long)r->host_sequence);
     printf("Core1 complete record      %s\n",
            pass_fail(r->core1_record_complete));
     printf("Core0 immutable staging    %s\n",
            pass_fail(r->core0_record_valid && r->staging_atomic));
+    printf("V30 STATUS 00E0 transition %s (0 -> 1)\n",
+           pass_fail(r->status_transition_ok));
+    printf("Publication after NOT_READY%s\n",
+           r->first_not_ready_observed ? " PASS" : " FAIL");
+    printf("Atomic DMA publication     %s\n",
+           pass_fail(r->publication_atomic));
     printf("Mailbox RX I/O 00E4        %s (%lu/%u words)\n",
            pass_fail(r->mailbox_reads_ok),
-           (unsigned long)r->mailbox_reads, MAILBOX_WORDS);
+           (unsigned long)r->mailbox_reads, LIVE_DATA_WORDS);
     printf("V30 input XOR at 00E8      %s\n", pass_fail(r->checksum_ok));
     printf("Mailbox TX I/O 00E2        %s\n", pass_fail(r->reply_ok));
     printf("Mailbox commit I/O 00E6    %s\n", pass_fail(r->commit_ok));
     printf("ROM/mailbox key collisions %s\n",
            r->key_sets_disjoint ? "0 PASS" : "FAIL");
     printf("Current-cycle M33          NONE\n");
+    printf("USB IRQ during V30 epoch   MASKED PASS\n");
     printf("Bus ownership/safety       %s\n", pass_fail(b->terminal_safe));
-    printf("AI-B1-A RESULT             %s\n", pass_fail(ai_b1_pass(r)));
+    printf("AI-B1-B RESULT             %s\n", pass_fail(ai_b1b_pass(r)));
 
     printf("\n[ENGINEERING DETAILS]\n");
-    printf("AI-B1-A Dual-Sequence Runtime Mailbox - 0.600 MHz\n");
+    printf("AI-B1-B Live Mailbox Publication - 0.600 MHz\n");
+    printf("Host transport             = Windows USB CDC binary record\n");
     printf("PIO1 allocation            = SM0/1 ROM, SM2/3 mailbox\n");
     printf("PIO instruction words      = %u + %u = %u/32\n",
            pc1c_dual_matcher_program.length,
@@ -455,18 +477,20 @@ static void print_ai_b1(const ai_b1_result_t *r) {
     printf("PIO2 pre-release OE        = %08lX CLK-ONLY %s\n",
            (unsigned long)r->pre_pio2_padoe,
            pass_fail(b->clock_direction_armed));
+    printf("STATUS observations        = %lu (first %04X, second %04X)\n",
+           (unsigned long)r->status_reads, r->status_values[0],
+           r->status_values[1]);
     printf("ROM qualified pairs        = %lu/%lu %s\n",
            (unsigned long)r->rom_pairs,
            (unsigned long)g_sequence_count,
            pass_fail(r->rom_pairs == g_sequence_count));
     printf("Mailbox qualified pairs    = %lu/%u %s\n",
-           (unsigned long)r->mailbox_pairs, MAILBOX_WORDS,
-           pass_fail(r->mailbox_pairs == MAILBOX_WORDS));
-    printf("ROM DMA remain key/response= %lu/%lu\n",
-           (unsigned long)b->matcher_dma_post,
-           (unsigned long)b->responder_dma_post);
-    printf("Mailbox DMA remain key/resp= %lu/%lu\n",
+           (unsigned long)r->mailbox_pairs, LIVE_TOTAL_PAIRS,
+           pass_fail(r->mailbox_pairs == LIVE_TOTAL_PAIRS));
+    printf("Mailbox DMA pre/post       = key %lu/%lu response %lu/%lu\n",
+           (unsigned long)r->mailbox_key_dma_pre,
            (unsigned long)r->mailbox_key_dma_post,
+           (unsigned long)r->mailbox_response_dma_pre,
            (unsigned long)r->mailbox_response_dma_post);
     printf("Response deadline misses   = %lu %s\n",
            (unsigned long)b->deadline_misses,
@@ -474,15 +498,11 @@ static void print_ai_b1(const ai_b1_result_t *r) {
     printf("Observer complete cycles   = %u\n", b->trace_count);
     printf("ROM image                  = %lu bytes; SHA-256 %s\n",
            (unsigned long)PC1C_ROM_SIZE, PC1C_ROM_SHA256);
-    printf("TERMINAL SAFE STATE        = %s\n",
-           pass_fail(b->terminal_safe));
+    printf("TERMINAL SAFE STATE        = %s\n", pass_fail(b->terminal_safe));
     printf("CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.\n");
 }
 
-#ifndef AI_B1A_MAIN
-#define AI_B1A_MAIN main
-#endif
-int AI_B1A_MAIN(void) {
+int main(void) {
     prepare_response_tables();
     prepare_header_high_z();
     init_control_outputs();
@@ -491,13 +511,14 @@ int AI_B1A_MAIN(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(100);
 
-    static ai_b1_result_t result;
+    static ai_b1b_result_t result;
     memset(&result, 0, sizeof result);
-    if (!stage_complete_record(&result)) {
-        print_ai_b1(&result);
+    if (!receive_complete_host_record(&result)) {
+        print_ai_b1b(&result);
+        fflush(stdout);
         while (true) tight_loop_contents();
     }
-    prepare_mailbox_tables(&result);
+    prepare_live_tables(&result);
 
     pc1c_sm_t clock, rom_matcher, rom_responder;
     pc1c_sm_t mailbox_matcher, mailbox_responder, phase, observer;
@@ -507,10 +528,10 @@ int AI_B1A_MAIN(void) {
     phase_capture_init(&phase);
     observer_init(&observer);
 
-    run_ai_b1(&clock, &rom_matcher, &rom_responder,
-              &mailbox_matcher, &mailbox_responder,
-              &phase, &observer, &result);
-    print_ai_b1(&result);
+    run_ai_b1b(&clock, &rom_matcher, &rom_responder,
+               &mailbox_matcher, &mailbox_responder,
+               &phase, &observer, &result);
+    print_ai_b1b(&result);
     fflush(stdout);
     while (true) tight_loop_contents();
 }

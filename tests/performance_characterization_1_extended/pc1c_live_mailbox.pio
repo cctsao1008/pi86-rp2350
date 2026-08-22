@@ -1,0 +1,56 @@
+; AI-B1-B dual exact-key sequencers with a publication witness.
+;
+; SM0/1 remain the bounded ROM matcher/responder pair. SM2/3 are the mailbox
+; pair. Every exact match also sets a relative witness IRQ: SM0 sets IRQ4 and
+; SM2 sets IRQ6. Core0 ignores the ROM witness and polls IRQ6 to learn that the
+; first prearmed STATUS=NOT_READY response has been authorized. It then starts
+; the already-configured mailbox key/response DMA channels simultaneously.
+;
+; The witness never authorizes AD ownership. Relative IRQ0 remains the sole
+; matcher-to-responder authorization path, and the exact key sets remain
+; disjoint. Combined instruction use is 25 words (12 + 13).
+
+.pio_version rp2350
+.program pc1c_dual_matcher
+
+    pull block
+    mov y, osr
+
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov x, pins
+    jmp x!=y no_match
+
+    irq 4 rel
+    irq 0 rel
+    pull block
+    mov y, osr
+
+no_match:
+    wait 0 gpio 9
+.wrap
+
+.program pc1c_dual_responder
+.wrap_target
+respond:
+    wait 1 irq 3 rel
+    irq clear 3 rel
+    pull block
+    wait 0 gpio 9
+    out pins, 28
+    out x, 1
+    jmp !x release
+    mov pindirs, ~null
+
+    set x, 1
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+
+release:
+    mov pindirs, null
+.wrap

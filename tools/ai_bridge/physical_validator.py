@@ -18,6 +18,8 @@ import sys
 import time
 from typing import Iterable, Pattern
 
+from protocol import Message, TYPE_HELLO
+
 
 PASS_EXIT = 0
 SERIAL_EXIT = 3
@@ -37,6 +39,7 @@ class ValidationProfile:
     filename_prefix: str
     end_marker: str
     checks: tuple[Check, ...]
+    request: bytes | None = None
 
 
 @dataclass(frozen=True)
@@ -103,7 +106,80 @@ AI_B1_A = ValidationProfile(
 )
 
 
-PROFILES = {AI_B1_A.name: AI_B1_A}
+AI_B1_B = ValidationProfile(
+    name="ai-b1-b",
+    filename_prefix="ai_b1b",
+    end_marker="CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.",
+    checks=(
+        _line("host greeting", r"HELLO NEC V30"),
+        _line("V30 reply", r"HELLO OPENAI CODEX"),
+        _line("measurement epoch", r"Measurement epoch\s+PASS"),
+        _line("reset vector", r"Reset / FFFF0 fetch\s+PASS"),
+        _line("first response", r"First response 00EA\s+PASS"),
+        _line("ROM execution", r"F0000 ROM execution\s+PASS"),
+        _line(
+            "Windows binary record",
+            r"Windows 64-byte record\s+PASS \(sequence 1\)",
+        ),
+        _line("Core1 complete record", r"Core1 complete record\s+PASS"),
+        _line("Core0 immutable staging", r"Core0 immutable staging\s+PASS"),
+        _line(
+            "STATUS transition",
+            r"V30 STATUS 00E0 transition\s+PASS \(0 -> 1\)",
+        ),
+        _line("publication ordering", r"Publication after NOT_READY\s+PASS"),
+        _line("atomic publication", r"Atomic DMA publication\s+PASS"),
+        _line("mailbox RX", r"Mailbox RX I/O 00E4\s+PASS \(7/7 words\)"),
+        _line("V30 XOR witness", r"V30 input XOR at 00E8\s+PASS"),
+        _line("mailbox TX", r"Mailbox TX I/O 00E2\s+PASS"),
+        _line("mailbox commit", r"Mailbox commit I/O 00E6\s+PASS"),
+        _line("key collision gate", r"ROM/mailbox key collisions\s+0 PASS"),
+        _line("current-cycle M33", r"Current-cycle M33\s+NONE"),
+        _line("USB IRQ isolation", r"USB IRQ during V30 epoch\s+MASKED PASS"),
+        _line("bus safety", r"Bus ownership/safety\s+PASS"),
+        _line("AI-B1-B result", r"AI-B1-B RESULT\s+PASS"),
+        _line(
+            "clock and engine identity",
+            r"AI-B1-B Live Mailbox Publication - 0\.600 MHz",
+        ),
+        _line(
+            "host transport identity",
+            r"Host transport\s+=\s+Windows USB CDC binary record",
+        ),
+        _line(
+            "PIO instruction budget",
+            r"PIO instruction words\s+=\s+12 \+ 13 = 25/32",
+        ),
+        _line(
+            "STATUS physical observations",
+            r"STATUS observations\s+=\s+2 \(first 0000, second 0001\)",
+        ),
+        _line("ROM qualified pairs", r"ROM qualified pairs\s+=\s+121/121 PASS"),
+        _line(
+            "mailbox qualified pairs",
+            r"Mailbox qualified pairs\s+=\s+9/9 PASS",
+        ),
+        _line(
+            "mailbox DMA publication",
+            r"Mailbox DMA pre/post\s+=\s+key 8/0 response 8/0",
+        ),
+        _line("deadline gate", r"Response deadline misses\s+=\s+0 PASS"),
+        _line(
+            "ROM identity",
+            r"ROM image\s+=\s+230 bytes; SHA-256 "
+            r"4fceb34847a713477ce45e4b23a06770d212044f5704154e35b4d94ab1701cb4",
+        ),
+        _line("terminal safe state", r"TERMINAL SAFE STATE\s+=\s+PASS"),
+        _line(
+            "terminal electrical state",
+            r"CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z\.",
+        ),
+    ),
+    request=Message(TYPE_HELLO, 1, b"HELLO NEC V30").encode(),
+)
+
+
+PROFILES = {profile.name: profile for profile in (AI_B1_A, AI_B1_B)}
 FAIL_TOKEN = re.compile(r"(?<![A-Za-z0-9_])(FAIL|INVALID)(?![A-Za-z0-9_])")
 
 
@@ -159,7 +235,13 @@ def format_ports() -> list[str]:
     return [f"{p.device:8} {p.description} [{p.hwid}]" for p in ports]
 
 
-def capture_port(port: str, baud: int, timeout: float, end_marker: str) -> bytes:
+def capture_port(
+    port: str,
+    baud: int,
+    timeout: float,
+    end_marker: str,
+    request: bytes | None = None,
+) -> bytes:
     """Capture one CDC run, tolerating a temporary USB disconnect/reconnect."""
 
     serial, _ = _serial_modules()
@@ -180,6 +262,14 @@ def capture_port(port: str, baud: int, timeout: float, end_marker: str) -> bytes
                     write_timeout=1.0,
                 )
                 connection.dtr = True
+                if request is not None and not captured:
+                    written = connection.write(request)
+                    connection.flush()
+                    if written != len(request):
+                        raise RuntimeError(
+                            f"short CDC write: {written}/{len(request)} bytes"
+                        )
+                    print(f"Sent binary request       = {written} bytes")
                 announced_wait = False
             except (serial.SerialException, OSError):
                 if not announced_wait:
@@ -276,7 +366,13 @@ def main(argv: Iterable[str] | None = None) -> int:
             return CAPTURE_EXIT
     else:
         try:
-            raw = capture_port(args.port, args.baud, args.timeout, profile.end_marker)
+            raw = capture_port(
+                args.port,
+                args.baud,
+                args.timeout,
+                profile.end_marker,
+                profile.request,
+            )
         except RuntimeError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
             return SERIAL_EXIT

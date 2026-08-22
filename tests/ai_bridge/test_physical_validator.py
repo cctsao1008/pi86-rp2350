@@ -7,7 +7,13 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools" / "ai_bridge"
 sys.path.insert(0, str(TOOLS))
 
-from physical_validator import AI_B1_A, normalize_output, validate_output  # noqa: E402
+from physical_validator import (  # noqa: E402
+    AI_B1_A,
+    AI_B1_B,
+    normalize_output,
+    validate_output,
+)
+from protocol import Message, TYPE_HELLO  # noqa: E402
 
 
 class PhysicalValidatorTests(unittest.TestCase):
@@ -52,6 +58,13 @@ class PhysicalValidatorTests(unittest.TestCase):
         report = validate_output(corrupted)
         self.assertFalse(report.passed)
         self.assertIn("missing or incorrect field: terminal electrical state", report.errors)
+
+    def test_ai_b1b_profile_sends_canonical_binary_record(self) -> None:
+        self.assertIsNotNone(AI_B1_B.request)
+        request = Message.decode(AI_B1_B.request)
+        self.assertEqual(request.message_type, TYPE_HELLO)
+        self.assertEqual(request.sequence, 1)
+        self.assertEqual(request.payload, b"HELLO NEC V30")
 
 
 if __name__ == "__main__":

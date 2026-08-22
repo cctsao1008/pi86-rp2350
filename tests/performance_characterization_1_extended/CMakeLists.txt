@@ -614,6 +614,61 @@ pico_enable_stdio_usb(ai_bridge_runtime_mailbox_600khz 1)
 pico_enable_stdio_uart(ai_bridge_runtime_mailbox_600khz 0)
 pico_add_extra_outputs(ai_bridge_runtime_mailbox_600khz)
 
+# AI-B1-B receives one complete binary record from the Windows CDC host,
+# withholds it while the running V30 observes NOT_READY, and atomically starts
+# the preconfigured mailbox DMA streams before the second STATUS read.
+pi86_add_v30_rom(ai_bridge_live_mailbox_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/ai_bridge_live_mailbox_test.asm"
+    SYMBOL ai_bridge_live_mailbox_rom
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/firmware/v30/bios/include/platform.inc"
+)
+
+add_executable(ai_bridge_live_mailbox_600khz
+    ai_bridge_live_mailbox.c
+)
+
+target_compile_definitions(ai_bridge_live_mailbox_600khz PRIVATE
+    PC1C_ROM_HEADER="ai_bridge_live_mailbox_rom.h"
+    PC1C_ROM_DATA=ai_bridge_live_mailbox_rom_data
+    PC1C_ROM_SIZE=ai_bridge_live_mailbox_rom_size
+    PC1C_ROM_SHA256=ai_bridge_live_mailbox_rom_sha256
+)
+
+target_include_directories(ai_bridge_live_mailbox_600khz PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(ai_bridge_live_mailbox_600khz
+    ai_bridge_live_mailbox_rom
+    pico_stdlib
+    pico_multicore
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(ai_bridge_live_mailbox_600khz
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(ai_bridge_live_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
+)
+pico_generate_pio_header(ai_bridge_live_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_live_mailbox.pio
+)
+pico_generate_pio_header(ai_bridge_live_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(ai_bridge_live_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(ai_bridge_live_mailbox_600khz 1)
+pico_enable_stdio_uart(ai_bridge_live_mailbox_600khz 0)
+pico_add_extra_outputs(ai_bridge_live_mailbox_600khz)
+
 pi86_add_v30_rom(int10_stack_rom
     SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/int10_stack_test.asm"
     SYMBOL int10_stack_rom

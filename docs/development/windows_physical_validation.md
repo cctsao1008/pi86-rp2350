@@ -62,6 +62,26 @@ When `--output-dir` is omitted, logs are written under
 `%USERPROFILE%\Documents\pi86-validation-logs`. The
 `PI86_VALIDATION_LOG_DIR` environment variable can change this default.
 
+## Send and validate AI-B1-B
+
+Flash the `ai_bridge_live_mailbox_600khz` UF2, then run:
+
+```powershell
+py tools\ai_bridge\physical_validator.py --port COM14 --profile ai-b1-b `
+  --output-dir D:\pi86-validation-logs
+```
+
+The `ai-b1-b` profile writes one canonical 64-byte binary record immediately
+after opening CDC. This is application data, not a terminal command or line of
+text. Firmware accepts the complete record before releasing the V30, then
+withholds mailbox publication until the running V30 has physically observed
+STATUS=NOT_READY. The same capture must prove the subsequent READY state,
+seven data reads, V30 reply, commit, and terminal safe state.
+
+Do not type the greeting into a terminal while this profile is running. The
+profile owns the binary request and rejects output from a different ROM or
+clock identity.
+
 ## Revalidate saved evidence
 
 An existing capture can be checked without hardware or `pyserial`:
@@ -76,6 +96,9 @@ reply, reset/ROM path, Core1-to-Core0 ownership transfer, all seven mailbox
 reads, XOR witness, commit, qualified-pair counts, drained DMA streams, zero
 deadline misses, ROM identity, and terminal electrical state. Any `FAIL` or
 `INVALID` token rejects the transcript.
+
+Use `--profile ai-b1-b` when revalidating an AI-B1-B capture. Offline mode does
+not transmit another request; it only reapplies the named acceptance contract.
 
 ## Exit status
 
