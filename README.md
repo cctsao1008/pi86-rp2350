@@ -183,27 +183,33 @@ state, and success definition. The separate
 defines the Python-first and physical implementation gates without changing
 that accepted target.
 
-## Current milestone: the physical V30 replies through the AI mailbox
+## Current milestone: runtime-staged mailbox at 0.600 MHz
 
-On 2026-08-23, AI-B0 completed the first native message exchange on the
-physical NEC V30 at 0.200 MHz. The RP2350 staged `HELLO NEC V30` in its
-internal-SRAM response table. Native V30 code consumed and checksum-validated
-all seven words, then published:
+On 2026-08-23, AI-B1-A completed a runtime-staged dual-core message exchange
+on the physical NEC V30 at 0.600 MHz, twice the project's 0.300 MHz
+original-system baseline. Core1 transferred a complete provider-neutral
+64-byte record to Core0. Core0 validated and copied the complete record before
+publishing independent PIO/DMA mailbox descriptors.
+
+Native V30 code read seven real words from mailbox RX port `00E4h`, produced a
+zero XOR witness at `00E8h`, and published:
 
 ```text
 HELLO OPENAI CODEX
 ```
 
-The reply crossed genuine word-I/O writes at mailbox TX port `00E2h`, followed
-by a commit at `00E6h`. All 77 supported current-address reads matched, no odd
-ROM fetch occurred, four checkpoint reads completed, and terminal
-RESET-high/CLK-low/AD-high-Z safety passed.
+PIO1 ran independent ROM and mailbox matcher/responder pairs from 24 of its 32
+instruction words. All 48 ROM pairs and seven mailbox pairs completed, both
+response DMA streams drained, deadline misses remained zero, and terminal
+RESET-high/CLK-low/AD-high-Z safety passed. The M33 cores never resolved a
+current physical response cycle.
 
-This accepts the physical scripted mailbox gate, not yet the runtime-staged
-dual-core mailbox, USB HID transport, Python-to-hardware bridge, or Codex
-adapter. The retained 0.300 MHz target separately characterizes the current
-linear selector's response-drive boundary near its 31st search entry.
+This accepts the bounded AI-B1-A runtime-staging gate. Live publication while
+the V30 is already polling, sustained multi-record exchange, USB HID, and the
+Codex adapter remain later gates. AI-B0 remains the permanent scripted and
+linear-selector regression.
 
+- [AI-B1-A 0.600 MHz physical validation](docs/validation/ai_b1a_runtime_mailbox_600khz_validation.md)
 - [AI-B0 physical mailbox validation](docs/validation/ai_b0_physical_mailbox_validation.md)
 - [AI Bridge implementation gates](docs/ai_bridge_implementation_plan.md)
 

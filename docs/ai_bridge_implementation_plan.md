@@ -84,11 +84,57 @@ commit, and reached four checkpoint reads. See
 
 ### AI-B1: runtime-staged dual-core mailbox
 
-Core1 accepts a complete 64-byte record and transfers ownership through a
-bounded SPSC queue. Core0 stages the complete payload while the V30-visible
-mailbox is not ready, then atomically publishes status. V30 reads `00E4h` and
-writes `00E2h`; PIO/DMA handle every active bus cycle. This gate replaces the
-AI-B0 build-time greeting while preserving AI-B0 as a hardware regression.
+AI-B1 replaces linear mailbox lookup with the parallel PIO1 sequencer topology
+accepted in [ADR 0004](adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md).
+The accepted AI-B0 targets and evidence remain unchanged.
+
+#### AI-B1-A: bounded runtime staging
+
+Status: **ACCEPTED ON PHYSICAL HARDWARE AT 0.600 MHz (2026-08-23)**
+
+Build target: `ai_bridge_runtime_mailbox_600khz`
+
+Evidence: [`validation/ai_b1a_runtime_mailbox_600khz_validation.md`](validation/ai_b1a_runtime_mailbox_600khz_validation.md)
+
+Core1 accepts one complete 64-byte record and transfers ownership through a
+bounded SPSC queue. Core0 copies the complete record into immutable local
+staging before it enables either mailbox DMA stream. Partial messages are
+never visible to the V30.
+
+PIO1 uses two relative-IRQ matcher/responder pairs. The ROM pair and mailbox
+pair share one compact program image but keep independent FIFOs and DMA
+streams. An exact `00E4h` read advances one staged mailbox response; unrelated
+ROM and I/O cycles consume none. PIO0 remains the passive witness and PIO2 owns
+CLK. Acceptance requires explicit proof that the two responder pairs never
+authorize the same cycle.
+
+The retained 0.200 MHz AI-B0 image is a historical regression only. The
+minimum and current AI-B1-A target is 0.600 MHz. A 0.300 MHz variant is created
+only when needed to diagnose a physical 0.600 MHz failure; it is not an
+acceptance target. Higher-frequency sweep work remains outside this gate.
+
+The accepted physical run completed all 48 ROM pairs and all seven mailbox
+pairs with zero deadline misses. Native V30 code read and XOR-validated
+`HELLO NEC V30`, returned `HELLO OPENAI CODEX`, committed through `00E6h`, and
+ended in the terminal safe state. This proves the bounded runtime-staging data
+plane; live publication while the V30 is already polling remains AI-B1-B.
+
+#### AI-B1-B: live mailbox publication
+
+After AI-B1-A establishes the physical data plane, let the already-running V30
+observe not-ready state, then atomically observe ready after Core0 stages a new
+record. STATUS polling, RX data consumption, TX capture, and commit must remain
+bounded without a current-cycle M33 lookup.
+
+#### AI-B1-C: sustained message exchange
+
+Repeat complete records in both directions, validate sequence and ownership
+transfer across Core1/Core0, and define bounded full/empty behavior. Human CDC
+formatting remains on the service side and cannot stall the response plane.
+
+AI-B1-A now replaces AI-B0 as the accepted bounded runtime-staging gate. AI-B0
+remains a permanent linear-selector and electrical regression; AI-B1-B/C still
+require their own physical evidence.
 
 ### AI-B2: USB HID and Python Host Bridge
 

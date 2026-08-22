@@ -53,7 +53,9 @@
 #include "v30/v30_pins.h"
 
 /* Test envelope and bounded evidence storage. */
+#ifndef PC1C0C_V30_HZ
 #define PC1C0C_V30_HZ                 300000u
+#endif
 #define RESET_CLOCKS                      20u
 #define SIGNAL_TIMEOUT_CLOCKS             64u
 #define RUN_TIMEOUT_CLOCKS              4096u
@@ -74,7 +76,9 @@
 #define RESET_ROM_BASE               0xFFFF0u
 #define RESET_ROM_SIZE                     6u
 #define V30_ROM_BASE                  0xF0000u
+#ifndef SEQUENCE_MAX
 #define SEQUENCE_MAX                      32u
+#endif
 #define CHECKPOINT_RESPONSES               4u
 #define DIAGNOSTIC_PORT                0x00E9u
 #define DIAGNOSTIC_MAX_BYTES               32u
