@@ -451,6 +451,63 @@ pico_enable_stdio_usb(pc1c_bounded_rom_window 1)
 pico_enable_stdio_uart(pc1c_bounded_rom_window 0)
 pico_add_extra_outputs(pc1c_bounded_rom_window)
 
+# AI-B0 keeps the accepted bounded current-address engine intact and compiles
+# it against a separate native V30 program.  The 48-entry table is a new,
+# deliberately unaccepted physical envelope; only hardware evidence may
+# promote this target beyond feasibility status.
+pi86_add_v30_rom(ai_bridge_mailbox_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/ai_bridge_mailbox_test.asm"
+    SYMBOL ai_bridge_mailbox_rom
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/firmware/v30/bios/include/platform.inc"
+)
+
+add_executable(ai_bridge_mailbox
+    pc1c_bounded_rom_window.c
+)
+
+target_compile_definitions(ai_bridge_mailbox PRIVATE
+    PI86_AI_BRIDGE_B0=1
+    PC1C_TABLE_ENTRIES=48u
+    PC1C_ROM_HEADER="ai_bridge_mailbox_rom.h"
+    PC1C_ROM_DATA=ai_bridge_mailbox_rom_data
+    PC1C_ROM_SIZE=ai_bridge_mailbox_rom_size
+    PC1C_ROM_SHA256=ai_bridge_mailbox_rom_sha256
+)
+
+target_include_directories(ai_bridge_mailbox PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+)
+
+target_link_libraries(ai_bridge_mailbox
+    ai_bridge_mailbox_rom
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+)
+
+pico_generate_pio_header(ai_bridge_mailbox
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_bounded_rom_window.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_reset_clock_qualifier.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(ai_bridge_mailbox
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(ai_bridge_mailbox 1)
+pico_enable_stdio_uart(ai_bridge_mailbox 0)
+pico_add_extra_outputs(ai_bridge_mailbox)
+
 pi86_add_v30_rom(int10_stack_rom
     SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/int10_stack_test.asm"
     SYMBOL int10_stack_rom

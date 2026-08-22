@@ -24,7 +24,16 @@
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
 
-#include "native_bios_rom.h"
+#ifndef PC1C_ROM_HEADER
+#define PC1C_ROM_HEADER "native_bios_rom.h"
+#define PC1C_ROM_DATA native_bios_rom_data
+#define PC1C_ROM_SIZE native_bios_rom_size
+#define PC1C_ROM_SHA256 native_bios_rom_sha256
+#endif
+#include PC1C_ROM_HEADER
+#ifdef PI86_AI_BRIDGE_B0
+#include "ai_bridge/bridge_protocol.h"
+#endif
 #include "pc1b_first_cycle_phase_capture.pio.h"
 #include "pc1c_bounded_rom_window.pio.h"
 #include "pc1c_reset_clock_qualifier.pio.h"
@@ -35,16 +44,36 @@
 #define V30_HZ                         300000u
 #define RESET_CLOCKS                       20u
 #define RUN_TIMEOUT_CLOCKS               4096u
-#define TABLE_ENTRIES                      32u
+#ifndef PC1C_TABLE_ENTRIES
+#define PC1C_TABLE_ENTRIES                 32u
+#endif
+#define TABLE_ENTRIES       PC1C_TABLE_ENTRIES
 #define ENTRY_WORDS                         3u
 #define BLOCK_WORDS (TABLE_ENTRIES * ENTRY_WORDS + 1u)
+#ifdef PI86_AI_BRIDGE_B0
+#define EXECUTION_BUDGET_CYCLES           128u
+#define OBSERVER_CYCLES                    96u
+#else
 #define EXECUTION_BUDGET_CYCLES            80u
 #define OBSERVER_CYCLES                    64u
+#endif
 #define OBSERVER_WORDS (OBSERVER_CYCLES * 2u)
 #define FIRST_PHASE_COUNT                   6u
 #define RESET_ROM_BASE                0xFFFF0u
 #define BIOS_BASE                     0xF0000u
-#define DIAGNOSTIC_PORT                 0x00E9u
+#ifdef PI86_AI_BRIDGE_B0
+#define OUTPUT_PORT                     0x00E2u
+#define EXPECTED_OUTPUT        "HELLO OPENAI CODEX"
+#define RUN_TITLE "AI-B0 Physical V30 Mailbox Greeting - 0.300 MHz"
+#define RESULT_LABEL                       "AI-B0"
+#define OUTPUT_HEADING          "[V30 MAILBOX OUTPUT]"
+#else
+#define OUTPUT_PORT                     0x00E9u
+#define EXPECTED_OUTPUT               "PI86 BIOS\r\n"
+#define RUN_TITLE "PC1-C0C1-B1 Bounded Multi-Cycle ROM - 0.300 MHz"
+#define RESULT_LABEL                    "C0C1-B1"
+#define OUTPUT_HEADING             "[V30 BIOS OUTPUT]"
+#endif
 #define OUT_COUNT                          28u
 #define QUALIFIED_T1_CONTROL_BITS ((1u << V30_PIN_ASTB) | \
                                    (1u << V30_PIN_IOM) | \
@@ -62,6 +91,7 @@ typedef struct {
     bool first_response_ok;
     bool far_target_seen;
     bool diagnostic_ok;
+    bool mailbox_commit_ok;
     bool checkpoint_ok;
     bool supported_reads_ok;
     bool terminal_safe;
@@ -149,10 +179,10 @@ static bool rom_word(uint32_t address, uint16_t *value) {
         *value = (uint16_t)reset_vector[i] | ((uint16_t)reset_vector[i + 1u] << 8);
         return true;
     }
-    if (address >= BIOS_BASE && address + 1u < BIOS_BASE + native_bios_rom_size) {
+    if (address >= BIOS_BASE && address + 1u < BIOS_BASE + PC1C_ROM_SIZE) {
         const uint32_t i = address - BIOS_BASE;
-        *value = (uint16_t)native_bios_rom_data[i] |
-                 ((uint16_t)native_bios_rom_data[i + 1u] << 8);
+        *value = (uint16_t)PC1C_ROM_DATA[i] |
+                 ((uint16_t)PC1C_ROM_DATA[i + 1u] << 8);
         return true;
     }
     return false;
@@ -166,8 +196,8 @@ static void append_entry(uint32_t *block, uint32_t slot,
 }
 
 static void prepare_table_stream(void) {
-    const uint32_t image_words = (native_bios_rom_size + 1u) / 2u;
-    hard_assert(native_bios_rom_size >= 2u);
+    const uint32_t image_words = (PC1C_ROM_SIZE + 1u) / 2u;
+    hard_assert(PC1C_ROM_SIZE >= 2u);
     hard_assert(image_words + 3u <= TABLE_ENTRIES);
 
     uint32_t prototype[BLOCK_WORDS];
@@ -331,9 +361,9 @@ static int observer_dma(const engine_sm_t *s) {
 static void stop_dma(int ch) { dma_channel_abort((uint)ch); dma_channel_unclaim((uint)ch); }
 
 static void classify(result_t *r) {
-    static const char expected[] = "PI86 BIOS\r\n";
+    static const char expected[] = EXPECTED_OUTPUT;
     uint32_t diag = 0u;
-    const uint32_t checkpoint = BIOS_BASE + native_bios_rom_size - 2u;
+    const uint32_t checkpoint = BIOS_BASE + PC1C_ROM_SIZE - 2u;
     r->supported_reads_ok = true;
     r->complete_cycles = r->observer_words / 2u;
     for (uint32_t i = 0u; i < r->complete_cycles; ++i) {
@@ -347,8 +377,16 @@ static void classify(result_t *r) {
         }
         if (address == BIOS_BASE && memory_read(a)) r->far_target_seen = true;
         if (address == checkpoint && memory_read(a)) ++r->checkpoint_reads;
-        if (address == DIAGNOSTIC_PORT && io_write(a) && diag + 1u < sizeof r->diagnostic)
-            r->diagnostic[diag++] = (char)(decode_ad(d) >> 8);
+        if (address == OUTPUT_PORT && io_write(a) && diag + 1u < sizeof r->diagnostic) {
+            const uint16_t bus_word = decode_ad(d);
+            r->diagnostic[diag++] = (char)((address & 1u) ?
+                (bus_word >> 8) : (bus_word & 0xFFu));
+        }
+#ifdef PI86_AI_BRIDGE_B0
+        if (address == 0x00E6u && io_write(a) &&
+            (decode_ad(d) & 0xFFu) == 0x01u)
+            r->mailbox_commit_ok = true;
+#endif
     }
     r->diagnostic[diag] = '\0';
     r->diagnostic_ok = strcmp(r->diagnostic, expected) == 0;
@@ -425,7 +463,10 @@ static void print_result(const result_t *r) {
         r->first_response_ok && r->far_target_seen && r->diagnostic_ok &&
         r->checkpoint_ok && r->supported_reads_ok && r->terminal_safe &&
         r->observer_words == OBSERVER_WORDS;
-    printf("\n[V30 BIOS OUTPUT]\n%s\n", r->diagnostic);
+#ifdef PI86_AI_BRIDGE_B0
+    pass = pass && r->mailbox_commit_ok;
+#endif
+    printf("\n%s\n%s\n", OUTPUT_HEADING, r->diagnostic);
     printf("[SUMMARY]\n");
     printf("Measurement epoch        %s\n", pf(r->clean_epoch));
     printf("Reset / FFFF0 fetch      %s\n", pf(r->reset_ok && r->first_address_ok));
@@ -433,14 +474,19 @@ static void print_result(const result_t *r) {
     printf("F0000 ROM execution      %s\n", pf(r->far_target_seen));
     printf("Current-address reads    %s (%lu hits)\n", pf(r->supported_reads_ok),
            (unsigned long)r->supported_reads);
+#ifdef PI86_AI_BRIDGE_B0
+    printf("Mailbox TX I/O %04X      %s\n", OUTPUT_PORT, pf(r->diagnostic_ok));
+    printf("Mailbox commit I/O 00E6  %s\n", pf(r->mailbox_commit_ok));
+#else
     printf("Diagnostic I/O 00E9      %s\n", pf(r->diagnostic_ok));
+#endif
     printf("Checkpoint loop          %s (%lu reads)\n", pf(r->checkpoint_ok),
            (unsigned long)r->checkpoint_reads);
     printf("Bus ownership/safety     %s\n", pf(r->terminal_safe));
-    printf("C0C1-B1 RESULT           %s\n", pf(pass));
+    printf("%s RESULT           %s\n", RESULT_LABEL, pf(pass));
     printf("\n[ENGINEERING DETAILS]\n");
-    printf("PC1-C0C1-B1 Bounded Multi-Cycle ROM - 0.300 MHz\n");
-    printf("Table shape              = 32 entries + sentinel\n");
+    printf("%s\n", RUN_TITLE);
+    printf("Table shape              = %u entries + sentinel\n", TABLE_ENTRIES);
     printf("Execution budget         = %u identical table blocks\n", EXECUTION_BUDGET_CYCLES);
     printf("Current-cycle M33        = NONE\n");
     printf("RESET clock qualification= %s\n", pf(r->reset_ok));
@@ -459,7 +505,7 @@ static void print_result(const result_t *r) {
     printf("PIO1 OE pre/post         = %08lX/%08lX\n",
            (unsigned long)r->pre_pio1_oe, (unsigned long)r->post_pio1_oe);
     printf("ROM image                = %lu bytes; SHA-256 %s\n",
-           (unsigned long)native_bios_rom_size, native_bios_rom_sha256);
+           (unsigned long)PC1C_ROM_SIZE, PC1C_ROM_SHA256);
     printf("TERMINAL SAFE STATE      = %s\n", pf(r->terminal_safe));
     printf("\n[FIRST-CYCLE PHASE TRACE]\n");
     static const char *const phase_name[FIRST_PHASE_COUNT] = {
