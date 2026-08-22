@@ -55,6 +55,21 @@ python3 tools/ai_bridge/v30bridge.py --simulate
 This verifies byte layout, bounds, sequence preservation, and the canonical
 conversation without claiming physical transport.
 
+### Windows physical evidence gate
+
+The synchronized Windows clone owns USB CDC capture and host-side physical
+acceptance. `tools/ai_bridge/physical_validator.py` supports explicit COM-port
+capture, lossless raw-log retention, offline revalidation, named acceptance
+profiles, and automation-safe exit status. WSL remains the firmware build host.
+
+```powershell
+py tools\ai_bridge\physical_validator.py --list-ports
+py tools\ai_bridge\physical_validator.py --port COM7 --profile ai-b1-a
+```
+
+The complete workflow and exit-code contract are defined in
+[`development/windows_physical_validation.md`](development/windows_physical_validation.md).
+
 ### AI-B0: physical scripted mailbox greeting
 
 Status: **ACCEPTED on physical hardware (2026-08-23)**

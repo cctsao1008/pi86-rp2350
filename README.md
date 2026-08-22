@@ -212,6 +212,7 @@ linear-selector regression.
 - [AI-B1-A 0.600 MHz physical validation](docs/validation/ai_b1a_runtime_mailbox_600khz_validation.md)
 - [AI-B0 physical mailbox validation](docs/validation/ai_b0_physical_mailbox_validation.md)
 - [AI Bridge implementation gates](docs/ai_bridge_implementation_plan.md)
+- [Windows physical validation host](docs/development/windows_physical_validation.md)
 
 ## Current milestone: Native BIOS says HELLO
 
