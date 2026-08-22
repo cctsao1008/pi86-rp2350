@@ -297,6 +297,7 @@ Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8
 ## Documentation
 
 - [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
+- [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) — proposed architecture for asynchronous AI/host interaction with the physical V30 through bounded semantic authority and deterministic RP2350 execution
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
 - [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) — current HAT assessment, limitations, and staged improvement strategy
 - [`docs/native_bios_diagnostic_console.md`](docs/native_bios_diagnostic_console.md) — early Native BIOS `0xE9` output contract
