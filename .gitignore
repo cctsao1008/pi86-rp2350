@@ -83,6 +83,8 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+__pycache__/
+*.py[cod]
 
 # OS metadata
 .DS_Store

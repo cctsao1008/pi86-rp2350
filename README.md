@@ -178,7 +178,10 @@ terminates in a host-side Codex Adapter. This is an accepted target architecture
 not a claim that the end-to-end interaction has already been implemented. See
 [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) for the
 canonical responsibilities, message ownership, HID/CDC boundary, conversation
-state, and success definition.
+state, and success definition. The separate
+[`docs/ai_bridge_implementation_plan.md`](docs/ai_bridge_implementation_plan.md)
+defines the Python-first and physical implementation gates without changing
+that accepted target.
 
 ## Current milestone: Native BIOS says HELLO
 
@@ -317,6 +320,7 @@ Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8
 
 - [`docs/project_overview.md`](docs/project_overview.md) — mission, architecture, research questions, and performance strategy
 - [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) — accepted target architecture for a Codex-first greeting and native physical-V30 reply through the provider-neutral Host Bridge
+- [`docs/ai_bridge_implementation_plan.md`](docs/ai_bridge_implementation_plan.md) — Python-first protocol, physical mailbox, HID, and Codex integration gates
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) — canonical hardware-interface contract
 - [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) — current HAT assessment, limitations, and staged improvement strategy
 - [`docs/native_bios_diagnostic_console.md`](docs/native_bios_diagnostic_console.md) — early Native BIOS `0xE9` output contract
