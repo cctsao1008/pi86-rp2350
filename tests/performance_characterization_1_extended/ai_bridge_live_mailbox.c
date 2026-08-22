@@ -161,6 +161,20 @@ static bool receive_complete_host_record(ai_b1b_result_t *r) {
     return r->staging_atomic;
 }
 
+static __attribute__((noreturn)) void terminal_service_loop(void) {
+    while (true) {
+#ifdef AI_BRIDGE_HID_TRANSPORT
+        /* The deterministic V30 epoch has ended and the bus is already in its
+         * terminal safe state. Keep TinyUSB moving so every queued CDC
+         * evidence packet reaches Windows; the direct tinyusb_device linkage
+         * intentionally disables pico_stdio_usb's background worker. */
+        pi86_ai_bridge_usb_task();
+#else
+        tight_loop_contents();
+#endif
+    }
+}
+
 static void prepare_live_tables(ai_b1b_result_t *r) {
     uint8_t bytes[LIVE_DATA_WORDS * 2u] = {0};
     memcpy(bytes, g_staged_message.payload, g_staged_message.length);
@@ -605,7 +619,7 @@ int main(void) {
     if (!receive_complete_host_record(&result)) {
         print_ai_b1b(&result);
         fflush(stdout);
-        while (true) tight_loop_contents();
+        terminal_service_loop();
     }
     prepare_live_tables(&result);
 
@@ -634,5 +648,5 @@ int main(void) {
 #endif
     print_ai_b1b(&result);
     fflush(stdout);
-    while (true) tight_loop_contents();
+    terminal_service_loop();
 }
