@@ -105,6 +105,7 @@ typedef struct {
     uint32_t complete_cycles;
     uint32_t supported_reads;
     uint32_t unsupported_cycles;
+    uint32_t odd_rom_fetches;
     uint32_t checkpoint_reads;
     uint32_t response_mismatches;
     uint32_t first_mismatch_address;
@@ -373,6 +374,11 @@ static void classify(result_t *r) {
     for (uint32_t i = 0u; i < r->complete_cycles; ++i) {
         uint32_t a = g_observer[i * 2u], d = g_observer[i * 2u + 1u];
         uint32_t address = decode_address(a); uint16_t expected_word;
+#ifdef PI86_AI_BRIDGE_B0
+        if (memory_read(a) && address >= BIOS_BASE &&
+            address < BIOS_BASE + PC1C_ROM_SIZE && (address & 1u))
+            ++r->odd_rom_fetches;
+#endif
         if (memory_read(a) && rom_word(address, &expected_word)) {
             ++r->supported_reads;
             const uint16_t observed_word = decode_ad(d);
@@ -482,7 +488,7 @@ static void print_result(const result_t *r) {
         r->checkpoint_ok && r->supported_reads_ok && r->terminal_safe &&
         r->observer_words == OBSERVER_WORDS;
 #ifdef PI86_AI_BRIDGE_B0
-    pass = pass && r->mailbox_commit_ok;
+    pass = pass && r->mailbox_commit_ok && r->odd_rom_fetches == 0u;
 #endif
     printf("\n%s\n%s\n", OUTPUT_HEADING, r->diagnostic);
     printf("[SUMMARY]\n");
@@ -496,6 +502,8 @@ static void print_result(const result_t *r) {
 #ifdef PI86_AI_BRIDGE_B0
     printf("Mailbox TX I/O %04X      %s\n", OUTPUT_PORT, pf(r->diagnostic_ok));
     printf("Mailbox commit I/O 00E6  %s\n", pf(r->mailbox_commit_ok));
+    printf("Aligned ROM fetches      %s (%lu odd)\n",
+           pf(r->odd_rom_fetches == 0u), (unsigned long)r->odd_rom_fetches);
 #else
     printf("Diagnostic I/O 00E9      %s\n", pf(r->diagnostic_ok));
 #endif
@@ -519,6 +527,10 @@ static void print_result(const result_t *r) {
     printf("Observer complete cycles = %lu/%u\n", (unsigned long)r->complete_cycles,
            OBSERVER_CYCLES);
     printf("Unsupported/high-Z cycles= %lu\n", (unsigned long)r->unsupported_cycles);
+#ifdef PI86_AI_BRIDGE_B0
+    printf("Odd-address ROM fetches  = %lu %s\n",
+           (unsigned long)r->odd_rom_fetches, pf(r->odd_rom_fetches == 0u));
+#endif
     printf("Response data mismatches = %lu %s\n",
            (unsigned long)r->response_mismatches,
            pf(r->response_mismatches == 0u));

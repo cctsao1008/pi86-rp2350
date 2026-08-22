@@ -30,6 +30,10 @@ ai_bridge_entry:
     mov si, host_greeting - $$
     mov cx, HOST_GREETING_WORDS
     mov bx, HOST_GREETING_XOR
+    ; A taken branch flushes the V30 prefetch queue.  Keep every branch target
+    ; word-aligned because the current SRAM responder intentionally serves
+    ; aligned word ROM reads only.
+align 2, db 0x90
 .consume_host_message:
     lodsw
     xor bx, ax

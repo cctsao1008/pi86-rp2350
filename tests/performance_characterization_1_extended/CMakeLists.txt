@@ -452,7 +452,7 @@ pico_enable_stdio_uart(pc1c_bounded_rom_window 0)
 pico_add_extra_outputs(pc1c_bounded_rom_window)
 
 # AI-B0 keeps the accepted bounded current-address engine intact and compiles
-# it against a separate native V30 program.  The 41-entry table is a new,
+# it against a separate native V30 program.  The 42-entry table is a new,
 # deliberately unaccepted physical envelope; only hardware evidence may
 # promote this target beyond feasibility status.
 pi86_add_v30_rom(ai_bridge_mailbox_rom
@@ -468,7 +468,7 @@ add_executable(ai_bridge_mailbox
 
 target_compile_definitions(ai_bridge_mailbox PRIVATE
     PI86_AI_BRIDGE_B0=1
-    PC1C_TABLE_ENTRIES=41u
+    PC1C_TABLE_ENTRIES=42u
     PC1C_ROM_HEADER="ai_bridge_mailbox_rom.h"
     PC1C_ROM_DATA=ai_bridge_mailbox_rom_data
     PC1C_ROM_SIZE=ai_bridge_mailbox_rom_size

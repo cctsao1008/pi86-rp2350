@@ -65,7 +65,7 @@ physical V30 consumes and validates all greeting words, emits
 checkpoint loop. The existing PIO/DMA current-address responder owns AD and
 PINDIRS; the M33 is absent from current-cycle service.
 
-AI-B0 is deliberately not the final asynchronous mailbox. Its 41-entry search
+AI-B0 is deliberately not the final asynchronous mailbox. Its 42-entry search
 table is a new timing envelope and remains unaccepted until physical output
 reports `AI-B0 RESULT = PASS` with terminal high-Z safety.
 
