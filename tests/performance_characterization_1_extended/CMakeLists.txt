@@ -669,6 +669,62 @@ pico_enable_stdio_usb(ai_bridge_live_mailbox_600khz 1)
 pico_enable_stdio_uart(ai_bridge_live_mailbox_600khz 0)
 pico_add_extra_outputs(ai_bridge_live_mailbox_600khz)
 
+# AI-B2-HID keeps AI-B1-B's accepted V30/PIO/DMA response plane unchanged,
+# but moves the fixed 64-byte provider-neutral record to a generic HID IN/OUT
+# interface. CDC remains present on the same composite device for validation
+# output only; it is not a mailbox data path.
+add_executable(ai_bridge_hid_mailbox_600khz
+    ai_bridge_live_mailbox.c
+    ai_bridge_usb.c
+    ai_bridge_usb_descriptors.c
+)
+
+target_compile_definitions(ai_bridge_hid_mailbox_600khz PRIVATE
+    PC1C_ROM_HEADER="ai_bridge_live_mailbox_rom.h"
+    PC1C_ROM_DATA=ai_bridge_live_mailbox_rom_data
+    PC1C_ROM_SIZE=ai_bridge_live_mailbox_rom_size
+    PC1C_ROM_SHA256=ai_bridge_live_mailbox_rom_sha256
+    AI_BRIDGE_HID_TRANSPORT=1
+    PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0
+)
+
+target_include_directories(ai_bridge_hid_mailbox_600khz PRIVATE
+    ${PROJECT_SOURCE_DIR}/firmware
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(ai_bridge_hid_mailbox_600khz
+    ai_bridge_live_mailbox_rom
+    pico_stdlib
+    pico_multicore
+    pico_unique_id
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    hardware_sync
+    tinyusb_device
+)
+
+pico_generate_pio_header(ai_bridge_hid_mailbox_600khz
+    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+)
+pico_generate_pio_header(ai_bridge_hid_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
+)
+pico_generate_pio_header(ai_bridge_hid_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_live_mailbox.pio
+)
+pico_generate_pio_header(ai_bridge_hid_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+)
+pico_generate_pio_header(ai_bridge_hid_mailbox_600khz
+    ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+)
+
+pico_enable_stdio_usb(ai_bridge_hid_mailbox_600khz 1)
+pico_enable_stdio_uart(ai_bridge_hid_mailbox_600khz 0)
+pico_add_extra_outputs(ai_bridge_hid_mailbox_600khz)
+
 pi86_add_v30_rom(int10_stack_rom
     SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/int10_stack_test.asm"
     SYMBOL int10_stack_rom

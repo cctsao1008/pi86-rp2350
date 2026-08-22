@@ -1,7 +1,8 @@
 /*
  * AI-B1-B live-publication mailbox at 0.600 MHz.
  *
- * Windows sends one complete provider-neutral record over USB CDC before the
+ * Windows sends one complete provider-neutral record over the selected USB
+ * transport before the
  * deterministic V30 epoch. Core1 owns binary ingress and transfers only the
  * complete record. Core0 validates and compiles immutable response streams,
  * but deliberately withholds them while the already-running V30 performs its
@@ -24,6 +25,10 @@
 #undef AI_B1A_MAIN
 
 #include "hardware/regs/dma.h"
+
+#ifdef AI_BRIDGE_HID_TRANSPORT
+#include "ai_bridge_usb.h"
+#endif
 
 #define LIVE_STATUS_PORT                 0x00E0u
 #define LIVE_DATA_PORT                   0x00E4u
@@ -61,6 +66,10 @@ typedef struct {
     bool commit_ok;
     bool key_sets_disjoint;
     bool mailbox_dma_complete;
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    bool hid_reply_complete;
+    uint32_t hid_reply_bytes;
+#endif
     uint32_t host_sequence;
     uint32_t status_reads;
     uint16_t status_values[2];
@@ -83,6 +92,10 @@ typedef struct {
 
 static void service_core_receive_record(void) {
     uint8_t record[PI86_BRIDGE_MESSAGE_SIZE];
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    while (!pi86_ai_bridge_hid_take_record(record))
+        tight_loop_contents();
+#else
     uint32_t received = 0u;
 
     while (received < sizeof record) {
@@ -93,6 +106,7 @@ static void service_core_receive_record(void) {
         }
         record[received++] = (uint8_t)value;
     }
+#endif
 
     for (uint32_t i = 0u; i < BRIDGE_RECORD_WORDS; ++i) {
         uint32_t word;
@@ -108,8 +122,15 @@ static bool receive_complete_host_record(ai_b1b_result_t *r) {
     const uint64_t deadline = time_us_64() + HOST_RECORD_TIMEOUT_US;
     while ((g_message_ring.write_index - g_message_ring.read_index) <
                BRIDGE_RECORD_WORDS &&
-           time_us_64() <= deadline)
+           time_us_64() <= deadline) {
+#ifdef AI_BRIDGE_HID_TRANSPORT
+        /* Core1 waits on HID ownership transfer; Core0 alone services USB.
+         * This loop ends before RESET release and the deterministic epoch. */
+        pi86_ai_bridge_usb_task();
+#else
         tight_loop_contents();
+#endif
+    }
 
     r->core1_record_complete =
         (g_message_ring.write_index - g_message_ring.read_index) ==
@@ -446,7 +467,12 @@ static bool ai_b1b_pass(const ai_b1b_result_t *r) {
         r->commit_ok && r->key_sets_disjoint &&
         b->dma_streams_complete && r->mailbox_dma_complete &&
         r->rom_pairs == g_sequence_count &&
-        r->mailbox_pairs == LIVE_TOTAL_PAIRS;
+        r->mailbox_pairs == LIVE_TOTAL_PAIRS
+#ifdef AI_BRIDGE_HID_TRANSPORT
+        && r->hid_reply_complete &&
+        r->hid_reply_bytes == PI86_BRIDGE_MESSAGE_SIZE
+#endif
+        ;
 }
 
 static void print_ai_b1b(const ai_b1b_result_t *r) {
@@ -460,7 +486,11 @@ static void print_ai_b1b(const ai_b1b_result_t *r) {
     printf("First response 00EA        %s\n",
            pass_fail(b->first_response_phase_ok));
     printf("F0000 ROM execution        %s\n", pass_fail(b->far_target_seen));
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    printf("Windows HID 64-byte record %s (sequence %lu)\n",
+#else
     printf("Windows 64-byte record     %s (sequence %lu)\n",
+#endif
            pass_fail(r->windows_record_complete),
            (unsigned long)r->host_sequence);
     printf("Core1 complete record      %s\n",
@@ -483,16 +513,32 @@ static void print_ai_b1b(const ai_b1b_result_t *r) {
     printf("V30 input XOR at 00E8      %s\n", pass_fail(r->checksum_ok));
     printf("Mailbox TX I/O 00E2        %s\n", pass_fail(r->reply_ok));
     printf("Mailbox commit I/O 00E6    %s\n", pass_fail(r->commit_ok));
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    printf("HID reply 64-byte record   %s (%lu/64 bytes)\n",
+           pass_fail(r->hid_reply_complete),
+           (unsigned long)r->hid_reply_bytes);
+    printf("CDC validation log role    RECEIVE-ONLY PASS\n");
+#endif
     printf("ROM/mailbox key collisions %s\n",
            r->key_sets_disjoint ? "0 PASS" : "FAIL");
     printf("Current-cycle M33          NONE\n");
     printf("USB IRQ during V30 epoch   MASKED PASS\n");
     printf("Bus ownership/safety       %s\n", pass_fail(b->terminal_safe));
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    printf("AI-B2-HID RESULT           %s\n", pass_fail(ai_b1b_pass(r)));
+#else
     printf("AI-B1-B RESULT             %s\n", pass_fail(ai_b1b_pass(r)));
+#endif
 
     printf("\n[ENGINEERING DETAILS]\n");
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    printf("AI-B2-HID Composite Mailbox - 0.600 MHz\n");
+    printf("Host transport             = Windows USB HID 64-byte record; CDC log only\n");
+    printf("USB identity               = VID CAFE PID 4011\n");
+#else
     printf("AI-B1-B Live Mailbox Publication - 0.600 MHz\n");
     printf("Host transport             = Windows USB CDC binary record\n");
+#endif
     printf("PIO1 allocation            = SM0/1 ROM, SM2/3 mailbox\n");
     printf("PIO instruction words      = %u + %u = %u/32\n",
            pc1c_dual_matcher_program.length,
@@ -539,8 +585,19 @@ int main(void) {
     prepare_header_high_z();
     init_control_outputs();
     route_ad_to_sio_high_z();
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    /* User TinyUSB descriptors must be active before pico_stdio_usb registers
+     * CDC on the same composite device. HID owns binary records; CDC remains
+     * the unchanged human-readable evidence channel. */
+    pi86_ai_bridge_usb_init();
+#endif
     stdio_init_all();
-    while (!stdio_usb_connected()) sleep_ms(10);
+    while (!stdio_usb_connected()) {
+#ifdef AI_BRIDGE_HID_TRANSPORT
+        pi86_ai_bridge_usb_task();
+#endif
+        sleep_ms(1);
+    }
     sleep_ms(100);
 
     static ai_b1b_result_t result;
@@ -563,6 +620,18 @@ int main(void) {
     run_ai_b1b(&clock, &rom_matcher, &rom_responder,
                &mailbox_matcher, &mailbox_responder,
                &phase, &observer, &result);
+#ifdef AI_BRIDGE_HID_TRANSPORT
+    pi86_bridge_message_t reply_record = {0};
+    reply_record.version = PI86_BRIDGE_PROTOCOL_VERSION;
+    reply_record.type = PI86_BRIDGE_MESSAGE_TEXT;
+    reply_record.sequence = result.host_sequence;
+    reply_record.length = (uint16_t)(sizeof live_expected_reply - 1u);
+    memcpy(reply_record.payload, result.reply, reply_record.length);
+    result.hid_reply_complete = pi86_ai_bridge_hid_send_record(
+        (const uint8_t *)&reply_record, HOST_RECORD_TIMEOUT_US);
+    result.hid_reply_bytes = result.hid_reply_complete ?
+        PI86_BRIDGE_MESSAGE_SIZE : 0u;
+#endif
     print_ai_b1b(&result);
     fflush(stdout);
     while (true) tight_loop_contents();
