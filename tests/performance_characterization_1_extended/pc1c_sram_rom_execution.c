@@ -340,6 +340,19 @@ static void route_ad_to_responder(const pc1c_sm_t *responder) {
         pio_gpio_init(responder->pio, ad_pins[bit]);
 }
 
+static bool responder_non_ad_pins_isolated(const pc1c_sm_t *responder) {
+    /* MOV PINDIRS in the responder addresses the full OUT_BASE/OUT_COUNT
+     * window. Only AD pins may therefore select this PIO function; otherwise
+     * a future mux change could turn a logically broad PINDIRS write into
+     * electrical contention on a V30-driven control or address pin. */
+    const uint responder_func = pio_get_funcsel(responder->pio);
+    for (uint gpio = OUT_BASE; gpio < OUT_BASE + OUT_COUNT; ++gpio) {
+        if ((V30_AD_BUS_MASK & (1u << gpio)) != 0u) continue;
+        if ((uint)gpio_get_function(gpio) == responder_func) return false;
+    }
+    return true;
+}
+
 static void clock_init(pc1c_sm_t *clock) {
     clock->pio = pio1;
     clock->sm = pio_claim_unused_sm(clock->pio, true);

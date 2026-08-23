@@ -53,6 +53,7 @@ typedef struct {
     bool reply_ok;
     bool commit_ok;
     bool key_sets_disjoint;
+    bool non_ad_pins_isolated;
     bool mailbox_dma_complete;
     uint32_t mailbox_reads;
     uint32_t mailbox_mismatches;
@@ -290,6 +291,8 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
     r->mailbox_response_dma_pre = dma_remaining(mailbox_response_dma);
 
     route_ad_to_responder(rom_responder);
+    r->non_ad_pins_isolated =
+        responder_non_ad_pins_isolated(rom_responder);
     b->pre_pio1_padoe = pio1->dbg_padoe;
     r->pre_pio2_padoe = pio2->dbg_padoe;
     b->clock_direction_armed = b->pre_pio1_padoe == 0u &&
@@ -305,7 +308,7 @@ static void run_ai_b1(pc1c_sm_t *clock, pc1c_sm_t *rom_matcher,
         r->mailbox_responder_fifo_pre == 4u &&
         b->observer_dma_pre == OBSERVER_WORDS &&
         b->clock_direction_armed && r->key_sets_disjoint &&
-        !gpio_get(V30_PIN_CLK) &&
+        r->non_ad_pins_isolated && !gpio_get(V30_PIN_CLK) &&
         (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
 
     pio_enable_sm_mask_in_sync(pio0,
@@ -410,6 +413,7 @@ static bool ai_b1_pass(const ai_b1_result_t *r) {
         r->core1_record_complete && r->core0_record_valid &&
         r->staging_atomic && r->mailbox_reads_ok && r->checksum_ok &&
         r->reply_ok && r->commit_ok && r->key_sets_disjoint &&
+        r->non_ad_pins_isolated &&
         b->dma_streams_complete && r->mailbox_dma_complete &&
         r->rom_pairs == g_sequence_count &&
         r->mailbox_pairs == MAILBOX_WORDS;
@@ -452,6 +456,8 @@ static void print_ai_b1(const ai_b1_result_t *r) {
     printf("PIO1 pre-release OE        = %08lX %s\n",
            (unsigned long)b->pre_pio1_padoe,
            pass_fail(b->pre_pio1_padoe == 0u));
+    printf("PIO1 non-AD isolation      = %s\n",
+           pass_fail(r->non_ad_pins_isolated));
     printf("PIO2 pre-release OE        = %08lX CLK-ONLY %s\n",
            (unsigned long)r->pre_pio2_padoe,
            pass_fail(b->clock_direction_armed));
