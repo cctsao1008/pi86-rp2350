@@ -21,6 +21,8 @@ Codex, ChatGPT, a conventional test program, or another client remains above
 the provider-neutral Host Bridge boundary. The stable architecture is defined
 in [`ai_bridge_architecture.md`](ai_bridge_architecture.md).
 
+The canonical packed record and mailbox ABI is [`companion_service_abi.md`](companion_service_abi.md).
+
 ## Stable contracts
 
 ### Host/Core message record

@@ -167,25 +167,21 @@ Host policy may satisfy that request locally, through storage, through a debugge
 
 ## Transport record
 
-The accepted USB ABI uses one fixed 64-byte HID record in each direction. A record contains enough information to reject partial, stale, or mismatched traffic:
+The accepted version 1 USB ABI uses one fixed 64-byte HID record in each direction:
 
 ```text
-record identity
-direction and service
-sequence
-payload length
-payload
-integrity field
-status / flags
+version / type / flags / sequence / length / status / 52-byte payload
 ```
 
-The exact packed layout is defined by the implementation and protocol tests. The architectural rules are:
+Version 1 has no CRC or cryptographic integrity field. Its evidence combines exact HID record transfer, sequence and length checks, immutable publication, native V30 witnesses, and independent CDC physical validation. The exact layout and versioning rules are defined in [`companion_service_abi.md`](companion_service_abi.md).
+
+The architectural rules are:
 
 1. incomplete host records are never V30-visible;
 2. a sequence is not reused while an earlier transaction is live;
 3. publication occurs only after complete-record validation;
 4. the reply retains the initiating sequence identity;
-5. multi-record messages require explicit fragmentation and reassembly;
+5. multi-record messages and new integrity fields require an explicit versioned extension;
 6. transport success and native V30 execution evidence are separate results.
 
 ## Ownership and publication
@@ -342,6 +338,7 @@ physical bus                     USB HID records
 ## Related documents
 
 - [`architecture.md`](architecture.md) - complete companion-chip timing and ownership architecture
+- [`companion_service_abi.md`](companion_service_abi.md) - canonical record and mailbox ABI
 - [`dual_core_partitioning.md`](dual_core_partitioning.md) - RP2350 role partition and queue rules
 - [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) - staged implementation and evidence gates
 - [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - Windows physical validation workflow

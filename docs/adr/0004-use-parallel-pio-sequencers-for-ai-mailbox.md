@@ -3,6 +3,10 @@
 - Status: Accepted for AI-B1 implementation
 - Date: 2026-08-23
 
+> **Terminology note:** “AI mailbox” is retained in this ADR title as the
+> historical AI-B1 gate identity. ADR 0005 establishes **Companion Service
+> Mailbox** as the canonical name for new V30-visible architecture.
+
 ## Context
 
 AI-B0 proved a complete physical greeting through the real V30 mailbox at

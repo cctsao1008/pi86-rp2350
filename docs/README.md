@@ -17,6 +17,7 @@ The documentation is organized by authority and purpose. Architecture documents 
 | Document | Role |
 |---|---|
 | [`architecture.md`](architecture.md) | RP2350/V30 data, control, and service planes |
+| [`companion_service_abi.md`](companion_service_abi.md) | canonical 64-byte host record and V30 mailbox ABI |
 | [`hardware_contract.md`](hardware_contract.md) | canonical physical header and signal contract |
 | [`pin_mapping.md`](pin_mapping.md) | GPIO, header, and V30 signal mapping |
 | [`dual_core_partitioning.md`](dual_core_partitioning.md) | realtime/service roles and queue ownership |
@@ -33,6 +34,7 @@ The documentation is organized by authority and purpose. Architecture documents 
 | [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) | staged gates and accepted implementations |
 | [`development/windows_physical_validation.md`](development/windows_physical_validation.md) | Windows HID/CDC validation workflow |
 | [`adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md`](adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md) | mailbox sequencer decision |
+| [`adr/0005-adopt-host-bridge-and-companion-service-terminology.md`](adr/0005-adopt-host-bridge-and-companion-service-terminology.md) | provider-neutral terminology decision |
 
 The V30-visible interface is a companion service, not an AI abstraction. Codex was the first validated host adapter; conventional software, ChatGPT, an OpenAI API client, or another tool may use the same provider-neutral bridge.
 

@@ -419,6 +419,7 @@ The objective is therefore not merely to port Pi86. It is to explore how much of
 - [`docs/project_overview.md`](docs/project_overview.md) - project mission, research questions, and performance strategy
 - [`docs/architecture.md`](docs/architecture.md) - detailed system architecture
 - [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) - provider-neutral AI Bridge and native physical-V30 interaction
+- [`docs/companion_service_abi.md`](docs/companion_service_abi.md) - canonical host record and V30 mailbox ABI
 - [`docs/dual_core_partitioning.md`](docs/dual_core_partitioning.md) - realtime and service ownership contract
 
 ### Hardware
