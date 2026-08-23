@@ -149,10 +149,18 @@ def policy_issues(root: Path, path: Path) -> list[Issue]:
             if not re.search(pattern, lower):
                 issues.append(Issue(relative, 1, code, message))
 
-        if relative.name.casefold().startswith("ai_b") and not re.search(
-            r"response architecture\s*:", lower
-        ):
-            issues.append(Issue(relative, 1, "VAL005", "missing response-architecture classification"))
+        response_architecture = re.search(
+            r"response architecture\s*:\s*\*{0,2}(?:"
+            r"fixed\s*/\s*prestaged|"
+            r"address-qualified|"
+            r"bounded memory|"
+            r"cached guaranteed hit|"
+            r"general memory with defined miss policy|"
+            r"integrated system)\b",
+            lower,
+        )
+        if relative.name.casefold().startswith("ai_b") and response_architecture is None:
+            issues.append(Issue(relative, 1, "VAL005", "missing or invalid response-architecture classification"))
 
     if "docs" in relative.parts and not any(part in HISTORICAL_POLICY_PARTS for part in relative.parts):
         for number, line in enumerate(text.splitlines(), 1):
