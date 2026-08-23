@@ -42,6 +42,7 @@ The V30-visible interface is a companion service, not an AI abstraction. Codex w
 
 - [`hardware.md`](hardware.md) - present physical platform and electrical notes
 - [`pi86_hat_design_review.md`](pi86_hat_design_review.md) - original HAT review and future board direction
+- [`hardware/v3_companion_board_architecture.md`](hardware/v3_companion_board_architecture.md) - canonical V3.0 target board architecture
 - [`adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](adr/0001-use-rpi-physical-pin-as-hardware-abi.md) - 40-pin physical ABI decision
 - [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - READY and deterministic memory policy
 

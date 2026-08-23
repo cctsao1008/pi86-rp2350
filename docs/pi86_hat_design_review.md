@@ -12,6 +12,11 @@ This review does not authorize destructive modification of that board. It
 identifies the limits of the existing design and separates low-risk fixture
 improvements from a future buffered companion-chip board.
 
+The canonical V3.0 target specification is
+[`hardware/v3_companion_board_architecture.md`](hardware/v3_companion_board_architecture.md).
+This review supplies evidence and rationale; it is not a schematic release or
+manufacturing specification.
+
 ## Source scope and revision caveat
 
 This review uses:

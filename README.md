@@ -427,6 +427,7 @@ The objective is therefore not merely to port Pi86. It is to explore how much of
 - [`docs/hardware_contract.md`](docs/hardware_contract.md) - canonical physical-interface contract
 - [`docs/pin_mapping.md`](docs/pin_mapping.md) - physical signal mapping
 - [`docs/pi86_hat_design_review.md`](docs/pi86_hat_design_review.md) - current HAT assessment and V3.0 direction
+- [`docs/hardware/v3_companion_board_architecture.md`](docs/hardware/v3_companion_board_architecture.md) - V3.0 target hardware architecture and release criteria
 
 ### Firmware and platform
 

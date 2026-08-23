@@ -131,3 +131,9 @@ safe after consumption.
 
 Rejected because its bounded key sequence intentionally ignores unexpected
 control flow. It is execution evidence, not random-access service.
+
+## Related documents
+
+- [`../hardware/v3_companion_board_architecture.md`](../hardware/v3_companion_board_architecture.md) - V3.0 board-level READY and ownership contract
+- [`../pi86_hat_design_review.md`](../pi86_hat_design_review.md) - present HAT evidence and design review
+- [`../architecture.md`](../architecture.md) - system-level timing and miss policy
