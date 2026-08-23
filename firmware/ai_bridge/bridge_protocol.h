@@ -17,6 +17,9 @@ typedef enum {
     PI86_BRIDGE_MESSAGE_HELLO = 1,
     PI86_BRIDGE_MESSAGE_TEXT = 2,
     PI86_BRIDGE_MESSAGE_ACK = 3,
+    PI86_BRIDGE_MESSAGE_COMMAND = 4,
+    PI86_BRIDGE_MESSAGE_RESULT = 5,
+    PI86_BRIDGE_MESSAGE_HEARTBEAT = 6,
     PI86_BRIDGE_MESSAGE_ERROR = 0x7F,
 } pi86_bridge_message_type_t;
 
@@ -25,7 +28,17 @@ typedef enum {
     PI86_BRIDGE_STATUS_BAD_VERSION = 1,
     PI86_BRIDGE_STATUS_BAD_LENGTH = 2,
     PI86_BRIDGE_STATUS_BUSY = 3,
+    PI86_BRIDGE_STATUS_TIMEOUT = 4,
+    PI86_BRIDGE_STATUS_BAD_SEQUENCE = 5,
+    PI86_BRIDGE_STATUS_SERVICE_UNAVAILABLE = 6,
 } pi86_bridge_status_t;
+
+enum {
+    /* A retry reuses the original live sequence. It never authorizes a
+     * duplicate native execution; the receiver either reports in-flight
+     * state or replays a complete cached result for that sequence. */
+    PI86_BRIDGE_FLAG_RETRY = 1u << 0,
+};
 
 typedef struct {
     uint8_t version;

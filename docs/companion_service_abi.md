@@ -44,6 +44,9 @@ The record size and field offsets are normative. The C structure has a static si
 | `01h` | `HELLO` | bounded greeting or discovery transaction |
 | `02h` | `TEXT` | opaque text payload |
 | `03h` | `ACK` | acknowledgement |
+| `04h` | `COMMAND` | host request for native Companion Service work |
+| `05h` | `RESULT` | completed native result for the same sequence |
+| `06h` | `HEARTBEAT` | low-priority V30 liveness record; never an application result |
 | `7Fh` | `ERROR` | error record |
 
 Unknown types must not be interpreted as a known service. A future service either defines a new type under a compatible version contract or increments the protocol version.
@@ -56,14 +59,33 @@ Unknown types must not be interpreted as a known service. A future service eithe
 | `0001h` | `BAD_VERSION` | unsupported record version |
 | `0002h` | `BAD_LENGTH` | invalid payload length |
 | `0003h` | `BUSY` | receiver cannot accept the transaction now |
+| `0004h` | `TIMEOUT` | the bounded completion deadline expired |
+| `0005h` | `BAD_SEQUENCE` | stale, ambiguous, or otherwise invalid transaction identity |
+| `0006h` | `SERVICE_UNAVAILABLE` | the requested native service is not available |
+
+### Flags
+
+| Mask | Name | Meaning |
+|---:|---|---|
+| `0001h` | `RETRY` | retry the same unresolved sequence or request replay of its cached complete result |
+
+Unknown flag bits are reserved and must not silently change execution.
 
 ### Sequence rules
 
 1. A new initiating record receives a nonambiguous sequence number.
 2. Its reply carries the same sequence.
 3. A live sequence is not reused.
-4. Duplicate handling must be explicit; transport code may not silently execute a duplicate twice.
-5. Sequence equality identifies a transaction but is not a cryptographic integrity check.
+4. A retry sets `RETRY` and reuses the original sequence.
+5. A retry never executes the native command twice. An in-flight request stays
+   in flight; a completed request replays its cached complete result.
+6. A same-sequence record without `RETRY`, a retry outside the retained replay
+   window, or an ambiguous sequence is rejected as `BAD_SEQUENCE`.
+7. A timeout produces an explicit same-sequence `RESULT` or `ERROR` with
+   `TIMEOUT`; it is never represented by a fabricated heartbeat.
+8. Heartbeats use their own monotonic sequence space, are lower priority than
+   command results and faults, and may be coalesced or dropped with accounting.
+9. Sequence equality identifies a transaction but is not a cryptographic integrity check.
 
 ### Payload rules
 

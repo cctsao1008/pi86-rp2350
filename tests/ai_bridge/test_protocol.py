@@ -5,7 +5,17 @@ import unittest
 TOOLS = Path(__file__).resolve().parents[2] / "tools" / "ai_bridge"
 sys.path.insert(0, str(TOOLS))
 
-from protocol import MESSAGE_SIZE, Message, TYPE_HELLO, TYPE_TEXT  # noqa: E402
+from protocol import (  # noqa: E402
+    FLAG_RETRY,
+    MESSAGE_SIZE,
+    STATUS_TIMEOUT,
+    Message,
+    TYPE_COMMAND,
+    TYPE_HEARTBEAT,
+    TYPE_HELLO,
+    TYPE_RESULT,
+    TYPE_TEXT,
+)
 from v30bridge import (  # noqa: E402
     CANONICAL_GREETING,
     CANONICAL_REPLY,
@@ -58,6 +68,27 @@ class ProtocolTests(unittest.TestCase):
         wrong = Message(TYPE_TEXT, 7, b"RECORDED STRING").encode()
         with self.assertRaises(ValueError):
             validate_reply(wrong, 7)
+
+    def test_runtime_messages_preserve_the_version_one_layout(self) -> None:
+        records = (
+            Message(TYPE_COMMAND, 40, b"STATUS"),
+            Message(TYPE_RESULT, 40, b"READY"),
+            Message(TYPE_HEARTBEAT, 41, b"uptime=123"),
+        )
+        for message in records:
+            encoded = message.encode()
+            self.assertEqual(len(encoded), MESSAGE_SIZE)
+            self.assertEqual(Message.decode(encoded), message)
+
+    def test_retry_and_timeout_are_explicit_wire_fields(self) -> None:
+        retry = Message(TYPE_COMMAND, 99, b"STATUS", flags=FLAG_RETRY)
+        timed_out = Message(
+            TYPE_RESULT, 99, b"", flags=FLAG_RETRY, status=STATUS_TIMEOUT
+        )
+        self.assertEqual(Message.decode(retry.encode()).flags, FLAG_RETRY)
+        decoded_timeout = Message.decode(timed_out.encode())
+        self.assertEqual(decoded_timeout.sequence, retry.sequence)
+        self.assertEqual(decoded_timeout.status, STATUS_TIMEOUT)
 
 
 if __name__ == "__main__":
