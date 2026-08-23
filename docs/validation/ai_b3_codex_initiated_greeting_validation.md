@@ -10,6 +10,7 @@
 - Host/document baseline before evidence: `8032def`
 - USB identity: development VID `CAFE`, PID `4011`, serial `A1D538EA0A07378F`
 - Deterministic host checks: 38/38
+- Response architecture: **fixed / prestaged greeting with input-dependent XOR witness**
 - Result: **PASS**
 
 ## Accepted conclusion
@@ -30,6 +31,12 @@ zero errors and zero response-deadline misses. The run ended RESET-high,
 CLK-low, and AD-high-Z. This accepts the Codex adapter as the first AI host for
 the provider-neutral bridge. It does not restrict later ChatGPT app/MCP,
 OpenAI API, or other host adapters.
+
+Codex initiated and accepted the physical exchange, but the V30-visible reply
+text was a fixed native-ROM greeting rather than a transformation of the host
+payload. Native V30 code did consume the request and compute the separately
+observed XOR witness. AI-B3 therefore accepts the Codex adapter and physical
+bridge, not yet a general input-dependent V30 conversation.
 
 ## Invocation provenance
 

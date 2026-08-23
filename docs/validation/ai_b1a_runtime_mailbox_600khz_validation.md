@@ -9,6 +9,7 @@
 - UF2 SHA-256: `42621f316d992b2b42d2d843986a610c29df78ce98ce7497228f86108e594a5a`
 - Native ROM size: 84 bytes
 - Native ROM SHA-256: `6c203b2082b24d12a95b0443e63dc4ba65faeef5985c48e536af7d08e73e70af`
+- Response architecture: **fixed / prestaged greeting with input-dependent XOR witness**
 - Result: **PASS**
 
 ## Accepted conclusion

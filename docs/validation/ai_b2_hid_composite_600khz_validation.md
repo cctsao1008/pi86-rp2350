@@ -12,6 +12,7 @@
 - Native ROM size: 230 bytes
 - Native ROM SHA-256: `4fceb34847a713477ce45e4b23a06770d212044f5704154e35b4d94ab1701cb4`
 - Deterministic host checks: 38/38
+- Response architecture: **fixed / prestaged greeting with input-dependent XOR witness**
 - Result: **PASS**
 
 ## Accepted conclusion
@@ -34,6 +35,12 @@ result. All 38 deterministic checks passed with zero errors. The raw CDC log
 ended with RESET high, CLK low, and AD high-Z. This accepts AI-B2-HID. It does
 not yet claim that Codex itself initiated the physical exchange; that remains
 the AI-B3 end-to-end gate.
+
+The V30 reply text was prestaged as literal native ROM words and was not
+derived from the request payload. The input-dependent result in this gate was
+the XOR witness over the seven words physically read at `00E4h`. This
+classification preserves the distinction between a proven bidirectional
+transport and a future content-derived challenge/response computation.
 
 ## Exact retained artifacts
 

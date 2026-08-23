@@ -55,6 +55,22 @@ encoded SRAM words -> DMA -> PIO1 TX FIFO
 
 The superseded DMA-to-SIO experiment is not part of the architecture. SIO is processor-local on RP2350 and cannot be the DMA response destination.
 
+### Two bus execution paths
+
+The repository intentionally contains two V30 bus mechanisms with different
+purposes:
+
+| Path | Implementation | Role |
+|---|---|---|
+| Software-stepped bus | `firmware/v30/v30_bus.c` and the step-clock PIO program | Early functional gates, instruction semantics, and low-speed peripheral characterization under explicit M33 supervision |
+| PIO-direct qualified response | PIO/DMA engines under `tests/performance_characterization_1_extended/` | Continuous-clock deterministic ROM, RAM, mailbox, and accepted Host Bridge timing gates |
+
+`v30_bus_step()` advances a deliberately stepped clock and may block while the
+M33 supervises a phase. It is not the current-cycle response mechanism behind
+the accepted continuous-clock AI-B gates. Those gates use prequalified PIO
+matchers/responders, DMA-fed SRAM state, and direct `PINDIRS` ownership without
+an M33 round trip in the active cycle.
+
 ## Runtime partitioning
 
 ### Deterministic data plane
