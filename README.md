@@ -323,9 +323,12 @@ Two lifecycle modes therefore coexist:
 | Validation | `RESET=HIGH`, `CLK=LOW`, AD bus high-Z | Freeze a bounded experiment in a reproducible electrical state |
 | Persistent runtime | RESET released, clock running, V30 in `STI`/`HLT`, AD bus released while idle | Remain alive for heartbeat and interrupt-driven work |
 
-The validation terminal state is already accepted evidence. The persistent
-heartbeat runtime is a target capability and requires its own PIC, PIT, INTA,
-mailbox, priority, timeout, and bus-safety regression gates.
+Both lifecycle modes now have accepted physical evidence. The persistent
+runtime keeps RESET released, idles the V30 in `STI`/`HLT`, wakes it through a
+real two-cycle INTA handshake, completes native ISR/EOI/IRET service, and
+publishes sequence-bound heartbeat replies at 1.000 MHz. General PIC/PIT
+integration, priority policy, and longer-duration fault recovery remain wider
+machine capabilities rather than claims of that bounded runtime.
 
 See [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) for the canonical design and [`docs/ai_bridge_implementation_plan.md`](docs/ai_bridge_implementation_plan.md) for implementation gates.
 
@@ -433,7 +436,7 @@ Physical operating procedure belongs in [`docs/bringup.md`](docs/bringup.md); hi
 
 ## Capability boundary
 
-Physical evidence already establishes the architectural foundation: reset-vector execution, PIO-direct qualified response, native internal-SRAM-backed ROM execution, bounded word and byte-lane RAM behavior, dual-core failure isolation, and a provider-neutral HID/CDC bridge used by Codex to exchange a message with the physical V30.
+Physical evidence already establishes the architectural foundation: reset-vector execution, PIO-direct qualified response, native internal-SRAM-backed ROM execution, bounded word and byte-lane RAM behavior, dual-core failure isolation, a provider-neutral HID/CDC bridge used by Codex to exchange a message with the physical V30, and a persistent 1 MHz `STI`/`HLT` runtime with physical interrupt-driven heartbeat.
 
 That foundation does **not** by itself claim:
 
@@ -441,11 +444,10 @@ That foundation does **not** by itself claim:
 - general PSRAM-backed V30 RAM;
 - arbitrary wait-state insertion on the current HAT;
 - complete BIOS, PIC, PIT, PPI, display, or storage integration;
-- an accepted interrupt-driven persistent runtime with V30 heartbeat;
 - DOS boot;
 - an open-ended natural-language conversation running on the V30.
 
-Representative evidence is indexed under [`docs/validation/`](docs/validation/), including the [Codex-initiated physical greeting](docs/validation/ai_b3_codex_initiated_greeting_validation.md) and [composite HID/CDC bridge](docs/validation/ai_b2_hid_composite_600khz_validation.md).
+Representative evidence is indexed under [`docs/validation/`](docs/validation/), including the [1 MHz persistent companion runtime](docs/validation/companion_runtime_1mhz_validation.md), [Codex-initiated physical greeting](docs/validation/ai_b3_codex_initiated_greeting_validation.md), and [composite HID/CDC bridge](docs/validation/ai_b2_hid_composite_600khz_validation.md).
 
 ## Reference model
 

@@ -82,6 +82,7 @@ Important evidence families include:
 - dual-core service isolation and trace backpressure;
 - AI-B0/B1/B2/B3 mailbox, HID/CDC, and Codex-adapter validation;
 - PIC, multi-IRQ, and PIT interrupt validation.
+- [`validation/companion_runtime_1mhz_validation.md`](validation/companion_runtime_1mhz_validation.md) - persistent `STI`/`HLT`, physical INTR/INTA, heartbeat, and host reattach acceptance.
 
 Validation documents are engineering history. Do not rewrite their measured values to match a later architecture or naming preference. Add a clearly dated note if later interpretation changes.
 
@@ -105,4 +106,3 @@ These are historical records, not the canonical current architecture.
 5. Distinguish fixed, address-qualified, bounded, cached, and general response engines.
 6. Prefer links to canonical contracts instead of duplicating pin maps or ABI tables.
 7. Never convert a target capability into a validated claim without physical evidence.
-
