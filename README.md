@@ -16,6 +16,17 @@ This is **not** an x86 emulator running on the RP2350.
   <em>Physical NEC D70116C-8 (V30) on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
 </p>
 
+> **The V30 does not know what Codex is.**
+>
+> **Codex knows what the V30 is—and crosses forty years to speak its
+> language.**
+
+The bridge does not ask the V30 to become modern. It asks the modern side to
+meet the V30 on its own terms: machine code, interrupts, I/O ports, memory, and
+a physical bus. When the work is done, the goal is no longer to stop that old
+processor in RESET, but to let it sleep, wake, answer, and send a heartbeat
+across forty years.
+
 ## Purpose
 
 The RP2350 is treated as a **programmable chipset around a physical 8086-class processor**, not as a faster host that bit-bangs the V30 bus in software.
@@ -56,6 +67,12 @@ Modern host / optional AI service
        Physical NEC V30
 ```
 
+The asymmetry is intentional. Native V30 software sees only period-appropriate
+machine abstractions: BIOS entry points, software interrupts, hardware
+interrupts, I/O ports, memory, and a programmable companion service. Codex or
+another modern client remains a host-side participant whose identity is not
+encoded into the V30-visible machine.
+
 To V30 software, the RP2350 appears as a companion chipset and a set of defined machine services. To the host, the bridge presents structured requests, replies, and physical evidence. AI may interpret or generate host-side work, but it never becomes part of the current V30 bus cycle.
 
 The purpose is not to erase the historical distance between the two systems. It is to give them a common language while preserving the physical processor, its native execution model, and the deterministic boundary between eras.
@@ -93,7 +110,7 @@ The implementation may evolve, but these rules define the project:
 3. **The Arm cores form a control and service plane.** They prepare immutable state, supervise bounded engines, handle exceptions, and provide asynchronous services outside the hardest timing path.
 4. **Host transport is not a bus-timing mechanism.** USB, Python, storage, display, and AI clients operate outside the current V30 bus cycle.
 5. **Application traffic and physical evidence remain separable.** A visible reply is not sufficient proof of correct physical execution.
-6. **Unsupported cycles remain electrically safe.** The response engine must not drive unqualified cycles, and accepted runs must end with defined RESET, CLK, and AD-bus ownership.
+6. **Unsupported cycles and lifecycle transitions remain electrically safe.** The response engine must not drive unqualified cycles. Validation firmware must end in a defined terminal state; persistent runtime firmware must define safe idle, interrupt, heartbeat, shutdown, and fault transitions.
 7. **Target architecture and validated capability are stated separately.** A future memory or peripheral role is not treated as implemented merely because it appears in the system design.
 
 The core timing hierarchy is:
@@ -141,6 +158,7 @@ Host software   = policy, interaction, images, and validation
                      +----------------------+
                      |     Physical V30     |
                      |    NEC D70116C-8     |
+                     | BIOS / INT / HLT     |
                      +----------------------+
 
      CDC evidence <---- passive trace / terminal state ---- RP2350
@@ -266,6 +284,49 @@ Publication is atomic from the V30's perspective: incomplete host records must n
 
 The bridge begins with a greeting, then progresses toward fresh challenge-response computation and repeated exchanges. The intended next proof is a host-generated challenge whose result must be calculated by native V30 code and independently verified by the host.
 
+The accepted AI-B2/AI-B3 greeting uses a **fixed / prestaged** response
+architecture. The physical V30 genuinely reads all seven inbound mailbox words
+and computes an input-dependent XOR witness, but the human-readable reply text
+is literal native ROM data. That gate proves the complete physical transport,
+execution, consumption, reply, and evidence path; it does not claim a
+content-derived reply. Fresh computation remains the next stronger proof.
+
+### Interrupt and runtime model
+
+The target persistent runtime translates between two interrupt vocabularies
+without pretending that the host executes a V30 instruction:
+
+```text
+V30 -> host:  software INT 60h -> BIOS companion handler -> mailbox -> Host Bridge
+host -> V30:  host record -> immutable RP2350 publication -> physical INTR -> V30 ISR
+heartbeat:    PIT tick -> V30 IRQ0 -> heartbeat due -> INT 60h -> host record
+```
+
+Codex does not directly execute `INT` on the V30. A host request is published by
+the RP2350 and announced through a physical interrupt. Conversely, native V30
+software uses a software interrupt as its stable Companion Service entry point.
+
+After completing work, a persistent V30 runtime should report `DONE`, enter an
+interruptible idle loop with `STI`/`HLT`, wake for timer or companion interrupts,
+and publish a low-priority heartbeat. Interrupt handlers remain bounded: they
+acknowledge the source and record pending work, while the foreground monitor
+performs mailbox transfers and application work.
+
+Heartbeat records prove liveness, not application success. They may be
+coalesced or dropped under backpressure and must never delay a result, fault, or
+current physical bus response.
+
+Two lifecycle modes therefore coexist:
+
+| Mode | End or idle condition | Purpose |
+|---|---|---|
+| Validation | `RESET=HIGH`, `CLK=LOW`, AD bus high-Z | Freeze a bounded experiment in a reproducible electrical state |
+| Persistent runtime | RESET released, clock running, V30 in `STI`/`HLT`, AD bus released while idle | Remain alive for heartbeat and interrupt-driven work |
+
+The validation terminal state is already accepted evidence. The persistent
+heartbeat runtime is a target capability and requires its own PIC, PIT, INTA,
+mailbox, priority, timeout, and bus-safety regression gates.
+
 See [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) for the canonical design and [`docs/ai_bridge_implementation_plan.md`](docs/ai_bridge_implementation_plan.md) for implementation gates.
 
 ## Hardware contract
@@ -339,6 +400,9 @@ fresh challenge-response computation
 ordered repeated exchanges
         |
         v
+interrupt-driven service + heartbeat
+        |
+        v
 monitor and debugger services
         |
         v
@@ -360,7 +424,8 @@ An accepted physical result should establish, as applicable:
 - absence of unqualified drive commands;
 - transport sequence and atomic publication;
 - passive evidence independent of the application result;
-- terminal RESET, CLK, and AD-bus ownership.
+- lifecycle-appropriate RESET, CLK, and AD-bus ownership: either a frozen
+  validation terminal state or a separately qualified persistent idle state.
 
 Failed or incomplete runs remain failures even when they contain an expected greeting. Raw evidence and machine-readable acceptance results are retained when they form part of an accepted gate.
 
@@ -376,6 +441,7 @@ That foundation does **not** by itself claim:
 - general PSRAM-backed V30 RAM;
 - arbitrary wait-state insertion on the current HAT;
 - complete BIOS, PIC, PIT, PPI, display, or storage integration;
+- an accepted interrupt-driven persistent runtime with V30 heartbeat;
 - DOS boot;
 - an open-ended natural-language conversation running on the V30.
 

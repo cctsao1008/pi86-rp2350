@@ -172,6 +172,40 @@ SERVICE_UNAVAILABLE
 
 Adding these states to a packed record or V30 status word requires an explicit compatible definition or protocol version change.
 
+## Persistent runtime lifecycle
+
+The bounded v1 request/reply record remains unchanged. A future persistent
+runtime adds lifecycle semantics around it rather than silently changing its
+layout.
+
+The V30-visible model is:
+
+```text
+BOOT -> READY/IDLE -> BUSY -> DONE -> READY/IDLE
+                         |
+                         +-> FAULT
+```
+
+- V30-originated service traffic enters through a BIOS software-interrupt
+  wrapper, provisionally `INT 60h`.
+- Host-originated work is published atomically by the RP2350 and announced to
+  the V30 through a physical interrupt and INTA-qualified vector.
+- A PIT-compatible timer may wake an idle V30 to schedule a heartbeat.
+- Idle native code uses `STI`/`HLT`; interrupt handlers acknowledge and enqueue
+  bounded work but do not wait for the host.
+
+Heartbeat is a liveness class, not a successful-result class. It has lower
+priority than fault, result, and command acknowledgement traffic, may be
+coalesced or dropped under explicit backpressure policy, and carries a dropped
+count or equivalent diagnostic witness. A full heartbeat queue must not block
+the realtime producer or a current V30 bus response.
+
+Persistent operation does not replace the validation terminal state. Bounded
+validation targets continue to end at `RESET=HIGH`, `CLK=LOW`, and AD high-Z.
+A persistent target instead requires separate proof that its `STI`/`HLT` idle
+state releases the AD bus and that timer and companion interrupts preserve bus
+ownership and response deadlines.
+
 ## Versioning policy
 
 A change requires a new protocol version when it changes any of the following:
