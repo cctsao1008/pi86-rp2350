@@ -1,0 +1,8 @@
+# Explicit documentation-policy waivers.
+#
+# Format:
+# PATH CODE REASON
+#
+# Structural failures (MD001/MD002/MD003) cannot be waived.
+# No active policy waivers are required. Add one only for a retained historical
+# record that cannot be clarified without changing its meaning.

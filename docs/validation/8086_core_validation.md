@@ -1,5 +1,9 @@
 # 8086 Core Validation
 
+- Document type: validation specification, not one physical result
+- Timing identity: defined by each implementing gate; this specification makes no clock-frequency claim
+- Result identity: retained in the gate-specific validation record
+
 ## Purpose
 
 Validate the essential architectural behavior of a physical 8086-compatible CPU connected to the RP2350 companion chipset.

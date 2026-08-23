@@ -57,6 +57,7 @@ The V30-visible interface is a companion service, not an AI abstraction. Codex w
 - [`engineering_playbook/diagnostic_design.md`](engineering_playbook/diagnostic_design.md) - diagnostic design method
 - [`bringup.md`](bringup.md) - current physical build/flash/validation entrypoint
 - [`bringup/recovery.md`](bringup/recovery.md) - flashing, USB, evidence, and rollback recovery
+- [`../tools/docs/README.md`](../tools/docs/README.md) - automated Markdown and documentation-contract checks
 
 ## Plans and compatibility work
 

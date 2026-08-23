@@ -1,5 +1,8 @@
 # PC1-B PIO Direct Bus Response Frequency Sweep
 
+- Firmware target: `pc1b_pio_direct_post_reset_epoch_sweep`
+- Timing identity: configured continuous-clock sweep from 0.300 through 8.000 MHz
+
 ## Summary
 
 PC1-B validates a PIO/DMA-assisted direct bus response path on real NEC V30 hardware.

@@ -1,5 +1,8 @@
 # Gate 11 — Multi IRQ Priority and Masking Validation
 
+- Firmware target: `gate11_irq_priority`
+- Clock model: host-stepped PIO bus service; not an MHz characterization
+
 ## Objective
 
 Validate multiple interrupt source arbitration using the reusable `pi86_pic` backend on the physical NEC V30.

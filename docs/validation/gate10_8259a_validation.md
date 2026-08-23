@@ -1,5 +1,8 @@
 # Gate 10 8259A-Compatible PIC Validation Report
 
+- Firmware target: `gate10_8259a`
+- Clock model: host-stepped PIO bus service; not an MHz characterization
+
 ## Objective
 
 Validate the RP2350 `pi86_pic` implementation as an Intel 8259A-compatible programmable interrupt controller subset using a physical NEC V30 CPU.

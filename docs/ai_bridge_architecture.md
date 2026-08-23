@@ -50,7 +50,7 @@ The bridge shall:
 This architecture does not:
 
 - model AI as a V30 peripheral concept;
-- allow an AI model or host process to answer an active V30 bus cycle;
+- an AI model or host process must never answer an active V30 bus cycle;
 - imply that original 1980s software understands modern host services;
 - equate a terminal echo with native V30 execution;
 - require Codex, ChatGPT, or any specific model provider;
