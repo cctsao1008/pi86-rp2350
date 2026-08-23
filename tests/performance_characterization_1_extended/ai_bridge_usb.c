@@ -4,15 +4,16 @@
 
 #include "hardware/sync.h"
 #include "pico/stdlib.h"
+#include "runtime/spsc_record_slot.h"
 #include "tusb.h"
 
 /* USB stack callbacks execute on Core0 through the Pico SDK stdio USB worker.
  * The complete OUT report is published only after all 64 bytes are copied.
  * Core1 then takes the immutable record and transfers it through the existing
- * SPSC ownership boundary; no partial HID report is ever mailbox-visible. */
-static uint8_t g_hid_out_record[PI86_BRIDGE_MESSAGE_SIZE];
-static volatile bool g_hid_out_ready;
-static volatile bool g_hid_out_taken;
+ * SPSC ownership boundary. The slot can be reused after a complete take; no
+ * partial HID report is ever mailbox-visible and a pending record is never
+ * overwritten. */
+static pi86_spsc_record_slot_t g_hid_out_slot;
 static volatile bool g_hid_in_complete;
 
 void pi86_ai_bridge_usb_init(void) {
@@ -54,12 +55,7 @@ bool pi86_ai_bridge_cdc_write(const char *data, uint32_t length,
 
 bool pi86_ai_bridge_hid_take_record(
     uint8_t record[PI86_BRIDGE_MESSAGE_SIZE]) {
-    if (!g_hid_out_ready || g_hid_out_taken) return false;
-    __dmb();
-    memcpy(record, g_hid_out_record, PI86_BRIDGE_MESSAGE_SIZE);
-    __dmb();
-    g_hid_out_taken = true;
-    return true;
+    return pi86_spsc_record_try_take(&g_hid_out_slot, record);
 }
 
 bool pi86_ai_bridge_hid_send_record(
@@ -99,10 +95,8 @@ void tud_hid_set_report_cb(uint8_t instance, uint8_t report_id,
     (void)instance;
     (void)report_id;
     (void)report_type;
-    if (size != PI86_BRIDGE_MESSAGE_SIZE || g_hid_out_ready) return;
-    memcpy(g_hid_out_record, buffer, PI86_BRIDGE_MESSAGE_SIZE);
-    __dmb();
-    g_hid_out_ready = true;
+    if (size != PI86_BRIDGE_MESSAGE_SIZE) return;
+    (void)pi86_spsc_record_try_publish(&g_hid_out_slot, buffer);
 }
 
 void tud_hid_report_complete_cb(uint8_t instance, const uint8_t *report,
