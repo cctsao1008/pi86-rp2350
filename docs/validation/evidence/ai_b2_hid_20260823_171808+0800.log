@@ -1,0 +1,50 @@
+
+[HOST MAILBOX INPUT]
+HELLO NEC V30
+
+[V30 MAILBOX OUTPUT]
+HELLO OPENAI CODEX
+
+[SUMMARY]
+Measurement epoch          PASS
+Reset / FFFF0 fetch        PASS
+First response 00EA        PASS
+F0000 ROM execution        PASS
+Windows HID 64-byte record PASS (sequence 1)
+Core1 complete record      PASS
+Core0 immutable staging    PASS
+Deferred DMA reload gate   PASS (8/8 words)
+V30 STATUS 00E0 transition PASS (0 -> 1)
+Publication after NOT_READY PASS
+Atomic DMA publication     PASS
+Mailbox RX I/O 00E4        PASS (7/7 words)
+V30 input XOR at 00E8      PASS
+Mailbox TX I/O 00E2        PASS
+Mailbox commit I/O 00E6    PASS
+HID reply 64-byte record   PASS (64/64 bytes)
+CDC validation log role    RECEIVE-ONLY PASS
+ROM/mailbox key collisions 0 PASS
+Current-cycle M33          NONE
+USB IRQ during V30 epoch   MASKED PASS
+Bus ownership/safety       PASS
+AI-B2-HID RESULT           PASS
+
+[ENGINEERING DETAILS]
+AI-B2-HID Composite Mailbox - 0.600 MHz
+Host transport             = Windows USB HID 64-byte record; CDC log only
+USB identity               = VID CAFE PID 4011
+PIO1 allocation            = SM0/1 ROM, SM2/3 mailbox
+PIO instruction words      = 12 + 13 = 25/32
+PIO1 pre-release OE        = 00000000 PASS
+PIO1 non-AD isolation      = PASS
+PIO2 pre-release OE        = 00200000 CLK-ONLY PASS
+STATUS observations        = 2 (first 0000, second 0001)
+ROM qualified pairs        = 121/121 PASS
+Mailbox qualified pairs    = 9/9 PASS
+Mailbox DMA live pre/post  = key 0/0 response 0/0
+Mailbox DMA reload count   = key 8 response 8 PASS
+Response deadline misses   = 0 PASS
+Observer complete cycles   = 150
+ROM image                  = 230 bytes; SHA-256 4fceb34847a713477ce45e4b23a06770d212044f5704154e35b4d94ab1701cb4
+TERMINAL SAFE STATE        = PASS
+CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.

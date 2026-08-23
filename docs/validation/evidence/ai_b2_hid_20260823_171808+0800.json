@@ -1,0 +1,100 @@
+{
+  "schema": "pi86-rp2350.ai-bridge.exchange/v1",
+  "profile": "ai-b2-hid",
+  "timestamp": "2026-08-23T17:18:08.464298+08:00",
+  "request": {
+    "transport": "USB HID",
+    "bytes": 64,
+    "type": 1,
+    "sequence": 1,
+    "payload": "HELLO NEC V30",
+    "sha256": "f8d8d154e1279e30f08611541e1b528dd0afb5b064faa1e3c49acfced1d4e345"
+  },
+  "reply": {
+    "transport": "USB HID",
+    "bytes": 64,
+    "type": 2,
+    "sequence": 1,
+    "payload": "HELLO OPENAI CODEX",
+    "sha256": "c3926eeda279efdb4b956e68f0e0845dd47fb0f6cb5bac5bc132153e7f28ebb0"
+  },
+  "hid": {
+    "passed": true,
+    "identity": {
+      "vid": "CAFE",
+      "pid": "4011",
+      "product": "64-byte V30 AI Bridge",
+      "serial": "A1D538EA0A07378F",
+      "interface": 2,
+      "usage_page": 65280,
+      "usage": 1,
+      "path": "\\\\?\\HID#VID_CAFE&PID_4011&MI_02#8&3d1647c&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
+    }
+  },
+  "cdc_validation": {
+    "role": "receive-only physical evidence",
+    "passed": true,
+    "request_sequence": 1,
+    "checks_passed": [
+      "no FAIL/INVALID tokens",
+      "host greeting",
+      "V30 reply",
+      "measurement epoch",
+      "reset vector",
+      "first response",
+      "ROM execution",
+      "Windows HID binary record",
+      "Core1 complete record",
+      "Core0 immutable staging",
+      "deferred DMA reload gate",
+      "STATUS transition",
+      "publication ordering",
+      "atomic publication",
+      "mailbox RX",
+      "V30 XOR witness",
+      "mailbox TX",
+      "mailbox commit",
+      "HID reply record",
+      "CDC receive-only role",
+      "key collision gate",
+      "current-cycle M33",
+      "USB IRQ isolation",
+      "bus safety",
+      "AI-B2-HID result",
+      "clock and engine identity",
+      "host transport identity",
+      "USB development identity",
+      "PIO instruction budget",
+      "STATUS physical observations",
+      "ROM qualified pairs",
+      "mailbox qualified pairs",
+      "mailbox DMA live count",
+      "mailbox DMA reload count",
+      "deadline gate",
+      "ROM identity",
+      "terminal safe state",
+      "terminal electrical state"
+    ],
+    "errors": [],
+    "raw_log": "D:\\pi86-validation-logs\\ai_b2_hid_20260823_171808+0800.log",
+    "raw_sha256": "1b2398cf60b4842e9b86f2923953b7b5ea5cc7c92c7de89f7a977bed1b616ce1",
+    "explanation": [
+      "Windows delivered one complete 64-byte request through HID; CDC carried validation output only.",
+      "The physical V30 fetched FFFF0, received opcode 00EA, and executed the internal-SRAM-backed ROM at F0000.",
+      "Core1 accepted the complete host record; Core0 published immutable mailbox data only after the V30 observed NOT_READY, then STATUS became READY.",
+      "The V30 physically read all seven mailbox words, consumed them, wrote its reply through port 00E2, and committed it through port 00E6.",
+      "RP2350 returned the V30 reply to Windows as one complete 64-byte HID record.",
+      "PIO/DMA handled every qualified current bus cycle with zero deadline misses and no ROM/mailbox key collision; M33 did not answer current cycles.",
+      "The run ended safely with RESET high, CLK low, and the multiplexed AD bus high-Z.",
+      "Observed V30 application reply: \"HELLO OPENAI CODEX\".",
+      "All 38 deterministic ai-b2-hid acceptance checks passed."
+    ]
+  },
+  "bus_safety": {
+    "passed": true,
+    "terminal_state": "RESET=HIGH, CLK=LOW, AD=high-Z"
+  },
+  "errors": [],
+  "passed": true,
+  "result_json": "D:\\pi86-validation-logs\\ai_b2_hid_20260823_171808+0800.json"
+}
