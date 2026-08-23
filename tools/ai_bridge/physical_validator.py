@@ -245,6 +245,10 @@ AI_B2_HID = ValidationProfile(
             r"PIO instruction words\s+=\s+12 \+ 13 = 25/32",
         ),
         _line(
+            "PIO1 non-AD isolation",
+            r"PIO1 non-AD isolation\s+=\s+PASS",
+        ),
+        _line(
             "STATUS physical observations",
             r"STATUS observations\s+=\s+2 \(first 0000, second 0001\)",
         ),
@@ -365,6 +369,12 @@ def explain_output(text: str, report: ValidationReport) -> tuple[str, ...]:
         story.append(
             "PIO/DMA handled every qualified current bus cycle with zero deadline "
             "misses and no ROM/mailbox key collision; M33 did not answer current cycles."
+        )
+
+    if "PIO1 non-AD isolation" in passed:
+        story.append(
+            "Before RESET release, the PIO1 responder window was verified to own "
+            "only the multiplexed AD pins and no V30 control or address input pin."
         )
 
     if {"bus safety", "terminal safe state", "terminal electrical state"} <= passed:

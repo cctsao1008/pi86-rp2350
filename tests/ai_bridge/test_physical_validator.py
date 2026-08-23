@@ -51,6 +51,7 @@ AI-B2-HID Composite Mailbox - 0.600 MHz
 Host transport             = Windows USB HID 64-byte record; CDC log only
 USB identity               = VID CAFE PID 4011
 PIO instruction words      = 12 + 13 = 25/32
+PIO1 non-AD isolation      = PASS
 STATUS observations        = 2 (first 0000, second 0001)
 ROM qualified pairs        = 121/121 PASS
 Mailbox qualified pairs    = 9/9 PASS
@@ -117,6 +118,7 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
         story = explain_output(self.HID_OUTPUT, report)
         self.assertTrue(any("through HID" in sentence for sentence in story))
         self.assertTrue(any("seven mailbox words" in sentence for sentence in story))
+        self.assertTrue(any("only the multiplexed AD pins" in sentence for sentence in story))
         self.assertTrue(any("AD bus high-Z" in sentence for sentence in story))
 
     def test_committed_ai_b2_hid_evidence_passes(self) -> None:
@@ -125,7 +127,7 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
             / "docs"
             / "validation"
             / "evidence"
-            / "ai_b2_hid_20260823_050201+0800.log"
+            / "ai_b2_hid_20260823_171808+0800.log"
         ).read_text(encoding="utf-8")
         report = validate_output(evidence, AI_B2_HID)
         self.assertTrue(report.passed, report.errors)
@@ -144,6 +146,17 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
         report = validate_output(corrupted, AI_B2_HID)
         self.assertFalse(report.passed)
         self.assertTrue(any("HID reply record" in error for error in report.errors))
+
+    def test_ai_b2_hid_rejects_non_ad_isolation_failure(self) -> None:
+        corrupted = self.HID_OUTPUT.replace(
+            "PIO1 non-AD isolation      = PASS",
+            "PIO1 non-AD isolation      = FAIL",
+        )
+        report = validate_output(corrupted, AI_B2_HID)
+        self.assertFalse(report.passed)
+        self.assertIn(
+            "missing or incorrect field: PIO1 non-AD isolation", report.errors
+        )
 
 
 if __name__ == "__main__":

@@ -83,3 +83,43 @@ NEC V30      > HELLO OPENAI CODEX  (HID, 64 bytes)
 The host-side label describes the accepted protocol endpoint. For this AI-B2
 run, the user launched the Python bridge; AI-B3 will require Codex to launch
 the same bridge and consume its JSON result directly.
+
+## Responder-isolation hardening regression
+
+A second physical run on 2026-08-23 validates the PIO1 ownership guard added
+after correctness review. The responder still uses the 28-pin PIO output
+window needed to encode the scattered AD bus, but firmware now rejects RESET
+release unless every non-AD GPIO in that window is isolated from PIO1.
+
+- Firmware source commit: `b88e9bd`
+- Target: `ai_bridge_hid_mailbox_600khz`
+- UF2: `ai_bridge_hid_mailbox_600khz-b88e9bd.uf2`
+- UF2 size: 97,792 bytes
+- UF2 SHA-256: `72650324ef6df9ac302c8aaa83588d1a54d38e5f308fce40ad44b6f641aa97da`
+- Configured V30 clock: 0.600 MHz
+- PIO1 non-AD isolation: **PASS**
+- ROM qualified pairs: 121/121 PASS
+- Mailbox qualified pairs: 9/9 PASS
+- Response deadline misses: 0 PASS
+- Terminal electrical state: RESET high, CLK low, AD high-Z PASS
+- Result: **PASS**
+
+### Exact retained hardening artifacts
+
+- [Raw CDC evidence](evidence/ai_b2_hid_20260823_171808+0800.log)
+  - SHA-256: `1b2398cf60b4842e9b86f2923953b7b5ea5cc7c92c7de89f7a977bed1b616ce1`
+- [Machine-readable exchange result](evidence/ai_b2_hid_20260823_171808+0800.json)
+  - SHA-256: `6bb6fe7b8be5f8691c1b8583aa61891de05bb79a150e82c724db61a98794b0d2`
+
+The JSON `cdc_validation.raw_sha256` equals the retained raw log SHA-256.
+These files are preserved without newline normalization.
+
+This run accepts the new pre-release mux-isolation gate while preserving every
+previous AI-B2-HID result at 0.600 MHz. After the validator update associated
+with this evidence, `PIO1 non-AD isolation = PASS` is a required field and the
+deterministic acceptance count is 39/39.
+
+The reusable 64-byte HID ownership slot is separately covered by host logic
+tests for two successive records and full-slot no-overwrite behavior. This
+physical target still performs one end-to-end application exchange per boot;
+it does not yet claim persistent multi-message physical runtime operation.
