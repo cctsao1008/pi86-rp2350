@@ -364,7 +364,7 @@ An accepted physical result should establish, as applicable:
 
 Failed or incomplete runs remain failures even when they contain an expected greeting. Raw evidence and machine-readable acceptance results are retained when they form part of an accepted gate.
 
-Detailed implementation state belongs in [`docs/bringup.md`](docs/bringup.md), [`docs/validation/`](docs/validation/), and the project issue tracker. This README defines the architecture and goals rather than serving as a chronological status report.
+Physical operating procedure belongs in [`docs/bringup.md`](docs/bringup.md); historical gate detail and accepted results belong in [`docs/bringup/gate_history.md`](docs/bringup/gate_history.md), [`docs/validation/`](docs/validation/), and the project issue tracker. This README defines the architecture and goals rather than serving as a chronological status report.
 
 ## Capability boundary
 

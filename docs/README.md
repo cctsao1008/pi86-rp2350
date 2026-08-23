@@ -54,6 +54,8 @@ The V30-visible interface is a companion service, not an AI abstraction. Codex w
 - [`engineering_playbook/engineering_truth_hierarchy.md`](engineering_playbook/engineering_truth_hierarchy.md) - evidence authority
 - [`engineering_playbook/test_acceptance_criteria.md`](engineering_playbook/test_acceptance_criteria.md) - acceptance rules
 - [`engineering_playbook/diagnostic_design.md`](engineering_playbook/diagnostic_design.md) - diagnostic design method
+- [`bringup.md`](bringup.md) - current physical build/flash/validation entrypoint
+- [`bringup/recovery.md`](bringup/recovery.md) - flashing, USB, evidence, and rollback recovery
 
 ## Plans and compatibility work
 
@@ -71,6 +73,7 @@ Use Git history and validation records to determine whether a planned gate has b
 [`validation/`](validation/) contains physical acceptance records. These documents preserve the exact tested target, configured clock, firmware identity, observed output, scope, and limitations.
 
 Important evidence families include:
+- [`bringup/gate_history.md`](bringup/gate_history.md) - retained Gate 0–12 development record;
 
 - PC1-B PIO-direct response and frequency characterization;
 - PC1-C address capture, ROM, RAM, and Native BIOS execution;
