@@ -377,19 +377,60 @@ def print_human_result(result: dict[str, Any]) -> None:
     print(f"AI BRIDGE RESULT = {'PASS' if result['passed'] else 'FAIL'}")
 
 
-def _clear_status_line() -> None:
-    if sys.stdout.isatty():
-        sys.stdout.write("\r\x1b[2K")
-        sys.stdout.flush()
-
-
 def _status_text(sequence: int, stats: HeartbeatStats, connected: bool) -> str:
     state = "ALIVE" if connected else "LOST"
     latency = f"{stats.last_ms:.1f} ms" if stats.completed else "--"
     return (
-        f"V30>  | {'●' if connected else '○'} V30 {state}  "
+        f"| {'●' if connected else '○'} V30 {state}  "
         f"seq={sequence:03d}  last={latency}  lost={stats.lost}"
     )
+
+
+class ConsoleStatus:
+    """Own two terminal rows: immutable status above an editable prompt."""
+
+    def __init__(self) -> None:
+        self._rows = 0
+        self._tty = sys.stdout.isatty()
+
+    def _erase(self) -> None:
+        if self._rows == 0 or not self._tty:
+            return
+        sys.stdout.write("\r\x1b[2K")
+        if self._rows == 2:
+            # Move from the prompt row to the status row and clear it too.
+            sys.stdout.write("\x1b[1A\r\x1b[2K")
+
+    def render(
+        self,
+        sequence: int,
+        stats: HeartbeatStats,
+        connected: bool,
+        command_buffer: str,
+    ) -> None:
+        if not self._tty:
+            return
+        self._erase()
+        sys.stdout.write(
+            f"{_status_text(sequence, stats, connected)}\n"
+            f"V30> {command_buffer}"
+        )
+        sys.stdout.flush()
+        self._rows = 2
+
+    def render_prompt(self, command_buffer: str) -> None:
+        if not self._tty:
+            return
+        self._erase()
+        sys.stdout.write(f"V30> {command_buffer}")
+        sys.stdout.flush()
+        self._rows = 1
+
+    def clear(self) -> None:
+        self._erase()
+        if self._tty:
+            sys.stdout.flush()
+        self._rows = 0
 
 
 def _read_windows_command(buffer: str) -> tuple[str, str | None, bool]:
@@ -442,11 +483,13 @@ def persistent_monitor(
     captured = bytearray()
     events: list[dict[str, Any]] = []
     stats = HeartbeatStats()
+    console = ConsoleStatus()
     command_buffer = ""
     connected = True
     current_sequence = sequence & 0xFFFFFFFF
     next_due = time.monotonic()
     stop = False
+    transport_error: str | None = None
 
     connection = serial.Serial(
         port=port, baudrate=115200, timeout=0, write_timeout=1.0
@@ -455,61 +498,91 @@ def persistent_monitor(
     hid_device, hid_identity = _open_hid(serial_number)
 
     def drain_cdc() -> None:
-        waiting = connection.in_waiting
-        if waiting:
-            chunk = connection.read(waiting)
-            captured.extend(chunk)
+        nonlocal transport_error
+        if transport_error is not None:
+            return
+        try:
+            waiting = connection.in_waiting
+            if waiting:
+                chunk = connection.read(waiting)
+                captured.extend(chunk)
+        except (OSError, serial.SerialException) as exc:
+            transport_error = f"USB CDC disconnected: {exc}"
 
     def exchange(request: Message) -> tuple[Message | None, float, str | None]:
-        while bytes(hid_device.read(MESSAGE_SIZE + 1)):
-            pass
-        record = request.encode()
+        nonlocal transport_error
         began = time.monotonic()
-        written = hid_device.write(hid_output_report(record))
-        if written != MESSAGE_SIZE + 1:
-            return None, 0.0, f"short HID write: {written}/{MESSAGE_SIZE + 1} bytes"
-        deadline = began + timeout
-        while time.monotonic() <= deadline:
-            drain_cdc()
-            candidate = bytes(hid_device.read(MESSAGE_SIZE + 1))
-            if candidate:
-                try:
-                    reply = validate_live_reply(candidate, request)
-                except ValueError as exc:
-                    return None, (time.monotonic() - began) * 1000.0, str(exc)
-                # Firmware publishes its concise CDC proof immediately after
-                # the HID reply. Retain it without delaying the next V30 IRQ.
-                drain_deadline = time.monotonic() + 0.05
-                while time.monotonic() < drain_deadline:
-                    drain_cdc()
-                    time.sleep(0.001)
-                return reply, (time.monotonic() - began) * 1000.0, None
-            time.sleep(0.001)
+        try:
+            while bytes(hid_device.read(MESSAGE_SIZE + 1)):
+                pass
+            record = request.encode()
+            written = hid_device.write(hid_output_report(record))
+            if written != MESSAGE_SIZE + 1:
+                return None, 0.0, f"short HID write: {written}/{MESSAGE_SIZE + 1} bytes"
+            deadline = began + timeout
+            while time.monotonic() <= deadline:
+                drain_cdc()
+                if transport_error is not None:
+                    return None, (time.monotonic() - began) * 1000.0, transport_error
+                candidate = bytes(hid_device.read(MESSAGE_SIZE + 1))
+                if candidate:
+                    try:
+                        reply = validate_live_reply(candidate, request)
+                    except ValueError as exc:
+                        return None, (time.monotonic() - began) * 1000.0, str(exc)
+                    # Latency ends at the complete, sequence-bound HID reply.
+                    # The following CDC drain preserves evidence but is not part
+                    # of the physical V30 request/reply round-trip measurement.
+                    latency_ms = (time.monotonic() - began) * 1000.0
+                    # Firmware publishes its concise CDC proof immediately after
+                    # the HID reply. Retain it without delaying the next V30 IRQ.
+                    drain_deadline = time.monotonic() + 0.05
+                    while time.monotonic() < drain_deadline:
+                        drain_cdc()
+                        if transport_error is not None:
+                            break
+                        time.sleep(0.001)
+                    return reply, latency_ms, None
+                time.sleep(0.001)
+        except OSError as exc:
+            transport_error = f"USB HID disconnected: {exc}"
+            return None, (time.monotonic() - began) * 1000.0, transport_error
         return None, (time.monotonic() - began) * 1000.0, "heartbeat timeout"
 
     def print_event(text: str) -> None:
-        _clear_status_line()
+        console.clear()
         print(text)
+        if interactive:
+            if display == "status":
+                console.render(current_sequence, stats, connected, command_buffer)
+            else:
+                console.render_prompt(command_buffer)
 
     if interactive:
         print("\n[V30 INTERACTIVE HEARTBEAT]")
         print("Commands: ping, status, send <text>, quiet, verbose, help, quit")
         print("Heartbeat runs in the background; command traffic has priority.\n")
+        if display == "status":
+            console.render(current_sequence, stats, connected, command_buffer)
+        else:
+            console.render_prompt(command_buffer)
 
     try:
         while not stop and (rounds == 0 or stats.completed + stats.lost < rounds):
             drain_cdc()
+            if transport_error is not None:
+                print_event(transport_error)
+                stop = True
+                continue
             command: str | None = None
             if interactive:
                 command_buffer, command, changed = _read_windows_command(command_buffer)
                 if changed and display == "status":
-                    _clear_status_line()
-                    sys.stdout.write(
-                        f"V30> {command_buffer}  | "
-                        f"{'● ALIVE' if connected else '○ LOST'} "
-                        f"seq={current_sequence:03d} last={stats.last_ms:.1f} ms"
+                    console.render(
+                        current_sequence, stats, connected, command_buffer
                     )
-                    sys.stdout.flush()
+                elif changed:
+                    console.render_prompt(command_buffer)
 
             request_type: int | None = None
             request_payload = b""
@@ -583,9 +656,9 @@ def persistent_monitor(
                     f"latency={latency_ms:.1f} ms  error={error}"
                 )
             if display == "status":
-                _clear_status_line()
-                sys.stdout.write(_status_text(current_sequence, stats, connected))
-                sys.stdout.flush()
+                console.render(
+                    current_sequence, stats, connected, command_buffer
+                )
             current_sequence = (current_sequence + 1) & 0xFFFFFFFF
             if current_sequence == 0:
                 current_sequence = 1
@@ -593,10 +666,16 @@ def persistent_monitor(
     except KeyboardInterrupt:
         stop = True
     finally:
-        _clear_status_line()
+        console.clear()
         drain_cdc()
-        hid_device.close()
-        connection.close()
+        try:
+            hid_device.close()
+        except OSError:
+            pass
+        try:
+            connection.close()
+        except (OSError, serial.SerialException):
+            pass
         raw_path.write_bytes(captured)
         summary = {
             "schema": "pi86-rp2350.companion-heartbeat/v1",
@@ -612,8 +691,10 @@ def persistent_monitor(
                 "maximum": stats.maximum_ms,
             },
             "events": events,
+            "transport_error": transport_error,
             "raw_cdc_log": str(raw_path.resolve()),
-            "passed": stats.completed > 0 and stats.lost == 0,
+            "passed": stats.completed > 0 and stats.lost == 0 and
+            transport_error is None,
         }
         json_path.write_text(
             json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
@@ -625,6 +706,8 @@ def persistent_monitor(
         )
         print(f"Raw CDC evidence = {raw_path}")
         print(f"Session JSON     = {json_path}")
+    if transport_error is not None:
+        return TRANSPORT_EXIT
     return PASS_EXIT if stats.completed > 0 and stats.lost == 0 else VALIDATION_EXIT
 
 
@@ -645,6 +728,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--heartbeat", action="store_true",
         help="continue with host-driven V30 heartbeat after acceptance",
+    )
+    parser.add_argument(
+        "--attach", action="store_true",
+        help="attach to an already-running companion runtime without RESET evidence",
     )
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--heartbeat-timeout", type=float, default=2.0)
@@ -705,6 +792,24 @@ def main() -> int:
         parser.error("--rounds cannot be negative")
     if args.json and (args.interactive or args.heartbeat):
         parser.error("persistent heartbeat display cannot be combined with --json")
+    if args.attach and not (args.interactive or args.heartbeat):
+        parser.error("--attach requires --interactive or --heartbeat")
+    if args.attach:
+        try:
+            return persistent_monitor(
+                port=args.port,
+                sequence=args.sequence or 1,
+                timeout=args.heartbeat_timeout,
+                interval=args.interval,
+                output_dir=args.output_dir,
+                serial_number=args.hid_serial,
+                display=args.display,
+                interactive=args.interactive,
+                rounds=args.rounds,
+            )
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return DEPENDENCY_EXIT
     try:
         result, exit_code = physical_exchange(
             port=args.port,

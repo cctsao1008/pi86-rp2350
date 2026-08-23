@@ -22,6 +22,8 @@ from v30bridge import (  # noqa: E402
     COMMAND_REPLY,
     HEARTBEAT_REPLY,
     HeartbeatStats,
+    _status_text,
+    build_parser,
     heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
@@ -114,6 +116,27 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(stats.minimum_ms, 12.0)
         self.assertEqual(stats.average_ms, 15.0)
         self.assertEqual(stats.maximum_ms, 18.0)
+
+    def test_status_row_is_separate_from_the_command_prompt(self) -> None:
+        stats = HeartbeatStats()
+        stats.accept(3.3)
+        text = _status_text(919, stats, True)
+        self.assertEqual(text, "| ● V30 ALIVE  seq=919  last=3.3 ms  lost=0")
+        self.assertNotIn("V30>", text)
+
+    def test_interactive_monitor_can_attach_without_reset(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--interactive",
+                "--heartbeat",
+                "--attach",
+                "--port",
+                "COM27",
+            ]
+        )
+        self.assertTrue(args.interactive)
+        self.assertTrue(args.heartbeat)
+        self.assertTrue(args.attach)
 
     def test_runtime_messages_preserve_the_version_one_layout(self) -> None:
         records = (

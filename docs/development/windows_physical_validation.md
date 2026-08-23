@@ -144,10 +144,16 @@ py tools\ai_bridge\v30bridge.py --interactive --heartbeat --port COM27 `
   --output-dir D:\pi86-validation-logs
 ```
 
-The status display updates one terminal line instead of printing one line per
-second. Normal heartbeat traffic therefore cannot hide command output. Type
-`verbose` when every round should be visible, or `quiet` when only commands
-and failures should be printed.
+The status display owns two fixed terminal rows: heartbeat state on the first
+row and the editable `V30>` prompt below it. Both rows update in place instead
+of printing once per second. Command results appear above them, so normal
+heartbeat traffic cannot hide command output. Type `verbose` when every round
+should be visible, or `quiet` when only commands and failures should print.
+
+```text
+| ● V30 ALIVE  seq=919  last=3.3 ms  lost=0
+V30> _
+```
 
 Each heartbeat contains a new 32-bit sequence and 64-bit nonce in the same
 seven-word native mailbox consumed by the V30 ISR. A successful line means
@@ -186,6 +192,37 @@ The session retains a raw CDC log plus a JSON file containing every sequence,
 latency, loss, and HID identity. Only one request may be outstanding; an
 interactive command takes priority over the next scheduled heartbeat.
 `Ctrl+C` closes the host monitor but does not assert V30 RESET.
+
+Because the V30 remains alive after `Ctrl+C`, a later host process can attach
+to the existing `STI`/`HLT` runtime without expecting another reset transcript:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --interactive --heartbeat --attach `
+  --port COM27 --display status --interval 1.0 `
+  --output-dir D:\pi86-validation-logs
+```
+
+Use `--attach` only after the same powered runtime has already passed its
+bounded startup acceptance. Reset or reflash the RP2350 when startup evidence
+must be collected again.
+
+### Disconnect and fault behavior
+
+The monitor distinguishes a V30-side liveness failure from loss of the USB
+transport:
+
+- A missing HAT, stopped V30, or failed interrupt service produces a
+  sequence-numbered `V30 HEARTBEAT LOST` event. The firmware status and
+  timeout remain part of the retained session evidence.
+- Removing USB makes CDC or HID unavailable. The host reports
+  `USB CDC disconnected` or `USB HID disconnected`, closes both interfaces,
+  writes the partial raw log and JSON summary, and exits with code 4 instead
+  of emitting a Python traceback.
+
+After a USB power cycle, run the normal command without `--attach` so reset,
+ROM, interrupt, and persistent-idle acceptance are collected again. Use
+`--attach` only when the RP2350 and V30 remained powered and the previously
+accepted runtime is still executing.
 
 ## Revalidate saved evidence
 
