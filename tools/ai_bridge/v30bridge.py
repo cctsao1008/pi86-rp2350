@@ -4,29 +4,79 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import secrets
+import struct
 import sys
 import time
 from typing import Any
 
-from physical_validator import AI_B2_HID, explain_output, validate_output
-from protocol import MESSAGE_SIZE, Message, TYPE_HELLO, TYPE_TEXT
+from physical_validator import (
+    AI_B2_HID,
+    COMPANION_RUNTIME,
+    explain_output,
+    validate_output,
+)
+from protocol import (
+    MESSAGE_SIZE,
+    Message,
+    STATUS_OK,
+    TYPE_COMMAND,
+    TYPE_HEARTBEAT,
+    TYPE_HELLO,
+    TYPE_RESULT,
+    TYPE_TEXT,
+)
 
 CANONICAL_GREETING = b"HELLO NEC V30"
 CANONICAL_REPLY = b"HELLO OPENAI CODEX"
+HEARTBEAT_REPLY = b"V30 HEARTBEAT OK"
+COMMAND_REPLY = b"V30 COMMAND OK"
 USB_VID = 0xCAFE
 USB_PID = 0x4011
-TERMINAL_MARKER = AI_B2_HID.end_marker.encode("ascii")
+TERMINAL_MARKERS = tuple(
+    profile.end_marker.encode("ascii")
+    for profile in (AI_B2_HID, COMPANION_RUNTIME)
+)
 
 PASS_EXIT = 0
 DEPENDENCY_EXIT = 3
 TRANSPORT_EXIT = 4
 VALIDATION_EXIT = 5
+
+
+def heartbeat_payload(sequence: int, nonce: int | None = None) -> bytes:
+    """Build the seven native V30 mailbox words for one fresh liveness proof."""
+    if nonce is None:
+        nonce = secrets.randbits(64)
+    return struct.pack("<2sIQ", b"HB", sequence & 0xFFFFFFFF, nonce)
+
+
+@dataclass
+class HeartbeatStats:
+    completed: int = 0
+    lost: int = 0
+    last_ms: float = 0.0
+    minimum_ms: float = float("inf")
+    maximum_ms: float = 0.0
+    total_ms: float = 0.0
+
+    def accept(self, latency_ms: float) -> None:
+        self.completed += 1
+        self.last_ms = latency_ms
+        self.minimum_ms = min(self.minimum_ms, latency_ms)
+        self.maximum_ms = max(self.maximum_ms, latency_ms)
+        self.total_ms += latency_ms
+
+    @property
+    def average_ms(self) -> float:
+        return self.total_ms / self.completed if self.completed else 0.0
 
 
 def simulate_v30(record: bytes) -> bytes:
@@ -54,14 +104,28 @@ def normalize_hid_input(report: bytes) -> bytes:
     return report
 
 
-def validate_reply(record: bytes, sequence: int) -> Message:
+def validate_reply(
+    record: bytes,
+    sequence: int,
+    expected_type: int = TYPE_TEXT,
+    expected_payload: bytes = CANONICAL_REPLY,
+) -> Message:
     reply = Message.decode(normalize_hid_input(record))
-    if reply.message_type != TYPE_TEXT:
+    if reply.message_type != expected_type:
         raise ValueError(f"unexpected V30 reply type: {reply.message_type}")
     if reply.sequence != sequence:
         raise ValueError(f"V30 reply sequence mismatch: {reply.sequence} != {sequence}")
-    if reply.payload != CANONICAL_REPLY:
+    if reply.payload != expected_payload:
         raise ValueError(f"unexpected V30 reply payload: {reply.payload!r}")
+    return reply
+
+
+def validate_live_reply(record: bytes, request: Message) -> Message:
+    expected_type = TYPE_RESULT if request.message_type == TYPE_COMMAND else TYPE_HEARTBEAT
+    expected_payload = COMMAND_REPLY if request.message_type == TYPE_COMMAND else HEARTBEAT_REPLY
+    reply = validate_reply(record, request.sequence, expected_type, expected_payload)
+    if reply.status != STATUS_OK:
+        raise ValueError(f"V30 live reply status is not OK: {reply.status}")
     return reply
 
 
@@ -188,7 +252,7 @@ def physical_exchange(
                 if candidate:
                     hid_reply_raw = normalize_hid_input(candidate)
 
-            if TERMINAL_MARKER in captured and hid_reply_raw is not None:
+            if any(marker in captured for marker in TERMINAL_MARKERS) and hid_reply_raw is not None:
                 break
             time.sleep(0.005)
         else:
@@ -203,18 +267,18 @@ def physical_exchange(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = started.strftime("%Y%m%d_%H%M%S%z")
-    raw_path = output_dir / f"ai_b2_hid_{timestamp}.log"
-    raw_path.write_bytes(captured)
-
     text = captured.decode("utf-8", errors="replace")
-    cdc_report = validate_output(text, AI_B2_HID)
+    profile = COMPANION_RUNTIME if "[PERSISTENT COMPANION RUNTIME]" in text else AI_B2_HID
+    raw_path = output_dir / f"{profile.filename_prefix}_{timestamp}.log"
+    raw_path.write_bytes(captured)
+    cdc_report = validate_output(text, profile)
     story = list(explain_output(text, cdc_report))
 
     cdc_sequence = None
     sequence_match = re.search(
         r"(?m)^Windows HID 64-byte record\s+PASS \(sequence ([0-9]+)\)\s*$",
         text,
-    )
+    ) if profile is AI_B2_HID else None
     if sequence_match is not None:
         cdc_sequence = int(sequence_match.group(1))
         if cdc_sequence != sequence:
@@ -227,7 +291,9 @@ def physical_exchange(
         transport_errors.append("no complete 64-byte HID reply was received")
     else:
         try:
-            reply = validate_reply(hid_reply_raw, sequence)
+            expected_type = TYPE_HEARTBEAT if profile is COMPANION_RUNTIME else TYPE_TEXT
+            expected_payload = HEARTBEAT_REPLY if profile is COMPANION_RUNTIME else CANONICAL_REPLY
+            reply = validate_reply(hid_reply_raw, sequence, expected_type, expected_payload)
         except ValueError as exc:
             transport_errors.append(str(exc))
 
@@ -236,7 +302,7 @@ def physical_exchange(
     overall_pass = hid_pass and cdc_pass and not transport_errors
     result: dict[str, Any] = {
         "schema": "pi86-rp2350.ai-bridge.exchange/v1",
-        "profile": AI_B2_HID.name,
+        "profile": profile.name,
         "timestamp": started.isoformat(),
         "request": {
             "transport": "USB HID",
@@ -275,7 +341,7 @@ def physical_exchange(
         "errors": transport_errors,
         "passed": overall_pass,
     }
-    json_path = output_dir / f"ai_b2_hid_{timestamp}.json"
+    json_path = output_dir / f"{profile.filename_prefix}_{timestamp}.json"
     result["result_json"] = str(json_path.resolve())
     json_path.write_text(
         json.dumps(result, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -311,6 +377,257 @@ def print_human_result(result: dict[str, Any]) -> None:
     print(f"AI BRIDGE RESULT = {'PASS' if result['passed'] else 'FAIL'}")
 
 
+def _clear_status_line() -> None:
+    if sys.stdout.isatty():
+        sys.stdout.write("\r\x1b[2K")
+        sys.stdout.flush()
+
+
+def _status_text(sequence: int, stats: HeartbeatStats, connected: bool) -> str:
+    state = "ALIVE" if connected else "LOST"
+    latency = f"{stats.last_ms:.1f} ms" if stats.completed else "--"
+    return (
+        f"V30>  | {'●' if connected else '○'} V30 {state}  "
+        f"seq={sequence:03d}  last={latency}  lost={stats.lost}"
+    )
+
+
+def _read_windows_command(buffer: str) -> tuple[str, str | None, bool]:
+    """Nonblocking single-line input for the Windows status display."""
+    if os.name != "nt" or not sys.stdin.isatty():
+        return buffer, None, False
+    import msvcrt
+
+    changed = False
+    command: str | None = None
+    while msvcrt.kbhit():
+        char = msvcrt.getwch()
+        if char in ("\r", "\n"):
+            command = buffer.strip()
+            buffer = ""
+            changed = True
+            break
+        if char == "\x03":
+            raise KeyboardInterrupt
+        if char == "\b":
+            buffer = buffer[:-1]
+            changed = True
+        elif char in ("\x00", "\xe0"):
+            if msvcrt.kbhit():
+                msvcrt.getwch()
+        elif char.isprintable():
+            buffer += char
+            changed = True
+    return buffer, command, changed
+
+
+def persistent_monitor(
+    port: str,
+    sequence: int,
+    timeout: float,
+    interval: float,
+    output_dir: Path,
+    serial_number: str | None,
+    display: str,
+    interactive: bool,
+    rounds: int,
+) -> int:
+    """Keep one HID/CDC session synchronized with the living physical V30."""
+    serial = _serial_module()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    started = datetime.now().astimezone()
+    timestamp = started.strftime("%Y%m%d_%H%M%S%z")
+    raw_path = output_dir / f"companion_heartbeat_{timestamp}.log"
+    json_path = output_dir / f"companion_heartbeat_{timestamp}.json"
+    captured = bytearray()
+    events: list[dict[str, Any]] = []
+    stats = HeartbeatStats()
+    command_buffer = ""
+    connected = True
+    current_sequence = sequence & 0xFFFFFFFF
+    next_due = time.monotonic()
+    stop = False
+
+    connection = serial.Serial(
+        port=port, baudrate=115200, timeout=0, write_timeout=1.0
+    )
+    connection.dtr = True
+    hid_device, hid_identity = _open_hid(serial_number)
+
+    def drain_cdc() -> None:
+        waiting = connection.in_waiting
+        if waiting:
+            chunk = connection.read(waiting)
+            captured.extend(chunk)
+
+    def exchange(request: Message) -> tuple[Message | None, float, str | None]:
+        while bytes(hid_device.read(MESSAGE_SIZE + 1)):
+            pass
+        record = request.encode()
+        began = time.monotonic()
+        written = hid_device.write(hid_output_report(record))
+        if written != MESSAGE_SIZE + 1:
+            return None, 0.0, f"short HID write: {written}/{MESSAGE_SIZE + 1} bytes"
+        deadline = began + timeout
+        while time.monotonic() <= deadline:
+            drain_cdc()
+            candidate = bytes(hid_device.read(MESSAGE_SIZE + 1))
+            if candidate:
+                try:
+                    reply = validate_live_reply(candidate, request)
+                except ValueError as exc:
+                    return None, (time.monotonic() - began) * 1000.0, str(exc)
+                # Firmware publishes its concise CDC proof immediately after
+                # the HID reply. Retain it without delaying the next V30 IRQ.
+                drain_deadline = time.monotonic() + 0.05
+                while time.monotonic() < drain_deadline:
+                    drain_cdc()
+                    time.sleep(0.001)
+                return reply, (time.monotonic() - began) * 1000.0, None
+            time.sleep(0.001)
+        return None, (time.monotonic() - began) * 1000.0, "heartbeat timeout"
+
+    def print_event(text: str) -> None:
+        _clear_status_line()
+        print(text)
+
+    if interactive:
+        print("\n[V30 INTERACTIVE HEARTBEAT]")
+        print("Commands: ping, status, send <text>, quiet, verbose, help, quit")
+        print("Heartbeat runs in the background; command traffic has priority.\n")
+
+    try:
+        while not stop and (rounds == 0 or stats.completed + stats.lost < rounds):
+            drain_cdc()
+            command: str | None = None
+            if interactive:
+                command_buffer, command, changed = _read_windows_command(command_buffer)
+                if changed and display == "status":
+                    _clear_status_line()
+                    sys.stdout.write(
+                        f"V30> {command_buffer}  | "
+                        f"{'● ALIVE' if connected else '○ LOST'} "
+                        f"seq={current_sequence:03d} last={stats.last_ms:.1f} ms"
+                    )
+                    sys.stdout.flush()
+
+            request_type: int | None = None
+            request_payload = b""
+            is_command = False
+            if command is not None:
+                lowered = command.lower()
+                if lowered in ("quit", "exit"):
+                    stop = True
+                    continue
+                if lowered == "help":
+                    print_event("Commands: ping, status, send <text>, quiet, verbose, help, quit")
+                elif lowered == "status":
+                    print_event(
+                        f"V30 ALIVE={connected} completed={stats.completed} "
+                        f"lost={stats.lost} min/avg/max="
+                        f"{stats.minimum_ms if stats.completed else 0:.1f}/"
+                        f"{stats.average_ms:.1f}/{stats.maximum_ms:.1f} ms"
+                    )
+                elif lowered == "quiet":
+                    display = "quiet"
+                    print_event("Heartbeat display: quiet (errors and commands only)")
+                elif lowered == "verbose":
+                    display = "verbose"
+                    print_event("Heartbeat display: verbose")
+                elif lowered == "ping":
+                    request_type = TYPE_HEARTBEAT
+                    request_payload = heartbeat_payload(current_sequence)
+                    is_command = True
+                elif lowered.startswith("send "):
+                    payload = command[5:].encode("utf-8")
+                    if len(payload) > 14:
+                        print_event("Command rejected: current native mailbox consumes at most 14 bytes")
+                    else:
+                        request_type = TYPE_COMMAND
+                        request_payload = payload
+                        is_command = True
+                elif command:
+                    print_event(f"Unknown command: {command!r}; type help")
+
+            now = time.monotonic()
+            if request_type is None and now >= next_due:
+                request_type = TYPE_HEARTBEAT
+                request_payload = heartbeat_payload(current_sequence)
+            if request_type is None:
+                time.sleep(0.02)
+                continue
+
+            request = Message(request_type, current_sequence, request_payload)
+            reply, latency_ms, error = exchange(request)
+            event = {
+                "sequence": current_sequence,
+                "request_type": request_type,
+                "latency_ms": round(latency_ms, 3),
+                "passed": reply is not None,
+                "error": error,
+            }
+            events.append(event)
+            if reply is not None:
+                stats.accept(latency_ms)
+                connected = True
+                if display == "verbose" or is_command:
+                    print_event(
+                        f"[{current_sequence:03d}] {reply.payload.decode('ascii')}  "
+                        f"latency={latency_ms:.1f} ms"
+                    )
+            else:
+                stats.lost += 1
+                connected = False
+                print_event(
+                    f"[{current_sequence:03d}] V30 HEARTBEAT LOST  "
+                    f"latency={latency_ms:.1f} ms  error={error}"
+                )
+            if display == "status":
+                _clear_status_line()
+                sys.stdout.write(_status_text(current_sequence, stats, connected))
+                sys.stdout.flush()
+            current_sequence = (current_sequence + 1) & 0xFFFFFFFF
+            if current_sequence == 0:
+                current_sequence = 1
+            next_due = time.monotonic() + interval
+    except KeyboardInterrupt:
+        stop = True
+    finally:
+        _clear_status_line()
+        drain_cdc()
+        hid_device.close()
+        connection.close()
+        raw_path.write_bytes(captured)
+        summary = {
+            "schema": "pi86-rp2350.companion-heartbeat/v1",
+            "started": started.isoformat(),
+            "clock_hz": 1_000_000,
+            "hid_identity": hid_identity,
+            "completed": stats.completed,
+            "lost": stats.lost,
+            "latency_ms": {
+                "last": stats.last_ms,
+                "minimum": 0.0 if not stats.completed else stats.minimum_ms,
+                "average": stats.average_ms,
+                "maximum": stats.maximum_ms,
+            },
+            "events": events,
+            "raw_cdc_log": str(raw_path.resolve()),
+            "passed": stats.completed > 0 and stats.lost == 0,
+        }
+        json_path.write_text(
+            json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
+        )
+        print(
+            f"V30 heartbeat stopped: completed={stats.completed} lost={stats.lost} "
+            f"avg={stats.average_ms:.1f} ms"
+        )
+        print(f"Raw CDC evidence = {raw_path}")
+        print(f"Session JSON     = {json_path}")
+    return PASS_EXIT if stats.completed > 0 and stats.lost == 0 else VALIDATION_EXIT
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="exchange one fixed 64-byte message with a physical NEC V30"
@@ -318,12 +635,23 @@ def build_parser() -> argparse.ArgumentParser:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--simulate", action="store_true")
     mode.add_argument("--exchange", action="store_true")
+    mode.add_argument("--interactive", action="store_true")
     mode.add_argument("--list-devices", action="store_true")
     parser.add_argument("--port", help="composite CDC port, for example COM14")
     parser.add_argument("--sequence", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--hid-serial")
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
+    parser.add_argument(
+        "--heartbeat", action="store_true",
+        help="continue with host-driven V30 heartbeat after acceptance",
+    )
+    parser.add_argument("--interval", type=float, default=1.0)
+    parser.add_argument("--heartbeat-timeout", type=float, default=2.0)
+    parser.add_argument("--rounds", type=int, default=0, help="0 means run until Ctrl+C")
+    parser.add_argument(
+        "--display", choices=("quiet", "status", "verbose"), default="status"
+    )
     parser.add_argument("--json", action="store_true", help="print only stable JSON")
     return parser
 
@@ -368,7 +696,15 @@ def main() -> int:
         return PASS_EXIT if devices else TRANSPORT_EXIT
 
     if not args.port:
-        parser.error("--exchange requires --port COMxx")
+        parser.error("physical exchange requires --port COMxx")
+    if args.interval <= 0:
+        parser.error("--interval must be greater than zero")
+    if args.heartbeat_timeout <= 0:
+        parser.error("--heartbeat-timeout must be greater than zero")
+    if args.rounds < 0:
+        parser.error("--rounds cannot be negative")
+    if args.json and (args.interactive or args.heartbeat):
+        parser.error("persistent heartbeat display cannot be combined with --json")
     try:
         result, exit_code = physical_exchange(
             port=args.port,
@@ -376,7 +712,7 @@ def main() -> int:
             timeout=args.timeout,
             output_dir=args.output_dir,
             serial_number=args.hid_serial,
-            echo_cdc=not args.json,
+            echo_cdc=not args.json and not args.interactive,
         )
     except RuntimeError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
@@ -385,6 +721,20 @@ def main() -> int:
         print(json.dumps(result, separators=(",", ":"), ensure_ascii=False))
     else:
         print_human_result(result)
+    if exit_code != PASS_EXIT:
+        return exit_code
+    if args.interactive or args.heartbeat:
+        return persistent_monitor(
+            port=args.port,
+            sequence=(args.sequence + 1) & 0xFFFFFFFF or 1,
+            timeout=args.heartbeat_timeout,
+            interval=args.interval,
+            output_dir=args.output_dir,
+            serial_number=args.hid_serial,
+            display=args.display,
+            interactive=args.interactive,
+            rounds=args.rounds,
+        )
     return exit_code
 
 

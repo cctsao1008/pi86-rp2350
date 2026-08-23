@@ -277,8 +277,45 @@ AI_B2_HID = ValidationProfile(
 )
 
 
+COMPANION_RUNTIME = ValidationProfile(
+    name="companion-runtime",
+    filename_prefix="companion_runtime",
+    end_marker="V30 remains active in STI/HLT; RESET is not asserted.",
+    checks=(
+        _line("reset qualification", r"RESET clock qualification\s+=\s+PASS"),
+        _line("software INT60", r"Software INT 60h commit\s+=\s+PASS"),
+        _line("physical INTR count", r"Physical INTR assertions\s+=\s+8"),
+        _line("first INTA count", r"INTA #1 accepts\s+=\s+8 PASS"),
+        _line("second INTA count", r"INTA #2 completions\s+=\s+8 PASS"),
+        _line("IRQ mailbox commit", r"IRQ mailbox commit\s+=\s+PASS"),
+        _line("native EOI", r"Native EOI\s+=\s+PASS"),
+        _line("heartbeat active", r"Heartbeat active\s+=\s+PASS"),
+        _line("IRQ commit count", r"IRQ mailbox commits\s+=\s+(?:[2-9]|[1-9][0-9]+)"),
+        _line("EOI count", r"Native EOI writes\s+=\s+(?:[2-9]|[1-9][0-9]+)"),
+        _line("PIO1 non-AD isolation", r"PIO1 non-AD isolation\s+=\s+PASS"),
+        _line("observer activity", r"Observer complete cycles\s+=\s+[1-9][0-9]*"),
+        _line(
+            "PIO allocation",
+            r"PIO1 allocation\s+=\s+SM0 RESET\+INT60, SM1 IRQ ROM, "
+            r"SM2 IRQ I/O, SM3 INTA",
+        ),
+        _line("PIO instruction budget", r"PIO instruction words\s+=\s+22 \+ 10 = 32/32"),
+        _line("current-cycle M33", r"Current-cycle M33\s+=\s+NONE"),
+        _line(
+            "persistent V30 state",
+            r"V30 runtime state\s+=\s+STI/HLT idle; IRQ heartbeat remains armed",
+        ),
+        _line("companion result", r"COMPANION RUNTIME RESULT\s+=\s+PASS"),
+        _line(
+            "persistent electrical state",
+            r"V30 remains active in STI/HLT; RESET is not asserted\.",
+        ),
+    ),
+)
+
 PROFILES = {
-    profile.name: profile for profile in (AI_B1_A, AI_B1_B, AI_B2_HID)
+    profile.name: profile
+    for profile in (AI_B1_A, AI_B1_B, AI_B2_HID, COMPANION_RUNTIME)
 }
 FAIL_TOKEN = re.compile(r"(?<![A-Za-z0-9_])(FAIL|INVALID)(?![A-Za-z0-9_])")
 
@@ -327,6 +364,27 @@ def explain_output(text: str, report: ValidationReport) -> tuple[str, ...]:
     passed = set(report.passed_checks)
     normalized = normalize_output(text)
     story: list[str] = []
+
+    if {"software INT60", "first INTA count", "second INTA count"} <= passed:
+        story.append(
+            "The physical V30 completed its native INT 60h service, then accepted "
+            "all eight RP2350 interrupt requests through real two-cycle INTA handshakes."
+        )
+    if {"IRQ mailbox commit", "native EOI", "heartbeat active"} <= passed:
+        story.append(
+            "Each accepted companion interrupt reached the native V30 ISR, consumed "
+            "the mailbox record, committed its reply, issued EOI, and returned to STI/HLT."
+        )
+    if {"PIO allocation", "current-cycle M33"} <= passed:
+        story.append(
+            "Independent PIO exact streams served foreground, IRQ ROM, and IRQ I/O "
+            "cycles; M33 did not answer any current bus cycle."
+        )
+    if {"persistent V30 state", "persistent electrical state"} <= passed:
+        story.append(
+            "The run did not terminate by resetting the CPU: the V30 remains alive "
+            "in STI/HLT with its interrupt heartbeat armed."
+        )
 
     if "Windows HID binary record" in passed:
         story.append(

@@ -132,6 +132,61 @@ The JSON command is the intended Codex boundary. Python remains responsible
 for USB discovery and deterministic validation; Codex consumes the stable
 result instead of interpreting free-form terminal text.
 
+## Keep the 1 MHz V30 synchronized
+
+The persistent companion runtime uses **1.000 MHz** as its default operating
+point. After its bounded acceptance gate passes, enter the recommended
+interactive heartbeat session:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --interactive --heartbeat --port COM27 `
+  --display status --interval 1.0 `
+  --output-dir D:\pi86-validation-logs
+```
+
+The status display updates one terminal line instead of printing one line per
+second. Normal heartbeat traffic therefore cannot hide command output. Type
+`verbose` when every round should be visible, or `quiet` when only commands
+and failures should be printed.
+
+Each heartbeat contains a new 32-bit sequence and 64-bit nonce in the same
+seven-word native mailbox consumed by the V30 ISR. A successful line means
+all of the following happened again after the initial acceptance test:
+
+1. Windows delivered one complete 64-byte HID record.
+2. RP2350 asserted physical INTR and the V30 completed both INTA cycles.
+3. The native ISR read all seven fresh words and wrote the expected XOR
+   witness.
+4. PIO0/DMA observed the native six-word reply commit and EOI on the bus.
+5. The V30 executed IRET, invoked its foreground INT 60h service, and returned
+   to the `STI`/`HLT` idle loop.
+6. Only then did RP2350 return the sequence-bound HID reply.
+
+Useful interactive commands are:
+
+```text
+ping            run one heartbeat immediately
+status          show completed/lost counts and min/average/max latency
+send <text>     prove consumption of up to 14 mailbox bytes by the native ISR
+quiet           print commands and failures only
+verbose         print every completed heartbeat
+help            show commands
+quit            stop Windows monitoring without resetting the V30
+```
+
+For a bounded unattended run, omit `--interactive` and specify a round count:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --exchange --heartbeat --port COM27 `
+  --rounds 100 --display quiet --interval 1.0 `
+  --output-dir D:\pi86-validation-logs
+```
+
+The session retains a raw CDC log plus a JSON file containing every sequence,
+latency, loss, and HID identity. Only one request may be outstanding; an
+interactive command takes priority over the next scheduled heartbeat.
+`Ctrl+C` closes the host monitor but does not assert V30 RESET.
+
 ## Revalidate saved evidence
 
 An existing capture can be checked without hardware or `pyserial`:

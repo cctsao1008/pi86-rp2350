@@ -725,6 +725,75 @@ pico_enable_stdio_usb(ai_bridge_hid_mailbox_600khz 1)
 pico_enable_stdio_uart(ai_bridge_hid_mailbox_600khz 0)
 pico_add_extra_outputs(ai_bridge_hid_mailbox_600khz)
 
+# Persistent Companion Service. Both products compile the same native BIOS,
+# PIO response plane and C runtime; only the physical V30 clock definition
+# changes. The 0.600 MHz image is the formal acceptance baseline and 1.000 MHz
+# is the performance target. Neither target terminates by asserting RESET.
+pi86_add_v30_rom(companion_runtime_rom
+    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/companion_runtime_test.asm"
+    SYMBOL companion_runtime_rom
+    DEPENDS
+        "${PROJECT_SOURCE_DIR}/firmware/v30/bios/include/platform.inc"
+)
+
+function(pi86_add_companion_runtime target_name v30_hz)
+    add_executable(${target_name}
+        companion_runtime.c
+        ai_bridge_usb.c
+        ai_bridge_usb_descriptors.c
+    )
+
+    target_compile_definitions(${target_name} PRIVATE
+        PC1C_ROM_HEADER="companion_runtime_rom.h"
+        PC1C_ROM_DATA=companion_runtime_rom_data
+        PC1C_ROM_SIZE=companion_runtime_rom_size
+        PC1C_ROM_SHA256=companion_runtime_rom_sha256
+        COMPANION_V30_HZ=${v30_hz}
+        AI_BRIDGE_HID_TRANSPORT=1
+        PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0
+    )
+
+    target_include_directories(${target_name} PRIVATE
+        ${PROJECT_SOURCE_DIR}/firmware
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_link_libraries(${target_name}
+        companion_runtime_rom
+        pico_stdlib
+        pico_multicore
+        pico_unique_id
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+        hardware_sync
+        tinyusb_device
+    )
+
+    pico_generate_pio_header(${target_name}
+        ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/pc1c_pio_rom_sequencer.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/pc1c_companion_runtime.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/pc1b_first_cycle_phase_capture.pio
+    )
+    pico_generate_pio_header(${target_name}
+        ${CMAKE_CURRENT_LIST_DIR}/pc1c_sram_rom_execution_observer.pio
+    )
+
+    pico_enable_stdio_usb(${target_name} 1)
+    pico_enable_stdio_uart(${target_name} 0)
+    pico_add_extra_outputs(${target_name})
+endfunction()
+
+pi86_add_companion_runtime(companion_runtime_600khz 600000)
+pi86_add_companion_runtime(companion_runtime_1mhz 1000000)
+
 pi86_add_v30_rom(int10_stack_rom
     SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/int10_stack_test.asm"
     SYMBOL int10_stack_rom

@@ -19,9 +19,14 @@ from protocol import (  # noqa: E402
 from v30bridge import (  # noqa: E402
     CANONICAL_GREETING,
     CANONICAL_REPLY,
+    COMMAND_REPLY,
+    HEARTBEAT_REPLY,
+    HeartbeatStats,
+    heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
     simulate_v30,
+    validate_live_reply,
     validate_reply,
 )
 
@@ -68,6 +73,47 @@ class ProtocolTests(unittest.TestCase):
         wrong = Message(TYPE_TEXT, 7, b"RECORDED STRING").encode()
         with self.assertRaises(ValueError):
             validate_reply(wrong, 7)
+
+    def test_companion_heartbeat_reply_uses_the_same_abi(self) -> None:
+        record = Message(TYPE_HEARTBEAT, 9, b"V30 HEARTBEAT OK").encode()
+        reply = validate_reply(
+            record, 9, TYPE_HEARTBEAT, b"V30 HEARTBEAT OK"
+        )
+        self.assertEqual(reply.payload, b"V30 HEARTBEAT OK")
+
+    def test_live_heartbeat_has_exactly_seven_fresh_v30_words(self) -> None:
+        payload = heartbeat_payload(0x12345678, 0x0102030405060708)
+        self.assertEqual(len(payload), 14)
+        self.assertEqual(payload[:2], b"HB")
+        self.assertEqual(payload[2:6], b"\x78\x56\x34\x12")
+        self.assertEqual(payload[6:], b"\x08\x07\x06\x05\x04\x03\x02\x01")
+
+    def test_live_reply_is_bound_to_request_type_and_sequence(self) -> None:
+        heartbeat = Message(TYPE_HEARTBEAT, 17, heartbeat_payload(17, 1))
+        heartbeat_reply = Message(TYPE_HEARTBEAT, 17, HEARTBEAT_REPLY).encode()
+        self.assertEqual(
+            validate_live_reply(heartbeat_reply, heartbeat).payload,
+            HEARTBEAT_REPLY,
+        )
+        command = Message(TYPE_COMMAND, 18, b"STATUS")
+        command_reply = Message(TYPE_RESULT, 18, COMMAND_REPLY).encode()
+        self.assertEqual(
+            validate_live_reply(command_reply, command).payload,
+            COMMAND_REPLY,
+        )
+        with self.assertRaises(ValueError):
+            validate_live_reply(heartbeat_reply, command)
+
+    def test_heartbeat_statistics_do_not_hide_losses(self) -> None:
+        stats = HeartbeatStats()
+        stats.accept(12.0)
+        stats.accept(18.0)
+        stats.lost += 1
+        self.assertEqual(stats.completed, 2)
+        self.assertEqual(stats.lost, 1)
+        self.assertEqual(stats.minimum_ms, 12.0)
+        self.assertEqual(stats.average_ms, 15.0)
+        self.assertEqual(stats.maximum_ms, 18.0)
 
     def test_runtime_messages_preserve_the_version_one_layout(self) -> None:
         records = (

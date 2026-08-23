@@ -11,6 +11,7 @@ from physical_validator import (  # noqa: E402
     AI_B1_A,
     AI_B1_B,
     AI_B2_HID,
+    COMPANION_RUNTIME,
     explain_output,
     normalize_output,
     validate_output,
@@ -19,6 +20,27 @@ from protocol import Message, TYPE_HELLO  # noqa: E402
 
 
 class PhysicalValidatorTests(unittest.TestCase):
+    COMPANION_OUTPUT = """[PERSISTENT COMPANION RUNTIME]
+RESET clock qualification = PASS
+Software INT 60h commit    = PASS
+Physical INTR assertions   = 8
+INTA #1 accepts            = 8 PASS
+INTA #2 completions        = 8 PASS
+IRQ mailbox commit         = PASS
+Native EOI                 = PASS
+Heartbeat active           = PASS
+IRQ mailbox commits        = 8
+Native EOI writes          = 8
+PIO1 non-AD isolation      = PASS
+Observer complete cycles   = 256
+PIO1 allocation            = SM0 RESET+INT60, SM1 IRQ ROM, SM2 IRQ I/O, SM3 INTA
+PIO instruction words      = 22 + 10 = 32/32
+Current-cycle M33          = NONE
+V30 runtime state          = STI/HLT idle; IRQ heartbeat remains armed
+COMPANION RUNTIME RESULT   = PASS
+V30 remains active in STI/HLT; RESET is not asserted.
+"""
+
     HID_OUTPUT = """[HOST MAILBOX INPUT]
 HELLO NEC V30
 [V30 MAILBOX OUTPUT]
@@ -120,6 +142,13 @@ CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
         self.assertTrue(any("seven mailbox words" in sentence for sentence in story))
         self.assertTrue(any("only the multiplexed AD pins" in sentence for sentence in story))
         self.assertTrue(any("AD bus high-Z" in sentence for sentence in story))
+
+    def test_persistent_companion_profile_passes(self) -> None:
+        report = validate_output(self.COMPANION_OUTPUT, COMPANION_RUNTIME)
+        self.assertTrue(report.passed, report.errors)
+        story = explain_output(self.COMPANION_OUTPUT, report)
+        self.assertTrue(any("two-cycle INTA" in sentence for sentence in story))
+        self.assertTrue(any("remains alive" in sentence for sentence in story))
 
     def test_committed_ai_b2_hid_evidence_passes(self) -> None:
         evidence = (

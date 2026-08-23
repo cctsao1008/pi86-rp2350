@@ -1,0 +1,807 @@
+/*
+ * Persistent Companion Service integration gate.
+ *
+ * One source is built at 0.600 MHz (formal baseline) and 1.000 MHz
+ * (performance target). PIO1 owns every current-cycle read response and both
+ * INTA cycles. Core0 owns policy only: immutable record publication, INTR
+ * assertion, timeout/retry bookkeeping, and USB service between bus cycles.
+ */
+
+#include <stdbool.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <string.h>
+
+#ifndef COMPANION_V30_HZ
+#define COMPANION_V30_HZ 600000u
+#endif
+#define PC1C0C_V30_HZ COMPANION_V30_HZ
+#define SEQUENCE_MAX 512u
+#define main pc1c_legacy_main_not_used
+#include "pc1c_sram_rom_execution.c"
+#undef main
+
+#include "ai_bridge_usb.h"
+#include "companion_runtime_rom.h"
+#include "pc1c_companion_runtime.pio.h"
+
+#define COMPANION_VECTOR             0x20u
+#define INT60_VECTOR                 0x60u
+#define INT60_HANDLER_OFFSET       0x0100u
+#define IRQ_HANDLER_OFFSET         0x0140u
+#define INITIAL_INT60_RETURN       0x0010u
+#define IRQ_RETURN_OFFSET          0x0012u
+#define CYCLIC_INT60_RETURN        0x0014u
+#define IVT20_OFFSET_ADDRESS       0x0080u
+#define IVT20_SEGMENT_ADDRESS      0x0082u
+#define IVT60_OFFSET_ADDRESS       0x0180u
+#define IVT60_SEGMENT_ADDRESS      0x0182u
+#define STACK_IP_ADDRESS           0x7FFAu
+#define STACK_CS_ADDRESS           0x7FFCu
+#define STACK_FLAGS_ADDRESS        0x7FFEu
+#define STATUS_PORT                0x00E0u
+#define TX_PORT                    0x00E2u
+#define RX_PORT                    0x00E4u
+#define CONTROL_PORT               0x00E6u
+#define WITNESS_PORT               0x00E8u
+#define PIC_COMMAND_PORT           0x0020u
+#define HOST_WORDS                       7u
+#define HEARTBEAT_ACCEPT_COUNT           8u
+#define IRQ_PERIOD_US                10000u
+#define IRQ_TIMEOUT_US               10000u
+#define LIVE_ROUND_TIMEOUT_US         50000u
+#define HOST_TIMEOUT_US            5000000u
+#define MAX_PAIRS                       64u
+#define STREAM_WORDS (MAX_PAIRS * 2u)
+
+typedef struct {
+    uint32_t key;
+    uint32_t response;
+} exact_pair_t;
+
+typedef struct {
+    exact_pair_t pair[MAX_PAIRS];
+    uint32_t count;
+} exact_sequence_t;
+
+typedef struct {
+    bool host_record_ok;
+    bool reset_ok;
+    bool pre_release_clean;
+    bool first_inta_seen;
+    bool second_inta_complete;
+    bool int60_commit_seen;
+    bool irq_commit_seen;
+    bool eoi_seen;
+    bool heartbeat_active;
+    bool non_ad_isolation;
+    bool observer_complete;
+    uint32_t host_sequence;
+    uint32_t irq_assertions;
+    uint32_t irq_accepts;
+    uint32_t irq_completions;
+    uint32_t int60_commits;
+    uint32_t irq_commits;
+    uint32_t eoi_writes;
+    uint32_t complete_cycles;
+    uint32_t first_mismatch_cycle;
+    uint32_t observer_words;
+    uint32_t foreground_dma_remain;
+    uint32_t irq_rom_dma_remain;
+    uint32_t irq_io_dma_remain;
+    uint32_t foreground_fifo;
+    uint32_t irq_rom_fifo;
+    uint32_t irq_io_fifo;
+    uint32_t foreground_pc;
+    uint32_t irq_rom_pc;
+    uint32_t irq_io_pc;
+    uint32_t inta_pc;
+} companion_result_t;
+
+static exact_sequence_t g_boot;
+static exact_sequence_t g_int60_initial;
+static exact_sequence_t g_int60;
+static exact_sequence_t g_irq_rom;
+static exact_sequence_t g_irq_io;
+static uint32_t g_foreground_initial_words[STREAM_WORDS];
+static uint32_t g_int60_words[STREAM_WORDS];
+static uint32_t g_irq_rom_words[STREAM_WORDS];
+static uint32_t g_irq_io_words[STREAM_WORDS];
+static uint16_t g_host_words[HOST_WORDS];
+static pi86_bridge_message_t g_host_record;
+static pi86_bridge_message_t g_reply_record;
+static int g_foreground_dma = -1;
+static int g_irq_rom_dma = -1;
+static int g_irq_io_dma = -1;
+static uint32_t g_int60_dma_words;
+static uint32_t g_irq_rom_dma_words;
+static uint32_t g_irq_io_dma_words;
+
+static int evidence_printf(const char *format, ...);
+
+typedef struct {
+    bool inta1;
+    bool inta2;
+    bool witness;
+    bool irq_commit;
+    bool eoi;
+    bool foreground_commit;
+    uint16_t observed_witness;
+    uint32_t observed_cycles;
+} live_round_result_t;
+
+static uint32_t memory_key(uint32_t address) {
+    return QUALIFIED_T1_CONTROL_BITS | encode_gpio_address(address);
+}
+
+static uint32_t io_read_key(uint16_t port) {
+    return (1u << V30_PIN_ASTB) | (1u << V30_PIN_INTAK) |
+           encode_gpio_address(port);
+}
+
+static void add_pair(exact_sequence_t *s, uint32_t key, uint16_t value) {
+    hard_assert(s->count < MAX_PAIRS);
+    s->pair[s->count++] =
+        (exact_pair_t){key, encoded_drive_command(value)};
+}
+
+static void add_memory(exact_sequence_t *s, uint32_t address,
+                       uint16_t value) {
+    add_pair(s, memory_key(address), value);
+}
+
+static void add_io(exact_sequence_t *s, uint16_t port, uint16_t value) {
+    add_pair(s, io_read_key(port), value);
+}
+
+static uint16_t image_word(uint32_t offset) {
+    hard_assert((offset & 1u) == 0u);
+    hard_assert(offset + 1u < companion_runtime_rom_size);
+    return (uint16_t)companion_runtime_rom_data[offset] |
+           ((uint16_t)companion_runtime_rom_data[offset + 1u] << 8);
+}
+
+static void add_image_range(exact_sequence_t *s, uint32_t first,
+                            uint32_t end_exclusive) {
+    for (uint32_t offset = first; offset < end_exclusive; offset += 2u)
+        add_memory(s, V30_ROM_BASE + offset, image_word(offset));
+}
+
+static void compile_sequences(void) {
+    memset(&g_boot, 0, sizeof g_boot);
+    memset(&g_int60_initial, 0, sizeof g_int60_initial);
+    memset(&g_int60, 0, sizeof g_int60);
+    memset(&g_irq_rom, 0, sizeof g_irq_rom);
+    memset(&g_irq_io, 0, sizeof g_irq_io);
+
+    add_memory(&g_boot, RESET_ROM_BASE, 0x00EAu);
+    add_memory(&g_boot, RESET_ROM_BASE + 2u, 0x0000u);
+    add_memory(&g_boot, RESET_ROM_BASE + 4u, 0x90F0u);
+    /* The reset path prefetches through the first INT 60h. Unsupported
+     * speculative reads remain high-Z and do not advance another SM. */
+    /* The first INT 60h is decoded after the aligned F0012 fetch.  Do not put
+     * speculative F0014+ keys ahead of the IVT60 keys in the shared SM0
+     * stream, or the exact matcher would wait on a fetch that never occurs. */
+    add_image_range(&g_boot, 0x0000u, 0x0014u);
+    /* The boot INT60 and cyclic post-IRQ INT60 use the same handler but have
+     * different return IPs.  Keeping separate initial/cyclic descriptors
+     * guarantees that every IRET target is an aligned ROM fetch. */
+    add_memory(&g_int60_initial, IVT60_OFFSET_ADDRESS,
+               INT60_HANDLER_OFFSET);
+    add_memory(&g_int60_initial, IVT60_SEGMENT_ADDRESS, 0xF000u);
+    add_image_range(&g_int60_initial, INT60_HANDLER_OFFSET, 0x0114u);
+    add_memory(&g_int60_initial, STACK_IP_ADDRESS, INITIAL_INT60_RETURN);
+    add_memory(&g_int60_initial, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_int60_initial, STACK_FLAGS_ADDRESS, 0xF246u);
+    add_image_range(&g_int60_initial, 0x0010u, 0x0014u);
+
+    /* An accepted physical interrupt flushes the V30 prefetch queue.  The
+     * aligned INT60 word at 0012h was already prefetched before HLT, but must
+     * be fetched again after IRQ IRET.  Every cyclic foreground block begins
+     * with that deterministic post-IRQ refetch, then serves the IVT/handler. */
+    add_memory(&g_int60, V30_ROM_BASE + IRQ_RETURN_OFFSET,
+               image_word(IRQ_RETURN_OFFSET));
+    add_memory(&g_int60, IVT60_OFFSET_ADDRESS, INT60_HANDLER_OFFSET);
+    add_memory(&g_int60, IVT60_SEGMENT_ADDRESS, 0xF000u);
+    add_image_range(&g_int60, INT60_HANDLER_OFFSET, 0x0114u);
+    add_memory(&g_int60, STACK_IP_ADDRESS, CYCLIC_INT60_RETURN);
+    add_memory(&g_int60, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_int60, STACK_FLAGS_ADDRESS, 0xF246u);
+    /* IRET -> 0014 JMP -> 0010 NOP/HLT.  The aligned 0012 INT60 word is
+     * prefetched before HLT and becomes executable only after the next IRQ. */
+    add_image_range(&g_int60, 0x0014u, 0x0016u);
+    add_image_range(&g_int60, 0x0010u, 0x0014u);
+
+    /* Physical IRQ20 uses two independent exact streams.  V30 instruction
+     * prefetch may interleave handler ROM reads with IN E0h/E4h in a way that
+     * changes with clock ratio and queue state.  Keeping ROM and I/O on
+     * separate SMs makes that interleave irrelevant: each stream advances
+     * only on its own qualified current-cycle key. */
+    add_memory(&g_irq_rom, IVT20_OFFSET_ADDRESS, IRQ_HANDLER_OFFSET);
+    add_memory(&g_irq_rom, IVT20_SEGMENT_ADDRESS, 0xF000u);
+    add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
+                    companion_runtime_rom_size & ~1u);
+    /* A maskable interrupt accepted while HLT is active resumes at 000Fh. */
+    add_memory(&g_irq_rom, STACK_IP_ADDRESS, IRQ_RETURN_OFFSET);
+    add_memory(&g_irq_rom, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_irq_rom, STACK_FLAGS_ADDRESS, 0xF246u);
+
+    add_io(&g_irq_io, STATUS_PORT, 1u);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i)
+        add_io(&g_irq_io, RX_PORT, g_host_words[i]);
+
+    hard_assert(g_boot.count > 4u);
+    hard_assert(g_int60_initial.count > 4u);
+    hard_assert(g_int60.count > 4u);
+    hard_assert(g_irq_rom.count > 4u);
+    hard_assert(g_irq_io.count == HOST_WORDS + 1u);
+}
+
+static uint32_t flatten_full(const exact_sequence_t *s,
+                             uint32_t words[STREAM_WORDS]) {
+    uint32_t n = 0u;
+    for (uint32_t i = 0u; i < s->count; ++i) {
+        words[n++] = s->pair[i].key;
+        words[n++] = s->pair[i].response;
+    }
+    return n;
+}
+
+static uint32_t flatten_append(const exact_sequence_t *s,
+                               uint32_t words[STREAM_WORDS], uint32_t n) {
+    hard_assert(n + s->count * 2u <= STREAM_WORDS);
+    for (uint32_t i = 0u; i < s->count; ++i) {
+        words[n++] = s->pair[i].key;
+        words[n++] = s->pair[i].response;
+    }
+    return n;
+}
+
+static void exact_sm_init(pc1c_sm_t *s, uint sm, uint offset) {
+    s->pio = pio1;
+    s->sm = sm;
+    s->offset = offset;
+    pio_sm_claim(s->pio, s->sm);
+    pio_sm_config c =
+        pc1c_runtime_exact_responder_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, 0u);
+    sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    hard_assert(pio_sm_init(s->pio, s->sm, offset, &c) == PICO_OK);
+    pio_sm_set_enabled(s->pio, s->sm, false);
+}
+
+static void inta_sm_init(pc1c_sm_t *s, uint sm, uint offset) {
+    s->pio = pio1;
+    s->sm = sm;
+    s->offset = offset;
+    pio_sm_claim(s->pio, s->sm);
+    pio_sm_config c =
+        pc1c_runtime_inta_responder_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    hard_assert(pio_sm_init(s->pio, s->sm, offset, &c) == PICO_OK);
+    pio_sm_set_enabled(s->pio, s->sm, false);
+}
+
+static void prime_exact(const pc1c_sm_t *s, const exact_sequence_t *sequence) {
+    (void)sequence;
+    arm_sm((pc1c_sm_t *)s);
+    pio_sm_exec(s->pio, s->sm, pio_encode_jmp(
+        pc1c_runtime_exact_responder_initial_offset(s->offset)));
+    pio_sm_exec(s->pio, s->sm, pio_encode_mov(pio_pindirs, pio_null));
+}
+
+static int start_words_dma(const pc1c_sm_t *s, const uint32_t *words,
+                           uint32_t count) {
+    return start_pio_tx_dma(s, words, count);
+}
+
+static void runtime_clock_init(pc1c_sm_t *clock) {
+    /* PIO1 is deliberately full: three exact response SMs plus INTA. PIO2 is
+     * the independent clock/phase domain, matching the accepted AI-B2 layout. */
+    clock->pio = pio2;
+    clock->sm = pio_claim_unused_sm(clock->pio, true);
+    clock->offset = pio_add_program(
+        clock->pio, &perf_continuous_clk_program);
+}
+
+static void __isr companion_dma_irq0(void) {
+    /* The initial foreground transfer is RESET+INT60.  Every reload is the
+     * cyclic INT60-only stream, so SM0 never waits on a reset key again. */
+    if (g_foreground_dma >= 0 &&
+        dma_channel_get_irq0_status((uint)g_foreground_dma)) {
+        dma_channel_acknowledge_irq0((uint)g_foreground_dma);
+        dma_channel_set_read_addr((uint)g_foreground_dma,
+                                  g_int60_words, false);
+        dma_channel_set_trans_count((uint)g_foreground_dma,
+                                    g_int60_dma_words, true);
+    }
+    if (g_irq_rom_dma >= 0 &&
+        dma_channel_get_irq0_status((uint)g_irq_rom_dma)) {
+        dma_channel_acknowledge_irq0((uint)g_irq_rom_dma);
+        dma_channel_set_read_addr((uint)g_irq_rom_dma,
+                                  g_irq_rom_words, false);
+        dma_channel_set_trans_count((uint)g_irq_rom_dma,
+                                    g_irq_rom_dma_words, true);
+    }
+    if (g_irq_io_dma >= 0 &&
+        dma_channel_get_irq0_status((uint)g_irq_io_dma)) {
+        dma_channel_acknowledge_irq0((uint)g_irq_io_dma);
+        dma_channel_set_read_addr((uint)g_irq_io_dma,
+                                  g_irq_io_words, false);
+        dma_channel_set_trans_count((uint)g_irq_io_dma,
+                                    g_irq_io_dma_words, true);
+    }
+}
+
+static bool receive_host_record(companion_result_t *r) {
+    const uint64_t deadline = time_us_64() + HOST_TIMEOUT_US;
+    while (!pi86_ai_bridge_hid_take_record((uint8_t *)&g_host_record) &&
+           time_us_64() <= deadline)
+        pi86_ai_bridge_usb_task();
+    r->host_record_ok =
+        g_host_record.version == PI86_BRIDGE_PROTOCOL_VERSION &&
+        g_host_record.status == PI86_BRIDGE_STATUS_OK &&
+        g_host_record.length <= sizeof g_host_record.payload;
+    if (!r->host_record_ok) return false;
+    r->host_sequence = g_host_record.sequence;
+    uint8_t bytes[HOST_WORDS * 2u] = {0};
+    memcpy(bytes, g_host_record.payload, g_host_record.length);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i)
+        g_host_words[i] = (uint16_t)bytes[i * 2u] |
+            ((uint16_t)bytes[i * 2u + 1u] << 8);
+    return true;
+}
+
+static bool take_live_record(pi86_bridge_message_t *record) {
+    if (!pi86_ai_bridge_hid_take_record((uint8_t *)record)) return false;
+    return record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
+           record->status == PI86_BRIDGE_STATUS_OK &&
+           record->length <= sizeof record->payload &&
+           (record->type == PI86_BRIDGE_MESSAGE_HEARTBEAT ||
+            record->type == PI86_BRIDGE_MESSAGE_COMMAND);
+}
+
+static uint16_t stage_live_payload(const pi86_bridge_message_t *record) {
+    uint8_t bytes[HOST_WORDS * 2u] = {0};
+    uint16_t witness = 0u;
+    uint16_t length = record->length;
+    if (length > sizeof bytes) length = sizeof bytes;
+    memcpy(bytes, record->payload, length);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i) {
+        g_host_words[i] = (uint16_t)bytes[i * 2u] |
+            ((uint16_t)bytes[i * 2u + 1u] << 8);
+        witness ^= g_host_words[i];
+    }
+    return witness;
+}
+
+static void rearm_irq_io(const pc1c_sm_t *irq_io,
+                         const pi86_bridge_message_t *record) {
+    (void)stage_live_payload(record);
+    memset(&g_irq_io, 0, sizeof g_irq_io);
+    add_io(&g_irq_io, STATUS_PORT, 1u);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i)
+        add_io(&g_irq_io, RX_PORT, g_host_words[i]);
+    g_irq_io_dma_words = flatten_full(&g_irq_io, g_irq_io_words);
+
+    dma_channel_set_irq0_enabled((uint)g_irq_io_dma, false);
+    dma_channel_abort((uint)g_irq_io_dma);
+    dma_channel_acknowledge_irq0((uint)g_irq_io_dma);
+    prime_exact(irq_io, &g_irq_io);
+    dma_channel_set_read_addr((uint)g_irq_io_dma, g_irq_io_words, false);
+    dma_channel_set_trans_count((uint)g_irq_io_dma,
+                                g_irq_io_dma_words, true);
+    hard_assert(wait_fifo_primed(irq_io, 4u));
+    dma_channel_set_irq0_enabled((uint)g_irq_io_dma, true);
+    pio_sm_set_enabled(irq_io->pio, irq_io->sm, true);
+}
+
+static void rearm_live_observer(const pc1c_sm_t *observer,
+                                int observer_dma) {
+    pio_sm_set_enabled(observer->pio, observer->sm, false);
+    dma_channel_abort((uint)observer_dma);
+    memset(g_observer_dma_words, 0, sizeof g_observer_dma_words);
+    arm_sm((pc1c_sm_t *)observer);
+    dma_channel_set_write_addr((uint)observer_dma,
+                               g_observer_dma_words, false);
+    dma_channel_set_trans_count((uint)observer_dma,
+                                OBSERVER_WORDS, true);
+    pio_sm_set_enabled(observer->pio, observer->sm, true);
+}
+
+static bool raw_io_write(uint32_t raw) {
+    return !sample_bit(raw, V30_PIN_IOM) &&
+           sample_bit(raw, V30_PIN_BUFRW) &&
+           sample_bit(raw, V30_PIN_INTAK);
+}
+
+static bool raw_io_read(uint32_t raw) {
+    return !sample_bit(raw, V30_PIN_IOM) &&
+           !sample_bit(raw, V30_PIN_BUFRW) &&
+           sample_bit(raw, V30_PIN_INTAK);
+}
+
+static void classify_trace_words(companion_result_t *r, uint32_t word_count) {
+    r->complete_cycles = word_count / 2u;
+    uint32_t tx_words_since_commit = 0u;
+    for (uint32_t i = 0u; i < r->complete_cycles; ++i) {
+        const uint32_t address_raw = g_observer_dma_words[i * 2u];
+        const uint32_t data_raw = g_observer_dma_words[i * 2u + 1u];
+        if (!raw_io_write(address_raw)) continue;
+        const uint32_t address = decode_address(address_raw);
+        const uint16_t data = decode_ad(data_raw);
+        if (address == TX_PORT)
+            ++tx_words_since_commit;
+        if (address == CONTROL_PORT && data == 1u) {
+            if (tx_words_since_commit >= 6u) {
+                r->irq_commit_seen = true;
+                ++r->irq_commits;
+            } else {
+                r->int60_commit_seen = true;
+                ++r->int60_commits;
+            }
+            tx_words_since_commit = 0u;
+        }
+        if (address == PIC_COMMAND_PORT && (data & 0xFFu) == 0x20u) {
+            r->eoi_seen = true;
+            ++r->eoi_writes;
+        }
+    }
+}
+
+static void classify_live_round(live_round_result_t *round,
+                                uint32_t word_count,
+                                uint16_t expected_witness) {
+    /* Re-derive the whole result from the completed DMA prefix on every poll.
+     * Keeping a prior EOI flag while rescanning from cycle zero could otherwise
+     * misclassify an earlier commit as the post-IRET foreground commit. */
+    round->witness = false;
+    round->irq_commit = false;
+    round->eoi = false;
+    round->foreground_commit = false;
+    round->observed_witness = 0u;
+    uint32_t tx_words = 0u;
+    const uint32_t cycles = word_count / 2u;
+    round->observed_cycles = cycles;
+    for (uint32_t i = 0u; i < cycles; ++i) {
+        const uint32_t address_raw = g_observer_dma_words[i * 2u];
+        const uint32_t data_raw = g_observer_dma_words[i * 2u + 1u];
+        if (!raw_io_write(address_raw)) continue;
+        const uint32_t address = decode_address(address_raw);
+        const uint16_t data = decode_ad(data_raw);
+        if (address == WITNESS_PORT) {
+            round->observed_witness = data;
+            round->witness = data == expected_witness;
+        } else if (address == TX_PORT) {
+            ++tx_words;
+        } else if (address == CONTROL_PORT && data == 1u) {
+            if (!round->irq_commit && tx_words >= 6u)
+                round->irq_commit = true;
+            else if (round->eoi && tx_words >= 1u)
+                round->foreground_commit = true;
+            tx_words = 0u;
+        } else if (address == PIC_COMMAND_PORT &&
+                   (data & 0xFFu) == 0x20u) {
+            round->eoi = true;
+        }
+    }
+}
+
+static bool run_live_round(const pc1c_sm_t *irq_io,
+                           const pc1c_sm_t *inta,
+                           const pc1c_sm_t *observer,
+                           int observer_dma,
+                           const pi86_bridge_message_t *record,
+                           live_round_result_t *round) {
+    memset(round, 0, sizeof *round);
+    const uint16_t expected_witness = stage_live_payload(record);
+    rearm_irq_io(irq_io, record);
+    rearm_live_observer(observer, observer_dma);
+
+    pio_interrupt_clear(pio1, 4u);
+    pio_interrupt_clear(pio1, 5u);
+    gpio_put(V30_PIN_INTR, true);
+    const uint64_t deadline = time_us_64() + LIVE_ROUND_TIMEOUT_US;
+    while (!pio_interrupt_get(pio1, 4u) && time_us_64() <= deadline)
+        pi86_ai_bridge_usb_task();
+    if (pio_interrupt_get(pio1, 4u)) {
+        pio_interrupt_clear(pio1, 4u);
+        gpio_put(V30_PIN_INTR, false);
+        round->inta1 = true;
+    } else {
+        gpio_put(V30_PIN_INTR, false);
+        return false;
+    }
+
+    while (!pio_interrupt_get(pio1, 5u) && time_us_64() <= deadline)
+        pi86_ai_bridge_usb_task();
+    if (!pio_interrupt_get(pio1, 5u)) return false;
+    pio_interrupt_clear(pio1, 5u);
+    round->inta2 = true;
+    pio_sm_put_blocking(pio1, inta->sm,
+                        encode_gpio_word(COMPANION_VECTOR));
+
+    while (time_us_64() <= deadline) {
+        const uint32_t words = OBSERVER_WORDS - dma_remaining(observer_dma);
+        __dmb();
+        classify_live_round(round, words, expected_witness);
+        if (round->witness && round->irq_commit && round->eoi &&
+            round->foreground_commit)
+            return true;
+        pi86_ai_bridge_usb_task();
+    }
+    return false;
+}
+
+static void send_live_reply(const pi86_bridge_message_t *request,
+                            const live_round_result_t *round,
+                            bool passed) {
+    memset(&g_reply_record, 0, sizeof g_reply_record);
+    g_reply_record.version = PI86_BRIDGE_PROTOCOL_VERSION;
+    g_reply_record.type = request->type == PI86_BRIDGE_MESSAGE_COMMAND ?
+        PI86_BRIDGE_MESSAGE_RESULT : PI86_BRIDGE_MESSAGE_HEARTBEAT;
+    g_reply_record.status = passed ? PI86_BRIDGE_STATUS_OK :
+        PI86_BRIDGE_STATUS_TIMEOUT;
+    g_reply_record.sequence = request->sequence;
+    const char *payload = request->type == PI86_BRIDGE_MESSAGE_COMMAND ?
+        "V30 COMMAND OK" : "V30 HEARTBEAT OK";
+    g_reply_record.length = (uint16_t)strlen(payload);
+    memcpy(g_reply_record.payload, payload, g_reply_record.length);
+    (void)pi86_ai_bridge_hid_send_record(
+        (const uint8_t *)&g_reply_record, HOST_TIMEOUT_US);
+    evidence_printf(
+        "[LIVE V30 ROUND] sequence=%lu type=%u INTA=%s witness=%04X %s commit=%s EOI=%s idle=%s result=%s\n",
+        (unsigned long)request->sequence, request->type,
+        round->inta1 && round->inta2 ? "PASS" : "FAIL",
+        round->observed_witness, round->witness ? "PASS" : "FAIL",
+        round->irq_commit ? "PASS" : "FAIL",
+        round->eoi ? "PASS" : "FAIL",
+        round->foreground_commit ? "PASS" : "FAIL",
+        passed ? "PASS" : "FAIL");
+}
+
+static int evidence_printf(const char *format, ...) {
+    char line[256];
+    va_list args;
+    va_start(args, format);
+    const int length = vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (length < 0 || (size_t)length >= sizeof line) return -1;
+    return pi86_ai_bridge_cdc_write(line, (uint32_t)length,
+                                    HOST_TIMEOUT_US) ? length : -1;
+}
+
+static void print_companion_result(const companion_result_t *r) {
+    evidence_printf("\n[PERSISTENT COMPANION RUNTIME]\n");
+    evidence_printf("Clock                      = %.3f MHz\n",
+                    (double)COMPANION_V30_HZ / 1000000.0);
+    evidence_printf("RESET clock qualification = %s\n",
+                    r->reset_ok ? "PASS" : "FAIL");
+    evidence_printf("Software INT 60h commit    = %s\n",
+                    r->int60_commit_seen ? "PASS" : "FAIL");
+    evidence_printf("Physical INTR assertions   = %lu\n",
+                    (unsigned long)r->irq_assertions);
+    evidence_printf("INTA #1 accepts            = %lu %s\n",
+                    (unsigned long)r->irq_accepts,
+                    r->first_inta_seen ? "PASS" : "FAIL");
+    evidence_printf("INTA #2 completions        = %lu %s\n",
+                    (unsigned long)r->irq_completions,
+                    r->second_inta_complete ? "PASS" : "FAIL");
+    evidence_printf("IRQ mailbox commit         = %s\n",
+                    r->irq_commit_seen ? "PASS" : "FAIL");
+    evidence_printf("Native EOI                 = %s\n",
+                    r->eoi_seen ? "PASS" : "FAIL");
+    evidence_printf("Heartbeat active           = %s\n",
+                    r->heartbeat_active ? "PASS" : "FAIL");
+    evidence_printf("IRQ mailbox commits        = %lu\n",
+                    (unsigned long)r->irq_commits);
+    evidence_printf("Native EOI writes          = %lu\n",
+                    (unsigned long)r->eoi_writes);
+    evidence_printf("PIO1 non-AD isolation      = %s\n",
+                    r->non_ad_isolation ? "PASS" : "FAIL");
+    evidence_printf("Observer complete cycles   = %lu\n",
+                    (unsigned long)r->complete_cycles);
+    evidence_printf("DMA remain foreground/ROM/I/O = %lu/%lu/%lu\n",
+                    (unsigned long)r->foreground_dma_remain,
+                    (unsigned long)r->irq_rom_dma_remain,
+                    (unsigned long)r->irq_io_dma_remain);
+    evidence_printf("TX FIFO foreground/ROM/I/O = %lu/%lu/%lu\n",
+                    (unsigned long)r->foreground_fifo,
+                    (unsigned long)r->irq_rom_fifo,
+                    (unsigned long)r->irq_io_fifo);
+    evidence_printf("SM PC foreground/ROM/I/O/INTA = %lu/%lu/%lu/%lu\n",
+                    (unsigned long)r->foreground_pc,
+                    (unsigned long)r->irq_rom_pc,
+                    (unsigned long)r->irq_io_pc,
+                    (unsigned long)r->inta_pc);
+    evidence_printf("PIO1 allocation            = SM0 RESET+INT60, SM1 IRQ ROM, SM2 IRQ I/O, SM3 INTA\n");
+    evidence_printf("PIO instruction words      = %u + %u = %u/32\n",
+        pc1c_runtime_exact_responder_program.length,
+        pc1c_runtime_inta_responder_program.length,
+        pc1c_runtime_exact_responder_program.length +
+            pc1c_runtime_inta_responder_program.length);
+    evidence_printf("Current-cycle M33          = NONE\n");
+    evidence_printf("V30 runtime state          = STI/HLT idle; IRQ heartbeat remains armed\n");
+    evidence_printf("COMPANION RUNTIME RESULT   = %s\n",
+        r->host_record_ok && r->pre_release_clean &&
+        r->int60_commit_seen && r->first_inta_seen &&
+        r->second_inta_complete && r->irq_commit_seen &&
+        r->eoi_seen && r->heartbeat_active ? "PASS" : "FAIL");
+
+    evidence_printf("\n[PASSIVE ADDRESS / R2-DATA TRACE]\n");
+    /* Persistent-runtime failures often occur only after the first complete
+     * IRQ/IRET round trip.  Retain the entire bounded observer window so a
+     * second-entry fault cannot be hidden behind a successful first 80 cycles. */
+    const uint32_t depth = r->complete_cycles;
+    for (uint32_t i = 0u; i < depth; ++i) {
+        const uint32_t address_raw = g_observer_dma_words[i * 2u];
+        const uint32_t data_raw = g_observer_dma_words[i * 2u + 1u];
+        const char *type = is_memory_read(address_raw) ? "MEMR" :
+            is_memory_write(address_raw) ? "MEMW" :
+            raw_io_write(address_raw) ? "IOW" :
+            raw_io_read(address_raw) ? "IOR" : "OTHER";
+        evidence_printf("%02lu addr=%05lX type=%s data=%04X addr_raw=%08lX data_raw=%08lX\n",
+            (unsigned long)i,
+            (unsigned long)decode_address(address_raw), type,
+            decode_ad(data_raw), (unsigned long)address_raw,
+            (unsigned long)data_raw);
+    }
+    evidence_printf("V30 remains active in STI/HLT; RESET is not asserted.\n");
+}
+
+int main(void) {
+    prepare_header_high_z();
+    init_control_outputs();
+    route_ad_to_sio_high_z();
+    pi86_ai_bridge_usb_init();
+    stdio_init_all();
+    while (!stdio_usb_connected()) {
+        pi86_ai_bridge_usb_task();
+        sleep_ms(1);
+    }
+
+    static companion_result_t result;
+    if (!receive_host_record(&result)) {
+        print_companion_result(&result);
+        while (true) pi86_ai_bridge_usb_task();
+    }
+    compile_sequences();
+
+    hard_assert(pc1c_runtime_exact_responder_program.length +
+                pc1c_runtime_inta_responder_program.length <= 32u);
+    const uint exact_offset = pio_add_program(
+        pio1, &pc1c_runtime_exact_responder_program);
+    const uint inta_offset = pio_add_program(
+        pio1, &pc1c_runtime_inta_responder_program);
+    pc1c_sm_t foreground, irq_rom, irq_io, inta, clock, observer;
+    exact_sm_init(&foreground, 0u, exact_offset);
+    exact_sm_init(&irq_rom, 1u, exact_offset);
+    exact_sm_init(&irq_io, 2u, exact_offset);
+    inta_sm_init(&inta, 3u, inta_offset);
+    runtime_clock_init(&clock);
+    clock_prepare(&clock);
+    observer_init(&observer);
+
+    prime_exact(&foreground, &g_boot);
+    prime_exact(&irq_rom, &g_irq_rom);
+    prime_exact(&irq_io, &g_irq_io);
+    arm_sm(&inta);
+    pio_sm_exec(pio1, inta.sm, pio_encode_mov(pio_pindirs, pio_null));
+    pio_sm_put_blocking(pio1, inta.sm,
+                        encode_gpio_word(COMPANION_VECTOR));
+
+    uint32_t foreground_initial_words = flatten_append(
+        &g_boot, g_foreground_initial_words, 0u);
+    foreground_initial_words = flatten_append(
+        &g_int60_initial, g_foreground_initial_words,
+        foreground_initial_words);
+    g_int60_dma_words = flatten_full(&g_int60, g_int60_words);
+    g_irq_rom_dma_words = flatten_full(&g_irq_rom, g_irq_rom_words);
+    g_irq_io_dma_words = flatten_full(&g_irq_io, g_irq_io_words);
+    g_foreground_dma = start_words_dma(
+        &foreground, g_foreground_initial_words, foreground_initial_words);
+    g_irq_rom_dma = start_words_dma(
+        &irq_rom, g_irq_rom_words, g_irq_rom_dma_words);
+    g_irq_io_dma = start_words_dma(
+        &irq_io, g_irq_io_words, g_irq_io_dma_words);
+    dma_channel_set_irq0_enabled((uint)g_foreground_dma, true);
+    dma_channel_set_irq0_enabled((uint)g_irq_rom_dma, true);
+    dma_channel_set_irq0_enabled((uint)g_irq_io_dma, true);
+    irq_set_exclusive_handler(DMA_IRQ_0, companion_dma_irq0);
+    irq_set_priority(DMA_IRQ_0, 0x40u);
+    irq_set_enabled(DMA_IRQ_0, true);
+    const int observer_dma = start_observer_dma(&observer);
+
+    route_ad_to_responder(&foreground);
+    result.non_ad_isolation = responder_non_ad_pins_isolated(&foreground);
+    result.pre_release_clean = result.non_ad_isolation &&
+        pio1->dbg_padoe == 0u && !gpio_get(V30_PIN_CLK) &&
+        (sio_hw->gpio_oe & V30_AD_BUS_MASK) == 0u;
+
+    gpio_put(V30_PIN_RESET, true);
+    clock_start(&clock);
+    const bool reset_ok = wait_reset_clocks(RESET_CLOCKS);
+    result.reset_ok = reset_ok;
+    clock_stop_low(&clock);
+    clock_prepare(&clock);
+    result.pre_release_clean = result.pre_release_clean && reset_ok;
+
+    pio_enable_sm_mask_in_sync(pio1, 0x0Fu);
+    pio_sm_set_enabled(pio0, observer.sm, true);
+    gpio_put(V30_PIN_RESET, false);
+    pio_sm_set_enabled(clock.pio, clock.sm, true);
+
+    busy_wait_ms(20u);
+    for (uint32_t heartbeat = 0u;
+         heartbeat < HEARTBEAT_ACCEPT_COUNT; ++heartbeat) {
+        gpio_put(V30_PIN_INTR, true);
+        ++result.irq_assertions;
+        const uint64_t deadline = time_us_64() + IRQ_TIMEOUT_US;
+        while (!pio_interrupt_get(pio1, 4u) && time_us_64() <= deadline)
+            pi86_ai_bridge_usb_task();
+        if (pio_interrupt_get(pio1, 4u)) {
+            pio_interrupt_clear(pio1, 4u);
+            gpio_put(V30_PIN_INTR, false);
+            result.first_inta_seen = true;
+            ++result.irq_accepts;
+        }
+        while (!pio_interrupt_get(pio1, 5u) && time_us_64() <= deadline)
+            pi86_ai_bridge_usb_task();
+        if (pio_interrupt_get(pio1, 5u)) {
+            pio_interrupt_clear(pio1, 5u);
+            result.second_inta_complete = true;
+            ++result.irq_completions;
+            pio_sm_put_blocking(pio1, inta.sm,
+                                encode_gpio_word(COMPANION_VECTOR));
+        }
+        busy_wait_us_32(IRQ_PERIOD_US);
+    }
+
+    const uint32_t observer_words = OBSERVER_WORDS -
+        dma_remaining(observer_dma);
+    result.observer_words = observer_words;
+    result.observer_complete = observer_words >= 2u;
+    classify_trace_words(&result, observer_words);
+    result.heartbeat_active = result.irq_completions >= 2u &&
+        result.irq_commits >= 2u && result.eoi_writes >= 2u;
+    result.foreground_dma_remain = dma_remaining(g_foreground_dma);
+    result.irq_rom_dma_remain = dma_remaining(g_irq_rom_dma);
+    result.irq_io_dma_remain = dma_remaining(g_irq_io_dma);
+    result.foreground_fifo = pio_sm_get_tx_fifo_level(pio1, foreground.sm);
+    result.irq_rom_fifo = pio_sm_get_tx_fifo_level(pio1, irq_rom.sm);
+    result.irq_io_fifo = pio_sm_get_tx_fifo_level(pio1, irq_io.sm);
+    result.foreground_pc = pio_sm_get_pc(pio1, foreground.sm);
+    result.irq_rom_pc = pio_sm_get_pc(pio1, irq_rom.sm);
+    result.irq_io_pc = pio_sm_get_pc(pio1, irq_io.sm);
+    result.inta_pc = pio_sm_get_pc(pio1, inta.sm);
+
+    memset(&g_reply_record, 0, sizeof g_reply_record);
+    g_reply_record.version = PI86_BRIDGE_PROTOCOL_VERSION;
+    g_reply_record.type = PI86_BRIDGE_MESSAGE_HEARTBEAT;
+    g_reply_record.status = result.heartbeat_active ?
+        PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_TIMEOUT;
+    g_reply_record.sequence = result.host_sequence;
+    memcpy(g_reply_record.payload, "V30 HEARTBEAT OK", 16u);
+    g_reply_record.length = 16u;
+    (void)pi86_ai_bridge_hid_send_record(
+        (const uint8_t *)&g_reply_record, HOST_TIMEOUT_US);
+    print_companion_result(&result);
+
+    /* Persistent service condition: one complete host record owns one V30
+     * interrupt.  The reply is not published until passive PIO0 evidence has
+     * observed the native witness, six-word IRQ commit, EOI, and the following
+     * INT60 commit that proves IRET returned to the idle loop. */
+    while (true) {
+        pi86_ai_bridge_usb_task();
+        pi86_bridge_message_t request;
+        if (take_live_record(&request)) {
+            live_round_result_t round;
+            const bool passed = run_live_round(
+                &irq_io, &inta, &observer, observer_dma, &request, &round);
+            send_live_reply(&request, &round, passed);
+        }
+        tight_loop_contents();
+    }
+}
