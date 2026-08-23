@@ -1,5 +1,18 @@
 # PC1-C Address-Qualified ROM Execution Plan
 
+> **Document status: HISTORICAL IMPLEMENTATION PLAN.**
+>
+> This file preserves the hypotheses, stages, failures, and acceptance logic
+> that led from PC1-B fixed responses to physical address-qualified and bounded
+> native ROM execution. It is not the current project roadmap.
+>
+> Current architecture: [`architecture.md`](architecture.md) and
+> [`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md).
+> Accepted evidence is retained under [`validation/`](validation/), including
+> address capture, reset-vector response, descriptor-fed ROM, bounded ROM,
+> Native BIOS, and RAM gates. Historical stage names and failed approaches below
+> remain unchanged so the reasoning can be audited.
+
 ## Objective
 
 Convert the PC1-B fixed-response timing front-end into a real ROM service selected by the V30 address and bus-cycle type.

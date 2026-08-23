@@ -1,6 +1,18 @@
 # Performance Characterization 1 — Maximum Sustainable V30 Clock
 
-> **Outcome note (2026-08-17):** The original software-polling path below is retained as experimental history. PC1-B subsequently validated the PIO-direct fixed-response architecture from 0.300 through 8.000 MHz on physical V30 hardware. The active performance boundary is now address-qualified ROM service in PC1-C; PC1-B does not establish arbitrary memory service at 8 MHz.
+> **Document status: HISTORICAL CHARACTERIZATION PLAN AND RECORD.**
+>
+> The original software-polling path below is retained as experimental
+> history. PC1-B subsequently validated the PIO-direct fixed-response
+> architecture from 0.300 through 8.000 MHz on physical V30 hardware.
+> Address-qualified and bounded ROM/RAM work later continued through PC1-C;
+> this document is no longer the current roadmap.
+>
+> Canonical current architecture: [`architecture.md`](architecture.md).
+> Retained physical evidence:
+> [`validation/pc1b_pio_direct_frequency_sweep.md`](validation/pc1b_pio_direct_frequency_sweep.md),
+> [`validation/pc1c0c1b1_bounded_rom_validation.md`](validation/pc1c0c1b1_bounded_rom_validation.md), and
+> [`validation/pc1c0c1b2c_multi_slot_ram_validation.md`](validation/pc1c0c1b2c_multi_slot_ram_validation.md).
 
 ## Purpose
 
@@ -512,24 +524,26 @@ A reset-vector observation alone is never a PASS.
 
 ---
 
-## Current status
+## Final status of this characterization record
 
 ```text
 Gate 12 physical functional baseline   PASS
 PC1-A Rev0                            INVALID characterization; defect evidence retained
 PC1-A Rev1                            CONTROL PLAN RETAINED; NOT THE SELECTED ARCHITECTURE
 PC1-B PIO-direct fixed response       PASS, 0.300-8.000 MHz configured clock
-PC1-C address-qualified ROM           ACTIVE PERFORMANCE BOUNDARY
+PC1-C address-qualified/bounded work  CONTINUED IN SEPARATE PLANS AND VALIDATION
 ```
 
 ## Milestone completion
 
 The fixed-response portion of Performance Characterization 1 is complete. Its result selects DMA-fed PIO-direct GPIO ownership as the deterministic response architecture.
 
-The broader performance question remains open and moves into PC1-C:
+The broader questions moved into PC1-C and later companion-chip work:
 
 1. capture and qualify the V30 address/control cycle;
 2. select the correct SRAM-backed ROM bytes and byte lanes;
 3. meet the response deadline without relying on V30 wait states, because the current HAT ties `READY` high;
 4. validate CPU-visible execution before sweeping frequency; and
 5. report address-qualified performance separately from the PC1-B fixed-response ceiling.
+
+Consult current architecture and validation documents for the accepted answer to each boundary; do not infer integrated-system frequency from this historical fixed-response record.

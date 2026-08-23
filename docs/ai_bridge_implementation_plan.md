@@ -1,5 +1,14 @@
 # pi86-rp2350 AI Bridge Implementation Plan
 
+> **Document status: IMPLEMENTATION GATE LEDGER.**
+>
+> This file records reversible implementation stages, including accepted and
+> future gates. It is not the canonical machine architecture or V30-visible ABI.
+> Use [`ai_bridge_architecture.md`](ai_bridge_architecture.md) for the stable
+> Host Bridge boundary and [`companion_service_abi.md`](companion_service_abi.md)
+> for the exact version 1 record and mailbox contract. Historical AI-B gate
+> names remain evidence identities under ADR 0005.
+
 ## Purpose
 
 This document turns the accepted target in
@@ -27,7 +36,7 @@ The canonical packed record and mailbox ABI is [`companion_service_abi.md`](comp
 
 ### Host/Core message record
 
-Core1/Core0 and the future USB transport use one fixed 64-byte, versioned,
+Core1/Core0 and the USB transport use one fixed 64-byte, versioned,
 provider-neutral record. The C definition is
 `firmware/ai_bridge/bridge_protocol.h`; the Python definition is
 `tools/ai_bridge/protocol.py`.
