@@ -97,12 +97,15 @@ Communication between the real-time and service roles should use bounded, lock-f
 
 The accepted AI Bridge target uses this service boundary for a Codex-first
 conversation with the physical V30. A provider-neutral Host Bridge terminates
-USB HID messages, while Codex-specific behavior remains in a separate logical
-Codex Adapter. Core1 exchanges complete `AI_TO_V30_MESSAGE` and
-`V30_TO_AI_MESSAGE` objects with Core0; the V30 bus consumes only locally
-staged state. See [`ai_bridge_architecture.md`](ai_bridge_architecture.md) for
-the canonical message flow, ownership, conversation state, and success
-definition.
+USB HID messages, while provider-specific behavior remains in host-side
+adapters. The RP2350 service and realtime roles exchange complete conceptual
+`HOST_TO_V30_RECORD` and `V30_TO_HOST_RECORD` objects; the V30 bus consumes
+only locally staged state.
+
+The V30-visible abstraction is a companion service expressed through ordinary
+I/O, memory, polling, interrupts, and native code. It is not an AI abstraction.
+See [`ai_bridge_architecture.md`](ai_bridge_architecture.md) for the canonical
+translation boundary, message ownership, and evidence model.
 
 ## Scattered AD bus strategy
 

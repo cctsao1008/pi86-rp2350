@@ -60,6 +60,30 @@ To V30 software, the RP2350 appears as a companion chipset and a set of defined 
 
 The purpose is not to erase the historical distance between the two systems. It is to give them a common language while preserving the physical processor, its native execution model, and the deterministic boundary between eras.
 
+### A physical challenge for the modern agent
+
+This project is also intended to challenge the modern engineering agent, not
+merely provide it with tasks that are already easy to complete. The work crosses
+schematics, datasheets, PIO timing, DMA ownership, x86 semantics, native BIOS
+code, USB protocols, host tools, and physical validation. A plausible answer is
+not enough: the real V30 and retained electrical evidence act as an independent
+oracle.
+
+An AI-assisted contribution should therefore be judged by whether it can:
+
+1. state a falsifiable hardware or software hypothesis;
+2. predict the evidence that would distinguish success from a convincing false positive;
+3. produce bounded, reversible changes across multiple engineering domains;
+4. preserve current-cycle timing and electrical ownership contracts;
+5. interpret an unexpected physical failure without rewriting the acceptance rule;
+6. improve the next experiment from retained evidence;
+7. progress from scripted greetings toward fresh computation, sustained exchange, trace diagnosis, and native-code capsules.
+
+The meaningful question is not only whether Codex can write code for the
+project. It is whether a modern agent can reason across two computing eras,
+submit its work to physical falsification, and help turn failure into a better
+architecture.
+
 ## Architectural invariants
 
 The implementation may evolve, but these rules define the project:
@@ -391,6 +415,7 @@ The objective is therefore not merely to port Pi86. It is to explore how much of
 
 ### Architecture and goals
 
+- [`docs/README.md`](docs/README.md) - complete documentation index and authority model
 - [`docs/project_overview.md`](docs/project_overview.md) - project mission, research questions, and performance strategy
 - [`docs/architecture.md`](docs/architecture.md) - detailed system architecture
 - [`docs/ai_bridge_architecture.md`](docs/ai_bridge_architecture.md) - provider-neutral AI Bridge and native physical-V30 interaction

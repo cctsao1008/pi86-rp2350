@@ -15,6 +15,12 @@ OpenAI Codex > HELLO NEC V30
 NEC V30      > HELLO OPENAI CODEX
 ```
 
+This is a validated host-adapter exchange, not a V30-visible AI abstraction.
+The physical V30 sees only the companion mailbox and native I/O operations.
+Codex, ChatGPT, a conventional test program, or another client remains above
+the provider-neutral Host Bridge boundary. The stable architecture is defined
+in [`ai_bridge_architecture.md`](ai_bridge_architecture.md).
+
 ## Stable contracts
 
 ### Host/Core message record
@@ -31,11 +37,13 @@ provider-neutral record. The C definition is
 | `00E0h` | V30 read | mailbox status |
 | `00E2h` | V30 write | V30-to-host transmit data (byte or packed word) |
 | `00E4h` | V30 read | host-to-V30 receive byte |
-| `00E6h` | V30 read/write | control and message commit |
+| `00E6h` | V30 write | V30 reply commit |
+| `00E8h` | V30 write | input-consumption or computation witness |
 
 Byte cycles on these even ports use the low lane. A word write to `00E2h`
 publishes two consecutive payload bytes, low byte first. `00E8h`, `00E9h`, and
-`00EAh` retain their established regression/diagnostic meanings.
+`00EAh` may retain separate regression or diagnostic meanings in older tests;
+each validation record states the exact ABI it exercised.
 
 READY is fixed high on the present HAT, so Core0 must stage a complete inbound
 message before exposing it to the V30. PIO/DMA, not an M33 current-cycle
