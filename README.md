@@ -511,6 +511,11 @@ The objective is therefore not merely to port Pi86. It is to explore how much of
 - [`docs/validation/`](docs/validation/) - physical validation records and retained evidence
 - [`docs/ai_bridge_implementation_plan.md`](docs/ai_bridge_implementation_plan.md) - AI Bridge implementation gates
 
+### Project story
+
+- [`docs/story/`](docs/story/) - four-part narrative: voice, memory,
+  conversation across forty years, and persistent interrupt-driven life
+
 ## Acknowledgements
 
 Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its creator for the V20/V30 HAT design, software architecture, and documentation that provided the foundation for this work.

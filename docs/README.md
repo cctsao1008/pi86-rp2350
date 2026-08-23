@@ -11,6 +11,7 @@ The documentation is organized by authority and purpose. Architecture documents 
 3. [`architecture.md`](architecture.md) - companion-chip timing and ownership architecture
 4. [`hardware_contract.md`](hardware_contract.md) - canonical physical interface
 5. [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - provider-neutral host bridge
+6. [`story/README.md`](story/README.md) - four-part project story linked to physical evidence
 
 ## Architecture and contracts
 
@@ -94,6 +95,8 @@ Validation documents are engineering history. Do not rewrite their measured valu
 
 - [`retrospectives/`](retrospectives/) - lessons from completed work
 - [`releases/`](releases/) - milestone summaries
+- [`story/`](story/) - long-form narrative of the accepted execution,
+  memory, communication, and persistent-runtime milestones
 
 These are historical records, not the canonical current architecture.
 
