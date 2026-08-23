@@ -1,0 +1,69 @@
+; Persistent Companion Service response plane.
+;
+; PIO1 allocation:
+;   SM0  boot/idle exact response stream
+;   SM1  INT 60h and companion-IRQ transaction stream
+;   SM2  heartbeat-IRQ transaction stream
+;   SM3  physical two-cycle INTA vector responder
+;
+; SM0..2 share pc1c_runtime_exact_responder. Firmware primes Y with the first
+; exact early-T1 raw key and ISR with its paired encoded GPIO response before
+; enabling each SM. The TX FIFO then contains interleaved next-key/response
+; words. OUT autopull at 28 bits obtains the next key without an extra PULL.
+; Unrelated cycles retain the current key and never drive PINDIRS.
+;
+; SM3 consumes one encoded vector bitmap before each interrupt. It never owns
+; AD during INTA #1, drives the low-byte vector only during INTA #2, releases
+; AD when INTAK deasserts, and publishes absolute PIO IRQ4/IRQ5 witnesses for
+; request acceptance and acknowledge completion. Core0 deasserts physical
+; INTR after IRQ4; neither M33 nor DMA writes SIO during an acknowledge cycle.
+;
+; Both programs occupy one PIO1 instruction memory. Keep the combined length
+; at or below 32 words. Only the scattered AD GPIOs may select the PIO1 mux.
+
+.pio_version rp2350
+.program pc1c_runtime_exact_responder
+
+; The mismatch path lives outside the hardware wrap so a completed response
+; falls through the wrap boundary without spending a branch instruction.
+no_match:
+    wait 0 gpio 9              ; retain key until this unsupported cycle ends
+    jmp next_cycle
+
+.wrap_target
+next_cycle:
+    wait 1 gpio 9              ; ASTB rise
+    nop [7]                    ; synchronized early-T1 settling contract
+    mov x, pins
+    jmp x!=y no_match
+
+    wait 0 gpio 9              ; qualified address-to-data turnaround
+    mov osr, isr               ; restore paired encoded AD response
+    out pins, 28               ; also autopulls the next exact key
+    mov pindirs, ~null
+
+    set x, 1                   ; accepted H2 release boundary
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+
+    mov pindirs, null
+    mov y, osr                 ; key autopulled by OUT PINS,28
+    pull block                 ; paired response for the new key
+    mov isr, osr
+.wrap
+
+.program pc1c_runtime_inta_responder
+.wrap_target
+    pull block                 ; one encoded low-byte vector per interrupt
+    wait 0 gpio 1              ; INTA #1 asserted: do not drive AD
+    irq 4                      ; Core0 may now deassert physical INTR
+    wait 1 gpio 1              ; INTA #1 complete
+    wait 0 gpio 1              ; INTA #2 asserted
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 1              ; hold vector until INTA #2 completes
+    mov pindirs, null
+    irq 5                      ; acknowledge pair complete
+.wrap
