@@ -53,6 +53,33 @@ class DocumentationCheckerTests(unittest.TestCase):
         failures, _ = check_repository(root)
         self.assertNotIn("ARCH001", {issue.code for issue in failures})
 
+    def test_ai_validation_requires_response_architecture(self) -> None:
+        temporary, root = self.make_root()
+        self.addCleanup(temporary.cleanup)
+        validation = root / "docs/validation/ai_b_test.md"
+        validation.parent.mkdir()
+        validation.write_text(
+            "# AI-B test\n\nTarget: test\nClock: stepped\nResult: PASS\nConclusion: bounded.\n",
+            encoding="utf-8",
+        )
+        failures, _ = check_repository(root)
+        self.assertIn("VAL005", {issue.code for issue in failures})
+
+    def test_ai_validation_with_response_architecture_passes(self) -> None:
+        temporary, root = self.make_root()
+        self.addCleanup(temporary.cleanup)
+        validation = root / "docs/validation/ai_b_test.md"
+        validation.parent.mkdir()
+        validation.write_text(
+            "# AI-B test\n\n"
+            "Target: test\nClock: stepped\nResult: PASS\n"
+            "Response architecture: fixed / prestaged\n"
+            "Conclusion: bounded.\n",
+            encoding="utf-8",
+        )
+        failures, _ = check_repository(root)
+        self.assertNotIn("VAL005", {issue.code for issue in failures})
+
     def test_validation_policy_can_be_explicitly_waived(self) -> None:
         temporary, root = self.make_root()
         self.addCleanup(temporary.cleanup)

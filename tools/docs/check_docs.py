@@ -149,6 +149,11 @@ def policy_issues(root: Path, path: Path) -> list[Issue]:
             if not re.search(pattern, lower):
                 issues.append(Issue(relative, 1, code, message))
 
+        if relative.name.casefold().startswith("ai_b") and not re.search(
+            r"response architecture\s*:", lower
+        ):
+            issues.append(Issue(relative, 1, "VAL005", "missing response-architecture classification"))
+
     if "docs" in relative.parts and not any(part in HISTORICAL_POLICY_PARTS for part in relative.parts):
         for number, line in enumerate(text.splitlines(), 1):
             lowered = line.casefold()
