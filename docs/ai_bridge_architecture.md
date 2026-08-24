@@ -41,7 +41,7 @@ The V30 does not know what AI is. AI is simply one possible host-side client.
 
 The Host Bridge is never part of an active V30 bus response cycle.
 
-PIO and DMA own qualified current-cycle capture and response. Arm firmware prepares and supervises bounded state around that path. USB, host processes, storage, network access, and AI reasoning are asynchronous services.
+PIO and DMA own qualified current-cycle capture and response. Arm firmware prepares and supervises bounded state around that path. USB, host processes, storage, network access, and AI reasoning remain outside the current-cycle path as asynchronous services.
 
 The rule is:
 
@@ -216,7 +216,7 @@ The architectural distinction is simple: the physical V30 remains the execution 
 - [`project_overview.md`](project_overview.md) - project identity and scope
 - [`companion_service_abi.md`](companion_service_abi.md) - canonical host record and V30 mailbox ABI
 - [`dual_core_partitioning.md`](dual_core_partitioning.md) - RP2350 realtime/service role partition
-- [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) - historical/staged bridge implementation work
+- [`ai_bridge_implementation_plan.md`](archive/completed-plans/ai_bridge_implementation_plan.md) - archived staged bridge implementation work
 - [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - Windows validation workflow
 - [`validation/ai_b2_hid_composite_600khz_validation.md`](validation/ai_b2_hid_composite_600khz_validation.md) - accepted HID/CDC physical bridge evidence
 - [`validation/ai_b3_codex_initiated_greeting_validation.md`](validation/ai_b3_codex_initiated_greeting_validation.md) - accepted Codex adapter evidence

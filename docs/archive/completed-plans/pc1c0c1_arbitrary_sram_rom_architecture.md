@@ -1,5 +1,9 @@
 # PC1-C0C1 Arbitrary-Address Internal-SRAM ROM Architecture
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Objective
 
 PC1-C0C1 must return ROM data selected from the current physical V30 address,
@@ -105,7 +109,7 @@ The physical 2026-08-20 baseline passed at every tested depth through 32. At
 depth 32, PIO1 selected `00EAh` at ordinal 32 while ASTB was still high; DMA,
 FIFO, phase-witness, passive-ownership, and terminal-safety gates also passed.
 See
-[`validation/pc1c0c1a_selector_feasibility_validation.md`](validation/pc1c0c1a_selector_feasibility_validation.md).
+[`validation/pc1c0c1a_selector_feasibility_validation.md`](../../validation/pc1c0c1a_selector_feasibility_validation.md).
 
 ```bash
 ./scripts/build.sh --target pc1c_arbitrary_rom_feasibility
@@ -139,7 +143,7 @@ The UF2 is generated at
 The physical 2026-08-20 baseline passed every hit depth through 32 and the
 depth-32 exact miss. All hits reached the ASTB-high deadline gate and produced
 `00EAh` at R2/F2/R3; the miss produced zero drive authorizations. See
-[`validation/pc1c0c1a2_same_cycle_response_validation.md`](validation/pc1c0c1a2_same_cycle_response_validation.md).
+[`validation/pc1c0c1a2_same_cycle_response_validation.md`](../../validation/pc1c0c1a2_same_cycle_response_validation.md).
 
 ### C0C1-B: bounded arbitrary-address ROM window
 
@@ -168,7 +172,7 @@ kept 32 unsupported cycles high-Z, printed `PI86 BIOS`, and repeated the final
 checkpoint ten times. The live reset/BIOS set occupies ordinals 1 through 23;
 this result must not be restated as an ordinal-32 deadline guarantee for the
 sentinel-bearing program. See
-[`validation/pc1c0c1b1_bounded_rom_validation.md`](validation/pc1c0c1b1_bounded_rom_validation.md).
+[`validation/pc1c0c1b1_bounded_rom_validation.md`](../../validation/pc1c0c1b1_bounded_rom_validation.md).
 
 ### C0C1-B2: same-run one-slot RAM
 
@@ -186,7 +190,7 @@ This proves same-run write-to-read coherence without a current-cycle M33
 round trip. It remains a single PIO-local slot on a learned finite execution
 path; it does not satisfy the general arbitrary-address RAM acceptance
 criteria. See
-[`validation/pc1c0c1b2b_same_run_ram_validation.md`](validation/pc1c0c1b2b_same_run_ram_validation.md).
+[`validation/pc1c0c1b2b_same_run_ram_validation.md`](../../validation/pc1c0c1b2b_same_run_ram_validation.md).
 
 ### C0C1-C: generalization and READY boundary
 

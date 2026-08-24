@@ -1,14 +1,18 @@
 # PC1-C Address-Qualified ROM Execution Plan
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 > **Document status: HISTORICAL IMPLEMENTATION PLAN.**
 >
 > This file preserves the hypotheses, stages, failures, and acceptance logic
 > that led from PC1-B fixed responses to physical address-qualified and bounded
 > native ROM execution. It is not the current project roadmap.
 >
-> Current architecture: [`architecture.md`](architecture.md) and
+> Current architecture: [`architecture.md`](../../architecture.md) and
 > [`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md).
-> Accepted evidence is retained under [`validation/`](validation/), including
+> Accepted evidence is retained under [`validation/`](../../validation/), including
 > address capture, reset-vector response, descriptor-fed ROM, bounded ROM,
 > Native BIOS, and RAM gates. Historical stage names and failed approaches below
 > remain unchanged so the reasoning can be audited.
@@ -144,7 +148,7 @@ final checkpoint        PASS
 ```
 
 **Status: PASS on physical V30 hardware at 0.300 MHz.** Complete evidence is in
-[`validation/pc1c0c_native_bios_hello_validation.md`](validation/pc1c0c_native_bios_hello_validation.md).
+[`validation/pc1c0c_native_bios_hello_validation.md`](../../validation/pc1c0c_native_bios_hello_validation.md).
 
 This is the first Native BIOS signature: ROM-to-CPU-to-I/O-to-host behavior in
 one physical execution chain. It remains a C0C0 regression because the ROM-read
@@ -228,7 +232,7 @@ PC1-C ADDRESS CAPTURE RESULT = PASS
 CPU halted in RESET=HIGH, CLK=LOW, AD bus high-Z.
 ```
 
-Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.md`](validation/pc1c0a_address_capture_validation.md).
+Physical evidence is recorded in [`validation/pc1c0a_address_capture_validation.md`](../../validation/pc1c0a_address_capture_validation.md).
 
 ### PC1-C0B: Qualified Reset-Vector Response
 
@@ -332,7 +336,7 @@ Reaching `F0000` proves CPU-visible consumption of the address-qualified reset
 vector. C0B does not yet serve code at `F0000`; that remains the C0C boundary.
 
 Physical evidence is recorded in
-[`validation/pc1c0b_qualified_reset_vector_validation.md`](validation/pc1c0b_qualified_reset_vector_validation.md).
+[`validation/pc1c0b_qualified_reset_vector_validation.md`](../../validation/pc1c0b_qualified_reset_vector_validation.md).
 
 ### PC1-C0C: SRAM ROM Execution
 
@@ -351,7 +355,7 @@ sequence. It does not claim arbitrary/random-access SRAM ROM service; that is
 the PC1-C0C1 boundary.
 
 Physical evidence is recorded in
-[`validation/pc1c0c_descriptor_fed_sram_rom_validation.md`](validation/pc1c0c_descriptor_fed_sram_rom_validation.md).
+[`validation/pc1c0c_descriptor_fed_sram_rom_validation.md`](../../validation/pc1c0c_descriptor_fed_sram_rom_validation.md).
 
 The descriptor-fed engine is retained permanently as a reproducible golden-HAT
 regression. C0C1 may add a separate responder but must not mutate or weaken the
@@ -371,9 +375,9 @@ pc1c_native_bios_hello
 ```
 
 Console contract:
-[`native_bios_diagnostic_console.md`](native_bios_diagnostic_console.md).
+[`native_bios_diagnostic_console.md`](../../native_bios_diagnostic_console.md).
 Physical evidence:
-[`validation/pc1c0c_native_bios_hello_validation.md`](validation/pc1c0c_native_bios_hello_validation.md).
+[`validation/pc1c0c_native_bios_hello_validation.md`](../../validation/pc1c0c_native_bios_hello_validation.md).
 
 ### PC1-C0C1: Arbitrary-Address Internal-SRAM ROM
 

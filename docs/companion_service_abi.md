@@ -196,9 +196,8 @@ Adding these states to a packed record or V30 status word requires an explicit c
 
 ## Persistent runtime lifecycle
 
-The bounded v1 request/reply record remains unchanged. A future persistent
-runtime adds lifecycle semantics around it rather than silently changing its
-layout.
+The bounded v1 request/reply record remains unchanged. The accepted persistent
+runtime adds lifecycle semantics around it without changing its layout.
 
 The V30-visible model is:
 
@@ -208,11 +207,12 @@ BOOT -> READY/IDLE -> BUSY -> DONE -> READY/IDLE
                          +-> FAULT
 ```
 
-- V30-originated service traffic enters through a BIOS software-interrupt
-  wrapper, provisionally `INT 60h`.
+- V30-originated service traffic enters through the accepted native software
+  interrupt wrapper at `INT 60h`.
 - Host-originated work is published atomically by the RP2350 and announced to
   the V30 through a physical interrupt and INTA-qualified vector.
-- A PIT-compatible timer may wake an idle V30 to schedule a heartbeat.
+- Host-originated heartbeat traffic wakes the idle V30 through physical INTR
+  and two-cycle INTA. A PIT-compatible timer remains an optional future profile.
 - Idle native code uses `STI`/`HLT`; interrupt handlers acknowledge and enqueue
   bounded work but do not wait for the host.
 
@@ -252,15 +252,17 @@ An accepted transaction must agree across:
 - PIO/DMA qualified-pair completion;
 - V30 consumption witness and reply commit;
 - host reply record;
-- terminal RESET-high, CLK-low, AD-high-Z safety state.
+- the declared lifecycle end state: either bounded RESET-high/CLK-low/AD-high-Z,
+  or persistent `STI`/`HLT` idle with AD high-Z and interrupt service armed.
 
 Application success and physical evidence are separate assertions.
 
 ## Related documents
 
 - [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - architectural boundary and transaction flows
-- [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) - implementation gates
+- [`ai_bridge_implementation_plan.md`](archive/completed-plans/ai_bridge_implementation_plan.md) - implementation gates
 - [`dual_core_partitioning.md`](dual_core_partitioning.md) - ownership transfer and core roles
 - [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - physical validator workflow
 - [`validation/ai_b2_hid_composite_600khz_validation.md`](validation/ai_b2_hid_composite_600khz_validation.md) - accepted composite HID/CDC evidence
+- [`validation/companion_runtime_1mhz_validation.md`](validation/companion_runtime_1mhz_validation.md) - accepted persistent INT/INTR/INTA heartbeat evidence
 - [`adr/0005-adopt-host-bridge-and-companion-service-terminology.md`](adr/0005-adopt-host-bridge-and-companion-service-terminology.md) - terminology decision

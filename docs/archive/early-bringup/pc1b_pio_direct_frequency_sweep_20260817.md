@@ -1,5 +1,9 @@
 # PC1-B PIO-Direct Frequency Sweep — 2026-08-17
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Summary
 
 PC1-B PIO-direct post-reset self-loop characterization passed at every tested frequency from 0.300 MHz through 8.000 MHz on physical NEC V30 hardware.

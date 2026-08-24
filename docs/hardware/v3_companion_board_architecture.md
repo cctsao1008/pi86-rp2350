@@ -243,6 +243,11 @@ CLK   = LOW
 AD    = high-Z
 ```
 
+For a persistent Machine Profile, normal operation may instead retain the V30
+in `STI`/`HLT` idle with the clock and interrupt path active. That state is valid
+only when AD ownership remains high-Z between qualified cycles and liveness is
+independently observable; faults still force RESET and AD high-Z.
+
 ### Fault response
 
 An ownership, power-domain, or sequencing fault forces AD high-Z and prevents automatic V30 release. The fault remains observable after RESET assertion.

@@ -1,5 +1,9 @@
 # PC1-A Rev0 — Engineering Review
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 Scope: review of the PC1-A continuous software-polling harness, the proposed T1 root cause, and the proposed correction plan, prior to PC1-B.
 
 Reviewed tree: `8412e1c`. Source under `tests/performance_characterization_1/` is byte-identical to `21d1911`; only `docs/performance_characterization_1.md` differs. All source observations below therefore apply to the tree as it stands.

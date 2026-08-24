@@ -357,7 +357,7 @@ Success-loop hits F002E              = 3/3
 GATE 11 PHYSICAL V30 RESULT          = PASS
 ```
 
-See [`bringup_gate11.md`](../bringup_gate11.md) and [`validation/gate11_multi_irq_priority_validation.md`](../validation/gate11_multi_irq_priority_validation.md).
+See [`bringup_gate11.md`](../archive/early-bringup/bringup_gate11.md) and [`validation/gate11_multi_irq_priority_validation.md`](../validation/gate11_multi_irq_priority_validation.md).
 
 ## Gate 12 — Minimal programmable PIT IRQ0 validation
 
@@ -387,7 +387,7 @@ Initial scope is one deterministic channel-0 one-shot path only. Periodic BIOS t
 
 **Status: PASS — IMPLEMENTED AND VALIDATED ON PHYSICAL V30 HARDWARE**
 
-See [`bringup_gate12.md`](../bringup_gate12.md) and [`validation/gate12_pit_irq0_validation.md`](../validation/gate12_pit_irq0_validation.md).
+See [`bringup_gate12.md`](../archive/early-bringup/bringup_gate12.md) and [`validation/gate12_pit_irq0_validation.md`](../validation/gate12_pit_irq0_validation.md).
 
 ## Current capability boundary
 
@@ -434,7 +434,7 @@ PC1-B proved that the RP2350 can deliver a pre-staged fixed instruction response
 
 PC1-C must first execute a reset-vector far jump from `FFFF0` to ROM at `F0000` and expose a CPU-visible checkpoint. The following increment adds a minimal debug output port so a ROM program can emit `OK`. Periodic BIOS timer semantics remain deferred until address-qualified memory and I/O service are established on the continuous-clock front end.
 
-See [`minimal_pc_compatibility_matrix.md`](../minimal_pc_compatibility_matrix.md) for the broader dependency-driven route toward BIOS and DOS boot.
+See [`minimal_pc_compatibility_matrix.md`](../archive/completed-plans/minimal_pc_compatibility_matrix.md) for the broader dependency-driven route toward BIOS and DOS boot.
 
 ## Retrospective and evidence
 

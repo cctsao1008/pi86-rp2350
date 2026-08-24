@@ -55,8 +55,8 @@ Several documents describe mechanisms that were validated during earlier archite
 |---|---|
 | [`companion_service_abi.md`](companion_service_abi.md) | Validated 64-byte Host Bridge record and V30 mailbox/service mechanism |
 | [`ai_bridge_architecture.md`](ai_bridge_architecture.md) | Provider-neutral host/AI bridge experiment architecture |
-| [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) | Bridge implementation history and validation plan |
-| [`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md) | Address-qualified internal-SRAM response research |
+| [`archive/completed-plans/ai_bridge_implementation_plan.md`](archive/completed-plans/ai_bridge_implementation_plan.md) | Archived bridge implementation and validation plan |
+| [`archive/completed-plans/pc1c0c1_arbitrary_sram_rom_architecture.md`](archive/completed-plans/pc1c0c1_arbitrary_sram_rom_architecture.md) | Archived address-qualified internal-SRAM response research |
 
 The 64-byte record framing in the Companion Service ABI remains a useful Host Protocol foundation. BIOS `INT 60h`, PIT heartbeat, V30 persistent-runtime, and AI-specific flows are optional validated mechanisms rather than core requirements.
 
@@ -93,7 +93,7 @@ The existing Pi86 HAT remains the working hardware baseline. Older replacement-b
 - [`development/build_and_toolchain.md`](development/build_and_toolchain.md) - build environment
 - [`toolchain.md`](toolchain.md) - toolchain reference
 - [`../ENGINEERING_PLAYBOOK.md`](../ENGINEERING_PLAYBOOK.md) - engineering workflow
-- [`engineering_playbook/README.md`](engineering_playbook/README.md) - playbook index
+- [`archive/legacy-methodology/engineering_playbook/README.md`](archive/legacy-methodology/engineering_playbook/README.md) - archived project-local methodology seed
 - [`bringup.md`](bringup.md) - physical build/flash/bring-up entrypoint
 - [`bringup/recovery.md`](bringup/recovery.md) - flashing, USB, evidence, and rollback recovery
 - [`../tools/docs/README.md`](../tools/docs/README.md) - documentation checks
@@ -104,17 +104,17 @@ BIOS, PIC/PIT/PPI services, DOS, ELKS, PC memory maps, disk-image boot paths, di
 
 Relevant documents include:
 
-- [`native_bios_architecture.md`](native_bios_architecture.md)
+- [`archive/completed-plans/native_bios_architecture.md`](archive/completed-plans/native_bios_architecture.md)
 - [`native_bios_diagnostic_console.md`](native_bios_diagnostic_console.md)
-- [`pc1c1_native_bios_platform.md`](pc1c1_native_bios_platform.md)
-- [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md)
+- [`archive/completed-plans/pc1c1_native_bios_platform.md`](archive/completed-plans/pc1c1_native_bios_platform.md)
+- [`archive/completed-plans/minimal_pc_compatibility_matrix.md`](archive/completed-plans/minimal_pc_compatibility_matrix.md)
 - [`elks_v30_fd1440_bringup.md`](elks_v30_fd1440_bringup.md)
 
 These documents are retained because they describe useful native workloads, compatibility mechanisms, and development history. They do not define the minimum architecture.
 
 ## Validation and history
 
-[`validation/`](validation/) contains accepted physical validation records. [`bringup/gate_history.md`](bringup/gate_history.md), [`retrospectives/`](retrospectives/), [`releases/`](releases/), and [`story/`](story/) preserve development history and measured results.
+[`validation/`](validation/) contains accepted physical validation records. [`bringup/gate_history.md`](bringup/gate_history.md), [`retrospectives/`](retrospectives/), [`releases/`](releases/), and [`story/`](story/) preserve development history and measured results. Superseded plans and early bring-up notes are indexed by [`archive/README.md`](archive/README.md).
 
 Historical documents remain historical: architecture cleanup must not rewrite old measurements, clocks, gate names, captured outputs, or acceptance claims. Add a superseding ADR or canonical document when interpretation changes.
 

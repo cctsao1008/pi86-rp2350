@@ -1,5 +1,9 @@
 # PC1-C1 Native BIOS Execution Platform
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Objective
 
 PC1-C1 turns the accepted V30 bus engine into a small, deterministic execution
@@ -136,7 +140,7 @@ form of this gate. Epoch A learned the V30's real `000C/F000/F046` INT stack
 writes; Epoch B replayed them through the current-address table and completed
 `IRET` to the BIOS checkpoint. This proves the physical IVT, stack transaction,
 and IRET path, but not general or same-run coherent RAM. See
-[`validation/pc1c0c1b2a_int10_stack_validation.md`](validation/pc1c0c1b2a_int10_stack_validation.md).
+[`validation/pc1c0c1b2a_int10_stack_validation.md`](../../validation/pc1c0c1b2a_int10_stack_validation.md).
 
 The 2026-08-20 B2-B physical baseline then passed same-run coherence for one
 live word at physical `00100h`. PIO1 captured the V30's `1234h` write at R2,
@@ -145,7 +149,7 @@ read without a current-cycle M33 round trip. The V30 proved consumption by
 writing the value it read to `00102h`; the passive observer recorded `1234h`
 at all three cycles. This remains a learned 30-pair execution path and a
 single RAM slot, not general RAM. See
-[`validation/pc1c0c1b2b_same_run_ram_validation.md`](validation/pc1c0c1b2b_same_run_ram_validation.md).
+[`validation/pc1c0c1b2b_same_run_ram_validation.md`](../../validation/pc1c0c1b2b_same_run_ram_validation.md).
 
 ### PC1-C1 loader and interactive console
 

@@ -1,5 +1,9 @@
 # Gate 12 — Minimal Programmable PIT IRQ0 Validation
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Objective
 
 Introduce the smallest programmable PIT-compatible timer path that can raise IRQ0 through the already hardware-validated `pi86_pic` controller and physical NEC V30 interrupt path.

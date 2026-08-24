@@ -1,5 +1,9 @@
 # PC1-A to PC1-B Architecture Decision
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Status
 
 Decision: stop further PC1-A per-cycle M33 polling micro-optimization and begin a PC1-B deterministic PIO timing prototype.

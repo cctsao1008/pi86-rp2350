@@ -1,18 +1,22 @@
 # pi86-rp2350 AI Bridge Implementation Plan
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 > **Document status: IMPLEMENTATION GATE LEDGER.**
 >
 > This file records reversible implementation stages, including accepted and
 > future gates. It is not the canonical machine architecture or V30-visible ABI.
-> Use [`ai_bridge_architecture.md`](ai_bridge_architecture.md) for the stable
-> Host Bridge boundary and [`companion_service_abi.md`](companion_service_abi.md)
+> Use [`ai_bridge_architecture.md`](../../ai_bridge_architecture.md) for the stable
+> Host Bridge boundary and [`companion_service_abi.md`](../../companion_service_abi.md)
 > for the exact version 1 record and mailbox contract. Historical AI-B gate
 > names remain evidence identities under ADR 0005.
 
 ## Purpose
 
 This document turns the accepted target in
-[`ai_bridge_architecture.md`](ai_bridge_architecture.md) into independently
+[`ai_bridge_architecture.md`](../../ai_bridge_architecture.md) into independently
 reversible implementation gates. It is intentionally separate from the design
 note: the design note defines the destination; this file records how the
 repository approaches it.
@@ -28,9 +32,9 @@ This is a validated host-adapter exchange, not a V30-visible AI abstraction.
 The physical V30 sees only the companion mailbox and native I/O operations.
 Codex, ChatGPT, a conventional test program, or another client remains above
 the provider-neutral Host Bridge boundary. The stable architecture is defined
-in [`ai_bridge_architecture.md`](ai_bridge_architecture.md).
+in [`ai_bridge_architecture.md`](../../ai_bridge_architecture.md).
 
-The canonical packed record and mailbox ABI is [`companion_service_abi.md`](companion_service_abi.md).
+The canonical packed record and mailbox ABI is [`companion_service_abi.md`](../../companion_service_abi.md).
 
 ## Stable contracts
 
@@ -87,7 +91,7 @@ py tools\ai_bridge\physical_validator.py --port COM7 --profile ai-b1-a
 ```
 
 The complete workflow and exit-code contract are defined in
-[`development/windows_physical_validation.md`](development/windows_physical_validation.md).
+[`development/windows_physical_validation.md`](../../development/windows_physical_validation.md).
 
 ### AI-B0: physical scripted mailbox greeting
 
@@ -114,12 +118,12 @@ satisfies that gate.
 The accepted 0.200 MHz run returned `HELLO OPENAI CODEX`, completed 77
 supported reads with zero mismatches, observed the `00E2h` payload and `00E6h`
 commit, and reached four checkpoint reads. See
-[`validation/ai_b0_physical_mailbox_validation.md`](validation/ai_b0_physical_mailbox_validation.md).
+[`validation/ai_b0_physical_mailbox_validation.md`](../../validation/ai_b0_physical_mailbox_validation.md).
 
 ### AI-B1: runtime-staged dual-core mailbox
 
 AI-B1 replaces linear mailbox lookup with the parallel PIO1 sequencer topology
-accepted in [ADR 0004](adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md).
+accepted in [ADR 0004](../../adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md).
 The accepted AI-B0 targets and evidence remain unchanged.
 
 #### AI-B1-A: bounded runtime staging
@@ -128,7 +132,7 @@ Status: **ACCEPTED ON PHYSICAL HARDWARE AT 0.600 MHz (2026-08-23)**
 
 Build target: `ai_bridge_runtime_mailbox_600khz`
 
-Evidence: [`validation/ai_b1a_runtime_mailbox_600khz_validation.md`](validation/ai_b1a_runtime_mailbox_600khz_validation.md)
+Evidence: [`validation/ai_b1a_runtime_mailbox_600khz_validation.md`](../../validation/ai_b1a_runtime_mailbox_600khz_validation.md)
 
 Core1 accepts one complete 64-byte record and transfers ownership through a
 bounded SPSC queue. Core0 copies the complete record into immutable local

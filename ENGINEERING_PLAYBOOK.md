@@ -27,4 +27,7 @@ Pi86-specific facts remain owned by this repository, including:
 
 Pi86-RP2350 is retained in the shared framework as **Case Study 001**, but it no longer owns the generalized methodology.
 
-The legacy seed under [`docs/engineering_playbook/`](docs/engineering_playbook/README.md) is retained temporarily for provenance and migration history. New cross-project methodology changes should be made in `technical-management-framework`, not duplicated here.
+The legacy seed is archived under
+[`docs/archive/legacy-methodology/engineering_playbook/`](docs/archive/legacy-methodology/engineering_playbook/README.md)
+for provenance and migration history. New cross-project methodology changes
+should be made in `technical-management-framework`, not duplicated here.

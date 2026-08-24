@@ -1,5 +1,9 @@
 # Pi86-RP2350 Minimal PC Compatibility Dependency Matrix
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Purpose
 
 Define the minimum functional path from the currently validated V30 bus and interrupt subsystem toward a BIOS that can boot DOS-class software, without implementing unrelated PC hardware too early.
@@ -175,7 +179,7 @@ encoded SRAM response -> DMA -> PIO1 TX FIFO
 
 This is a fixed/pre-staged response result. It is not the maximum sustainable clock of a general address-dependent memory and peripheral engine.
 
-See [`validation/pc1b_pio_direct_frequency_sweep.md`](validation/pc1b_pio_direct_frequency_sweep.md).
+See [`validation/pc1b_pio_direct_frequency_sweep.md`](../../validation/pc1b_pio_direct_frequency_sweep.md).
 
 ## Active boundary: PC1-C address-qualified ROM
 

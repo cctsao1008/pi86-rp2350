@@ -1,5 +1,9 @@
 # Native BIOS Architecture
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Purpose
 
 The Native BIOS is V30 firmware written for the pi86-rp2350 companion-chip
@@ -59,8 +63,8 @@ regression and `pc1c_native_bios_hello` remains the earlier immutable HELLO
 milestone.
 
 The first foundation payload physically passed on 2026-08-20. See
-[`validation/pc1c0c_native_bios_foundation_validation.md`](validation/pc1c0c_native_bios_foundation_validation.md).
+[`validation/pc1c0c_native_bios_foundation_validation.md`](../../validation/pc1c0c_native_bios_foundation_validation.md).
 
 The bounded two-epoch `INT 10h`/stack/`IRET` path also physically passed on
 2026-08-20. See
-[`validation/pc1c0c1b2a_int10_stack_validation.md`](validation/pc1c0c1b2a_int10_stack_validation.md).
+[`validation/pc1c0c1b2a_int10_stack_validation.md`](../../validation/pc1c0c1b2a_int10_stack_validation.md).

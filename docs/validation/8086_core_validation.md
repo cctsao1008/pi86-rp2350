@@ -115,4 +115,4 @@ These areas may use the core-validation results as prerequisites, but they shoul
 ## Related Documents
 
 - [`../architecture.md`](../architecture.md) — RP2350 companion-chip architecture and diagnostic path.
-- [`../minimal_pc_compatibility_matrix.md`](../minimal_pc_compatibility_matrix.md) — current system-level validation and BIOS/DOS dependency progression.
+- [`../minimal_pc_compatibility_matrix.md`](../archive/completed-plans/minimal_pc_compatibility_matrix.md) — archived BIOS/DOS dependency progression.

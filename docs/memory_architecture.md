@@ -256,4 +256,4 @@ Data required for deterministic execution must be staged from SD into appropriat
 - [`host_protocol.md`](host_protocol.md) - Host/RP2350 command and observation contract
 - [`adr/0007-adopt-host-constructed-v30-machine-model.md`](adr/0007-adopt-host-constructed-v30-machine-model.md) - machine-model decision
 - [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - deterministic memory/READY policy
-- [`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md) - historical address-qualified SRAM response research
+- [`pc1c0c1_arbitrary_sram_rom_architecture.md`](archive/completed-plans/pc1c0c1_arbitrary_sram_rom_architecture.md) - archived address-qualified SRAM response research

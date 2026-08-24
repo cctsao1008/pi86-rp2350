@@ -75,13 +75,17 @@ With power removed:
 4. remove unrelated GPIO fixtures;
 5. connect only the probes and host interfaces required by the experiment.
 
-At reset and before response-engine release, only explicitly authorized output pins may be driven. The accepted terminal state is normally:
+At reset and before response-engine release, only explicitly authorized output pins may be driven. A bounded validation target normally ends at:
 
 ```text
 RESET = HIGH
 CLK   = LOW
 AD    = high-Z
 ```
+
+A persistent profile instead remains accepted only while the V30 is in proven
+`STI`/`HLT` idle, AD remains high-Z between serviced cycles, and the interrupt
+heartbeat and bus-safety evidence remain valid.
 
 ## 4. Flash the exact UF2
 
@@ -124,6 +128,7 @@ A PASS should establish every applicable layer:
 - matching transport sequence and complete publication;
 - passive evidence independent of the application reply;
 - terminal RESET/CLK/AD ownership.
+- or, for a persistent profile, validated idle/interrupt liveness with AD high-Z.
 
 An expected string, drained DMA counter, or active GPIO waveform is not sufficient by itself.
 

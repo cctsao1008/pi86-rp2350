@@ -126,27 +126,21 @@ Do not infer a physical fault from a GPIO observation until the physical-header-
 
 - AD0..AD15 are bidirectional and must be high-Z whenever the V30 owns the bus.
 - RP2350 output values should be prepared before asserting AD output-enable.
-- AD output-enable changes should remain atomic through direct SIO operations in timing-sensitive service paths.
-- Safe halt state is `RESET=HIGH`, `CLK=LOW`, AD bus high-Z.
-- Current validated execution model uses a software-stepped V30 clock compatible with early Pi86 sequencing.
+- PIO owns timing-critical AD data and direction changes; DMA may feed PIO FIFOs but must not target SIO registers.
+- PIO output windows must be proven to affect only the AD pins; V30 control and address inputs remain isolated.
+- A bounded run ends at `RESET=HIGH`, `CLK=LOW`, AD high-Z. A persistent profile may instead leave the V30 in validated `STI`/`HLT` idle with AD high-Z and interrupt service armed.
+- The accepted runtime uses a continuous PIO-generated V30 clock. Software does not step current bus cycles.
 
 ## Current validated scope
 
-As of the Gate 6 hardware run, the corrected mapping has been demonstrated with:
-
-- Gate 3: reset release and stable first physical fetch at `0xFFFF0`.
-- Gate 4: repeated aligned 16-bit memory reads with correct data-pad readback and prefetch-aware `EB FE` loop behavior.
-- Gate 5: executable SRAM-backed ROM; far jump from reset vector to physical `0xF0000`; repeated target-loop execution.
-- Gate 6: aligned 16-bit memory write to physical `0x00200`, backend storage of `0x1234`, CPU readback, compare and branch to the success path.
+The corrected mapping and PIO-direct architecture have been physically demonstrated with reset-vector fetch, internal-SRAM-backed ROM execution, aligned word and byte-lane RAM access, qualified I/O mailbox traffic, software `INT 60h`, physical INTR/two-cycle INTA service, and a persistent 1 MHz heartbeat runtime.
 
 Not yet implied by this contract:
 
-- odd-address word accesses,
-- individual byte-lane support,
-- general I/O transactions,
-- interrupts,
+- general arbitrary-address memory service,
+- unrestricted odd-address word semantics,
 - PSRAM timing,
-- DOS/BIOS compatibility.
+- full PC/DOS compatibility.
 
 Those capabilities require separate validation.
 

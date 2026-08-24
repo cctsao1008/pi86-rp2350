@@ -1,5 +1,9 @@
 # Performance Characterization 1 — Maximum Sustainable V30 Clock
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 > **Document status: HISTORICAL CHARACTERIZATION PLAN AND RECORD.**
 >
 > The original software-polling path below is retained as experimental
@@ -8,11 +12,11 @@
 > Address-qualified and bounded ROM/RAM work later continued through PC1-C;
 > this document is no longer the current roadmap.
 >
-> Canonical current architecture: [`architecture.md`](architecture.md).
+> Canonical current architecture: [`architecture.md`](../../architecture.md).
 > Retained physical evidence:
-> [`validation/pc1b_pio_direct_frequency_sweep.md`](validation/pc1b_pio_direct_frequency_sweep.md),
-> [`validation/pc1c0c1b1_bounded_rom_validation.md`](validation/pc1c0c1b1_bounded_rom_validation.md), and
-> [`validation/pc1c0c1b2c_multi_slot_ram_validation.md`](validation/pc1c0c1b2c_multi_slot_ram_validation.md).
+> [`validation/pc1b_pio_direct_frequency_sweep.md`](../../validation/pc1b_pio_direct_frequency_sweep.md),
+> [`validation/pc1c0c1b1_bounded_rom_validation.md`](../../validation/pc1c0c1b1_bounded_rom_validation.md), and
+> [`validation/pc1c0c1b2c_multi_slot_ram_validation.md`](../../validation/pc1c0c1b2c_multi_slot_ram_validation.md).
 
 ## Purpose
 

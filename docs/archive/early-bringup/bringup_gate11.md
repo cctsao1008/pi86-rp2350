@@ -1,5 +1,9 @@
 # Gate 11 - Multi IRQ Priority and Masking Validation
 
+> **Archive status: SUPERSEDED OR COMPLETED.** This document is retained for
+> engineering provenance and is not current architecture or an active plan. See
+> the [documentation archive index](../README.md) for its replacement authority.
+
 ## Objective
 
 Validate multiple interrupt sources using the programmable `pi86_pic` backend on the physical NEC V30.
