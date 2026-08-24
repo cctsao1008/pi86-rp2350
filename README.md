@@ -31,18 +31,6 @@ The project therefore concentrates on four properties:
 
 PC compatibility, BIOS execution, DOS, ELKS, diagnostic ROMs, and other native software are useful workloads and compatibility profiles. They are not the definition of project completion.
 
-## Non-goals
-
-The project does not require:
-
-- replacing the physical V30 with an emulator;
-- redesigning the original Pi86 HAT without a demonstrated architectural blocker;
-- reproducing every feature of an IBM PC/XT;
-- making DOS boot the architectural endpoint;
-- running an LLM on the RP2350;
-- allowing host software or AI to participate in current-cycle GPIO timing;
-- accepting a textual reply as proof of correct physical execution.
-
 ## Architectural invariants
 
 The implementation may evolve, but these rules define the project:
@@ -288,26 +276,6 @@ The Raspberry Pi physical 40-pin header position is treated as the cross-platfor
 > The installed `D70116C-8` is nominally a 5 V device. Operation on the original Pi86 HAT at 3.3 V is a project-specific empirical condition, not the nominal NEC operating specification.
 
 Board reference: [Waveshare RP2350-PiZero Wiki](https://www.waveshare.com/wiki/RP2350-PiZero).
-
-## Validation contract
-
-`pi86-rp2350` is physically validated. Acceptance is based on **CPU-visible behavior on the real V30 and retained evidence**, not merely on firmware completion or a convincing host-side result.
-
-An accepted experiment should establish, as applicable:
-
-- reset qualification and physical starting state;
-- cycle type, byte lanes, and address;
-- exact data visible to the V30;
-- response qualification and deadline behavior;
-- absence of unqualified bus drive;
-- transport sequence and atomic publication where applicable;
-- passive evidence independent of the application result;
-- exact firmware/test/configuration identity;
-- lifecycle-appropriate terminal or persistent idle state.
-
-Failed or incomplete runs remain failures even if they contain an expected string or application result. Machine-readable acceptance results should be derived from explicit invariants and retained alongside the evidence required to reproduce the decision.
-
-Physical operating procedure belongs in [`docs/bringup.md`](docs/bringup.md). Accepted physical evidence belongs in [`docs/validation/`](docs/validation/) and the issue tracker. This README defines stable project architecture and scope rather than chronological status.
 
 ## Project lineage
 
