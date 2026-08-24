@@ -1,335 +1,136 @@
 # RP2350 Dual-Core Workload Partitioning
 
-## Status and scope
+## Scope
 
-- Status: adopted architecture guideline
-- Date: 2026-08-21
-- Target: physical NEC V30 with RP2350B companion chipset
-- DC-A implementation: commits `6e20b4a` and `5de4874`, physically accepted
-- DC-A evidence: `validation/dc_a_dual_core_foundation_validation.md`
+This document defines the logical ownership boundary between the RP2350 deterministic bus plane, the realtime M33 role, and the asynchronous service M33 role.
 
-This document defines logical ownership between the RP2350 hard-real-time data
-plane, the real-time M33 role, and the service M33 role. It does not permanently
-assign those roles to numbered cores. Core placement remains a measured design
-choice under ADR 0002.
+The architecture is **role-based**, not permanently tied to Core 0 or Core 1. A numbered core assignment is an implementation choice that may change with measured IRQ behavior, SDK constraints, SRAM contention, and service load.
 
 ## Governing rule
 
-> PIO/DMA owns the current V30 bus cycle. The real-time core owns CPU-visible
-> control policy. The service core owns asynchronous system complexity.
-
-The shorter rule "Core 0 owns CPU-visible time; Core 1 owns complexity" is a
-useful deployment shorthand, but it is not yet a physical core-number contract.
+> **PIO/DMA own the current V30 bus cycle. The realtime M33 role prepares and supervises future CPU-visible state. The service M33 role owns asynchronous system complexity.**
 
 ```text
 Physical V30
      |
-     v
-PIO / DMA data plane
-     |  hard deadline: current bus cycle
-     v
-real-time M33 role
-     |  bounded queues and ownership transfer
-     v
+PIO / DMA bus plane
+     |
+realtime M33 role
+     |
+bounded ownership transfer
+     |
 service M33 role
 ```
 
-## Evidence behind the boundary
+The current Pi86 HAT holds V30 `READY` high, so a no-wait transaction cannot depend on an M33 lookup, an inter-core round trip, USB, PSRAM, Flash, or other unbounded service work.
 
-The current HAT fixes V30 `READY` high. A response cannot wait for an M33
-lookup, an inter-core round trip, USB, PSRAM, Flash, or MicroSD.
+## Deterministic bus plane
 
-Physical PC1-C evidence established that:
+PIO and DMA own operations that must complete inside the current physical V30 cycle, including:
 
-- an M33 current-cycle SRAM lookup can miss the response deadline even at the
-  0.300 MHz baseline;
-- PIO-local exact matching and PIO-direct AD/PINDIRS response meet the deadline;
-- C0C1-B2-B can capture a live V30 RAM write and replay it later in the same run
-  entirely inside PIO1, with no current-cycle M33 work;
-- C0C1-B2-C can retain two independent words, preserve low/high byte-lane
-  coherence, consume all 52 learned pairs, and drain both key/descriptor paths
-  with no current-cycle M33 work;
-- PIO0/DMA can retain passive evidence without driving the bus.
-
-Therefore the real-time core may prepare, supervise, and refill the data plane,
-but it is not the default no-wait response engine.
-
-## Logical ownership
-
-### PIO and DMA: hard-real-time data plane
-
-PIO/DMA owns anything that must complete inside the current V30 cycle:
-
-- CLK generation and controlled LOW stop;
-- ASTB/T1 address and cycle qualification;
-- scattered AD0-AD15 output and input capture;
-- `PINDIRS` ownership and release;
-- prestaged ROM and hot-RAM response;
-- live RAM-write capture and deterministic replay;
-- prestaged INTA vector response;
+- clock and phase generation;
+- address/control capture and cycle qualification;
+- AD0-AD15 input/output timing and `PINDIRS` ownership;
+- prestaged ROM/RAM responses;
+- deterministic write capture/replay paths;
+- prestaged interrupt-acknowledge response;
 - raw passive trace transport.
 
-No current-cycle path may depend on `printf`, USB callbacks, a filesystem,
-dynamic allocation, an inter-core reply, or an unbounded lock.
+No current-cycle path may depend on `printf`, USB callbacks, a filesystem, dynamic allocation, an inter-core reply, or an unbounded lock.
 
-### Real-time M33 role: control plane
+## Realtime M33 role
 
-The real-time role owns policy and state that determine future CPU-visible
-behavior:
+The realtime role prepares and supervises state that may affect later V30-visible behavior:
 
 - configure and arm PIO/DMA engines;
-- compile response keys, descriptors, and hot-memory slots before use;
-- maintain the address map and CPU-visible device registers;
-- supervise deterministic cache/refill work outside the active miss cycle;
-- maintain PIC/PIT/PPI state and prestage the next interrupt response;
-- own RESET, future READY policy, timeouts, and terminal safe state;
-- publish lightweight counters and raw events without formatting;
-- detect starvation, stale descriptors, unqualified drive, and ownership faults.
+- build response keys, descriptors, and hot-memory state before use;
+- maintain address maps and CPU-visible device state;
+- supervise deterministic refill or publication outside the active cycle;
+- maintain interrupt/timer state and prestage future responses;
+- own reset and terminal-safe policy;
+- detect starvation, stale descriptors, deadline faults, and illegal ownership;
+- publish compact counters and raw events without human-readable formatting.
 
-The real-time role must not synchronously wait for the service role while the
-V30 is running. If required data is unavailable on the current HAT, the cycle
-must follow an explicitly validated high-Z/failure policy. On V3.0, controllable
-READY may permit a separately bounded slow-path contract.
+The realtime role must not synchronously wait for the service role while the V30 is running.
 
-### Service M33 role: asynchronous services
+## Service M33 role
 
-The service role owns work whose latency may be tens of microseconds or longer:
+The service role owns work whose latency is not part of the V30 bus contract:
 
-- USB CDC, command parsing, and human-readable output;
-- trace decode, timestamps, formatting, and persistence;
-- Flash/ROM image validation and management;
-- PSRAM and MicroSD bulk transfers;
-- disk images, read-ahead, and write-back policy;
-- USB keyboard host processing;
-- display interpretation, rendering, and scanout preparation;
-- diagnostics, configuration, and management UI.
+- USB and host command handling;
+- trace decode, formatting, and persistence;
+- ROM/test-image management;
+- PSRAM and other bulk transfers;
+- disk-image or compatibility-profile backend work;
+- diagnostics, configuration, and management interfaces.
 
-The service role may prepare buffers and publish state, but it may never be a
-synchronous dependency of a no-wait V30 transaction.
-
-## Peripheral ownership
-
-Device ownership is split at the CPU-visible timing boundary rather than by
-whole device type.
-
-| Function | Hard data plane | Real-time role | Service role |
-|---|---|---|---|
-| ROM/RAM current-cycle response | PIO/DMA | prepare/refill/map | image management |
-| RAM write | PIO capture | commit/map/supervise | bulk backing |
-| PIC/INTA | prestaged vector and pin timing | IRR/ISR/IMR/priority/EOI | diagnostics |
-| PIT | optional hardware event path | counter/register/IRQ state | statistics |
-| PPI | prestaged register response | CPU-visible registers | host backend |
-| Keyboard | queue response/IRQ timing | consume CPU-facing queue | USB producer |
-| Video memory | deterministic capture | address/register state | render/scanout |
-| Disk interface | fast status/cache response | command state/cache ownership | SD/image I/O |
-
-Putting "memory" on one core and "peripherals" on the other is prohibited when
-it inserts a core-to-core round trip into CPU-visible timing.
+The service role may prepare buffers or request state changes, but it is never a synchronous dependency of a no-wait V30 transaction.
 
 ## Inter-core contract
 
-Prefer single-writer ownership and bounded single-producer/single-consumer
-rings.
+Communication between roles uses bounded ownership transfer rather than shared mutable behavior in the critical path.
 
-```text
-trace ring:       producer = PIO/DMA or real-time role
-                  consumer = service role
-
-keyboard ring:    producer = service role
-                  consumer = real-time role
-
-command ring:     producer = service role
-                  consumer = real-time role at safe boundaries
-```
+Preferred mechanisms are fixed-size single-producer/single-consumer rings and explicit publication at safe boundaries.
 
 Required properties:
 
-- queue capacity and element layout are compile-time constants;
-- producer publishes payload before the write index with an explicit memory
-  barrier; consumer reads the index before payload;
+- queue capacity and element layout are bounded;
+- publication order is explicit and memory-ordered;
 - queue-full behavior is non-blocking and observable;
-- trace/log overflow increments a counter and drops records rather than
-  stalling the V30;
-- Core-local pointers and mutable device objects are not transferred by
-  reference without an ownership protocol;
-- RESET and bus ownership have one writer: the real-time role;
-- inter-core FIFO is reserved for boot/doorbell/control, not bulk trace data;
-- neither role takes an unbounded mutex needed by the other.
+- trace/log overflow drops records rather than stalling the V30;
+- mutable device objects are not transferred without an ownership protocol;
+- reset and bus ownership have a single authority;
+- inter-core FIFO is reserved for lightweight signaling rather than bulk transport;
+- neither role depends on an unbounded lock held by the other.
 
 ## Failure isolation
 
-The service role is optional to continued V30 execution. These faults must not
-change bus timing or ownership:
+Asynchronous service faults must not silently change bus timing or ownership. Examples include:
 
-- USB host disconnect or CDC backpressure;
-- service-core stall or disabled heartbeat;
-- full trace/log ring;
-- MicroSD timeout;
-- display underrun;
-- malformed CLI command.
+- USB disconnect or backpressure;
+- service-role stall;
+- a full trace ring;
+- slow storage or image access;
+- malformed host commands.
 
-The real-time role may report or later reset the service role, but it must keep
-the V30 data plane deterministic and retain the terminal safety policy.
+The realtime role may report, recover, or restart services later, but the deterministic bus plane must remain electrically safe and timing-stable.
 
-## Physical core-number assignment
+## Core-number assignment
 
-The logical roles are fixed; the numbered assignment is provisional. Measure
-both placements before locking it:
+The architecture intentionally avoids treating `Core 0` and `Core 1` as permanent semantic identities.
+
+A concrete placement may be selected based on:
 
 - PIO/DMA IRQ routing and latency;
-- USB IRQ affinity and SDK constraints;
-- shared SRAM bank contention;
+- USB SDK and alarm-pool constraints;
+- shared SRAM-bank contention;
 - DMA versus instruction/data traffic;
-- XIP/Flash stalls;
-- worst-case queue publication and consumption latency;
-- V30 response deadline and trace integrity under service load.
+- Flash/XIP stalls;
+- queue publication latency;
+- V30 trace and response integrity under service load.
 
-The accepted placement becomes a separate ADR. Until then, code and documents
-use `realtime_core` and `service_core`, not assumptions tied to `core0` or
-`core1`.
+Code and canonical documentation should therefore prefer role names such as `realtime_core` and `service_core` unless a specific validation target requires a numbered mapping.
 
-## Introduction plan
+## Existing physical evidence
 
-### DC-A: non-driving infrastructure
+Historical dual-core validation remains useful evidence for this architecture:
 
-Status: **physically accepted at 0.300 MHz on 2026-08-21**.
+- **DC-A** established bounded inter-core rings, non-blocking overflow accounting, service-role stall isolation, and service recovery around an unchanged V30 regression.
+- **DC-B0** established that host/CDC reporting can be delayed until after the V30 run without making USB a dependency of V30 execution.
+- **DC-B1-A** established bounded replay of authentic captured trace data, ordered drain, counted drops under service stall, and recovery after resume.
 
-- start the second M33 role without changing any V30 response;
-- add bounded SPSC trace and command rings;
-- keep RESET and bus ownership on the existing real-time role;
-- prove boot, idle, saturation, overflow, and service-core-stall behavior.
+These records describe specific tested implementations and may include explicit Core 0/Core 1 assignments required by the Pico SDK or the validation target. Those assignments are historical implementation details, not the architectural contract.
 
-The dedicated `pc1c_dual_core_foundation` target implements this gate without
-changing the accepted `pc1c_multi_slot_ram` target. Its provisional placement
-is Core0=realtime and Core1=service. Core1 has no GPIO, PIO, DMA, RESET, or CDC
-authority: after the SDK boot handshake it accesses only shared SRAM rings,
-phase/ack words, and a heartbeat.
+See:
 
-The test performs these checks around the unchanged B2-C run:
+- [`validation/dc_a_dual_core_foundation_validation.md`](validation/dc_a_dual_core_foundation_validation.md)
+- [`validation/dc_b0_service_core_output_validation.md`](validation/dc_b0_service_core_output_validation.md)
+- [`validation/dc_b1a_trace_backpressure_validation.md`](validation/dc_b1a_trace_backpressure_validation.md)
 
-1. start Core1 and observe a changing heartbeat;
-2. fill a 64-word realtime-to-service trace ring and verify ordered drain;
-3. attempt 16 additional writes while full and prove counted, non-blocking
-   drops;
-4. transfer 32 ordered service-to-realtime command words;
-5. stop Core1 for the entire Epoch-B V30 regression;
-6. prove B2-C still passes while the heartbeat remains frozen, then resume
-   Core1 and prove the heartbeat restarts.
+## Relationship to the host/AI interface
 
-The physical run reported `DC-A RESULT = PASS` together with the complete B2-C
-PASS and terminal RESET-high, CLK-low, AD-high-Z state. It preserved 64/64
-trace words and 32/32 command words in order, counted 16 non-blocking full-ring
-drops, isolated a Core1 stall throughout Epoch B, and resumed the service
-heartbeat afterward. DC-A is accepted; these checks remain permanent dual-core
-regressions.
+The host-side Observe / Control / Experiment interface sits above this partitioning model.
 
-### DC-B: trace and USB separation
+Host tools and AI agents may consume structured state, request bounded operations, and analyze experiments, but they remain outside current-cycle V30 timing. The service role terminates host-facing complexity; the realtime role only accepts state changes through explicit bounded publication.
 
-Status: **DC-B0 physically accepted at 0.300 MHz on 2026-08-22**.
-
-Evidence: `validation/dc_b0_service_core_output_validation.md`.
-
-- real-time side publishes raw fixed-size records only;
-- service side performs decode, formatting, and CDC output;
-- remove live-run `printf` and USB work from the real-time side;
-- demonstrate unchanged PC1-C regression output with CDC connected,
-  disconnected, and backpressured.
-
-The separate `pc1c_dual_core_service_output` target is the DC-B0 baseline. It
-keeps the accepted DC-A and B2-C realtime engines. Pico SDK requires
-`stdio_usb_init()` to run on the default alarm-pool core, which is Core0 in this
-target; attempting it on Core1 returns false and prevents USB enumeration.
-Core0 therefore initializes the USB device before V30 release but never waits
-for CDC and never decodes or formats output. Its interrupts, including USB,
-are masked throughout both V30 execution epochs. PIO0/DMA writes immutable
-pairs of 32-bit address/data GPIO snapshots to SRAM; after the V30 reaches
-RESET-high, CLK-low, AD-high-Z, Core0 publishes that buffer and a result
-snapshot with a memory barrier.
-
-Core1 may then wait indefinitely for `stdio_usb_connected()`. A late terminal
-connection must receive the report from its first line because no output is
-attempted before connection. This wait cannot delay the V30: Core0 never waits
-for the report acknowledgement or for CDC capacity.
-
-DC-B0 physical acceptance requires:
-
-- output identifies Core0 as the SDK-required USB initializer and Core1 as the
-  sole CDC output owner;
-- USB IRQs are reported masked during both V30 epochs;
-- the compact Epoch-A and Epoch-B summaries pass;
-- service-side decoding reconstructs retained raw address/data records;
-- the complete DC-A result and B2-C regression remain PASS;
-- a late USB connection receives a complete report;
-- terminal bus ownership remains safe.
-
-The corrected `19a4291` target passed physically. Core1 waited 6,189,335 us
-for a terminal and then emitted the retained report from its first line. Both
-B2-C epochs, 52/52 PIO-qualified pairs, service-side raw-trace decoding, the
-complete DC-A isolation regression, and terminal safety passed.
-
-CDC disconnect/reconnect during longer-running V30 operation, live bounded
-trace transport, and deliberate CDC backpressure remain DC-B1 work.
-
-#### DC-B1-A: authentic trace backpressure feasibility
-
-Status: **physically accepted at 0.300 MHz on 2026-08-22**.
-
-Evidence: `validation/dc_b1a_trace_backpressure_validation.md`.
-
-The separate `pc1c_dual_core_trace_backpressure` target retains the accepted
-DC-B0/DC-A/B2-C execution and then replays all 192 authentic raw GPIO words
-captured by PIO0/DMA through the bounded Core0-to-Core1 SPSC ring.
-
-Two post-run transport stages are intentionally separated from current-cycle
-V30 response:
-
-1. with Core1 consuming, all 192 words must arrive in order with zero drops;
-2. with Core1 stalled, exactly 64 words must be retained and the remaining 128
-   attempts must be counted and dropped without producer waiting; after resume,
-   the retained 64 words must drain in order.
-
-This gate validates record ABI, ordering, capacity, overflow accounting, and
-resume behavior using real trace content. It is not yet simultaneous live V30
-and CDC stress. DC-B1-B remains responsible for repeated/long-running V30
-epochs during actual disconnect, reconnect, and output backpressure.
-
-The physical run passed 192/192 ordered active words with zero drops, retained
-64/64 words while Core1 was stalled, counted 128/128 non-blocking drops, and
-drained the retained 64/64 words in order after resume. All DC-B0, DC-A, B2-C,
-and terminal safety checks also passed. DC-B1-A is accepted.
-
-### DC-C: image and console services
-
-- validate and copy Flash ROM images outside RESET release;
-- add CDC commands through a bounded command queue;
-- accept commands only at explicit safe boundaries;
-- retain descriptor-fed and same-run RAM targets as regressions.
-
-### DC-D: storage, keyboard, and display
-
-- service role owns slow backend work;
-- real-time role exposes only prepared CPU-visible state;
-- every cache miss has a documented current-HAT or V3.0 READY policy.
-
-## Acceptance gates
-
-A dual-core change is accepted only when all relevant items pass:
-
-- all pre-existing PC1-B/PC1-C CPU-visible checks remain unchanged;
-- zero response deadline misses and zero unqualified drives;
-- RESET-high, CLK-low, AD-high-Z terminal state remains guaranteed;
-- Core 1/service-role stall does not stop or corrupt the V30 regression;
-- USB CDC backpressure does not alter passive bus traces;
-- queue overflow is counted and non-blocking;
-- role ownership and memory-ordering rules are documented in code;
-- the measured core placement is recorded before it becomes a platform ABI.
-
-## Relationship to the accepted RAM gate
-
-C0C1-B2-C passed physically on 2026-08-21 with two independently addressed
-live words, low/high byte-lane coherence, 52/52 qualified pairs, zero DMA/FIFO
-residue, and a safe terminal state. DC-A subsequently passed with ordered
-bounded rings, non-blocking overflow, active-service heartbeat, forced-service
-stall isolation, and service resume. `pc1c_multi_slot_ram` remains the
-permanent CPU-visible regression and `pc1c_dual_core_foundation` remains the
-dual-core isolation regression as DC-B begins.
+See [`architecture.md`](architecture.md), [`ai_bridge_architecture.md`](ai_bridge_architecture.md), and [`companion_service_abi.md`](companion_service_abi.md).
