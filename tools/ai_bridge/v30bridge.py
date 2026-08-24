@@ -17,6 +17,8 @@ import sys
 import time
 from typing import Any
 
+from host_shell import command_help, parse_command, unavailable_message
+
 from physical_validator import (
     AI_B2_HID,
     COMPANION_RUNTIME,
@@ -560,7 +562,7 @@ def persistent_monitor(
 
     if interactive:
         print("\n[V30 INTERACTIVE HEARTBEAT]")
-        print("Commands: ping, status, send <text>, quiet, verbose, help, quit")
+        print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
         if display == "status":
             console.render(current_sequence, stats, connected, command_buffer)
@@ -588,39 +590,80 @@ def persistent_monitor(
             request_payload = b""
             is_command = False
             if command is not None:
-                lowered = command.lower()
-                if lowered in ("quit", "exit"):
+                try:
+                    shell_command = parse_command(command)
+                except ValueError as exc:
+                    print_event(str(exc))
+                    shell_command = None
+                if shell_command is None:
+                    continue
+                name = shell_command.spec.name
+                arguments = shell_command.arguments
+                if name == "quit":
                     stop = True
                     continue
-                if lowered == "help":
-                    print_event("Commands: ping, status, send <text>, quiet, verbose, help, quit")
-                elif lowered == "status":
+                if name == "help":
+                    try:
+                        print_event(command_help(arguments[0] if arguments else None))
+                    except ValueError as exc:
+                        print_event(str(exc))
+                elif name in ("status", "top"):
                     print_event(
                         f"V30 ALIVE={connected} completed={stats.completed} "
                         f"lost={stats.lost} min/avg/max="
                         f"{stats.minimum_ms if stats.completed else 0:.1f}/"
                         f"{stats.average_ms:.1f}/{stats.maximum_ms:.1f} ms"
                     )
-                elif lowered == "quiet":
+                    if name == "top":
+                        print_event(
+                            "V30 runtime top\n"
+                            f"  V30       {'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz\n"
+                            f"  Heartbeat {stats.completed} completed / {stats.lost} lost\n"
+                            f"  Latency   {stats.average_ms:.1f} ms average\n"
+                            "  Workload  NOT AVAILABLE\n"
+                            "  PSRAM     NOT AVAILABLE\n"
+                            "  flash:    NOT AVAILABLE\n"
+                            "  sd:       NOT AVAILABLE"
+                        )
+                elif name == "info":
+                    print_event(
+                        "Negotiated capabilities:\n"
+                        "  heartbeat  AVAILABLE\n"
+                        "  console    bounded 14-byte command exchange\n"
+                        "  workload   NOT AVAILABLE\n"
+                        "  memory     NOT AVAILABLE\n"
+                        "  filesystem NOT AVAILABLE\n"
+                        "  storage    NOT AVAILABLE\n"
+                        "  sd         NOT AVAILABLE\n"
+                        "  trace      NOT AVAILABLE"
+                    )
+                elif name == "quiet":
                     display = "quiet"
                     print_event("Heartbeat display: quiet (errors and commands only)")
-                elif lowered == "verbose":
+                elif name == "verbose":
                     display = "verbose"
                     print_event("Heartbeat display: verbose")
-                elif lowered == "ping":
+                elif name == "ping":
                     request_type = TYPE_HEARTBEAT
                     request_payload = heartbeat_payload(current_sequence)
                     is_command = True
-                elif lowered.startswith("send "):
-                    payload = command[5:].encode("utf-8")
+                elif name == "console":
+                    print_event(
+                        "Console is active. Use: send <text>\n"
+                        "Current native mailbox payload limit: 14 bytes"
+                    )
+                elif name == "send":
+                    payload = " ".join(arguments).encode("utf-8")
+                    if not payload:
+                        print_event("Usage: send <text>")
                     if len(payload) > 14:
                         print_event("Command rejected: current native mailbox consumes at most 14 bytes")
-                    else:
+                    elif payload:
                         request_type = TYPE_COMMAND
                         request_payload = payload
                         is_command = True
-                elif command:
-                    print_event(f"Unknown command: {command!r}; type help")
+                else:
+                    print_event(unavailable_message(shell_command))
 
             now = time.monotonic()
             if request_type is None and now >= next_due:

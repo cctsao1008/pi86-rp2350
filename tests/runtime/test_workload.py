@@ -1,0 +1,111 @@
+from pathlib import Path
+import sys
+import unittest
+
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "tools" / "ai_bridge"))
+sys.path.insert(0, str(ROOT / "tools" / "runtime"))
+
+from protocol import (  # noqa: E402
+    Message,
+    TYPE_WORKLOAD_BEGIN,
+    TYPE_WORKLOAD_COMMIT,
+    TYPE_WORKLOAD_DATA,
+)
+from workload import (  # noqa: E402
+    DATA_BYTES,
+    FLAG_SHARED_MEMORY,
+    FLAG_STDIO,
+    MANIFEST_SIZE,
+    WorkloadManifest,
+    decode_data_payload,
+    decode_workload_file,
+    encode_workload_file,
+    upload_records,
+)
+
+
+class WorkloadTests(unittest.TestCase):
+    def sample(self) -> tuple[WorkloadManifest, bytes]:
+        image = bytes(range(1, 138))
+        manifest = WorkloadManifest.for_image(
+            image,
+            load_address=0x20000,
+            entry_segment=0x2000,
+            entry_offset=0,
+            stack_segment=0x3000,
+            stack_offset=0xFFFE,
+            shared_base=0x40000,
+            shared_size=0x1000,
+            flags=FLAG_STDIO | FLAG_SHARED_MEMORY,
+        )
+        return manifest, image
+
+    def test_manifest_is_fixed_and_round_trips(self) -> None:
+        manifest, image = self.sample()
+        self.assertEqual(len(manifest.encode()), MANIFEST_SIZE)
+        decoded_manifest, decoded_image = decode_workload_file(
+            encode_workload_file(manifest, image)
+        )
+        self.assertEqual(decoded_manifest, manifest)
+        self.assertEqual(decoded_image, image)
+
+    def test_entry_must_be_inside_loaded_image(self) -> None:
+        with self.assertRaisesRegex(ValueError, "entry point"):
+            WorkloadManifest.for_image(
+                b"\x90\x90",
+                load_address=0x20000,
+                entry_segment=0x3000,
+                entry_offset=0,
+            )
+
+    def test_image_must_fit_physical_address_space(self) -> None:
+        with self.assertRaisesRegex(ValueError, "address-space limit"):
+            WorkloadManifest.for_image(
+                b"\x90" * 32,
+                load_address=0xFFFF0,
+                entry_segment=0xFFFF,
+                entry_offset=0,
+            )
+
+    def test_shared_range_requires_explicit_flag(self) -> None:
+        with self.assertRaisesRegex(ValueError, "FLAG_SHARED_MEMORY"):
+            WorkloadManifest.for_image(
+                b"\x90\x90",
+                load_address=0x20000,
+                entry_segment=0x2000,
+                entry_offset=0,
+                shared_base=0x30000,
+                shared_size=0x100,
+            )
+
+    def test_upload_uses_fixed_64_byte_records(self) -> None:
+        manifest, image = self.sample()
+        records = upload_records(
+            manifest, image, transfer_id=0x12345678, first_sequence=10
+        )
+        self.assertEqual(records[0].message_type, TYPE_WORKLOAD_BEGIN)
+        self.assertEqual(records[-1].message_type, TYPE_WORKLOAD_COMMIT)
+        self.assertTrue(all(len(record.encode()) == 64 for record in records))
+        chunks: list[bytes] = []
+        for record in records[1:-1]:
+            self.assertEqual(record.message_type, TYPE_WORKLOAD_DATA)
+            transfer_id, offset, data = decode_data_payload(record.payload)
+            self.assertEqual(transfer_id, 0x12345678)
+            self.assertEqual(offset, len(b"".join(chunks)))
+            self.assertLessEqual(len(data), DATA_BYTES)
+            chunks.append(data)
+            self.assertEqual(Message.decode(record.encode()), record)
+        self.assertEqual(b"".join(chunks), image)
+
+    def test_crc_rejects_mutated_image(self) -> None:
+        manifest, image = self.sample()
+        encoded = bytearray(encode_workload_file(manifest, image))
+        encoded[-1] ^= 1
+        with self.assertRaisesRegex(ValueError, "CRC"):
+            decode_workload_file(bytes(encoded))
+
+
+if __name__ == "__main__":
+    unittest.main()
