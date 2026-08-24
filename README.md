@@ -1,5 +1,9 @@
 # pi86-rp2350
 
+<p align="center">
+  <img src="docs/images/v30-heartbeat-icon.png" width="180" alt="A physical NEC V30 awakened by a modern Host signal, with a visible heartbeat">
+</p>
+
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
 >
 > **Host-Managed Bare-Metal Physical Processor Runtime**
@@ -18,7 +22,7 @@ physical bus and the shared resources around the processor.
   <em>Physical NEC D70116C-8 on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
 </p>
 
-## Why is this interesting?
+## 🧠 Why is this interesting?
 
 Most retro-computing projects either recreate the computer that once surrounded
 an old processor or emulate that processor in modern software. `pi86-rp2350`
@@ -41,7 +45,7 @@ becomes a bare-metal physical execution target inside a modern runtime.
 > **This project is not only about making an old CPU boot again. It explores a
 > new way for that CPU to remain useful, observable, and alive.**
 
-## Story and motivation
+## 📖 Story and motivation
 
 This project began as a hardware bring-up: connect the original Pi86 V20/V30
 HAT to an RP2350-PiZero and find out whether a real NEC V30 could reliably
@@ -62,7 +66,7 @@ loading, files, communication, supervision, and recovery. The RP2350 provides
 the physical resources and bus discipline. The V30 is free to do the one thing
 only it can do: execute as a real V30.
 
-## The runtime
+## ⚙️ The runtime
 
 ```text
 Host
@@ -97,7 +101,7 @@ This is not an x86 emulator, a PC/XT clone, or a BIOS/DOS-first computer. BIOS,
 DOS, ELKS, and PC-compatible devices may still be loaded as experiments, but
 they are not prerequisites and do not define the project.
 
-## What the Host provides
+## 🖥️ What the Host provides
 
 The reference Python runtime is a small remote shell. Its stable command model
 includes:
@@ -115,7 +119,7 @@ The Host may disappear without becoming part of a current V30 bus cycle. A
 workload can crash or stop responding; the runtime reports it, preserves
 available evidence, and lets the user restart it.
 
-## Resource model
+## 💾 Resource model
 
 The RP2350 is the single low-level owner. Host and V30 share content through it,
 not raw controllers or filesystem metadata.
@@ -139,7 +143,7 @@ sd:/traces/run001.log
 The V30 sees assigned memory and runtime services; it never directly owns USB,
 PSRAM, NOR Flash, SD, FAT, PIO, or DMA controllers.
 
-## Physical timing boundary
+## ⏱️ Physical timing boundary
 
 The original Pi86 HAT keeps V30 `READY` asserted. Timing-critical bus behavior
 therefore remains in PIO/DMA and prepared RP2350 state. Host software, USB,
@@ -150,7 +154,7 @@ General PSRAM-backed arbitrary execution is the next major physical integration
 gate. The architecture and Host shell are defined, but documentation does not
 claim that this hardware path has already passed validation.
 
-## Hardware baseline
+## 🔌 Hardware baseline
 
 - Waveshare RP2350-PiZero with Raspberry Pi RP2350B
 - physical NEC V30 `D70116C-8` / `uPD70116C-8`
@@ -165,7 +169,7 @@ The installed V30 is nominally a 5 V device. Operation on the original Pi86 HAT
 at 3.3 V is a project-specific empirical condition, not the nominal NEC
 specification.
 
-## Documentation
+## 📚 Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — canonical system architecture
 - [`docs/host_runtime_architecture.md`](docs/host_runtime_architecture.md) — detailed runtime and resource contract
@@ -180,7 +184,7 @@ specification.
 The current architecture decision is
 [`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md).
 
-## Lineage and acknowledgements
+## 🙏 Lineage and acknowledgements
 
 `pi86-rp2350` builds on the
 [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project)
