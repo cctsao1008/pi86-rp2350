@@ -1,111 +1,88 @@
 # pi86-rp2350 Documentation
 
-This directory contains the design contracts, implementation plans, engineering methods, and physical evidence for `pi86-rp2350`.
+This directory contains the detailed architecture, interface contracts, engineering notes, implementation plans, and historical validation records for `pi86-rp2350`.
 
-The documentation is organized by authority and purpose. Architecture documents describe the intended system. Validation records describe what a specific physical run proved. A target is not considered implemented merely because it appears in a design document.
+The top-level [`README.md`](../README.md) is the public project overview. Documents here carry the implementation and engineering detail that does not belong on the repository front page.
 
 ## Start here
 
-1. [`../README.md`](../README.md) - project purpose, architecture, and long-term goals
-2. [`project_overview.md`](project_overview.md) - compact system scope and research model
-3. [`architecture.md`](architecture.md) - companion-chip timing and ownership architecture
-4. [`hardware_contract.md`](hardware_contract.md) - canonical physical interface
+1. [`architecture.md`](architecture.md) - canonical RP2350/V30 system architecture
+2. [`hardware_contract.md`](hardware_contract.md) - physical interface and signal contract
+3. [`dual_core_partitioning.md`](dual_core_partitioning.md) - realtime and service-role ownership
+4. [`companion_service_abi.md`](companion_service_abi.md) - host/V30 companion-service ABI
 5. [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - provider-neutral host bridge
-6. [`story/README.md`](story/README.md) - four-part project story linked to physical evidence
+6. [`bringup.md`](bringup.md) - physical bring-up and operating procedure
 
-## Architecture and contracts
+## Architecture and interfaces
 
 | Document | Role |
 |---|---|
-| [`architecture.md`](architecture.md) | RP2350/V30 data, control, and service planes |
-| [`companion_service_abi.md`](companion_service_abi.md) | canonical 64-byte host record and V30 mailbox ABI |
-| [`hardware_contract.md`](hardware_contract.md) | canonical physical header and signal contract |
+| [`architecture.md`](architecture.md) | Overall physical V30 + RP2350 companion-chip architecture |
+| [`hardware_contract.md`](hardware_contract.md) | Canonical Raspberry Pi 40-pin physical interface |
 | [`pin_mapping.md`](pin_mapping.md) | GPIO, header, and V30 signal mapping |
-| [`dual_core_partitioning.md`](dual_core_partitioning.md) | realtime/service roles and queue ownership |
-| [`native_bios_architecture.md`](native_bios_architecture.md) | native V30 BIOS design |
-| [`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md) | arbitrary internal-SRAM ROM response research |
-| [`pc1c1_native_bios_platform.md`](pc1c1_native_bios_platform.md) | native BIOS platform contracts |
-| [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) | dependency-driven PC compatibility model |
+| [`dual_core_partitioning.md`](dual_core_partitioning.md) | Realtime-control and asynchronous-service roles |
+| [`companion_service_abi.md`](companion_service_abi.md) | Host records and V30-visible mailbox/service ABI |
+| [`pc1c0c1_arbitrary_sram_rom_architecture.md`](pc1c0c1_arbitrary_sram_rom_architecture.md) | Address-qualified internal-SRAM response research |
+| [`native_bios_architecture.md`](native_bios_architecture.md) | Native V30 BIOS workload architecture |
+| [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) | Optional PC-class compatibility profile |
 
-## Host and AI bridge
+The central architectural boundary is simple: **PIO/DMA and bounded on-chip state own current-cycle V30 timing; Arm software, host tools, storage, and AI operate around that realtime path.**
+
+## Host, observation, and AI
 
 | Document | Role |
 |---|---|
-| [`ai_bridge_architecture.md`](ai_bridge_architecture.md) | stable host/V30 translation boundary |
-| [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) | staged gates and accepted implementations |
-| [`development/windows_physical_validation.md`](development/windows_physical_validation.md) | Windows HID/CDC validation workflow |
-| [`adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md`](adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md) | mailbox sequencer decision |
-| [`adr/0005-adopt-host-bridge-and-companion-service-terminology.md`](adr/0005-adopt-host-bridge-and-companion-service-terminology.md) | provider-neutral terminology decision |
+| [`ai_bridge_architecture.md`](ai_bridge_architecture.md) | Provider-neutral host/V30 translation boundary |
+| [`companion_service_abi.md`](companion_service_abi.md) | Machine-readable host and companion-service records |
+| [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md) | Historical/current bridge implementation work |
+| [`adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md`](adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md) | Mailbox sequencer decision |
+| [`adr/0005-adopt-host-bridge-and-companion-service-terminology.md`](adr/0005-adopt-host-bridge-and-companion-service-terminology.md) | Provider-neutral terminology decision |
 
-The V30-visible interface is a companion service, not an AI abstraction. Codex was the first validated host adapter; conventional software, ChatGPT, an OpenAI API client, or another tool may use the same provider-neutral bridge.
+AI is a host-side client of the same observation, control, and experiment interfaces available to conventional tools. The V30-visible side remains an ordinary machine interface built from memory, I/O, interrupts, and mailbox state.
 
 ## Hardware
 
-- [`hardware.md`](hardware.md) - present physical platform and electrical notes
-- [`pi86_hat_design_review.md`](pi86_hat_design_review.md) - original HAT review and future board direction
-- [`hardware/v3_companion_board_architecture.md`](hardware/v3_companion_board_architecture.md) - canonical V3.0 target board architecture
+- [`hardware.md`](hardware.md) - physical platform and electrical notes
+- [`hardware_contract.md`](hardware_contract.md) - canonical current hardware contract
+- [`pin_mapping.md`](pin_mapping.md) - current signal mapping
+- [`pi86_hat_design_review.md`](pi86_hat_design_review.md) - engineering review of the original Pi86 HAT
 - [`adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](adr/0001-use-rpi-physical-pin-as-hardware-abi.md) - 40-pin physical ABI decision
-- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - READY and deterministic memory policy
+- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - deterministic memory/READY policy
+
+The existing Pi86 HAT is the working hardware baseline. Older replacement-board concepts, including [`hardware/v3_companion_board_architecture.md`](hardware/v3_companion_board_architecture.md), are retained as historical design records rather than the current project direction.
 
 ## Development and engineering method
 
 - [`development/build_and_toolchain.md`](development/build_and_toolchain.md) - build environment
 - [`toolchain.md`](toolchain.md) - toolchain reference
-- [`ENGINEERING_PLAYBOOK.md`](../ENGINEERING_PLAYBOOK.md) - top-level engineering workflow
+- [`../ENGINEERING_PLAYBOOK.md`](../ENGINEERING_PLAYBOOK.md) - engineering workflow
 - [`engineering_playbook/README.md`](engineering_playbook/README.md) - playbook index
-- [`engineering_playbook/engineering_truth_hierarchy.md`](engineering_playbook/engineering_truth_hierarchy.md) - evidence authority
-- [`engineering_playbook/test_acceptance_criteria.md`](engineering_playbook/test_acceptance_criteria.md) - acceptance rules
-- [`engineering_playbook/diagnostic_design.md`](engineering_playbook/diagnostic_design.md) - diagnostic design method
-- [`bringup.md`](bringup.md) - current physical build/flash/validation entrypoint
+- [`bringup.md`](bringup.md) - physical build/flash/bring-up entrypoint
 - [`bringup/recovery.md`](bringup/recovery.md) - flashing, USB, evidence, and rollback recovery
-- [`../tools/docs/README.md`](../tools/docs/README.md) - automated Markdown and documentation-contract checks
+- [`../tools/docs/README.md`](../tools/docs/README.md) - documentation checks
 
-## Plans and compatibility work
+## Workloads and compatibility
 
-Planning documents describe intended work and may contain historical gate names:
+BIOS, PIC/PIT services, diagnostic ROMs, DOS, ELKS, storage, display, keyboard, and other PC-class behavior are treated as workloads or optional compatibility profiles around the same physical V30/RP2350 architecture.
 
-- [`pc1c_rom_execution_plan.md`](pc1c_rom_execution_plan.md)
-- [`ai_bridge_implementation_plan.md`](ai_bridge_implementation_plan.md)
+Relevant documents include:
+
+- [`native_bios_architecture.md`](native_bios_architecture.md)
+- [`native_bios_diagnostic_console.md`](native_bios_diagnostic_console.md)
+- [`pc1c1_native_bios_platform.md`](pc1c1_native_bios_platform.md)
 - [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md)
-- [`gate12_scope.md`](gate12_scope.md)
+- [`elks_v30_fd1440_bringup.md`](elks_v30_fd1440_bringup.md)
 
-Use Git history and validation records to determine whether a planned gate has been accepted.
+## Validation and history
 
-## Validation evidence
+[`validation/`](validation/) contains accepted physical validation records. [`bringup/gate_history.md`](bringup/gate_history.md), [`retrospectives/`](retrospectives/), [`releases/`](releases/), and [`story/`](story/) preserve development history and measured results.
 
-[`validation/`](validation/) contains physical acceptance records. These documents preserve the exact tested target, configured clock, firmware identity, observed output, scope, and limitations.
-
-Important evidence families include:
-- [`bringup/gate_history.md`](bringup/gate_history.md) - retained Gate 0–12 development record;
-
-- PC1-B PIO-direct response and frequency characterization;
-- PC1-C address capture, ROM, RAM, and Native BIOS execution;
-- dual-core service isolation and trace backpressure;
-- AI-B0/B1/B2/B3 mailbox, HID/CDC, and Codex-adapter validation;
-- PIC, multi-IRQ, and PIT interrupt validation.
-- [`validation/companion_runtime_1mhz_validation.md`](validation/companion_runtime_1mhz_validation.md) - persistent `STI`/`HLT`, physical INTR/INTA, heartbeat, and host reattach acceptance.
-
-Validation documents are engineering history. Do not rewrite their measured values to match a later architecture or naming preference. Add a clearly dated note if later interpretation changes.
+Historical documents should remain historical: later architecture cleanup should not rewrite old measurements, clocks, gate names, or captured outputs. Add a dated clarification or superseding document when interpretation changes.
 
 ## Architecture decisions
 
-[`adr/`](adr/) records decisions, context, consequences, and superseded assumptions. ADRs may be clarified, but accepted decisions should not be silently rewritten; supersede them with a new ADR when the decision itself changes.
+[`adr/`](adr/) records architecture decisions, their context, and consequences. When a decision changes materially, prefer a new superseding ADR rather than silently rewriting the original decision.
 
-## Retrospectives and releases
+## Documentation maintenance
 
-- [`retrospectives/`](retrospectives/) - lessons from completed work
-- [`releases/`](releases/) - milestone summaries
-- [`story/`](story/) - long-form narrative of the accepted execution,
-  memory, communication, and persistent-runtime milestones
-
-These are historical records, not the canonical current architecture.
-
-## Documentation maintenance rules
-
-1. Keep the main README and architecture documents stable and goal-oriented.
-2. Put changing implementation order in plan documents.
-3. Put exact physical output and limitations in validation records.
-4. Keep provider-specific AI behavior above the Host Bridge boundary.
-5. Distinguish fixed, address-qualified, bounded, cached, and general response engines.
-6. Prefer links to canonical contracts instead of duplicating pin maps or ABI tables.
-7. Never convert a target capability into a validated claim without physical evidence.
+Keep the public README compact. Put stable system structure in canonical architecture/contracts, changing implementation work in plans and issues, and exact measured behavior in validation/history documents. Prefer links to canonical interfaces instead of duplicating pin maps, ABI tables, or timing rules across multiple files.
