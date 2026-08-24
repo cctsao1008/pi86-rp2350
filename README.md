@@ -1,6 +1,6 @@
 # pi86-rp2350
 
-**A physical NEC V30 with Raspberry Pi RP2350 PIO and DMA acting as a deterministic, programmable companion chipset.**
+**⚡ A physical NEC V30 with Raspberry Pi RP2350 PIO and DMA acting as a deterministic, programmable companion chipset.**
 
 `pi86-rp2350` keeps a real NEC V30 CPU and the original Pi86 V20/V30 HAT, while replacing the Linux/GPIO polling model with a bare-metal RP2350 architecture based on PIO, DMA, and deterministic on-chip state.
 
@@ -14,7 +14,7 @@ This is **not an x86 emulator**. The NEC V30 executes native code; the RP2350 pr
   <em>Physical NEC D70116C-8 (V30) on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
 </p>
 
-## Concept
+## 🧠 Concept
 
 The RP2350 is treated as a **software-defined companion chipset around a physical 8086-class processor**, not as a faster host that bit-bangs the V30 bus in software.
 
@@ -25,7 +25,7 @@ The project is built around four ideas:
 - **Programmable** — memory, I/O, interrupts, runtime services, and compatibility behavior can be supplied by the RP2350.
 - **AI-operable** — modern tools and AI agents can observe, configure, and analyze the machine through structured host-side interfaces without entering the realtime bus path.
 
-## Architecture
+## 🏗️ Architecture
 
 ```text
                  host tools / scripts / AI agents
@@ -77,7 +77,7 @@ AI remains host-side. It can reason over structured state, request bounded opera
 
 See [`docs/architecture.md`](docs/architecture.md), [`docs/dual_core_partitioning.md`](docs/dual_core_partitioning.md), [Issue #50](https://github.com/cctsao1008/pi86-rp2350/issues/50), and [`docs/companion_service_abi.md`](docs/companion_service_abi.md).
 
-## Hardware and workloads
+## 🔌 Hardware and workloads
 
 The working hardware baseline is:
 
@@ -100,7 +100,7 @@ Canonical signal mapping and interface rules are documented in [`docs/hardware_c
 
 Board reference: [Waveshare RP2350-PiZero Wiki](https://www.waveshare.com/wiki/RP2350-PiZero).
 
-## Project lineage
+## 🧬 Project lineage
 
 `pi86-rp2350` builds directly on the [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its physical V20/V30 HAT.
 
@@ -108,7 +108,7 @@ The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V
 
 `pi86-rp2350` preserves that physical CPU/HAT concept while moving the timing-critical boundary into RP2350 PIO, DMA, and bounded on-chip state, then exposing the resulting machine to modern host tooling and AI-assisted experimentation.
 
-## Documentation
+## 📚 Documentation
 
 - [`docs/README.md`](docs/README.md) — documentation index
 - [`docs/architecture.md`](docs/architecture.md) — detailed system architecture
@@ -120,7 +120,7 @@ The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V
 - [`docs/bringup.md`](docs/bringup.md) — bring-up and operating procedure
 - [`docs/validation/`](docs/validation/) — physical validation records
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its creator for the V20/V30 HAT design, software architecture, and documentation that provided the foundation for this work.
 
