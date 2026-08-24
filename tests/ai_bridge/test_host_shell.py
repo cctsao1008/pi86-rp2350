@@ -12,9 +12,9 @@ from host_shell import command_help, parse_command, unavailable_message  # noqa:
 class HostShellTests(unittest.TestCase):
     def test_complete_framework_commands_are_registered(self) -> None:
         for name in (
-            "load", "run", "stop", "restart", "send", "console", "ls",
+            "load", "run", "stop", "restart", "bootloader", "send", "console", "ls",
             "put", "get", "df", "mount", "unmount", "sync", "mem", "top",
-            "trace", "timeout", "status", "quit",
+            "trace", "selftest", "timeout", "status", "quit",
         ):
             self.assertEqual(parse_command(name).spec.name, name)
 
@@ -27,6 +27,7 @@ class HostShellTests(unittest.TestCase):
     def test_aliases_are_canonicalized(self) -> None:
         self.assertEqual(parse_command("exit").spec.name, "quit")
         self.assertEqual(parse_command("?").spec.name, "help")
+        self.assertEqual(parse_command("bootsel").spec.name, "bootloader")
 
     def test_unknown_command_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown command"):

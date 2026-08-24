@@ -18,8 +18,17 @@ The RP2350-PiZero resource split relevant to this project is:
 
 - GPIO0-GPIO27: exposed across the Raspberry Pi-compatible 40-pin HAT interface.
 - GPIO28-GPIO29: PIO-USB.
-- GPIO30-GPIO31 and GPIO40-GPIO43: onboard MicroSD.
-- GPIO32-GPIO39 and GPIO44-GPIO46: onboard DVI-related signals.
+- GPIO28-GPIO29: onboard PIO-USB D+/D-.
+- GPIO30-GPIO31 and GPIO40-GPIO43: onboard MicroSD (SDIO, or SPI using
+  CLK=30, MOSI=31, MISO=40, CS=43).
+- GPIO32-GPIO39 and GPIO44-GPIO46: onboard Mini HDMI / DVI (three data
+  pairs, clock pair, SDA, SCL, and CEC).
+- GPIO47: optional PSRAM CS1.
+
+Canonical firmware initializes GPIO28-GPIO46 as passive inputs with RP2350
+pulls disabled. MicroSD, DVI, and PIO-USB remain electrically inactive until
+their service explicitly claims the pins. DVI and PIO-USB are mutually
+exclusive runtime resources on this board.
 - GPIO47: PSRAM chip select.
 - Native USB uses the RP2350 dedicated USB D+/D- interface rather than GPIO0-GPIO27.
 

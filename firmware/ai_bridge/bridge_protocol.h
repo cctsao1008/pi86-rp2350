@@ -26,6 +26,8 @@ typedef enum {
     PI86_BRIDGE_MESSAGE_WORKLOAD_CONTROL = 0x23,
     PI86_BRIDGE_MESSAGE_WORKLOAD_STATUS = 0x24,
     PI86_BRIDGE_MESSAGE_WORKLOAD_RESULT = 0x25,
+    PI86_BRIDGE_MESSAGE_RUNTIME_CONTROL = 0x30,
+    PI86_BRIDGE_MESSAGE_RUNTIME_STATUS = 0x31,
     PI86_BRIDGE_MESSAGE_ERROR = 0x7F,
 } pi86_bridge_message_type_t;
 
@@ -48,6 +50,11 @@ typedef enum {
     PI86_WORKLOAD_CONTROL_RESTART = 3,
     PI86_WORKLOAD_CONTROL_STATUS = 4,
 } pi86_workload_control_operation_t;
+
+typedef enum {
+    PI86_RUNTIME_CONTROL_ENTER_BOOTLOADER = 1,
+    PI86_RUNTIME_CONTROL_SELFTEST = 2,
+} pi86_runtime_control_operation_t;
 
 enum {
     /* A retry reuses the original live sequence. It never authorizes a
