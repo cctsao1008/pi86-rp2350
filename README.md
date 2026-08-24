@@ -18,6 +18,29 @@ physical bus and the shared resources around the processor.
   <em>Physical NEC D70116C-8 on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
 </p>
 
+## Why is this interesting?
+
+Most retro-computing projects either recreate the computer that once surrounded
+an old processor or emulate that processor in modern software. `pi86-rp2350`
+asks a different question:
+
+> **Can a real vintage CPU become a physical processor that a modern Host can
+> load, communicate with, supervise, and restart—without first rebuilding a
+> traditional PC around it?**
+
+The V30 knows nothing about USB, Python, FAT filesystems, or AI. It only knows
+its native instruction set, interrupts, and physical bus. The Host does not
+pretend to be the V30 or execute instructions for it. Instead, the RP2350
+bridges those two worlds: modern control and shared resources on one side, real
+native execution on forty-year-old silicon on the other.
+
+That changes the role of the processor. The V30 is no longer confined to being
+the CPU of a reconstructed PC, and it is not reduced to a software model. It
+becomes a bare-metal physical execution target inside a modern runtime.
+
+> **This project is not only about making an old CPU boot again. It explores a
+> new way for that CPU to remain useful, observable, and alive.**
+
 ## The runtime
 
 ```text
