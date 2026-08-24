@@ -1,169 +1,302 @@
-# V30 Companion-Chip Architecture
+# V30 Machine Platform Architecture
 
 ## 1. Scope
 
-`pi86-rp2350` builds a programmable companion chipset around a **physical NEC V30** using the Waveshare RP2350-PiZero and the original Pi86 V20/V30 HAT.
+`pi86-rp2350` builds a programmable machine platform around a **physical NEC V30** using the RP2350 and the original Pi86 V20/V30 HAT.
 
-The V30 remains the processor executing native code. The RP2350 supplies the surrounding timing, memory, I/O, interrupt, observation, control, and host-service functions.
-
-The architecture is based on one boundary:
-
-> **PIO/DMA and bounded on-chip state own current-cycle V30 timing. Arm software, host tools, storage, and AI operate around that realtime path.**
-
-The Raspberry Pi-compatible 40-pin physical header remains the hardware ABI. See [`hardware_contract.md`](hardware_contract.md).
-
-## 2. System model
+The architecture has three actors:
 
 ```text
-Host tools / AI
-       |
-Observe / Control / Experiment
-       |
-     RP2350
-  PIO / DMA / services
-       |
- Original Pi86 HAT
-       |
- Physical NEC V30
+Host
+  |
+  | USB HID + CDC
+  v
+RP2350 Machine Platform
+  |
+  | deterministic physical bus
+  v
+Original Pi86 HAT
+  |
+  v
+Physical NEC V30
 ```
 
-The RP2350 is not treated as a faster host running a software polling loop. Its responsibilities are split into three architectural layers:
+The V30 executes native code and owns its architectural CPU state. The RP2350 constructs, owns, controls, and observes the surrounding execution environment. The Host requests machine operations and consumes observations.
 
-- **Deterministic bus plane** - current-cycle capture, qualification, response, clock/phase control, and DMA transport.
-- **Control/service plane** - machine state, device services, supervision, USB-facing functions, image management, and non-critical work.
-- **Host interface** - structured observation, bounded control, repeatable experiments, and conventional or AI-assisted tooling.
+The central realtime boundary is:
 
-Exact PIO state-machine placement or Core 0/Core 1 assignment may change without changing these ownership rules.
+> **PIO/DMA and bounded on-chip state own current-cycle V30 timing. Arm software, USB, storage, and host tools operate outside that active-cycle path.**
 
-## 3. Deterministic bus plane
+This architecture does not require an IBM PC BIOS, an operating system, a PC memory map, or a specific host programming language.
 
-### 3.1 Passive capture
+See [`adr/0007-adopt-host-constructed-v30-machine-model.md`](adr/0007-adopt-host-constructed-v30-machine-model.md).
 
-PIO observes V30 address, control, and data phases without taking ownership of the AD bus. Captured state can be retained through DMA for later decoding or analysis.
+## 2. Governing execution model
 
-### 3.2 Qualified response
+The machine is prepared before the V30 is released into execution:
 
-A responder may drive AD0-AD15 only for a qualified physical cycle. Bus direction, drive enable, response data, and release are part of the deterministic response path rather than ordinary software GPIO activity.
+```text
+Host request / stored configuration
+             |
+             v
+RP2350 prepares machine state
+             |
+             +-- V30 Memory Map
+             +-- workload image
+             +-- deterministic response state
+             +-- Reset Handoff
+             +-- optional capabilities
+             |
+             v
+        release RESET
+             |
+             v
+      Physical V30 executes
+             |
+             v
+     RP2350 observes results
+```
 
-Unsupported or late responses must remain high-Z rather than expose stale or speculative data.
+The governing principle is:
 
-### 3.3 Clock and phase
+> **The RP2350 constructs the V30-visible machine before execution; the physical V30 then executes inside that prepared environment.**
 
-PIO owns V30 clock generation and the phase relationships used by deterministic response engines. Clock generation is part of the physical machine configuration, not a software delay mechanism.
+Traditional boot chains such as BIOS -> boot sector -> loader -> operating system are optional compatibility workloads, not the core execution model.
 
-### 3.4 DMA transport
+## 3. RP2350 firmware responsibilities
 
-DMA moves prepared state between SRAM and PIO FIFOs and retains captured observations. DMA is a transport mechanism; it does not make an Arm core part of an active V30 response cycle.
+The minimum complete RP2350 firmware has six responsibilities. These are responsibilities, not mandatory software layers.
 
-## 4. Arm control and service roles
+### V30 Bus Engine
 
-Arm software prepares, supervises, and consumes state around the deterministic bus plane.
+Own the deterministic physical interface:
 
-A **realtime-control role** may:
+- V30 clock and phase generation;
+- address/control capture and cycle qualification;
+- AD0-AD15 direction, drive, release, and high-Z safety;
+- prepared memory/I/O read responses;
+- write capture;
+- deterministic interrupt/INTA response when such a capability is enabled;
+- raw observation transport through PIO/DMA.
 
-- supervise bus epochs and deterministic engines;
-- prepare immutable response state outside the active cycle;
-- manage bounded queues and ownership transfer;
-- capture writes or exceptional events;
-- detect starvation, deadline, or transport failures.
+### Machine Control
 
-An **asynchronous-service role** may:
+Own machine-level physical state such as:
 
-- provide USB console and host communication;
-- manage ROM/test images and configuration;
-- process retained traces;
-- perform filesystem or storage work;
-- provide debugging and higher-level machine services.
+- RESET assertion/release;
+- supported clock configuration/start/stop;
+- machine state;
+- terminal safe state and fault handling.
 
-These are architectural roles rather than permanent core numbers. Detailed inter-core ownership is defined in [`dual_core_partitioning.md`](dual_core_partitioning.md).
+Prefer explicit physical semantics over ambiguous abstractions. V30 `HLT`, clock stop, and RESET assertion are different operations.
 
-## 5. Memory and machine services
+A minimal machine-state model is:
 
-The V30 exposes a 20-bit physical address space. The RP2350 separates deterministic hot state from slower backing resources.
+```text
+RESET
+PREPARED
+RUNNING
+STOPPED
+FAULT
+```
 
-- **Internal SRAM** holds deterministic response state, descriptors, hot ROM/RAM windows, mailbox state, device state, and PIO/DMA queues.
-- **External PSRAM** is bulk backing/workspace for writable state, traces, snapshots, images, or service buffers.
-- **Flash and external/host storage** hold persistent firmware, ROMs, disk images, and workload assets outside the active-cycle path.
+### Memory
 
-The original Pi86 HAT keeps V30 `READY` asserted, so arbitrary slow backing access cannot be assumed to complete a current-cycle response. A resource must either be represented by a bounded deterministic hit or remain outside the active response path.
+Own the V30 Memory Map, backing assignments, and deterministic preparation policy.
+
+The V30 Memory Map describes CPU-visible semantics. Physical resources such as RP2350 Internal SRAM and External PSRAM are backing implementation choices.
+
+See [`memory_architecture.md`](memory_architecture.md).
+
+### Workload / Reset Handoff
+
+Prepare a native workload and transfer execution from the V30 architectural reset state to the selected workload.
+
+The V30 reset fetch at physical `FFFF0h` is a **Reset Handoff Point**, not an implicit BIOS entry.
+
+The initial launch contract is intentionally small:
+
+```text
+entry CS:IP
+initial SS:SP
+initial DS
+initial ES
+```
+
+The RP2350 may prepare a minimal deterministic trampoline that establishes this state before jumping to the workload entry point.
+
+The initial workload format is a raw binary plus minimal launch metadata. Executable-format ecosystems, relocation frameworks, package managers, or operating-system loaders are added only if a demonstrated workload requires them.
+
+### Host Interface
+
+Expose a small language-independent USB contract:
+
+```text
+USB HID = structured command / response
+USB CDC = log / diagnostic / observation
+```
+
+The project defines the wire protocol and may provide sample host code. Python, C, Rust, Web applications, AI agents, CLIs, and other host programs are clients rather than architecture components.
+
+See [`host_protocol.md`](host_protocol.md).
+
+### Persistent Storage
+
+Own persistent machine assets in External NOR Flash, including firmware, recovery reservation, metadata/configuration, and filesystem-backed workloads or data.
+
+SD storage may be added as optional removable bulk storage. Neither Flash filesystem work nor SD access is part of the current-cycle V30 timing path.
+
+## 4. Deterministic bus boundary
+
+The original Pi86 HAT keeps V30 `READY` asserted. A no-wait V30 transaction therefore cannot depend on an unbounded lookup or refill.
+
+A current-cycle path must not synchronously depend on:
+
+- an M33 software decision;
+- an inter-core round trip;
+- USB callbacks or host latency;
+- filesystem operations;
+- External NOR Flash access;
+- arbitrary External PSRAM latency;
+- dynamic allocation or unbounded locks.
+
+Current-cycle state must already be represented by a bounded deterministic mechanism, typically prepared RP2350 Internal SRAM state feeding PIO/DMA.
+
+Unsupported or late responses must remain electrically safe rather than drive stale or speculative data.
 
 See [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md).
 
-Memory and I/O backends are separated from bus timing:
+## 5. Memory architecture
+
+Canonical physical resource names are:
 
 ```text
-physical V30 transaction
-          |
-  classify / qualify
-          |
-   +------+------+
-   |             |
- memory        I/O/device
-   |             |
-ROM / RAM    PIC / PIT / mailbox / ...
+RP2350 Internal SRAM
+External NOR Flash
+External PSRAM
+SD Card (optional)
 ```
 
-The bus layer owns timing, lane semantics, direction, and drive qualification. Memory and device backends own address/port semantics, not GPIO timing.
+The V30 exposes a 20-bit physical address space, but the core architecture does not impose a PC/XT layout.
 
-## 6. Observation, control, and experiment interface
+The minimum useful V30 Memory Map provides:
 
-The host-facing architecture exposes three generic capabilities.
+```text
+Reset Handoff Region
+Executable Region
+Writable RAM Region
+Defined Unmapped Behavior
+```
 
-### Observe
+The executable and writable regions are selected by the workload/machine configuration rather than fixed by PC convention.
 
-Provide machine-readable V30-visible and RP2350-visible state such as bus activity, memory/I/O transactions, interrupt activity, response class, timing metadata, and runtime/device state.
+### Resource roles
 
-### Control
+- **RP2350 Internal SRAM** - firmware runtime, deterministic bus state, queues/descriptors, explicitly prepared V30 windows, short trace/fault state.
+- **External NOR Flash** - firmware, recovery capacity, persistent metadata, filesystem, workloads/assets.
+- **External PSRAM** - target-machine bulk volatile backing/workspace, workload staging, snapshots, long traces; not an assumed direct current-cycle responder.
+- **SD Card** - optional removable bulk storage.
 
-Provide bounded machine operations outside the current-cycle timing path, such as machine reset/run control, supported clock configuration, image selection, trace configuration, interrupt/test requests, and state queries.
+An SRAM + NOR configuration remains useful for bring-up and diagnostics. The target machine configuration includes External PSRAM so bulk volatile machine state does not consume deterministic on-chip SRAM.
 
-### Experiment
+The initial implementation uses explicit prepared deterministic windows rather than a general cache hierarchy.
 
-Provide a repeatable host workflow that can configure a test, execute it on the physical V30, retain structured results, compare runs, and pass the same data to scripts or AI-assisted analysis.
+See [`memory_architecture.md`](memory_architecture.md).
 
-AI is therefore a host-side client, not a bus-timing component. Provider-specific behavior remains above the machine interface.
+## 6. Filesystem ownership
 
-See [Issue #50](https://github.com/cctsao1008/pi86-rp2350/issues/50), [`ai_bridge_architecture.md`](ai_bridge_architecture.md), and [`companion_service_abi.md`](companion_service_abi.md).
+Persistent Flash storage follows one rule:
 
-## 7. Compatibility profiles and workloads
+> **One filesystem, one owner, multiple clients.**
 
-PC-class behavior is optional rather than the definition of the architecture.
+The RP2350 is the sole filesystem owner.
 
-The same physical V30/RP2350 platform can host increasingly complex workloads such as:
+- Host filesystem access is mediated by the Host Protocol.
+- RP2350 firmware accesses its own storage directly through the filesystem implementation.
+- V30 file access, if required by a future workload, is an optional RP2350-mediated service.
 
-- native diagnostic ROMs and assembly tests;
-- 8259A-compatible interrupt services;
-- 8253/8254-class timer services;
-- BIOS workloads;
-- DOS, ELKS, or other native V30 software;
-- optional storage, display, keyboard, or other PC-class services.
+The V30 does not directly mount or own the External NOR Flash filesystem.
 
-These workloads exercise the programmable chipset but do not require the project to become a conventional PC/XT clone.
+## 7. Host interaction
 
-## 8. Existing-HAT timing boundary
+The Host is a control and observation client, not a realtime component.
 
-The project retains the original Pi86 HAT as the working hardware baseline.
+HID carries structured command/response operations such as machine control, memory access, storage access, workload management, state query, and trace control.
 
-The scattered V30 AD0-AD15 mapping is handled by encoded GPIO words and PIO pin ownership. Validated PIO-direct response work established that this physical mapping can be driven without an M33 current-cycle round trip.
+CDC carries logs, diagnostics, state changes, fault reports, and observation summaries.
 
-The existing `READY` connection remains a hard architectural constraint: the software-defined chipset must design around deterministic hits and safe unsupported cycles rather than assuming wait-state insertion.
+Host protocol semantics are independent of the host language and should not be tied to HID report size. A future bulk payload transport may be added without redefining machine operations.
 
-A replacement board is not part of the current architecture unless a demonstrated blocker makes reconsideration necessary. Older replacement-board documents remain historical design records.
+A Host disconnect is not by itself a machine-integrity fault. The V30 may continue to execute unless the active workload explicitly depends on an optional host-side service.
 
-## 9. Implementation lineage
+See [`host_protocol.md`](host_protocol.md).
 
-The repository contains both early software-stepped mechanisms and newer PIO/DMA deterministic mechanisms.
+## 8. Failure and safe-state model
 
-The software-stepped path remains useful for functional characterization and historical bring-up. It is not the architectural model for current-cycle continuous-clock response.
+Two classes of failure are distinguished.
 
-The current architecture derives from the validated progression from reset/fetch and software-stepped memory/I/O semantics to PIO-direct clocking, qualified response, interrupt handling, descriptor-fed ROM execution, persistent runtime, and host bridge experiments. Exact measured results belong in [`validation/`](validation/) and historical bring-up records rather than this architecture document.
+### Management error
 
-## 10. Related documents
+Malformed commands, missing files, invalid ranges, unsupported capabilities, or bad workload metadata return an explicit error while leaving the machine in a defined state.
 
+### Machine-integrity fault
+
+If deterministic correctness, bus ownership, or critical published machine state cannot be guaranteed, the RP2350 enters `FAULT` and establishes a safe physical state:
+
+```text
+assert V30 RESET
+place clock in defined safe state
+release AD bus to high-Z
+retain diagnostics
+```
+
+The governing rule is:
+
+> **If deterministic correctness is uncertain, stop the physical machine safely.**
+
+## 9. RP2350 core roles
+
+PIO/DMA own active V30 cycles. M33 work is separated by responsibility rather than permanent Core 0/Core 1 numbering.
+
+A realtime role prepares and supervises future deterministic state. A service role handles USB, storage, formatting, trace processing, and other asynchronous work.
+
+The exact core-number assignment is an implementation choice based on measured IRQ behavior, SDK requirements, SRAM-bank contention, and service load.
+
+See [`dual_core_partitioning.md`](dual_core_partitioning.md).
+
+## 10. Optional capabilities and compatibility
+
+The following are not required to form the core machine:
+
+- BIOS APIs;
+- DOS or ELKS;
+- 8259A/PIC, PIT, or PPI compatibility;
+- IBM PC memory maps;
+- disk-image boot paths;
+- display or keyboard compatibility;
+- V30 filesystem services;
+- persistent runtime/heartbeat mechanisms;
+- AI-specific services.
+
+They remain valuable as optional workloads, compatibility profiles, or validated mechanisms.
+
+Historical BIOS, PIC/PIT, mailbox, ELKS, and PC-compatibility documents and validation records remain authoritative for the tests they describe; they do not define the new minimum architecture.
+
+## 11. Implementation lineage
+
+The repository contains validated progression from software-stepped bring-up to PIO/DMA deterministic clocking, qualified response, SRAM-backed native execution, interrupts, persistent runtime experiments, and HID/CDC host interaction.
+
+Those results remain engineering evidence. Architecture cleanup must not rewrite measured clocks, captured outputs, gate names, or historical acceptance records.
+
+The current architecture changes the interpretation of those mechanisms: they are reusable capabilities around a smaller host-constructed V30 machine rather than mandatory steps toward a PC-compatible endpoint.
+
+## 12. Related documents
+
+- [`memory_architecture.md`](memory_architecture.md) - physical memory resources, V30 Memory Map, backing policy
+- [`host_protocol.md`](host_protocol.md) - canonical Host/RP2350 wire contract
 - [`hardware_contract.md`](hardware_contract.md) - physical interface contract
 - [`pin_mapping.md`](pin_mapping.md) - GPIO/header/V30 signal mapping
 - [`dual_core_partitioning.md`](dual_core_partitioning.md) - realtime/service ownership
-- [`companion_service_abi.md`](companion_service_abi.md) - host and V30-visible ABI
-- [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - provider-neutral host bridge
-- [`adr/0002-adopt-v30-companion-chip-architecture.md`](adr/0002-adopt-v30-companion-chip-architecture.md) - companion-chip architecture decision
-- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - deterministic memory policy
+- [`companion_service_abi.md`](companion_service_abi.md) - validated historical/optional Companion Service record and V30 mailbox mechanism
+- [`adr/0007-adopt-host-constructed-v30-machine-model.md`](adr/0007-adopt-host-constructed-v30-machine-model.md) - current machine-model decision
+- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - deterministic memory/READY policy
