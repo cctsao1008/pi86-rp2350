@@ -1,7 +1,14 @@
 # ADR 0003: Require READY or Deterministic Hits for General Memory
 
-- Status: Accepted
+- Status: Accepted; hardware-redesign clause partially superseded by ADR 0006
 - Date: 2026-08-19
+
+> **Supersession note (2026-08-24):** ADR 0006 retains the current Pi86 HAT as
+> the project hardware baseline and supersedes this ADR's requirement that a
+> future V3.0 HAT shall provide controllable `READY`. The deterministic-hit,
+> observable high-Z miss, no-current-cycle-M33, and asynchronous PSRAM/backing
+> policies below remain authoritative. The original decision text is preserved
+> for historical provenance.
 
 ## Context
 
@@ -134,6 +141,7 @@ control flow. It is execution evidence, not random-access service.
 
 ## Related documents
 
-- [`../hardware/v3_companion_board_architecture.md`](../hardware/v3_companion_board_architecture.md) - V3.0 board-level READY and ownership contract
+- [`0006-retain-current-pi86-hat-as-hardware-baseline.md`](0006-retain-current-pi86-hat-as-hardware-baseline.md) - superseding hardware-baseline decision
+- [`../hardware/v3_companion_board_architecture.md`](../hardware/v3_companion_board_architecture.md) - historical V3.0 board-level READY study
 - [`../pi86_hat_design_review.md`](../pi86_hat_design_review.md) - present HAT evidence and design review
 - [`../architecture.md`](../architecture.md) - system-level timing and miss policy
