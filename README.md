@@ -1,9 +1,5 @@
 # pi86-rp2350
 
-<p align="center">
-  <img src="docs/images/v30-heartbeat-icon.png" width="180" alt="A physical NEC V30 awakened by a modern Host signal, with a visible heartbeat">
-</p>
-
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
 >
 > **Host-Managed Bare-Metal Physical Processor Runtime**
