@@ -2,169 +2,104 @@
 
 ## Project identity
 
-`pi86-rp2350` is a programmable companion-chip platform built around a physical NEC V30, the original Pi86 V20/V30 HAT interface, and a Waveshare RP2350-PiZero.
+`pi86-rp2350` is a programmable companion-chip platform built around a physical NEC V30, the original Pi86 V20/V30 HAT, and a Waveshare RP2350-PiZero.
 
-The V30 executes native x86 code and owns architectural state. RP2350 PIO, DMA, SRAM, firmware, and external resources provide the surrounding clock, memory, I/O, peripheral, debug, and host-service environment.
+The V30 executes native x86-class code and owns architectural state. The RP2350 supplies the programmable machine around it through PIO, DMA, deterministic on-chip state, firmware, and host-side tooling.
 
-This is not an RP2350 x86 emulator and not merely a board-for-board Pi86 port.
+This is not an x86 emulator and not merely a board-for-board Pi86 port.
 
-## Research objective
+## Core concept
 
-The central question is:
+The project is organized around four ideas:
 
-> How far can an RP2350 act as a deterministic, software-defined companion chipset around a real NEC V30 while retaining physical execution, useful PC-class compatibility, and independently verifiable evidence?
+- **Physical** — the NEC V30 remains the processor executing native code.
+- **Cycle-aware** — bus timing, ownership, and response behavior are explicit.
+- **Programmable** — memory, I/O, interrupts, runtime services, and compatibility behavior can be supplied by the RP2350.
+- **AI-operable** — modern tools and AI agents can observe, configure, and analyze the machine through structured host-side interfaces without entering the realtime bus path.
 
-The work has two connected directions:
+The central architectural boundary is:
 
-1. build a progressively more capable physical V30 computer;
-2. build a provider-neutral bridge between native V30 software and modern host services.
+> **PIO/DMA handle current-cycle V30 timing; Arm software and host tools operate around that realtime path.**
 
-## Why RP2350
-
-The original Pi86 model used a Raspberry Pi and software-timed GPIO service. Its approximately 0.3 MHz physical-CPU operating point is an important historical baseline.
-
-The RP2350 hypothesis is architectural rather than merely computational. PIO and DMA can own exact physical timing while Arm cores and the host handle slower policy and services outside the current bus cycle.
+## System structure
 
 ```text
-PIO / DMA       = deterministic current-cycle data plane
-Realtime role   = supervision and immutable publication
-Service role    = USB, storage, trace, display, and formatting
-Host software   = policy, tools, images, validation, optional AI
+Host tools / AI
+       |
+Observe / Control / Experiment
+       |
+     RP2350
+  PIO / DMA / services
+       |
+ Original Pi86 HAT
+       |
+ Physical NEC V30
 ```
 
-## Companion-chip structure
+PIO and DMA own qualified current-cycle capture and response. Arm software prepares and supervises bounded state, while asynchronous services such as USB, storage, trace processing, and higher-level tooling remain outside the active V30 bus cycle.
 
-```text
-BIOS / monitor / applications
-             |
-        physical NEC V30
-             |
-      multiplexed x86 bus
-             |
- +------------------------------------+
- |               RP2350               |
- | PIO observation / response / clock |
- | DMA transport and retained trace   |
- | SRAM ROM, RAM, mailbox, device state|
- | realtime and service control planes|
- +---------+----------+---------------+
-           |          |
-      bulk memory   USB / SD / display
-```
+Internal SRAM is used for deterministic hot state. PSRAM and persistent storage are treated as backing/workspace unless a separately validated bounded response contract exists.
 
-The physical Raspberry Pi 40-pin header position is the legacy hardware ABI. A future consolidated board may add buffering, voltage-domain handling, controllable READY, and a separate control connector without changing the architectural ownership rules.
+The existing Pi86 HAT remains the hardware baseline. Its `READY` signal is fixed high, so unsupported or late current-cycle responses must not silently depend on slow backing storage.
 
-## Capability domains
+## Observe, control, and experiment
 
-### Physical execution
+The host-facing interface exposes three generic capabilities:
 
-- reset qualification and first fetch at `FFFF0h`;
-- native far jump and internal-SRAM-backed ROM execution;
-- CPU-visible checkpoints rather than transfer counters alone;
-- controlled clock stop and safe terminal bus ownership.
+- **Observe** — machine-readable bus activity, machine state, timing metadata, and runtime state.
+- **Control** — bounded operations such as reset/run control, supported configuration, image selection, trace control, and safe state queries.
+- **Experiment** — repeatable configuration, execution, comparison, and analysis on the physical V30.
 
-### Memory
+AI is one possible host-side client. It can reason over structured state, request bounded operations, compare runs, and analyze failures. It is not part of current-cycle bus timing.
 
-- qualified ROM and bounded RAM response;
-- word, byte-lane, and odd-address semantics;
-- internal SRAM for deterministic hot state;
-- future PSRAM and storage behind explicit cache or READY contracts.
+The same interfaces are intended to remain usable by conventional host software without requiring an AI service.
 
-### I/O and interrupts
+## Compatibility and workloads
 
-- native V30 I/O reads and writes;
-- diagnostic and companion-service mailboxes;
-- 8259A-compatible PIC behavior;
-- interrupt acknowledge, IVT, ISR, EOI, and `IRET`;
-- programmable timer and future PC-class device services.
+PC-class behavior is useful as a compatibility profile and workload set rather than as the definition of the project.
 
-### Host bridge
+Examples include BIOS code, interrupt/timer devices, RAM/ROM machine profiles, storage, display, keyboard, DOS, ELKS, diagnostic ROMs, and other native V30 software.
 
-- provider-neutral fixed records over USB HID;
-- receive-only CDC engineering evidence;
-- asynchronous host service outside current-cycle timing;
-- conventional programs, debuggers, Codex, ChatGPT, or another client above one Host Bridge API.
+These workloads are valuable because they exercise increasingly complex interactions between the physical CPU and the programmable chipset while leaving the core architecture independent of any single PC/XT-compatible endpoint.
 
-The V30 does not know what AI is. It sees only machine services expressed through I/O, memory, polling, interrupts, and native code. AI is an optional modern host-side adapter.
+## Host bridge
 
-### BIOS and software platform
+The Host Bridge is the provider-neutral transport and translation layer between modern host software and V30-visible companion services.
 
-- reproducible native V30 ROM images;
-- project diagnostic console and monitor services;
-- progressively richer BIOS contracts;
-- eventual storage, keyboard, display, boot-sector, and DOS/CP/M-86 exploration.
+To the V30, the RP2350 exposes ordinary machine mechanisms such as I/O ports, memory, polling, interrupts, and mailbox state. Provider-specific concepts such as Codex, ChatGPT, prompts, sessions, or credentials remain above the Host Bridge boundary.
 
-## Evidence classes
+The validated HID/CDC bridge and greeting experiments are retained as historical evidence of one implementation path. They do not define the project identity or limit future host interfaces.
 
-Performance and compatibility claims must name the architecture actually tested:
+## Hardware baseline
 
-| Evidence class | Meaning |
-|---|---|
-| Fixed/prestaged | response sequence known before the epoch |
-| Address-qualified | current physical address selects a bounded response |
-| Bounded memory | validated finite ROM/RAM working set and access pattern |
-| General memory | arbitrary supported addresses with defined miss behavior |
-| Integrated system | ROM, RAM, I/O, interrupts, and sustained workload together |
+The current platform consists of:
 
-A fixed self-loop at 8 MHz does not imply an integrated 8 MHz computer. A human-readable greeting does not by itself prove native V30 execution. Accepted evidence combines physical traces, CPU-visible effects, transport identity, deadline checks, and terminal electrical state.
+- Waveshare RP2350-PiZero;
+- Raspberry Pi RP2350B;
+- physical NEC V30 `D70116C-8` / `uPD70116C-8`;
+- original Homebrew8088 Pi86 V20/V30 HAT;
+- Raspberry Pi-compatible 40-pin mechanical interface;
+- onboard Flash plus optional PSRAM backing/workspace;
+- native USB for console, control, bridge, and tooling services.
 
-## Bridge between eras
+The existing Pi86 HAT remains the working hardware baseline unless a demonstrated architectural limitation requires reconsideration.
 
-The physical V30 and a modern host were created roughly forty years apart and do not share a native vocabulary. `pi86-rp2350` provides the translation boundary:
+## Project lineage
 
-```text
-modern host / optional AI
-          |
-    structured records
-          |
- RP2350 companion bridge
-          |
- mailbox / I/O / memory / interrupt
-          |
-   physical NEC V30
-```
+`pi86-rp2350` builds directly on the Homebrew8088 Pi86 project and its physical V20/V30 HAT.
 
-The goal is not to rewrite the history of the V30 or pretend it understands modern AI. The goal is to let both eras exchange verifiable work while each remains native to its own execution model.
+The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V30-class processor and service memory and I/O transactions in software.
 
-## Research challenge for engineering agents
-
-`pi86-rp2350` is deliberately a physically grounded challenge. It does not
-measure an agent by the amount of code or prose it can produce. It measures
-whether proposed reasoning survives contact with an independently behaving
-processor and a retained bus trace.
-
-The strongest agent-facing problems combine several boundaries:
-
-- derive a timing hypothesis from datasheets and schematics;
-- implement it across PIO, DMA, M33 firmware, V30 assembly, and host tools;
-- predict the first observable distinction between true execution and a false positive;
-- recover from failed physical evidence without weakening the acceptance gate;
-- generate fresh challenges or code capsules whose answers were not prestaged;
-- explain the first divergence between known-good and failing bus histories.
-
-This makes the physical V30 more than a demonstration endpoint. It is an
-external evaluator: the agent may propose, implement, and interpret, but the
-hardware decides whether the claim is true.
-
-## Engineering principles
-
-1. Define a bounded CPU-visible capability.
-2. Keep current-cycle timing in PIO/DMA.
-3. Publish only complete immutable state.
-4. Separate application traffic from physical evidence.
-5. Preserve unsupported cycles as safe high-Z behavior.
-6. State target architecture separately from validated capability.
-7. Record failures as evidence rather than hiding them behind a visible result.
-8. Advance compatibility according to BIOS and workload dependencies.
+`pi86-rp2350` preserves that physical CPU/HAT concept while moving the timing-critical boundary into RP2350 PIO, DMA, and deterministic on-chip state, then exposing the machine to modern host tooling and AI-assisted experimentation.
 
 ## Document map
 
-- [`../README.md`](../README.md) - main project purpose and architecture
+- [`../README.md`](../README.md) - project introduction
 - [`README.md`](README.md) - documentation index
-- [`architecture.md`](architecture.md) - timing, ownership, memory, and I/O architecture
-- [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - provider-neutral host bridge and V30 companion-service boundary
+- [`architecture.md`](architecture.md) - detailed timing, ownership, memory, and host-interface architecture
+- [`dual_core_partitioning.md`](dual_core_partitioning.md) - realtime/service ownership model
+- [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - provider-neutral Host Bridge architecture
+- [`companion_service_abi.md`](companion_service_abi.md) - host record and V30 companion-service ABI
 - [`hardware_contract.md`](hardware_contract.md) - canonical physical interface
-- [`native_bios_architecture.md`](native_bios_architecture.md) - native BIOS structure
-- [`minimal_pc_compatibility_matrix.md`](minimal_pc_compatibility_matrix.md) - dependency-driven PC compatibility scope
-- [`validation/`](validation/) - immutable physical evidence and acceptance records
+- [`validation/`](validation/) - historical physical validation records
 - [`adr/`](adr/) - architecture decisions and their consequences
