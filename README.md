@@ -41,7 +41,7 @@ The hard realtime boundary is:
 
 > **PIO/DMA and bounded on-chip state own current-cycle V30 timing. Arm software, USB, storage, and host tools operate outside that active-cycle path.**
 
-The V30 does not require a BIOS or operating system to form the core machine. BIOS, DOS, ELKS, PC-class devices, and other compatibility behavior remain optional workloads or profiles.
+The V30 does not require a BIOS or operating system to form the core machine.
 
 ## 🏗️ Architecture
 
@@ -107,14 +107,6 @@ The existing Pi86 HAT remains the hardware baseline unless a demonstrated archit
 The installed `D70116C-8` is nominally a 5 V device. Operation on the original Pi86 HAT at 3.3 V is a project-specific empirical condition, not the nominal NEC operating specification.
 
 Canonical signal mapping and electrical rules are documented in [`docs/hardware_contract.md`](docs/hardware_contract.md) and [`docs/pin_mapping.md`](docs/pin_mapping.md).
-
-## 🧩 Optional Compatibility and Workloads
-
-The repository contains validated and experimental work for native ROM execution, RAM, interrupts, PIC/PIT behavior, BIOS, host/V30 mailbox interaction, DOS/ELKS exploration, and other progressively complex workloads.
-
-These remain useful engineering evidence and optional compatibility mechanisms. They do not define the minimum architecture.
-
-Historical validation records are preserved as measured evidence even when later architecture decisions change their interpretation.
 
 ## 🧬 Project Lineage
 
