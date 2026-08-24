@@ -128,7 +128,9 @@ Do not infer a physical fault from a GPIO observation until the physical-header-
 - RP2350 output values should be prepared before asserting AD output-enable.
 - PIO owns timing-critical AD data and direction changes; DMA may feed PIO FIFOs but must not target SIO registers.
 - PIO output windows must be proven to affect only the AD pins; V30 control and address inputs remain isolated.
-- A bounded run ends at `RESET=HIGH`, `CLK=LOW`, AD high-Z. A persistent profile may instead leave the V30 in validated `STI`/`HLT` idle with AD high-Z and interrupt service armed.
+- A bounded validation run ends at `RESET=HIGH`, `CLK=LOW`, AD high-Z. The
+  persistent runtime may instead leave the V30 in validated `STI`/`HLT`
+  idle with AD high-Z and interrupt service armed.
 - The accepted runtime uses a continuous PIO-generated V30 clock. Software does not step current bus cycles.
 
 ## Current validated scope

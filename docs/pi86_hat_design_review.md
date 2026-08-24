@@ -124,7 +124,10 @@ This keeps hardware evolution demand-driven rather than roadmap-driven.
 
 The repository contains earlier work exploring a buffered replacement board with controllable `READY`, bus transceivers, auxiliary control signals, and additional electrical safeguards.
 
-That work is preserved as engineering history in [`hardware/v3_companion_board_architecture.md`](hardware/v3_companion_board_architecture.md). It is **not the canonical hardware target and is not currently planned for implementation**.
+That work is preserved as engineering history in
+[`archive/hardware-concepts/v3_companion_board_architecture.md`](archive/hardware-concepts/v3_companion_board_architecture.md).
+It is **not the canonical hardware target and is not currently planned for
+implementation**.
 
 The document may still be useful if future measurements reveal a hard limitation that justifies revisiting the hardware boundary.
 
@@ -134,4 +137,4 @@ The document may still be useful if future measurements reveal a hard limitation
 - [`pin_mapping.md`](pin_mapping.md) — signal mapping
 - [`architecture.md`](architecture.md) — current companion-chip architecture
 - [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) — current fixed-`READY` memory policy
-- [`hardware/v3_companion_board_architecture.md`](hardware/v3_companion_board_architecture.md) — superseded historical replacement-board concept
+- [`archive/hardware-concepts/v3_companion_board_architecture.md`](archive/hardware-concepts/v3_companion_board_architecture.md) — superseded historical replacement-board concept

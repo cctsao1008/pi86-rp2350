@@ -375,7 +375,7 @@ pc1c_native_bios_hello
 ```
 
 Console contract:
-[`native_bios_diagnostic_console.md`](../../native_bios_diagnostic_console.md).
+[`native_bios_diagnostic_console.md`](../compatibility/native_bios_diagnostic_console.md).
 Physical evidence:
 [`validation/pc1c0c_native_bios_hello_validation.md`](../../validation/pc1c0c_native_bios_hello_validation.md).
 

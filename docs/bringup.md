@@ -83,7 +83,7 @@ CLK   = LOW
 AD    = high-Z
 ```
 
-A persistent profile instead remains accepted only while the V30 is in proven
+A persistent runtime target instead remains accepted only while the V30 is in proven
 `STI`/`HLT` idle, AD remains high-Z between serviced cycles, and the interrupt
 heartbeat and bus-safety evidence remain valid.
 
@@ -128,7 +128,7 @@ A PASS should establish every applicable layer:
 - matching transport sequence and complete publication;
 - passive evidence independent of the application reply;
 - terminal RESET/CLK/AD ownership.
-- or, for a persistent profile, validated idle/interrupt liveness with AD high-Z.
+- or, for a persistent runtime target, validated idle/interrupt liveness with AD high-Z.
 
 An expected string, drained DMA counter, or active GPIO waveform is not sufficient by itself.
 

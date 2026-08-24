@@ -162,7 +162,7 @@ Canonical architecture and interface documents should be aligned with this decis
 
 See:
 
-- [`../architecture.md`](../architecture.md)
-- [`../memory_architecture.md`](../memory_architecture.md)
-- [`../host_protocol.md`](../host_protocol.md)
-- [`0003-require-ready-or-deterministic-hits-for-general-memory.md`](0003-require-ready-or-deterministic-hits-for-general-memory.md)
+- [`../../architecture.md`](../../architecture.md)
+- [`../../memory_architecture.md`](../../memory_architecture.md)
+- [`../../host_protocol.md`](../../host_protocol.md)
+- [`../../adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](../../adr/0003-require-ready-or-deterministic-hits-for-general-memory.md)

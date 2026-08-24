@@ -1,8 +1,9 @@
-# pi86-rp2350 Host Bridge Architecture
+# Host Bridge and AI Client Architecture
 
 ## Purpose
 
-The Host Bridge is the provider-neutral boundary between modern host software and native code running on the physical NEC V30.
+The Host Bridge is the provider-neutral boundary between the Host Runtime
+Controller and native code running on the Bare-Metal Remote Physical Processor.
 
 It is one part of the wider **Observe / Control / Experiment** interface. The bridge carries structured host requests, replies, configuration, and retained machine data without placing host or USB latency in the V30 current-cycle timing path.
 
@@ -20,7 +21,10 @@ PIO / DMA bus plane
  Physical NEC V30
 ```
 
-The first validated implementation used fixed USB HID records, CDC evidence, and an OpenAI Codex adapter. Those experiments remain historical validation evidence; they do not define the project identity or make any AI provider part of the V30-visible machine model.
+The first validated implementation used fixed USB HID records, CDC evidence,
+and an OpenAI Codex adapter. Those experiments remain validation evidence; they
+do not define the project identity or make an AI provider part of the V30
+runtime.
 
 ## Architectural boundary
 
@@ -31,7 +35,7 @@ To the physical V30, the RP2350 exposes ordinary machine mechanisms:
 - polling and interrupts;
 - native code and CPU-visible device semantics.
 
-To the host, the bridge exposes structured records and machine operations.
+To the Host, the bridge exposes structured records and runtime operations.
 
 Provider-specific concepts such as prompts, credentials, sessions, model names, or service-specific response formats terminate above the Host Bridge boundary.
 
@@ -192,14 +196,15 @@ A host or service failure may cause a request to fail, but it must not silently 
 
 ## Design summary
 
-The Host Bridge provides a stable translation layer between a physical 8086-class processor and modern host software:
+The Host Bridge provides a stable translation layer between the Host-managed
+runtime and a physical 8086-class processor:
 
 ```text
 Physical V30
     |
 PIO / DMA realtime bus plane
     |
-RP2350 machine services
+RP2350 companion services
     |
 Host Bridge
     |
@@ -208,11 +213,14 @@ Observe / Control / Experiment
 Tools / scripts / AI
 ```
 
-The architectural distinction is simple: the physical V30 remains the execution authority, the RP2350 supplies the programmable machine around it, and the host operates through structured asynchronous interfaces outside current-cycle timing.
+The architectural distinction is simple: the Host controls the runtime, the
+RP2350 owns companion resources and the physical bus, and the physical V30 owns
+native execution.
 
 ## Related documents
 
-- [`architecture.md`](architecture.md) - companion-chip timing and ownership architecture
+- [`architecture.md`](architecture.md) - canonical Host-managed runtime architecture
+- [`host_runtime_architecture.md`](host_runtime_architecture.md) - detailed runtime contract
 - [`project_overview.md`](project_overview.md) - project identity and scope
 - [`companion_service_abi.md`](companion_service_abi.md) - canonical host record and V30 mailbox ABI
 - [`dual_core_partitioning.md`](dual_core_partitioning.md) - RP2350 realtime/service role partition

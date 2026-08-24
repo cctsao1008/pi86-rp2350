@@ -212,7 +212,7 @@ BOOT -> READY/IDLE -> BUSY -> DONE -> READY/IDLE
 - Host-originated work is published atomically by the RP2350 and announced to
   the V30 through a physical interrupt and INTA-qualified vector.
 - Host-originated heartbeat traffic wakes the idle V30 through physical INTR
-  and two-cycle INTA. A PIT-compatible timer remains an optional future profile.
+  and two-cycle INTA. A PIT-compatible timer remains an optional runtime service.
 - Idle native code uses `STI`/`HLT`; interrupt handlers acknowledge and enqueue
   bounded work but do not wait for the host.
 
@@ -265,4 +265,5 @@ Application success and physical evidence are separate assertions.
 - [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - physical validator workflow
 - [`validation/ai_b2_hid_composite_600khz_validation.md`](validation/ai_b2_hid_composite_600khz_validation.md) - accepted composite HID/CDC evidence
 - [`validation/companion_runtime_1mhz_validation.md`](validation/companion_runtime_1mhz_validation.md) - accepted persistent INT/INTR/INTA heartbeat evidence
-- [`adr/0005-adopt-host-bridge-and-companion-service-terminology.md`](adr/0005-adopt-host-bridge-and-companion-service-terminology.md) - terminology decision
+- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current project terminology
+- [`archive/superseded-architecture/adr-0005-adopt-host-bridge-and-companion-service-terminology.md`](archive/superseded-architecture/adr-0005-adopt-host-bridge-and-companion-service-terminology.md) - historical terminology decision

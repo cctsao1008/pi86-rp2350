@@ -64,7 +64,7 @@ A diagnostic-message test passes only when:
 - the terminal state is RESET high, CLK low, and AD high-Z.
 
 The canonical first record is
-[`validation/pc1c0c_native_bios_hello_validation.md`](validation/pc1c0c_native_bios_hello_validation.md).
+[`../../validation/pc1c0c_native_bios_hello_validation.md`](../../validation/pc1c0c_native_bios_hello_validation.md).
 
 ## Intended evolution
 

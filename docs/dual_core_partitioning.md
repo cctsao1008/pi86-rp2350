@@ -2,7 +2,9 @@
 
 ## Scope
 
-This document defines the logical ownership boundary between the RP2350 deterministic bus plane, the realtime M33 role, and the asynchronous service M33 role.
+This document defines the RP2350 implementation boundary inside the Companion
+Resource and Bus Controller: the physical bus plane, realtime M33 role, and
+asynchronous service M33 role.
 
 The architecture is **role-based**, not permanently tied to Core 0 or Core 1. A numbered core assignment is an implementation choice that may change with measured IRQ behavior, SDK constraints, SRAM contention, and service load.
 
@@ -59,9 +61,9 @@ The service role owns work whose latency is not part of the V30 bus contract:
 
 - USB and host command handling;
 - trace decode, formatting, and persistence;
-- ROM/test-image management;
+- workload-image and launch-state management;
 - PSRAM and other bulk transfers;
-- disk-image or compatibility-profile backend work;
+- filesystem, SD, shared-volume, and optional compatibility backend work;
 - diagnostics, configuration, and management interfaces.
 
 The service role may prepare buffers or request state changes, but it is never a synchronous dependency of a no-wait V30 transaction.
@@ -129,8 +131,10 @@ See:
 
 ## Relationship to the host/AI interface
 
-The host-side Observe / Control / Experiment interface sits above this partitioning model.
+The Host Runtime Controller sits above this partitioning model.
 
 Host tools and AI agents may consume structured state, request bounded operations, and analyze experiments, but they remain outside current-cycle V30 timing. The service role terminates host-facing complexity; the realtime role only accepts state changes through explicit bounded publication.
 
-See [`architecture.md`](architecture.md), [`ai_bridge_architecture.md`](ai_bridge_architecture.md), and [`companion_service_abi.md`](companion_service_abi.md).
+See [`architecture.md`](architecture.md),
+[`host_runtime_architecture.md`](host_runtime_architecture.md), and
+[`companion_service_abi.md`](companion_service_abi.md).

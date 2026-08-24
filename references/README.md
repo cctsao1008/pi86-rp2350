@@ -2,6 +2,10 @@
 
 This directory contains reference indexes and notes, not copies of third-party manuals unless redistribution rights are clear.
 
+The current project is a Host-Managed Bare-Metal Physical Processor Runtime.
+The BIOS and PC-compatible references below are retained for optional workloads
+and historical experiments; they do not define the active architecture.
+
 ## Primary specification sources
 
 ### NEC V20/V30
@@ -36,7 +40,9 @@ The project's physical HAT is marked Copyright 2021 EMM, while current upstream 
 
 ## BIOS and PC-compatible system references
 
-These references are useful for defining the minimum PC-compatible environment required after the V30 memory bus is validated. They are not normative sources for NEC V30 electrical timing or Pi86 HAT signal mapping.
+These references are useful when an optional workload deliberately requests a
+PC-compatible environment. They are not the project roadmap and are not
+normative sources for NEC V30 electrical timing or Pi86 HAT signal mapping.
 
 ### skiselev/8088_bios — primary BIOS implementation reference
 

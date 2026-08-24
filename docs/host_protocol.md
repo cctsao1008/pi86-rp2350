@@ -4,6 +4,10 @@
 
 This document defines the canonical host-facing contract for `pi86-rp2350`.
 
+The Host Protocol connects the **Runtime Controller** to the RP2350
+**Companion Resource and Bus Controller**. The physical NEC V30 remains the
+**Bare-Metal Remote Physical Processor**.
+
 The project does **not** require a particular host programming language, SDK, CLI, application framework, Web UI, or AI service.
 
 > **The project defines the wire protocol. Host software is an implementation choice.**
@@ -27,12 +31,12 @@ Sample Python, C, Rust, or other host programs may be provided to demonstrate th
 
 The host protocol follows these rules:
 
-- machine operations are language-independent;
+- runtime operations are language-independent;
 - HID is the initial command/response transport, not the definition of the operations themselves;
 - CDC is an observation stream, not a second control protocol;
 - host latency never enters a current V30 bus cycle;
-- a host disconnect is not by itself a machine-integrity fault;
-- malformed or unsupported host requests must not silently change machine state;
+- a host disconnect is not by itself a runtime-integrity fault;
+- malformed or unsupported Host requests must not silently change runtime state;
 - bulk transfer mechanisms may evolve without changing machine-operation semantics.
 
 ## 3. HID command/response transport
@@ -59,11 +63,13 @@ Equivalent packed layout:
 
 The exact currently validated record mechanics, sequence rules, retry behavior, and historical Companion Service message types remain documented in [`companion_service_abi.md`](companion_service_abi.md).
 
-This document narrows the **canonical architecture direction** to generic machine operations rather than BIOS-, OS-, AI-, or workload-specific semantics.
+This document defines generic runtime operations rather than BIOS-, OS-, AI-,
+or workload-specific semantics.
 
 ## 4. Operation groups
 
-The Host Protocol exposes only operations required to configure, execute, inspect, and maintain the RP2350/V30 machine.
+The Host Protocol exposes operations required to load, execute, communicate
+with, inspect, and restart the physical V30 runtime.
 
 ### System
 
@@ -78,7 +84,7 @@ Returned capability information should describe available physical resources and
 
 Examples include External PSRAM availability/capacity, filesystem availability, optional SD presence, supported clock range, and protocol version.
 
-### Machine control
+### Runtime and processor control
 
 Prefer operations with explicit physical semantics:
 
@@ -93,14 +99,16 @@ STATE_GET
 
 Avoid ambiguous commands such as `HALT` until their physical meaning is explicitly defined. V30 `HLT`, stopping the generated clock, and asserting RESET are different machine actions.
 
-A minimal machine-state model is:
+A minimal runtime-state model is:
 
 ```text
-RESET
-PREPARED
+EMPTY
+LOADED
 RUNNING
+EXITED
 STOPPED
 FAULT
+TIMEOUT
 ```
 
 ### Memory
@@ -113,7 +121,9 @@ MEM_WRITE
 MEM_MAP_GET
 ```
 
-Host memory operations address the V30 machine model through RP2350 ownership. They do not grant the host raw ownership of RP2350 SRAM, PSRAM metadata, or bus-engine state.
+Host memory operations address assigned V30-visible memory through RP2350
+ownership. They do not grant the Host raw ownership of RP2350 SRAM, PSRAM
+metadata, or bus-engine state.
 
 Memory-map semantics and physical backing are defined in [`memory_architecture.md`](memory_architecture.md).
 
@@ -127,6 +137,7 @@ FS_READ
 FS_WRITE
 FS_DELETE
 FS_RENAME
+FS_SYNC
 ```
 
 The RP2350 remains the sole filesystem owner. Host requests are serialized by firmware rather than directly mounting or mutating the Flash filesystem.
@@ -136,14 +147,18 @@ The RP2350 remains the sole filesystem owner. Host requests are serialized by fi
 Examples:
 
 ```text
-WORKLOAD_LIST
-WORKLOAD_PREPARE
-WORKLOAD_EXECUTE
+WORKLOAD_LOAD
+WORKLOAD_RUN
+WORKLOAD_STOP
+WORKLOAD_RESTART
 ```
 
 The initial workload model is intentionally small: raw native V30 binary plus minimal launch metadata.
 
-`WORKLOAD_PREPARE` verifies and stages the workload and prepares the V30 Memory Map and Reset Handoff. `WORKLOAD_EXECUTE` releases the prepared machine into execution according to the defined machine-control state transition.
+`WORKLOAD_LOAD` verifies and stages the native image and launch metadata.
+`WORKLOAD_RUN` releases the physical V30 into execution. `WORKLOAD_STOP`
+and `WORKLOAD_RESTART` preserve the Host's ability to recover from a workload
+exit, fault, hang, or timeout.
 
 ### Trace / observation control
 
@@ -193,7 +208,9 @@ Examples:
 - DMA/PIO state corruption;
 - critical memory-publication inconsistency.
 
-These are machine faults, not ordinary Host Protocol errors. Firmware enters the safe machine state defined by the architecture and reports retained diagnostics when possible.
+These are runtime/platform faults, not ordinary Host Protocol errors. Firmware
+enters the electrical safe state defined by the architecture and reports
+retained diagnostics when possible.
 
 ## 6. Data transfer
 
@@ -249,7 +266,7 @@ If USB disconnects while a workload is running:
 Host unavailable
        |
        v
-RP2350 continues deterministic machine operation
+RP2350 continues physical runtime operation
        |
        v
 V30 may continue executing
@@ -283,4 +300,5 @@ Historical validation records using those mechanisms remain authoritative for th
 - [`architecture.md`](architecture.md) - overall system architecture
 - [`memory_architecture.md`](memory_architecture.md) - memory terminology, V30 Memory Map, and backing resources
 - [`companion_service_abi.md`](companion_service_abi.md) - validated Host Bridge/Companion Service v1 record and mailbox path
-- [`adr/0007-adopt-host-constructed-v30-machine-model.md`](adr/0007-adopt-host-constructed-v30-machine-model.md) - host-constructed machine decision
+- [`host_runtime_architecture.md`](host_runtime_architecture.md) - detailed runtime contract
+- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current architecture decision

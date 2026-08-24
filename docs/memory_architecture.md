@@ -1,121 +1,128 @@
-# Memory Architecture
+# Memory and Shared-Storage Architecture
 
 ## 1. Scope
 
-This document defines the canonical memory terminology and minimum memory contracts for `pi86-rp2350`.
+This document defines how the Host, RP2350, and physical NEC V30 use volatile
+memory and persistent storage.
 
-Two concepts must remain separate:
+The governing rule is:
 
-> **The V30 Memory Map describes CPU-visible semantics. Backing Resources describe implementation.**
+> **Host and V30 share content, but they do not share low-level ownership.**
 
-A V30 address range is therefore not synonymous with RP2350 SRAM, PSRAM, Flash, or any other physical device.
+The RP2350 owns every physical controller and arbitrates access.
 
-## 2. Canonical terminology
-
-Use these names consistently in code and canonical documentation:
+## 2. Canonical terms
 
 | Term | Meaning |
 |---|---|
-| **RP2350 Internal SRAM** | SRAM physically inside the RP2350 |
-| **External NOR Flash** | non-volatile Flash outside the RP2350 die; 16 MB on the current RP2350-PiZero |
-| **External PSRAM** | external volatile bulk memory used by the target machine configuration |
-| **SD Card** | optional removable bulk storage |
-| **V30 Memory Map** | the NEC V30 20-bit CPU-visible address-space semantics |
-| **Backing Resource** | the physical or prepared resource used to materialize a mapped V30 region |
-| **Deterministic V30 Window** | explicitly prepared on-chip state that can satisfy a bounded current-cycle V30 access |
+| **RP2350 Internal SRAM** | on-chip memory used by firmware, realtime engines, mailbox, prepared windows, and short traces |
+| **External PSRAM** | principal V30 execution-memory backing and Host/V30 shared volatile workspace |
+| **External NOR Flash** | non-volatile device containing firmware/reserved space and the shared `flash:` FAT volume |
+| **SD Card** | optional removable `sd:` FAT volume |
+| **V30-visible memory** | the 20-bit physical address space presented to the V30 |
+| **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership |
+| **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline |
 
-Avoid ambiguous architecture terms such as `internal Flash`, `on-board RAM`, `external RAM`, or `V30-visible RAM` when a more precise term exists.
+Do not equate a V30 address with one physical device. The RP2350 maps and
+materializes the assigned memory.
 
-## 3. Physical memory resources
-
-```text
-RP2350
-|
-+-- RP2350 Internal SRAM
-|
-+-- External NOR Flash
-|
-+-- External PSRAM
-|
-`-- SD Card (optional)
-```
-
-These resources have different responsibilities.
+## 3. Physical resources
 
 ### RP2350 Internal SRAM
 
-Primary uses:
+Internal SRAM is immediate runtime memory for:
 
-- RP2350 firmware runtime state;
-- PIO/DMA queues, descriptors, and staging;
-- deterministic bus state;
-- machine-control and fault state;
-- explicitly prepared V30 code/data windows;
-- short trace or fault-capture buffers.
+- firmware and per-core stacks;
+- PIO/DMA descriptors, queues, and response state;
+- mailbox, interrupt, and Host Protocol buffers;
+- prepared or cached V30 windows;
+- short trace and fault-preservation buffers.
 
-Internal SRAM is not the default bulk V30 RAM resource.
-
-### External NOR Flash
-
-Primary uses:
-
-- RP2350 firmware image;
-- reserved recovery/fallback capacity;
-- persistent configuration and metadata;
-- filesystem-backed workloads and assets.
-
-External NOR Flash is persistent storage, not an assumed current-cycle V30 memory responder.
+Selected windows may be presented to the V30. Internal SRAM is not reserved only
+for firmware, but it is not the primary bulk V30 execution memory.
 
 ### External PSRAM
 
-External PSRAM is the target machine's bulk volatile backing/workspace.
+External PSRAM is the principal volatile resource for:
 
-Primary uses:
+- native V30 workload code;
+- data, stack, and heap;
+- Host/V30 shared-memory regions;
+- large transfers and traces;
+- restart snapshots when required.
 
-- bulk V30 writable backing state;
-- workload staging;
-- large buffers;
-- snapshots;
-- long trace storage;
-- temporary service data.
+The Host addresses assigned V30-visible memory through RP2350 operations. It does
+not receive raw access to the PSRAM controller, allocator metadata, or
+firmware-private regions.
 
-External PSRAM is **not** automatically a deterministic current-cycle V30 responder. A current-cycle use requires a separately validated bounded response mechanism. Until then, data required by an active cycle must be explicitly prepared into deterministic on-chip state.
+General PSRAM-backed arbitrary V30 execution is still an implementation and
+physical-validation gate. The architecture describes its role without claiming
+the fixed-`READY` bus path is complete.
+
+### External NOR Flash
+
+NOR is divided conceptually:
+
+```text
+External NOR Flash
++-- RP2350 firmware / recovery / reserved platform area
+`-- PI86FLASH shared FAT volume
+    +-- workloads/
+    +-- data/
+    +-- config/
+    +-- shared/
+    `-- results/
+```
+
+The public name is `flash:`:
+
+```text
+flash:/workloads/hello.bin
+flash:/data/input.dat
+flash:/results/output.txt
+```
+
+The FAT volume sits on a Flash-aware block layer that handles erase geometry and
+wear behavior. Raw media and internal numeric drive IDs are not public APIs.
 
 ### SD Card
 
-SD Card support is optional.
-
-Its intended role is removable bulk storage for large assets, traces, snapshots, images, or offline exchange. SD latency must never become a synchronous dependency of a current V30 bus cycle.
-
-## 4. Hardware configurations
-
-Two configurations are distinguished deliberately.
-
-### Bring-up configuration
+SD is the optional removable FAT32 volume `sd:`:
 
 ```text
-RP2350 Internal SRAM
-+
-External NOR Flash
+sd:/workloads/demo.bin
+sd:/datasets/input.dat
+sd:/traces/run001.log
 ```
 
-This is sufficient for reset, small native workloads, diagnostics, deterministic bus validation, and SRAM-backed experiments.
+It is intended for larger workload libraries, datasets, trace export, snapshots,
+backup, and offline exchange. Absence or removal of SD must not disable
+`flash:`, PSRAM execution, Host control, monitoring, or restart.
 
-### Target machine configuration
+## 4. Ownership and permissions
 
-```text
-RP2350 Internal SRAM
-+
-External NOR Flash
-+
-External PSRAM
-```
+The RP2350 is the sole owner of:
 
-External PSRAM is part of the target machine baseline because it separates bulk volatile machine state from scarce deterministic on-chip SRAM.
+- PSRAM allocation and physical access;
+- NOR and SD controllers;
+- FAT metadata and synchronization;
+- PIO/DMA and bus-engine state;
+- firmware-private Internal SRAM.
 
-SD Card remains optional.
+| Resource | Host | V30 workload |
+|---|---|---|
+| Firmware/reserved NOR | controlled update only | no access |
+| V30 code memory | R/W while stopped | R/X while running |
+| V30 data/stack/heap | R/W while stopped; observe by policy while running | R/W |
+| Shared memory | R/W through Host Protocol | R/W within assigned region |
+| `flash:` and `sd:` | file operations through Host Protocol | runtime file service |
+| Mailbox/stdio | Host Protocol client | runtime service ABI |
+| PIO/DMA/controller metadata | status only | no access |
 
-## 5. V30 Memory Map
+The permission model is not a Unix ACL system. It only protects runtime
+ownership and prevents Host or V30 code from corrupting RP2350-private state.
+
+## 5. V30-visible memory
 
 The NEC V30 exposes a 20-bit physical address space:
 
@@ -124,136 +131,105 @@ The NEC V30 exposes a 20-bit physical address space:
              1 MiB
 ```
 
-The architecture does not impose the IBM PC conventional-memory/VGA/BIOS layout.
+The runtime does not impose the IBM PC conventional-memory/VGA/BIOS layout.
 
-### Architectural minimum
+A workload launch needs:
 
-At absolute minimum, the RP2350 must provide a deterministic instruction source for the V30 architectural reset fetch at `FFFF0h`.
+- a deterministic reset handoff at `FFFF0h`;
+- an executable region;
+- writable data/stack/heap;
+- defined unmapped behavior;
+- optional shared-memory or service regions.
 
-### Minimum useful machine
+Exact addresses belong to workload launch metadata and the RP2350 loader, not a
+fixed PC layout.
 
-A useful native machine configuration provides four semantics:
+## 6. Host/V30 sharing
 
-| Requirement | Meaning |
-|---|---|
-| **Reset Handoff Region** | deterministic instruction source covering the reset handoff sequence |
-| **Executable Region** | memory from which the selected workload can execute |
-| **Writable RAM Region** | stack, data, and mutable workload state |
-| **Defined Unmapped Behavior** | safe, deterministic behavior for addresses not implemented by the selected machine configuration |
+### Shared volatile memory
 
-The exact locations and sizes of the executable and writable regions are workload/machine configuration choices.
+The RP2350 allocates a region, returns a stable V30 address and Host handle, and
+defines publication/ownership boundaries. The Host and V30 may exchange data
+without receiving the PSRAM controller itself.
 
-Interrupt vectors, shared-memory windows, device memory, BIOS regions, VGA memory, and other compatibility mappings are optional capabilities rather than minimum requirements.
+While the V30 is running, ordinary code/data memory belongs to the workload.
+Host writes are limited to approved shared regions or explicit stopped-state
+operations.
 
-## 6. Memory-map semantics versus backing
+### Shared files
 
-A map entry describes what the V30 observes. Backing assignment describes how the RP2350 supplies that behavior.
-
-Conceptually:
-
-```text
-V30 address
-    |
-    v
-V30 Memory Map
-    |
-    +-- executable / read-only
-    +-- writable RAM
-    +-- service/device
-    `-- unmapped
-            |
-            v
-      Backing Resource
-            |
-            +-- RP2350 Internal SRAM
-            +-- External PSRAM
-            `-- prepared/generated state
-```
-
-A writable V30 region may have bulk state in External PSRAM while an explicitly prepared current working window is represented in RP2350 Internal SRAM. The map semantics do not change when the backing implementation changes.
-
-## 7. Deterministic memory policy
-
-The current Pi86 HAT keeps V30 `READY` asserted. Therefore a no-wait current-cycle response cannot depend on an unbounded M33 lookup, USB, filesystem operation, External NOR Flash access, or arbitrary External PSRAM latency.
-
-The initial memory implementation uses **explicit prepared deterministic windows** rather than a general cache hierarchy.
+The RP2350 owns one FAT implementation per mounted volume. Host and V30 are file
+service clients.
 
 ```text
-External PSRAM / persistent asset
-              |
-         prepare / stage
-              v
-RP2350 Internal SRAM
-Deterministic V30 Window
-              |
-           PIO / DMA
-              |
-              v
-        Physical V30
+Host FS request ----+
+                    v
+              RP2350 FAT owner -> NOR / SD
+                    ^
+V30 FS request -----+
 ```
 
-A general cache would introduce miss handling, replacement, dirty writeback, coherency, and refill deadlines. It is deferred until a demonstrated requirement justifies that complexity.
+Requests are serialized. “Shared” means one namespace and shared file content,
+not simultaneous raw block-device ownership.
 
-See [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md).
-
-## 8. RP2350 Internal SRAM planning
-
-The RP2350 provides 520 KB of internal SRAM. The following values are **planning budgets**, not fixed ABI partitions or linker addresses:
-
-| Use | Initial planning budget |
-|---|---:|
-| Firmware runtime | ~128 KB |
-| PIO/DMA/bus deterministic state | ~96 KB |
-| Deterministic V30 Window | ~192 KB |
-| Machine/mailbox state | ~32 KB |
-| Trace and safety reserve | ~72 KB |
-| **Total** | **520 KB** |
-
-The exact partition must be derived from linker maps, PIO/DMA buffer requirements, USB usage, core stacks, and measured SRAM-bank contention.
-
-Architecture rules:
-
-- deterministic bus execution has priority over convenience buffers;
-- long trace and snapshot history belongs in External PSRAM;
-- realtime allocations are fixed before the machine enters `PREPARED` or `RUNNING`;
-- the realtime path must not depend on heap allocation;
-- SRAM-bank placement should minimize contention among DMA, PIO-facing buffers, and M33 instruction/data traffic.
-
-## 9. Persistent filesystem
-
-External NOR Flash may contain a filesystem for persistent machine assets.
-
-The ownership rule is:
-
-> **One filesystem, one owner, multiple clients.**
-
-The RP2350 is the sole filesystem owner. Host operations are mediated through the Host Protocol. A V30 filesystem service is optional and, if implemented, is also mediated by the RP2350.
-
-LittleFS is the baseline filesystem for External NOR Flash because the Flash is MCU-owned and does not need to be directly mounted by a host PC.
-
-A minimal namespace may contain:
+A V30 service may initially be restricted to directories such as:
 
 ```text
-/workloads/
-/data/
-/profiles/
-/logs/
+flash:/shared/
+flash:/results/
+sd:/shared/
+sd:/results/
 ```
 
-The namespace may be reduced or expanded only when required by actual workloads.
+## 7. Physical timing policy
 
-Exact Flash partition offsets are intentionally not fixed here. Firmware update/recovery requirements, linker layout, and filesystem sizing must be resolved before physical partition addresses become canonical.
+The current Pi86 HAT keeps V30 `READY` asserted. An active bus cycle cannot wait
+for:
 
-## 10. Optional SD storage
+- Host software or USB;
+- FAT operations;
+- NOR or SD access;
+- arbitrary PSRAM latency;
+- an unbounded M33 or inter-core lookup.
 
-If SD support is added, it remains an RP2350-owned optional storage backend. FAT32 is a reasonable implementation for removable host-readable media, but filesystem choice is not part of the core architecture.
+Timing-critical state must be prepared for PIO/DMA or served by another measured
+bounded mechanism. Storage and Host activity happen outside the current V30
+cycle.
 
-Data required for deterministic execution must be staged from SD into appropriate working memory before it becomes an active V30 dependency.
+This is a physical implementation constraint, not a requirement to reject
+complex workloads. A workload may crash or time out; the Host reports the
+outcome and can restart it.
 
-## 11. Related documents
+## 8. Public storage contract
 
-- [`architecture.md`](architecture.md) - overall system architecture
-- [`host_protocol.md`](host_protocol.md) - Host/RP2350 command and observation contract
-- [`adr/0007-adopt-host-constructed-v30-machine-model.md`](adr/0007-adopt-host-constructed-v30-machine-model.md) - machine-model decision
-- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - deterministic memory/READY policy
-- [`pc1c0c1_arbitrary_sram_rom_architecture.md`](archive/completed-plans/pc1c0c1_arbitrary_sram_rom_architecture.md) - archived address-qualified SRAM response research
+Stable volume names are:
+
+| Volume | Media | Baseline format | Required |
+|---|---|---|---|
+| `flash:` | External NOR | FAT through Flash-aware block layer | yes |
+| `sd:` | SD Card | FAT32 | no |
+
+Public APIs use paths and file operations. They do not expose FatFs numeric drive
+IDs, raw erase blocks, or SD sectors.
+
+## 9. Implementation gates
+
+The order of implementation does not change the architecture:
+
+1. detect and test External PSRAM;
+2. provide Host PSRAM read/write through RP2350 ownership;
+3. mount and exercise `flash:`;
+4. mount/unmount and hot-remove `sd:`;
+5. upload a flat V30 workload while stopped;
+6. prove reset handoff and native execution;
+7. validate general PSRAM-backed V30 execution;
+8. add shared memory and V30 file services;
+9. integrate fault preservation, timeout, and restart.
+
+## 10. Related documents
+
+- [`architecture.md`](architecture.md) — canonical role and runtime model
+- [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime contract
+- [`host_protocol.md`](host_protocol.md) — Host operations
+- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) — fixed-`READY` constraint
+- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision

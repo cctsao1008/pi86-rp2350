@@ -1,226 +1,99 @@
 # pi86-rp2350 Project Overview
 
-## Project identity
+## Identity
 
-`pi86-rp2350` is a programmable machine platform built around a **physical NEC V30**, the original Pi86 V20/V30 HAT, and an RP2350.
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
 
-The V30 executes native x86-class code and owns architectural CPU state. The RP2350 constructs, controls, and observes the surrounding execution environment through deterministic PIO/DMA bus logic, firmware-managed memory/storage, and a small host interface.
+It is a **Host-Managed Bare-Metal Physical Processor Runtime**: a modern
+remote-processor runtime for a vintage physical CPU.
 
-This is not an x86 emulator and not merely a board-for-board Pi86 port.
+The V30 executes native x86-class code. It is not emulated. The Host loads,
+communicates with, observes, and restarts workloads. The RP2350 owns the
+resources and physical bus connecting them.
 
-## Core model
-
-The project has three actors:
-
-```text
-Host
-  |
-  | USB HID + CDC
-  v
-RP2350 Machine Platform
-  |
-  | deterministic physical bus
-  v
-Original Pi86 HAT
-  |
-  v
-Physical NEC V30
-```
-
-The execution model is:
+## Responsibility split
 
 ```text
-Host requests / stored configuration
-              |
-              v
-RP2350 prepares machine state
-              |
-              v
-RP2350 releases V30 RESET
-              |
-              v
-Physical V30 executes native workload
-              |
-              v
-RP2350 retains observations/results
+Host      = Runtime Controller
+RP2350    = Companion Resource and Bus Controller
+NEC V30   = Bare-Metal Remote Physical Processor
 ```
 
-The governing principle is:
+The Host supplies runtime services such as workload control, stdio, files,
+status, timeout, and restart. The RP2350 arbitrates memory, storage, mailbox,
+interrupt, clock, reset, PIO, DMA, and the physical V30 bus. The V30 owns native
+instruction execution and architectural CPU state.
 
-> **The RP2350 constructs the V30-visible machine before execution; the physical V30 then executes inside that prepared environment.**
-
-The hard timing boundary is:
-
-> **PIO/DMA and bounded on-chip state own current-cycle V30 timing. Arm software, USB, storage, and host tools operate outside that active-cycle path.**
-
-## RP2350 firmware scope
-
-The minimum complete firmware is intentionally small and has six responsibilities:
-
-- V30 Bus Engine;
-- Machine Control;
-- Memory;
-- Workload / Reset Handoff;
-- Host Interface;
-- Persistent Storage.
-
-These are responsibilities rather than mandatory software layers.
-
-BIOS APIs, DOS, ELKS, PIC/PIT/PPI compatibility, PC memory maps, V30 filesystem services, persistent heartbeat runtimes, and AI-specific services are optional capabilities or workloads.
-
-## Host interface
-
-The canonical host interface is language-independent:
+## Operating model
 
 ```text
-USB HID = structured command / response
-USB CDC = log / diagnostic / observation
+load -> run -> communicate -> observe -> exit / fault / timeout -> restart
 ```
 
-The project defines the wire protocol and may provide basic/sample host programs. Python, C, Rust, PowerShell, Web applications, CLIs, scripts, and AI agents are all possible clients; none is a required SDK layer.
+A workload is native V30 machine code plus launch metadata. The RP2350 loads
+assigned V30-visible memory, prepares a small reset handoff at `FFFF0h`, and
+releases the processor.
 
-Host operations cover only machine needs such as reset/clock control, state query, memory access, persistent storage, workload preparation/execution, and trace control.
+A traditional BIOS, boot sector, DOS, or V30 operating system is not required.
+Those remain possible workloads, not the project foundation.
 
-See [`host_protocol.md`](host_protocol.md).
+## Shared resources
 
-## Reset and workload execution
+The central ownership rule is:
 
-The V30 architectural reset fetch at physical `FFFF0h` is treated as a **Reset Handoff Point**, not as an implicit BIOS entry.
+> **Host and V30 share content, but they do not share low-level ownership.**
 
-A minimal workload consists of native V30 code plus small launch metadata. The initial launch contract includes:
+- **RP2350 Internal SRAM** holds firmware, realtime state, mailbox, prepared
+  windows, and short traces.
+- **External PSRAM** is the principal V30 execution memory and shared volatile
+  workspace.
+- **External NOR Flash** contains firmware/reserved space and the shared
+  `flash:` FAT volume.
+- **SD Card** is the optional removable `sd:` FAT volume.
 
-```text
-entry CS:IP
-initial SS:SP
-initial DS
-initial ES
-```
+The RP2350 is the single owner of PSRAM, Flash, SD, FAT metadata, PIO, DMA,
+clock, reset, and interrupt controllers. Host and V30 requests pass through
+explicit RP2350 services.
 
-The RP2350 prepares the required memory and a deterministic handoff sequence before releasing RESET.
+## Host runtime
 
-A BIOS -> boot sector -> loader -> operating-system chain is therefore optional rather than fundamental.
+The reference Python client is a small remote shell. Its framework covers:
 
-## Memory model
+- `load`, `run`, `stop`, and `restart`;
+- stdin/stdout and mailbox exchange;
+- file operations on `flash:` and `sd:`;
+- V30-visible memory transfer and inspection;
+- `status`, `top`, trace, timeout, and fault evidence.
 
-Physical resources and V30 address semantics are deliberately separated.
+Python is not mandatory. Other clients may implement the same Host Protocol.
+ChatGPT or Codex can communicate with the V30 as Host clients, but AI is not a
+V30-visible architectural concept.
 
-Canonical physical resources are:
+## Physical timing
 
-- **RP2350 Internal SRAM**;
-- **External NOR Flash**;
-- **External PSRAM**;
-- **SD Card** when present.
+The existing Pi86 HAT keeps V30 `READY` asserted. Current-cycle bus behavior
+must therefore remain in PIO/DMA and prepared RP2350 state. Host latency, USB,
+FAT, NOR, SD, and arbitrary PSRAM accesses do not answer a live V30 cycle.
 
-The **V30 Memory Map** describes CPU-visible semantics. The **Backing Resource** describes how a mapped region is materialized.
+General PSRAM-backed arbitrary native execution remains a physical integration
+gate and is not yet claimed as accepted hardware behavior.
 
-The minimum useful V30 Memory Map requires:
+## What makes it different
 
-- a Reset Handoff Region;
-- an Executable Region;
-- a Writable RAM Region;
-- defined behavior for unmapped addresses.
+A conventional PC clone recreates BIOS, chipset, storage, and operating-system
+expectations around a processor. `pi86-rp2350` instead keeps the V30 bare metal
+and moves the surrounding runtime to a modern Host and RP2350 companion.
 
-No IBM PC conventional-memory, VGA, BIOS-ROM, IVT, or device region is required by the core architecture.
+The goal is not merely to boot an old CPU again. It is to give that physical CPU
+a modern way to receive work, communicate, remain observable, fail honestly, and
+restart.
 
-See [`memory_architecture.md`](memory_architecture.md).
+## Read next
 
-## Memory and storage hierarchy
-
-### RP2350 Internal SRAM
-
-Used for firmware runtime, deterministic bus state, PIO/DMA queues and descriptors, explicitly prepared V30 working windows, and short trace/fault buffers.
-
-It is not intended to be the main bulk V30 RAM resource.
-
-### External NOR Flash
-
-The current RP2350-PiZero provides 16 MB of external NOR Flash. It holds RP2350 firmware, reserved recovery capacity, persistent metadata/configuration, and filesystem-backed machine assets.
-
-### External PSRAM
-
-External PSRAM is part of the **target machine configuration** as bulk volatile backing/workspace. It separates large V30 working state, workload staging, snapshots, and long traces from deterministic Internal SRAM.
-
-An Internal-SRAM + NOR-Flash configuration remains supported for bring-up and diagnostics, but it is not the target machine memory configuration.
-
-External PSRAM is not automatically a valid current-cycle responder; current-cycle data must use a separately validated bounded mechanism, initially explicit preparation into on-chip deterministic state.
-
-### SD Card
-
-SD Card support is optional removable bulk storage. It may be useful for large datasets, traces, snapshots, images, or offline exchange, but it is not part of the core machine.
-
-## Persistent filesystem
-
-External NOR Flash may contain a LittleFS machine-asset filesystem.
-
-Ownership follows one rule:
-
-> **One filesystem, one owner, multiple clients.**
-
-The RP2350 is the sole filesystem owner. The Host accesses files through HID operations. V30 file access is optional and, if added, is mediated by an RP2350 service rather than direct Flash/filesystem ownership.
-
-## Deterministic execution boundary
-
-The original Pi86 HAT keeps V30 `READY` asserted. Therefore an active V30 transaction cannot wait for an arbitrary M33 lookup, inter-core round trip, USB transaction, filesystem operation, External NOR Flash access, or unbounded External PSRAM access.
-
-Current-cycle response state must already be represented by a bounded deterministic mechanism such as prepared RP2350 Internal SRAM feeding PIO/DMA.
-
-The first implementation uses explicit prepared windows rather than a general cache hierarchy.
-
-## Optional workloads and compatibility
-
-PC-class behavior remains useful as a compatibility and stress-test profile, not as the project definition.
-
-Optional examples include:
-
-- diagnostic ROMs and assembly tests;
-- BIOS code;
-- 8259A/PIC, PIT, or PPI compatibility;
-- DOS or ELKS;
-- PC memory maps;
-- disk-image boot paths;
-- display and keyboard services;
-- host/V30 mailbox or persistent-runtime services.
-
-The repository preserves these mechanisms and validation results because they remain useful engineering evidence.
-
-## Host and AI
-
-AI is simply one possible Host client. It receives no special realtime role and does not participate in V30 bus timing.
-
-Existing Host Bridge / Companion Service / AI experiments demonstrate that HID/CDC and V30 mailbox interaction can work on physical hardware. Their validated record framing and mechanisms may be reused, but BIOS `INT 60h`, PIT heartbeat, or AI-specific behavior is not required by the core machine model.
-
-## Hardware baseline
-
-The current physical platform consists of:
-
-- Waveshare RP2350-PiZero;
-- Raspberry Pi RP2350B;
-- physical NEC V30 `D70116C-8` / `uPD70116C-8`;
-- original Homebrew8088 Pi86 V20/V30 HAT;
-- Raspberry Pi-compatible 40-pin mechanical interface;
-- 16 MB External NOR Flash;
-- External PSRAM in the target machine configuration;
-- native USB HID/CDC host interface.
-
-The existing Pi86 HAT remains the working hardware baseline unless a demonstrated architectural limitation requires reconsideration.
-
-## Project lineage
-
-`pi86-rp2350` builds directly on the Homebrew8088 Pi86 project and its physical V20/V30 HAT.
-
-The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V30-class processor and service memory and I/O transactions in software.
-
-`pi86-rp2350` preserves that physical CPU/HAT concept while moving the timing-critical boundary into RP2350 PIO, DMA, and deterministic on-chip state, then exposing a small machine-control and observation interface to modern hosts.
-
-## Document map
-
-- [`../README.md`](../README.md) - public project introduction
-- [`README.md`](README.md) - documentation index
-- [`architecture.md`](architecture.md) - canonical machine architecture
-- [`memory_architecture.md`](memory_architecture.md) - memory resources, V30 Memory Map, backing policy
-- [`host_protocol.md`](host_protocol.md) - language-independent HID/CDC Host Protocol
-- [`dual_core_partitioning.md`](dual_core_partitioning.md) - realtime/service ownership model
-- [`hardware_contract.md`](hardware_contract.md) - canonical physical interface
-- [`companion_service_abi.md`](companion_service_abi.md) - validated optional/historical Companion Service record and mailbox mechanism
-- [`validation/`](validation/) - physical validation records
-- [`adr/`](adr/) - architecture decisions and their consequences
+- [Canonical architecture](architecture.md)
+- [Detailed Host runtime contract](host_runtime_architecture.md)
+- [Host shell](host_runtime_shell.md)
+- [Memory and storage](memory_architecture.md)
+- [Host Protocol](host_protocol.md)
+- [Hardware contract](hardware_contract.md)
+- [Physical validation](validation/)

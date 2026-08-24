@@ -1,19 +1,21 @@
-# pi86 Console
+# Legacy CDC Byte Console
 
-`pi86_console.py` is the host-side stdin/stdout bridge for the RP2350 USB CDC interface used by `pi86-rp2350`.
+`pi86_console.py` is a byte-transparent USB CDC terminal retained for historical
+BIOS/ELKS experiments and simple diagnostics.
 
-The intended console path is:
+It is **not** the primary Host runtime interface. New work should use the Host
+Runtime Shell described in
+[`docs/host_runtime_shell.md`](../../docs/host_runtime_shell.md) and the
+language-independent [Host Protocol](../../docs/host_protocol.md).
+
+The legacy path is:
 
 ```text
-NEC V30
-  -> pi86 virtual BIOS
-  -> RP2350
-  -> USB CDC
+V30 diagnostic or compatibility workload
+  -> RP2350 CDC byte stream
   -> pi86_console.py
-  -> host terminal
+  -> Host terminal
 ```
-
-For ELKS bring-up, BIOS teletype output (`INT 10h`, `AH=0Eh`) can be forwarded through the existing pi86 debug/console path to RP2350 USB CDC. Host keyboard input can later be returned through the same transport for BIOS keyboard services such as `INT 16h`.
 
 ## Requirements
 
@@ -28,13 +30,13 @@ python3 -m pip install -r tools/console/requirements.txt
 
 ## Usage
 
-Auto-detect the serial port when there is one unambiguous RP2350/CDC candidate:
+Auto-detect an unambiguous RP2350 CDC port:
 
 ```bash
 python3 tools/console/pi86_console.py
 ```
 
-Specify a device explicitly:
+Specify a device:
 
 ```bash
 python3 tools/console/pi86_console.py /dev/ttyACM0
@@ -46,16 +48,17 @@ On Windows:
 python tools/console/pi86_console.py COM5
 ```
 
-List detected serial ports:
+List detected ports:
 
 ```bash
 python3 tools/console/pi86_console.py --list
 ```
 
-Exit an interactive session with `Ctrl-]`.
+Exit with `Ctrl-]`.
 
-## Notes
+## Boundary
 
-The baud-rate argument is retained for serial API compatibility. For USB CDC ACM, the configured baud rate normally does not determine the physical USB transfer rate.
-
-The tool intentionally remains a byte-transparent bridge. BIOS, ELKS, and future diagnostic protocols should define their own framing or terminal semantics rather than embedding them in this host transport layer.
+This tool does not implement workload loading, shared files, PSRAM access,
+status, timeout, or restart. It remains useful as a raw compatibility utility,
+but it must not be presented as the Host-Managed Bare-Metal Physical Processor
+Runtime shell.
