@@ -14,7 +14,7 @@ This is **not an x86 emulator**. The NEC V30 executes native code; the RP2350 co
   <em>Physical NEC D70116C-8 (V30) on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
 </p>
 
-## Concept
+## 🧠 Concept
 
 The project has three actors:
 
@@ -43,7 +43,7 @@ The hard realtime boundary is:
 
 The V30 does not require a BIOS or operating system to form the core machine. BIOS, DOS, ELKS, PC-class devices, and other compatibility behavior remain optional workloads or profiles.
 
-## Architecture
+## 🏗️ Architecture
 
 The minimum RP2350 firmware has six responsibilities:
 
@@ -58,7 +58,7 @@ Current-cycle V30 response must not depend on USB, host latency, a filesystem op
 
 See [`docs/architecture.md`](docs/architecture.md).
 
-## Host interface
+## 🔌 Host Interface
 
 The project defines a small language-independent wire protocol rather than a mandatory host SDK:
 
@@ -71,7 +71,7 @@ Python, C, Rust, PowerShell, Web applications, scripts, CLIs, AI agents, or othe
 
 See [`docs/host_protocol.md`](docs/host_protocol.md).
 
-## Memory model
+## 💾 Memory Model
 
 Canonical physical resources are:
 
@@ -88,7 +88,7 @@ An Internal-SRAM + NOR-Flash configuration remains useful for bring-up and diagn
 
 See [`docs/memory_architecture.md`](docs/memory_architecture.md).
 
-## Hardware baseline
+## 🔧 Hardware Baseline
 
 The working physical baseline is:
 
@@ -108,7 +108,7 @@ The installed `D70116C-8` is nominally a 5 V device. Operation on the original P
 
 Canonical signal mapping and electrical rules are documented in [`docs/hardware_contract.md`](docs/hardware_contract.md) and [`docs/pin_mapping.md`](docs/pin_mapping.md).
 
-## Optional compatibility and workloads
+## 🧩 Optional Compatibility and Workloads
 
 The repository contains validated and experimental work for native ROM execution, RAM, interrupts, PIC/PIT behavior, BIOS, host/V30 mailbox interaction, DOS/ELKS exploration, and other progressively complex workloads.
 
@@ -116,7 +116,7 @@ These remain useful engineering evidence and optional compatibility mechanisms. 
 
 Historical validation records are preserved as measured evidence even when later architecture decisions change their interpretation.
 
-## Project lineage
+## 🧬 Project Lineage
 
 `pi86-rp2350` builds directly on the [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its physical V20/V30 HAT.
 
@@ -124,7 +124,7 @@ The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V
 
 `pi86-rp2350` preserves that physical CPU/HAT concept while moving the timing-critical boundary into RP2350 PIO, DMA, and bounded on-chip state.
 
-## Documentation
+## 📚 Documentation
 
 - [`docs/README.md`](docs/README.md) - documentation index
 - [`docs/architecture.md`](docs/architecture.md) - canonical system architecture
@@ -137,6 +137,6 @@ The original Pi86 design used a Raspberry Pi to clock a physical 8088/8086/V20/V
 
 Current machine-model decision: [`docs/adr/0007-adopt-host-constructed-v30-machine-model.md`](docs/adr/0007-adopt-host-constructed-v30-machine-model.md).
 
-## Acknowledgements
+## 🙏 Acknowledgements
 
 Special thanks to the original [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its creator for the V20/V30 HAT design, software architecture, and documentation that provided the foundation for this work.
