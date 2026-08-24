@@ -41,6 +41,27 @@ becomes a bare-metal physical execution target inside a modern runtime.
 > **This project is not only about making an old CPU boot again. It explores a
 > new way for that CPU to remain useful, observable, and alive.**
 
+## Story and motivation
+
+This project began as a hardware bring-up: connect the original Pi86 V20/V30
+HAT to an RP2350-PiZero and find out whether a real NEC V30 could reliably
+leave RESET, fetch its first instruction, and execute native code.
+
+Then the processor said hello. It learned to read and write memory. It
+exchanged a physical message with a modern Host. Finally, instead of being
+stopped after a test, it remained alive in `STI`/`HLT`, waking through real
+interrupt acknowledge cycles, answering, and returning to sleep.
+
+Those experiments changed the question. Reconstructing another fixed PC was no
+longer the most interesting destination. The more compelling idea was to let
+the physical V30 leave that historical machine behind while keeping the part
+that matters: the real processor, executing its own native instructions.
+
+That is the motivation for the runtime described here. A modern Host provides
+loading, files, communication, supervision, and recovery. The RP2350 provides
+the physical resources and bus discipline. The V30 is free to do the one thing
+only it can do: execute as a real V30.
+
 ## The runtime
 
 ```text
