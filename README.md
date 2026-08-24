@@ -28,42 +28,21 @@ The project is built around four ideas:
 ## 🏗️ Architecture
 
 ```text
-                 host tools / scripts / AI agents
-                              |
-                  provider-neutral host API
-                              |
-                observe / control / experiment
-                              |
-                              v
-              +------------------------------------+
-              |        Waveshare RP2350-PiZero     |
-              |         Raspberry Pi RP2350B       |
-              |                                    |
-              |  service / control plane           |
-              |    host I/O / machine state        |
-              |                                    |
-              |  deterministic bus plane           |
-              |    PIO capture / qualification     |
-              |    PIO qualified response          |
-              |    PIO V30 clock / phase           |
-              |    DMA SRAM <-> PIO transport      |
-              +-----------------+------------------+
-                                |
-                    Raspberry Pi 40-pin physical ABI
-                                |
-                    Original Pi86 V20/V30 HAT
-                                |
-                                v
-                     +----------------------+
-                     |     Physical V30     |
-                     |    NEC D70116C-8     |
-                     | native x86-class code|
-                     +----------------------+
+Host tools / AI
+       |
+Observe / Control / Experiment
+       |
+     RP2350
+  PIO / DMA / services
+       |
+ Original Pi86 HAT
+       |
+ Physical NEC V30
 ```
 
 The key boundary is:
 
-> **PIO/DMA and bounded on-chip state handle current-cycle V30 timing. Arm software and host software prepare, supervise, and consume state around it.**
+> **PIO/DMA handle current-cycle V30 timing; Arm software and host tools operate around that realtime path.**
 
 The deterministic bus plane provides passive observation, qualified response, clock/phase control, and DMA transport. Internal SRAM holds deterministic hot state; PSRAM and persistent storage are treated as backing/workspace rather than unbounded current-cycle responders.
 
