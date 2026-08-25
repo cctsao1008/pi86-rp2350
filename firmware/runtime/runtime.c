@@ -59,7 +59,7 @@ void pi86_runtime_init(pi86_runtime_t *runtime) {
     runtime->capabilities[PI86_CAP_TIMEOUT_RESTART] =
         PI86_CAP_NOT_IMPLEMENTED;
     runtime->capabilities[PI86_CAP_HOST_BOOTLOADER] =
-        PI86_CAP_NOT_IMPLEMENTED;
+        PI86_CAP_AVAILABLE;
     runtime->capabilities[PI86_CAP_DVI_OUTPUT] = PI86_CAP_NOT_IMPLEMENTED;
     runtime->capabilities[PI86_CAP_PIO_USB] = PI86_CAP_NOT_IMPLEMENTED;
 

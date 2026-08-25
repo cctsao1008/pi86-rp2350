@@ -19,6 +19,8 @@ from protocol import (  # noqa: E402
     TYPE_WORKLOAD_RESULT,
 )
 from v30bridge import (  # noqa: E402
+    BOOTLOADER_ACK,
+    BOOTLOADER_REQUEST,
     CANONICAL_GREETING,
     CANONICAL_REPLY,
     COMMAND_REPLY,
@@ -29,6 +31,7 @@ from v30bridge import (  # noqa: E402
     heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
+    send_bootloader_request,
     simulate_v30,
     validate_live_reply,
     validate_device_reply,
@@ -37,6 +40,38 @@ from v30bridge import (  # noqa: E402
 
 
 class ProtocolTests(unittest.TestCase):
+    def test_cdc_bootloader_request_requires_exact_ack(self) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.written = b""
+                self.response = bytearray(BOOTLOADER_ACK)
+
+            def write(self, data: bytes) -> int:
+                self.written += data
+                return len(data)
+
+            def flush(self) -> None:
+                pass
+
+            @property
+            def in_waiting(self) -> int:
+                return len(self.response)
+
+            def read(self, length: int) -> bytes:
+                result = bytes(self.response[:length])
+                del self.response[:length]
+                return result
+
+        connection = FakeConnection()
+        evidence = send_bootloader_request(connection, 0.1)
+        self.assertEqual(connection.written, BOOTLOADER_REQUEST)
+        self.assertIn(BOOTLOADER_ACK, evidence)
+
+    def test_bootloader_has_a_cdc_only_command_line_mode(self) -> None:
+        args = build_parser().parse_args(["--bootloader", "--port", "COM14"])
+        self.assertTrue(args.bootloader)
+        self.assertEqual(args.port, "COM14")
+
     def test_record_is_fixed_size_and_round_trips(self) -> None:
         message = Message(TYPE_HELLO, 0x12345678, CANONICAL_GREETING)
         record = message.encode()

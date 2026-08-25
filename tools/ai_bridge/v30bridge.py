@@ -49,6 +49,8 @@ from protocol import (
 
 CANONICAL_GREETING = b"HELLO NEC V30"
 CANONICAL_REPLY = b"HELLO OPENAI CODEX"
+BOOTLOADER_REQUEST = b"PI86 BOOTLOADER\n"
+BOOTLOADER_ACK = b"PI86 BOOTLOADER ACK\n"
 HEARTBEAT_REPLY = b"V30 HEARTBEAT OK"
 COMMAND_REPLY = b"V30 COMMAND OK"
 USB_VID = 0xCAFE
@@ -180,6 +182,55 @@ def _serial_module():
             r"tools\ai_bridge\requirements.txt"
         ) from exc
     return serial
+
+
+def send_bootloader_request(connection: Any, timeout: float) -> bytes:
+    """Request UF2 mode over CDC and require an acknowledgement first."""
+    connection.write(BOOTLOADER_REQUEST)
+    connection.flush()
+    received = bytearray()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        try:
+            waiting = connection.in_waiting
+            if waiting:
+                received.extend(connection.read(waiting))
+                if BOOTLOADER_ACK in received:
+                    return bytes(received)
+        except OSError as exc:
+            # A disconnect is expected only after the acknowledgement.  The
+            # retained evidence distinguishes that from an early disconnect.
+            if BOOTLOADER_ACK in received:
+                return bytes(received)
+            raise RuntimeError(f"CDC disconnected before bootloader ACK: {exc}") from exc
+        time.sleep(0.005)
+    raise RuntimeError("timed out waiting for RP2350 bootloader ACK")
+
+
+def request_bootloader(port: str, timeout: float) -> int:
+    """Enter RP2350 UF2 mode without requiring the HID runtime transport."""
+    serial = _serial_module()
+    try:
+        connection = serial.Serial(
+            port=port, baudrate=115200, timeout=0, write_timeout=1.0
+        )
+        connection.dtr = True
+        time.sleep(0.1)
+        evidence = send_bootloader_request(connection, timeout)
+    except (OSError, serial.SerialException, RuntimeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return TRANSPORT_EXIT
+    finally:
+        if "connection" in locals():
+            try:
+                connection.close()
+            except (OSError, serial.SerialException):
+                pass
+    print("RP2350 bootloader request = ACKNOWLEDGED")
+    print("RP2350 UF2 bootloader     = ENTERING")
+    if evidence:
+        print(f"CDC evidence bytes        = {len(evidence)}")
+    return PASS_EXIT
 
 
 def _hid_module():
@@ -871,6 +922,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--simulate", action="store_true")
     mode.add_argument("--exchange", action="store_true")
     mode.add_argument("--interactive", action="store_true")
+    mode.add_argument(
+        "--bootloader", action="store_true",
+        help="request RP2350 UF2 bootloader mode over USB CDC",
+    )
     mode.add_argument("--list-devices", action="store_true")
     parser.add_argument("--port", help="composite CDC port, for example COM14")
     parser.add_argument("--sequence", type=int, default=1)
@@ -942,6 +997,8 @@ def main() -> int:
 
     if not args.port:
         parser.error("physical exchange requires --port COMxx")
+    if args.bootloader:
+        return request_bootloader(args.port, args.timeout)
     if args.interval <= 0:
         parser.error("--interval must be greater than zero")
     if args.heartbeat_timeout <= 0:

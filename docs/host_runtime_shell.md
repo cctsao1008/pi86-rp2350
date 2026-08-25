@@ -66,7 +66,7 @@ management; an SD card uses its normal sector interface.
 | Storage | `df`, `mount`, `unmount`, `sync` |
 | Memory | `mem read`, `mem write`, `mem load`, `mem save` |
 | Observation | `status`, `top`, `info`, `trace`, `regs` |
-| Supervision | `ping`, `timeout`, heartbeat, restart |
+| Supervision | `ping`, `timeout`, heartbeat, restart, `bootloader` |
 | Shell | `help`, `quiet`, `verbose`, `quit` |
 
 `top` describes one physical-CPU environment rather than an operating-system
@@ -88,3 +88,22 @@ The first canonical image is `hello.bin`, assembled from
 prints `HELLO INTEL 8086` or `HELLO NEC V30`. Remaining shell commands are
 stable framework contracts whose backends are enabled as their capabilities
 are integrated.
+
+## Entering the RP2350 UF2 bootloader
+
+The canonical CDC firmware implements the first Host control operation:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --bootloader --port COM14
+```
+
+The Host sends the exact `PI86 BOOTLOADER` token and requires
+`PI86 BOOTLOADER ACK` before treating the request as accepted. The RP2350 then
+holds the installed 8086-class processor in RESET, stops CLK low, publishes any
+dirty PSRAM state, and enters its ROM UF2 bootloader. The expected USB
+disconnect after the acknowledgement is therefore a successful transition,
+not a transport failure.
+
+The same operation can be typed as `bootloader` or `bootsel` through the raw
+Python CDC console. No Host command can release processor RESET or claim the
+bus through this early control path.
