@@ -73,6 +73,23 @@ In interactive mode the physical-processor `ALIVE` row remains above the
 editable prompt in all three display modes. `quiet`, `status`, and `verbose`
 change event density only; they do not hide liveness.
 
+The displayed `cpu_seq` is not a Host loop counter. It is maintained by the
+physical Intel 8086 or NEC V30 inside the native interrupt service routine and
+returned only after the processor commits its reply:
+
+```text
+| ● INTEL 8086 ALIVE  cpu_seq=001011  rtt=3.7 ms  lost=0
+```
+
+The 64-byte reply also carries an RP2350-assigned `boot_id` and a reserved
+`command_seq` field. The Host request sequence remains in the outer protocol
+header for request/reply correlation. These fields have separate meanings:
+
+- `request sequence`: identifies one Host transaction;
+- `cpu_seq`: counts completed physical interrupt services;
+- `command_seq`: reserved for a future second processor-owned counter; currently zero;
+- `boot_id`: separates processor RESET epochs.
+
 `top` describes one physical-CPU environment rather than an operating-system
 process list. Its eventual fields include processor liveness and clock, active
 workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`

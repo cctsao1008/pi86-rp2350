@@ -9,6 +9,9 @@ PROTOCOL_VERSION = 1
 PAYLOAD_SIZE = 52
 MESSAGE_SIZE = 64
 _MESSAGE = struct.Struct("<BBHIHH52s")
+NATIVE_WITNESS_MAGIC = b"P86N"
+NATIVE_WITNESS_VERSION = 1
+_NATIVE_WITNESS = struct.Struct("<4sBBHIII")
 
 TYPE_HELLO = 1
 TYPE_TEXT = 2
@@ -46,6 +49,56 @@ WORKLOAD_CONTROL_STATUS = 4
 
 RUNTIME_CONTROL_ENTER_BOOTLOADER = 1
 RUNTIME_CONTROL_SELFTEST = 2
+
+
+@dataclass(frozen=True)
+class NativeServiceWitness:
+    """Processor-owned counters observed from one committed native ISR reply."""
+
+    service_type: int
+    boot_id: int
+    cpu_sequence: int
+    command_sequence: int
+    text: bytes
+    flags: int = 0
+    version: int = NATIVE_WITNESS_VERSION
+
+    def encode(self) -> bytes:
+        payload = _NATIVE_WITNESS.pack(
+            NATIVE_WITNESS_MAGIC,
+            self.version,
+            self.service_type,
+            self.flags,
+            self.boot_id,
+            self.cpu_sequence,
+            self.command_sequence,
+        ) + self.text
+        if len(payload) > PAYLOAD_SIZE:
+            raise ValueError("native service witness exceeds bridge payload")
+        return payload
+
+    @classmethod
+    def decode(cls, payload: bytes) -> "NativeServiceWitness":
+        if len(payload) < _NATIVE_WITNESS.size:
+            raise ValueError("native service witness is truncated")
+        magic, version, service_type, flags, boot_id, cpu_seq, command_seq = (
+            _NATIVE_WITNESS.unpack_from(payload)
+        )
+        if magic != NATIVE_WITNESS_MAGIC:
+            raise ValueError("native service witness magic mismatch")
+        if version != NATIVE_WITNESS_VERSION:
+            raise ValueError(
+                f"unsupported native service witness version: {version}"
+            )
+        return cls(
+            service_type=service_type,
+            boot_id=boot_id,
+            cpu_sequence=cpu_seq,
+            command_sequence=command_seq,
+            text=payload[_NATIVE_WITNESS.size:],
+            flags=flags,
+            version=version,
+        )
 
 
 @dataclass(frozen=True)

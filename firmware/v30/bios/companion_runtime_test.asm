@@ -34,32 +34,47 @@ companion_runtime_entry:
     mov ss, ax
     mov sp, 0x8000
 
+    ; Persistent native completion counters. General shared RAM is not yet a
+    ; canonical runtime capability, so the physical processor owns these
+    ; values in registers across STI/HLT and interrupt service:
+    ;
+    ;   ES:BP = completed physical IRQ services (32 bit)
+    ;
+    ; The ISR publishes all four words through its committed I/O reply. The
+    ; RP2350 never invents or increments these processor-owned values.
+    xor bp, bp
+    mov es, ax
+
     sti
     nop                         ; required interrupt-enable settling point
 align 2, db 0x90
-    ; Place the initial software interrupt at 000Eh so its native
-    ; return IP is the aligned persistent wait word at 0010h.
-    times 0x000E - ($ - $$) db 0x90
-companion_idle:
+    ; Keep the first software interrupt immediately before the aligned
+    ; persistent wait block. Counter initialization no longer fits in the
+    ; historical 000Eh slot, so the complete foreground block begins at
+    ; 001Eh and returns naturally at 0020h.
+    times 0x001E - ($ - $$) db 0x90
+PI86_EVEN_FETCH_TARGET companion_idle
     ; The initial V30 -> companion notification is a native software
-    ; interrupt.  Its IRET target is naturally 0010h.
+    ; interrupt.  Its IRET target is naturally 0020h.
     int NATIVE_SERVICE_VECTOR
 
 align 16, db 0x90
-companion_wait:
-    ; NOP/HLT share the aligned word at 0010h.  A physical IRQ accepted from
-    ; HLT stacks 0012h, so IRET never forces an unsupported odd-address ROM
-    ; fetch.  On every wake the V30 itself invokes INT 60h, returns at 0014h,
+PI86_EVEN_FETCH_TARGET companion_wait
+    ; NOP/HLT share the aligned word at 0020h.  A physical IRQ accepted from
+    ; HLT stacks 0022h, so IRET never forces an unsupported odd-address ROM
+    ; fetch.  On every wake the processor invokes INT 60h, returns at 0024h,
     ; and jumps back to the persistent wait point.
     nop
     hlt
+PI86_EVEN_FETCH_TARGET companion_irq_resume
     int NATIVE_SERVICE_VECTOR
+PI86_EVEN_FETCH_TARGET companion_cyclic_return
     jmp short companion_wait
 
     ; Keep boot/prefetch words out of the handler response windows.
     times INT60_ISR_OFFSET - ($ - $$) db 0x90
 
-int60_handler:
+PI86_EVEN_FETCH_TARGET int60_handler
     ; A fixed early record is sufficient to prove the interrupt direction.
     ; Runtime sequence/status/retry fields live in the shared 64-byte ABI;
     ; later BIOS services may replace this payload without changing INT 60h.
@@ -75,18 +90,20 @@ int60_handler:
     ; path independent of any speculative words fetched around IRET.
     times COMPANION_ISR_OFFSET - ($ - $$) db 0x90
 
-companion_irq_handler:
+PI86_EVEN_FETCH_TARGET companion_irq_handler
     ; RP2350 asserts INTR only after an immutable seven-word mailbox record is
     ; ready.  There is therefore no current-cycle M33 lookup and no branch on
     ; STATUS in this validation image: every accepted physical IRQ consumes
     ; exactly one complete record.
     mov dx, STATUS_PORT
     in ax, dx
-    mov bp, ax                  ; STATUS/sequence witness
 
     xor bx, bx
     mov dx, RX_PORT
-%rep HOST_WORDS
+    in ax, dx
+    mov cx, ax                  ; first word classifies heartbeat vs command
+    xor bx, ax
+%rep HOST_WORDS - 1
     in ax, dx
     xor bx, ax
 %endrep
@@ -110,6 +127,30 @@ companion_irq_handler:
     mov ax, 0x2054              ; T<space>
     out dx, ax
     mov ax, 0x4B4F              ; OK
+    out dx, ax
+
+    ; Count a completed native service immediately before publishing the
+    ; counter snapshot and commit. ADD/ADC removes the carry branch entirely,
+    ; so a counter rollover cannot introduce another instruction-fetch target.
+    add bp, 1
+    mov ax, es
+    adc ax, 0
+    mov es, ax
+
+    ; Publish three identical copies. The RP2350 accepts a counter only when
+    ; at least two copies agree, so one mistimed passive data sample cannot
+    ; become a false processor-owned sequence.
+    mov ax, bp
+    out dx, ax
+    mov ax, es
+    out dx, ax
+    mov ax, bp
+    out dx, ax
+    mov ax, es
+    out dx, ax
+    mov ax, bp
+    out dx, ax
+    mov ax, es
     out dx, ax
 
     mov dx, CONTROL_PORT

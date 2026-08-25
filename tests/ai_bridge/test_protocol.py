@@ -10,6 +10,7 @@ from protocol import (  # noqa: E402
     MESSAGE_SIZE,
     STATUS_TIMEOUT,
     Message,
+    NativeServiceWitness,
     TYPE_COMMAND,
     TYPE_HEARTBEAT,
     TYPE_HELLO,
@@ -158,11 +159,41 @@ class ProtocolTests(unittest.TestCase):
             validate_reply(wrong, 7)
 
     def test_companion_heartbeat_reply_uses_the_same_abi(self) -> None:
-        record = Message(TYPE_HEARTBEAT, 9, b"V30 HEARTBEAT OK").encode()
-        reply = validate_reply(
-            record, 9, TYPE_HEARTBEAT, b"V30 HEARTBEAT OK"
+        payload = NativeServiceWitness(
+            TYPE_HEARTBEAT, 7, 0x12345678, 3, HEARTBEAT_REPLY
+        ).encode()
+        request = Message(TYPE_HEARTBEAT, 9, heartbeat_payload(9, 1))
+        reply = validate_live_reply(
+            Message(TYPE_HEARTBEAT, 9, payload).encode(), request
         )
-        self.assertEqual(reply.payload, b"V30 HEARTBEAT OK")
+        witness = NativeServiceWitness.decode(reply.payload)
+        self.assertEqual(witness.boot_id, 7)
+        self.assertEqual(witness.cpu_sequence, 0x12345678)
+        self.assertEqual(witness.command_sequence, 3)
+        self.assertEqual(witness.text, HEARTBEAT_REPLY)
+
+    def test_companion_initial_hello_reply_uses_native_witness(self) -> None:
+        request = Message(TYPE_HELLO, 1, CANONICAL_GREETING)
+        payload = NativeServiceWitness(
+            TYPE_HELLO, 3, 8, 1, HEARTBEAT_REPLY
+        ).encode()
+        reply = validate_live_reply(
+            Message(TYPE_HEARTBEAT, 1, payload).encode(), request
+        )
+        witness = NativeServiceWitness.decode(reply.payload)
+        self.assertEqual(witness.boot_id, 3)
+        self.assertEqual(witness.cpu_sequence, 8)
+        self.assertEqual(witness.text, HEARTBEAT_REPLY)
+
+    def test_native_witness_rejects_wrong_service_type(self) -> None:
+        request = Message(TYPE_HEARTBEAT, 9, heartbeat_payload(9, 1))
+        payload = NativeServiceWitness(
+            TYPE_COMMAND, 1, 2, 3, HEARTBEAT_REPLY
+        ).encode()
+        with self.assertRaisesRegex(ValueError, "service type mismatch"):
+            validate_live_reply(
+                Message(TYPE_HEARTBEAT, 9, payload).encode(), request
+            )
 
     def test_live_heartbeat_has_exactly_seven_fresh_v30_words(self) -> None:
         payload = heartbeat_payload(0x12345678, 0x0102030405060708)
@@ -173,15 +204,31 @@ class ProtocolTests(unittest.TestCase):
 
     def test_live_reply_is_bound_to_request_type_and_sequence(self) -> None:
         heartbeat = Message(TYPE_HEARTBEAT, 17, heartbeat_payload(17, 1))
-        heartbeat_reply = Message(TYPE_HEARTBEAT, 17, HEARTBEAT_REPLY).encode()
+        heartbeat_reply = Message(
+            TYPE_HEARTBEAT,
+            17,
+            NativeServiceWitness(
+                TYPE_HEARTBEAT, 1, 9, 0, HEARTBEAT_REPLY
+            ).encode(),
+        ).encode()
         self.assertEqual(
-            validate_live_reply(heartbeat_reply, heartbeat).payload,
+            NativeServiceWitness.decode(
+                validate_live_reply(heartbeat_reply, heartbeat).payload
+            ).text,
             HEARTBEAT_REPLY,
         )
         command = Message(TYPE_COMMAND, 18, b"STATUS")
-        command_reply = Message(TYPE_RESULT, 18, COMMAND_REPLY).encode()
+        command_reply = Message(
+            TYPE_RESULT,
+            18,
+            NativeServiceWitness(
+                TYPE_COMMAND, 1, 10, 1, COMMAND_REPLY
+            ).encode(),
+        ).encode()
         self.assertEqual(
-            validate_live_reply(command_reply, command).payload,
+            NativeServiceWitness.decode(
+                validate_live_reply(command_reply, command).payload
+            ).text,
             COMMAND_REPLY,
         )
         with self.assertRaises(ValueError):
@@ -202,14 +249,20 @@ class ProtocolTests(unittest.TestCase):
         stats = HeartbeatStats()
         stats.accept(3.3)
         text = _status_text(919, stats, True)
-        self.assertEqual(text, "| ● NEC V30 ALIVE  seq=919  last=3.3 ms  lost=0")
+        self.assertEqual(
+            text,
+            "| ● NEC V30 ALIVE  cpu_seq=000919  rtt=3.3 ms  lost=0",
+        )
         self.assertNotIn("V30>", text)
 
     def test_status_row_can_name_an_intel_8086(self) -> None:
         stats = HeartbeatStats()
         stats.accept(2.7)
         text = _status_text(55, stats, True, "intel-8086")
-        self.assertEqual(text, "| ● INTEL 8086 ALIVE  seq=055  last=2.7 ms  lost=0")
+        self.assertEqual(
+            text,
+            "| ● INTEL 8086 ALIVE  cpu_seq=000055  rtt=2.7 ms  lost=0",
+        )
 
     def test_cdc_port_selection_defaults_to_the_only_composite_device(self) -> None:
         candidates = [

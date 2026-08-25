@@ -41,6 +41,7 @@ from physical_validator import (
 from protocol import (
     MESSAGE_SIZE,
     Message,
+    NativeServiceWitness,
     STATUS_OK,
     TYPE_COMMAND,
     TYPE_HEARTBEAT,
@@ -153,9 +154,23 @@ def validate_reply(
 def validate_live_reply(record: bytes, request: Message) -> Message:
     expected_type = TYPE_RESULT if request.message_type == TYPE_COMMAND else TYPE_HEARTBEAT
     expected_payload = COMMAND_REPLY if request.message_type == TYPE_COMMAND else HEARTBEAT_REPLY
-    reply = validate_reply(record, request.sequence, expected_type, expected_payload)
+    reply = Message.decode(normalize_hid_input(record))
+    if reply.message_type != expected_type:
+        raise ValueError(f"unexpected native reply type: {reply.message_type}")
+    if reply.sequence != request.sequence:
+        raise ValueError(
+            f"native reply sequence mismatch: {reply.sequence} != {request.sequence}"
+        )
     if reply.status != STATUS_OK:
         raise ValueError(f"V30 live reply status is not OK: {reply.status}")
+    witness = NativeServiceWitness.decode(reply.payload)
+    if witness.service_type != request.message_type:
+        raise ValueError(
+            "native witness service type mismatch: "
+            f"{witness.service_type} != {request.message_type}"
+        )
+    if witness.text != expected_payload:
+        raise ValueError(f"unexpected native reply text: {witness.text!r}")
     return reply
 
 
@@ -441,6 +456,7 @@ def physical_exchange(
     sequence: int,
     timeout: float,
     output_dir: Path,
+    processor: str = "nec-v30",
     serial_number: str | None = None,
     echo_cdc: bool = True,
 ) -> tuple[dict[str, Any], int]:
@@ -523,18 +539,48 @@ def physical_exchange(
         transport_errors.append("no complete 64-byte HID reply was received")
     else:
         try:
-            expected_type = TYPE_HEARTBEAT if profile is COMPANION_RUNTIME else TYPE_TEXT
-            expected_payload = HEARTBEAT_REPLY if profile is COMPANION_RUNTIME else CANONICAL_REPLY
-            reply = validate_reply(hid_reply_raw, sequence, expected_type, expected_payload)
+            if profile is COMPANION_RUNTIME:
+                # The persistent runtime now returns the same processor-owned
+                # witness used by every later heartbeat.  Do not compare the
+                # complete payload with the legacy bare text string.
+                reply = validate_live_reply(hid_reply_raw, request)
+            else:
+                reply = validate_reply(
+                    hid_reply_raw, sequence, TYPE_TEXT, CANONICAL_REPLY
+                )
         except ValueError as exc:
             transport_errors.append(str(exc))
 
     hid_pass = reply is not None
     cdc_pass = cdc_report.passed
     overall_pass = hid_pass and cdc_pass and not transport_errors
+    reply_json: dict[str, Any] | None = None
+    if reply is not None:
+        reply_text = reply.payload
+        native_witness: NativeServiceWitness | None = None
+        if profile is COMPANION_RUNTIME:
+            native_witness = NativeServiceWitness.decode(reply.payload)
+            reply_text = native_witness.text
+        reply_json = {
+            "transport": "USB HID",
+            "bytes": MESSAGE_SIZE,
+            "type": reply.message_type,
+            "sequence": reply.sequence,
+            "payload": reply_text.decode("ascii"),
+            "sha256": hashlib.sha256(hid_reply_raw or b"").hexdigest(),
+        }
+        if native_witness is not None:
+            reply_json["native_witness"] = {
+                "boot_id": native_witness.boot_id,
+                "cpu_sequence": native_witness.cpu_sequence,
+                "command_sequence": native_witness.command_sequence,
+                "service_type": native_witness.service_type,
+            }
     result: dict[str, Any] = {
         "schema": "pi86-rp2350.ai-bridge.exchange/v1",
         "profile": profile.name,
+        "processor": processor,
+        "processor_name": PROCESSOR_NAMES[processor],
         "timestamp": started.isoformat(),
         "request": {
             "transport": "USB HID",
@@ -544,14 +590,7 @@ def physical_exchange(
             "payload": request.payload.decode("ascii"),
             "sha256": hashlib.sha256(request_record).hexdigest(),
         },
-        "reply": None if reply is None else {
-            "transport": "USB HID",
-            "bytes": MESSAGE_SIZE,
-            "type": reply.message_type,
-            "sequence": reply.sequence,
-            "payload": reply.payload.decode("ascii"),
-            "sha256": hashlib.sha256(hid_reply_raw or b"").hexdigest(),
-        },
+        "reply": reply_json,
         "hid": {"passed": hid_pass, "identity": hid_identity},
         "cdc_validation": {
             "role": "receive-only physical evidence",
@@ -584,12 +623,16 @@ def physical_exchange(
 def print_human_result(result: dict[str, Any]) -> None:
     request = result["request"]
     reply = result["reply"]
-    print("\n[PHYSICAL V30 EXCHANGE]")
+    processor_name = result.get("processor_name", "NEC V30")
+    print(f"\n[PHYSICAL {processor_name} EXCHANGE]")
     print(f"OpenAI Codex > {request['payload']}  (HID, {request['bytes']} bytes)")
     if reply is None:
-        print("NEC V30      > <no valid HID reply>")
+        print(f"{processor_name:<13}> <no valid HID reply>")
     else:
-        print(f"NEC V30      > {reply['payload']}  (HID, {reply['bytes']} bytes)")
+        print(
+            f"{processor_name:<13}> {reply['payload']}  "
+            f"(HID, {reply['bytes']} bytes)"
+        )
 
     print("\n[CDC LOG EXPLANATION]")
     for index, sentence in enumerate(result["cdc_validation"]["explanation"], 1):
@@ -610,17 +653,18 @@ def print_human_result(result: dict[str, Any]) -> None:
 
 
 def _status_text(
-    sequence: int,
+    cpu_sequence: int | None,
     stats: HeartbeatStats,
     connected: bool,
     processor: str = "nec-v30",
 ) -> str:
     state = "ALIVE" if connected else "LOST"
     latency = f"{stats.last_ms:.1f} ms" if stats.completed else "--"
+    sequence = "------" if cpu_sequence is None else f"{cpu_sequence:06d}"
     processor_name = PROCESSOR_NAMES[processor]
     return (
         f"| {'●' if connected else '○'} {processor_name} {state}  "
-        f"seq={sequence:03d}  last={latency}  lost={stats.lost}"
+        f"cpu_seq={sequence}  rtt={latency}  lost={stats.lost}"
     )
 
 
@@ -730,6 +774,9 @@ def persistent_monitor(
     command_buffer = ""
     connected = True
     current_sequence = sequence & 0xFFFFFFFF
+    current_boot_id: int | None = None
+    current_cpu_sequence: int | None = None
+    current_command_sequence: int | None = None
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -835,7 +882,10 @@ def persistent_monitor(
         return {
             "state": "OWNER_ACTIVE" if connected else "FAULT",
             "processor": processor,
-            "sequence": current_sequence,
+            "request_sequence": current_sequence,
+            "boot_id": current_boot_id,
+            "cpu_sequence": current_cpu_sequence,
+            "command_sequence": current_command_sequence,
             "completed": stats.completed,
             "lost": stats.lost,
             "last_ms": stats.last_ms,
@@ -902,7 +952,9 @@ def persistent_monitor(
         console.clear()
         print(text)
         if interactive:
-            console.render(current_sequence, stats, connected, command_buffer)
+            console.render(
+                current_cpu_sequence, stats, connected, command_buffer
+            )
 
     def perform_workload_transaction(
         records: list[Message], description: str
@@ -931,7 +983,7 @@ def persistent_monitor(
         print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
         print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
-        console.render(current_sequence, stats, connected, command_buffer)
+        console.render(current_cpu_sequence, stats, connected, command_buffer)
 
     try:
         while not stop and (rounds == 0 or stats.completed + stats.lost < rounds):
@@ -946,7 +998,7 @@ def persistent_monitor(
                 command_buffer, command, changed = _read_windows_command(command_buffer)
                 if changed:
                     console.render(
-                        current_sequence, stats, connected, command_buffer
+                        current_cpu_sequence, stats, connected, command_buffer
                     )
 
             request_type: int | None = None
@@ -975,7 +1027,10 @@ def persistent_monitor(
                         f"{processor_name} ALIVE={connected} completed={stats.completed} "
                         f"lost={stats.lost} min/avg/max="
                         f"{stats.minimum_ms if stats.completed else 0:.1f}/"
-                        f"{stats.average_ms:.1f}/{stats.maximum_ms:.1f} ms"
+                        f"{stats.average_ms:.1f}/{stats.maximum_ms:.1f} ms\n"
+                        f"boot_id={current_boot_id if current_boot_id is not None else '--'} "
+                        f"cpu_seq={current_cpu_sequence if current_cpu_sequence is not None else '--'} "
+                        f"command_seq={current_command_sequence if current_command_sequence is not None else '--'}"
                     )
                     if name == "top":
                         print_event(
@@ -1073,6 +1128,32 @@ def persistent_monitor(
             }
             events.append(event)
             if reply is not None:
+                witness = NativeServiceWitness.decode(reply.payload)
+                if (
+                    current_boot_id == witness.boot_id
+                    and current_cpu_sequence is not None
+                ):
+                    delta = (
+                        witness.cpu_sequence - current_cpu_sequence
+                    ) & 0xFFFFFFFF
+                    if delta == 0 or delta >= 0x80000000:
+                        error = (
+                            "stale native completion counter: "
+                            f"{witness.cpu_sequence} after {current_cpu_sequence}"
+                        )
+                        reply = None
+                if reply is not None:
+                    current_boot_id = witness.boot_id
+                    current_cpu_sequence = witness.cpu_sequence
+                    current_command_sequence = witness.command_sequence
+                    event.update(
+                        {
+                            "boot_id": witness.boot_id,
+                            "cpu_sequence": witness.cpu_sequence,
+                            "command_sequence": witness.command_sequence,
+                        }
+                    )
+            if reply is not None:
                 stats.accept(latency_ms)
                 connected = True
                 if display == "verbose" or is_command:
@@ -1081,7 +1162,9 @@ def persistent_monitor(
                     ):
                         reply_text = "WORKLOAD REQUEST OK"
                     else:
-                        reply_text = reply.payload.decode("ascii")
+                        reply_text = NativeServiceWitness.decode(
+                            reply.payload
+                        ).text.decode("ascii")
                         if processor == "intel-8086" and reply_text.startswith("V30 "):
                             reply_text = "8086 " + reply_text[4:]
                     print_event(
@@ -1097,7 +1180,7 @@ def persistent_monitor(
                 )
             if interactive:
                 console.render(
-                    current_sequence, stats, connected, command_buffer
+                    current_cpu_sequence, stats, connected, command_buffer
                 )
             current_sequence = (current_sequence + 1) & 0xFFFFFFFF
             if current_sequence == 0:
@@ -1129,6 +1212,9 @@ def persistent_monitor(
             "clock_hz": 1_000_000,
             "processor": processor,
             "processor_name": processor_name,
+            "boot_id": current_boot_id,
+            "cpu_sequence": current_cpu_sequence,
+            "command_sequence": current_command_sequence,
             "hid_identity": hid_identity,
             "completed": stats.completed,
             "lost": stats.lost,
@@ -1384,6 +1470,7 @@ def main() -> int:
             sequence=args.sequence,
             timeout=args.timeout,
             output_dir=args.output_dir,
+            processor=args.processor,
             serial_number=args.hid_serial,
             echo_cdc=not args.json and not args.interactive,
         )

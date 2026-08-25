@@ -73,7 +73,30 @@ typedef struct {
     uint8_t payload[PI86_BRIDGE_PAYLOAD_SIZE];
 } pi86_bridge_message_t;
 
+/* Native service completion witness carried at the start of a HEARTBEAT or
+ * RESULT payload. cpu_sequence is produced by the physical 8086-class
+ * processor and observed from committed I/O writes. command_sequence is a
+ * reserved native-counter field and is currently zero. boot_id is assigned by
+ * the RP2350 when it releases processor RESET. */
+#define PI86_NATIVE_WITNESS_MAGIC_0 'P'
+#define PI86_NATIVE_WITNESS_MAGIC_1 '8'
+#define PI86_NATIVE_WITNESS_MAGIC_2 '6'
+#define PI86_NATIVE_WITNESS_MAGIC_3 'N'
+#define PI86_NATIVE_WITNESS_VERSION 1u
+
+typedef struct {
+    uint8_t magic[4];
+    uint8_t version;
+    uint8_t service_type;
+    uint16_t flags;
+    uint32_t boot_id;
+    uint32_t cpu_sequence;
+    uint32_t command_sequence;
+} pi86_native_service_witness_t;
+
 _Static_assert(sizeof(pi86_bridge_message_t) == PI86_BRIDGE_MESSAGE_SIZE,
                "AI Bridge ABI must remain one 64-byte record");
+_Static_assert(sizeof(pi86_native_service_witness_t) == 20u,
+               "native service witness ABI changed");
 
 #endif

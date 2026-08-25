@@ -18,4 +18,19 @@
 %define PI86_AI_RX_DATA_PORT    0x00E4
 %define PI86_AI_CONTROL_PORT    0x00E6
 
+; The current exact-word bus responder intentionally serves instruction
+; fetches only at even physical addresses.  Make that electrical constraint
+; an assembly-time property instead of relying on hand-inserted NOPs.
+;
+; Use this macro for every control-flow destination that may be reached by a
+; branch, INT dispatch, or IRET. NASM pads with one NOP when necessary and
+; then rejects the build if the resulting target is still odd.
+%macro PI86_EVEN_FETCH_TARGET 1
+    align 2, db 0x90
+%1:
+    %if (($ - $$) & 1)
+        %error "pi86-rp2350 fetch target is not even-aligned"
+    %endif
+%endmacro
+
 %endif
