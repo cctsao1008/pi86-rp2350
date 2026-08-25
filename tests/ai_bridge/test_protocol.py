@@ -34,6 +34,9 @@ from v30bridge import (  # noqa: E402
     heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
+    cdc_serial_for_port,
+    resolve_cdc_port,
+    select_cdc_port,
     send_bootloader_request,
     send_status_request,
     simulate_v30,
@@ -207,6 +210,39 @@ class ProtocolTests(unittest.TestCase):
         stats.accept(2.7)
         text = _status_text(55, stats, True, "intel-8086")
         self.assertEqual(text, "| ● INTEL 8086 ALIVE  seq=055  last=2.7 ms  lost=0")
+
+    def test_cdc_port_selection_defaults_to_the_only_composite_device(self) -> None:
+        candidates = [
+            {
+                "port": "COM27",
+                "serial": "A1D538EA0A07378F",
+                "description": "USB Serial Device",
+            }
+        ]
+        self.assertEqual(select_cdc_port(candidates), "COM27")
+        self.assertEqual(
+            select_cdc_port(candidates, "A1D538EA0A07378F"), "COM27"
+        )
+
+    def test_cdc_port_selection_refuses_ambiguous_devices(self) -> None:
+        candidates = [
+            {"port": "COM14", "serial": "ONE", "description": "first"},
+            {"port": "COM27", "serial": "TWO", "description": "second"},
+        ]
+        with self.assertRaisesRegex(RuntimeError, "Use --port COMxx"):
+            select_cdc_port(candidates)
+        self.assertEqual(select_cdc_port(candidates, "TWO"), "COM27")
+
+    def test_explicit_cdc_port_bypasses_discovery(self) -> None:
+        self.assertEqual(resolve_cdc_port("COM14"), ("COM14", False))
+
+    def test_cdc_port_pairs_the_matching_hid_serial(self) -> None:
+        candidates = [
+            {"port": "COM14", "serial": "ONE", "description": "first"},
+            {"port": "COM27", "serial": "TWO", "description": "second"},
+        ]
+        self.assertEqual(cdc_serial_for_port("com27", candidates), "TWO")
+        self.assertIsNone(cdc_serial_for_port("COM31", candidates))
 
     def test_interactive_monitor_can_attach_without_reset(self) -> None:
         args = build_parser().parse_args(

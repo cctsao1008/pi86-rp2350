@@ -10,6 +10,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import queue
 import re
 import secrets
 import struct
@@ -22,6 +23,13 @@ if str(RUNTIME_TOOLS) not in sys.path:
     sys.path.insert(0, str(RUNTIME_TOOLS))
 
 from host_shell import command_help, parse_command, unavailable_message
+from host_broker import (
+    BrokerClient,
+    BrokerRecord,
+    DeviceBroker,
+    discover_brokers,
+    select_broker,
+)
 from workload import control_record, workload_from_command
 
 from physical_validator import (
@@ -257,6 +265,12 @@ def request_status(port: str, timeout: float) -> int:
             except (OSError, serial.SerialException):
                 pass
 
+    print_status_evidence(evidence)
+    return PASS_EXIT
+
+
+def print_status_evidence(evidence: bytes) -> None:
+    """Print one framed canonical CDC status block."""
     text = evidence.decode("utf-8", errors="replace")
     lines = text.replace("\r\n", "\n").splitlines()
     if lines and lines[0] == STATUS_BEGIN.decode("ascii"):
@@ -265,7 +279,6 @@ def request_status(port: str, timeout: float) -> int:
         lines = lines[:-1]
     print("\n".join(lines))
     print("RP2350 STATUS RESULT      = PASS")
-    return PASS_EXIT
 
 
 def request_bootloader(port: str, timeout: float) -> int:
@@ -347,6 +360,71 @@ def _open_hid(serial_number: str | None = None):
     device.set_nonblocking(1)
     identity = {key: value for key, value in matches[0].items() if key != "_native_path"}
     return device, identity
+
+
+def list_cdc_ports() -> list[dict[str, str]]:
+    """Return CDC interfaces belonging to the pi86-rp2350 composite device."""
+    try:
+        from serial.tools import list_ports
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyserial is required for automatic CDC port discovery"
+        ) from exc
+
+    matches: list[dict[str, str]] = []
+    for item in list_ports.comports():
+        if item.vid == USB_VID and item.pid == USB_PID:
+            matches.append(
+                {
+                    "port": item.device,
+                    "serial": item.serial_number or "",
+                    "description": item.description or "",
+                }
+            )
+    return matches
+
+
+def select_cdc_port(
+    candidates: list[dict[str, str]], serial_number: str | None = None
+) -> str:
+    """Select one unambiguous CDC interface, optionally by USB serial."""
+    matches = candidates
+    if serial_number is not None:
+        matches = [item for item in matches if item["serial"] == serial_number]
+    if len(matches) == 1:
+        return matches[0]["port"]
+    detail = ", ".join(
+        f"{item['port']} (serial={item['serial'] or '<none>'})" for item in matches
+    ) or "none"
+    qualifier = f" with serial {serial_number}" if serial_number else ""
+    raise RuntimeError(
+        "expected exactly one pi86-rp2350 CDC interface "
+        f"(VID {USB_VID:04X}, PID {USB_PID:04X}){qualifier}; "
+        f"found {len(matches)}: {detail}. Use --port COMxx to select manually."
+    )
+
+
+def resolve_cdc_port(
+    explicit_port: str | None, serial_number: str | None = None
+) -> tuple[str, bool]:
+    """Resolve a manual port or discover the unique composite CDC port."""
+    if explicit_port:
+        return explicit_port, False
+    return select_cdc_port(list_cdc_ports(), serial_number), True
+
+
+def cdc_serial_for_port(
+    port: str, candidates: list[dict[str, str]] | None = None
+) -> str | None:
+    """Return the USB serial paired with a CDC port when it is enumerable."""
+    if candidates is None:
+        candidates = list_cdc_ports()
+    matches = [
+        item for item in candidates if item["port"].casefold() == port.casefold()
+    ]
+    if len(matches) == 1 and matches[0]["serial"]:
+        return matches[0]["serial"]
+    return None
 
 
 def default_output_dir() -> Path:
@@ -635,6 +713,7 @@ def persistent_monitor(
     interactive: bool,
     rounds: int,
     processor: str,
+    broker_record: BrokerRecord | None = None,
 ) -> int:
     """Keep one HID/CDC session synchronized with the living physical CPU."""
     serial = _serial_module()
@@ -655,15 +734,38 @@ def persistent_monitor(
     stop = False
     transport_error: str | None = None
 
-    connection = serial.Serial(
-        port=port, baudrate=115200, timeout=0, write_timeout=1.0
-    )
-    connection.dtr = True
-    hid_device, hid_identity = _open_hid(serial_number)
+    connection = None
+    hid_device = None
+    owner_broker: DeviceBroker | None = None
+    broker_client: BrokerClient | None = None
+    if broker_record is not None:
+        broker_client = BrokerClient(
+            broker_record, f"pid-{os.getpid()}-{secrets.token_hex(4)}"
+        )
+        hello = broker_client.hello()
+        if not hello.get("ok"):
+            raise RuntimeError(f"broker handshake failed: {hello.get('error')}")
+        hid_identity = {
+            "serial": broker_record.device_id,
+            "transport": "localhost-broker",
+            "tcp_port": broker_record.tcp_port,
+            "udp_port": broker_record.udp_port,
+        }
+    else:
+        connection = serial.Serial(
+            port=port, baudrate=115200, timeout=0, write_timeout=1.0
+        )
+        connection.dtr = True
+        hid_device, hid_identity = _open_hid(serial_number)
+        device_id = str(hid_identity.get("serial") or port)
+        if select_broker(discover_brokers(), device_id) is not None:
+            raise RuntimeError(f"device {device_id} already has an active broker")
+        owner_broker = DeviceBroker(device_id, processor)
+        owner_broker.start()
 
     def drain_cdc() -> None:
         nonlocal transport_error
-        if transport_error is not None:
+        if transport_error is not None or connection is None:
             return
         try:
             waiting = connection.in_waiting
@@ -676,7 +778,23 @@ def persistent_monitor(
     def exchange(request: Message) -> tuple[Message | None, float, str | None]:
         nonlocal transport_error
         began = time.monotonic()
+        if broker_client is not None:
+            try:
+                response = broker_client.exchange(
+                    request.encode(),
+                    f"{os.getpid()}-{request.sequence}",
+                    timeout,
+                )
+                latency_ms = float(response.get("latency_ms", 0.0))
+                if not response.get("ok"):
+                    return None, latency_ms, str(response.get("error") or "broker exchange failed")
+                candidate = bytes.fromhex(str(response["reply_hex"]))
+                return validate_device_reply(candidate, request), latency_ms, None
+            except (OSError, RuntimeError, ValueError, KeyError) as exc:
+                transport_error = f"Host broker disconnected: {exc}"
+                return None, (time.monotonic() - began) * 1000.0, transport_error
         try:
+            assert hid_device is not None
             while bytes(hid_device.read(MESSAGE_SIZE + 1)):
                 pass
             record = request.encode()
@@ -713,14 +831,78 @@ def persistent_monitor(
             return None, (time.monotonic() - began) * 1000.0, transport_error
         return None, (time.monotonic() - began) * 1000.0, "heartbeat timeout"
 
+    def broker_snapshot() -> dict[str, Any]:
+        return {
+            "state": "OWNER_ACTIVE" if connected else "FAULT",
+            "processor": processor,
+            "sequence": current_sequence,
+            "completed": stats.completed,
+            "lost": stats.lost,
+            "last_ms": stats.last_ms,
+        }
+
+    def service_broker_requests() -> None:
+        nonlocal stop
+        if owner_broker is None:
+            return
+        for pending in owner_broker.pending():
+            try:
+                request = Message.decode(pending.record)
+                reply, latency_ms, error = exchange(request)
+                if reply is None:
+                    result = {"ok": False, "error": error, "latency_ms": latency_ms}
+                else:
+                    result = {
+                        "ok": True,
+                        "reply_hex": reply.encode().hex(),
+                        "latency_ms": latency_ms,
+                    }
+            except (ValueError, RuntimeError) as exc:
+                result = {"ok": False, "error": str(exc), "latency_ms": 0.0}
+            pending.future.set_result(result)
+        while True:
+            try:
+                pending_control = owner_broker.controls.get_nowait()
+            except queue.Empty:
+                break
+            try:
+                bootloader_requested = False
+                if connection is None:
+                    raise RuntimeError("broker does not own a CDC connection")
+                if pending_control.command == "status":
+                    evidence = send_status_request(
+                        connection, pending_control.timeout
+                    )
+                elif pending_control.command == "bootloader":
+                    evidence = send_bootloader_request(
+                        connection, pending_control.timeout
+                    )
+                    bootloader_requested = True
+                else:
+                    raise RuntimeError(
+                        f"unsupported CDC control: {pending_control.command}"
+                    )
+                captured.extend(evidence)
+                control_result = {
+                    "ok": True,
+                    "evidence_hex": evidence.hex(),
+                }
+            except (OSError, RuntimeError, serial.SerialException) as exc:
+                bootloader_requested = False
+                control_result = {"ok": False, "error": str(exc)}
+            pending_control.future.set_result(control_result)
+            if bootloader_requested:
+                # Let the TCP handler flush the ACK before shutting down the
+                # broker event loop after the expected USB disconnect.
+                time.sleep(0.05)
+                stop = True
+        owner_broker.publish(broker_snapshot())
+
     def print_event(text: str) -> None:
         console.clear()
         print(text)
         if interactive:
-            if display == "status":
-                console.render(current_sequence, stats, connected, command_buffer)
-            else:
-                console.render_prompt(command_buffer)
+            console.render(current_sequence, stats, connected, command_buffer)
 
     def perform_workload_transaction(
         records: list[Message], description: str
@@ -749,13 +931,11 @@ def persistent_monitor(
         print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
         print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
-        if display == "status":
-            console.render(current_sequence, stats, connected, command_buffer)
-        else:
-            console.render_prompt(command_buffer)
+        console.render(current_sequence, stats, connected, command_buffer)
 
     try:
         while not stop and (rounds == 0 or stats.completed + stats.lost < rounds):
+            service_broker_requests()
             drain_cdc()
             if transport_error is not None:
                 print_event(transport_error)
@@ -764,12 +944,10 @@ def persistent_monitor(
             command: str | None = None
             if interactive:
                 command_buffer, command, changed = _read_windows_command(command_buffer)
-                if changed and display == "status":
+                if changed:
                     console.render(
                         current_sequence, stats, connected, command_buffer
                     )
-                elif changed:
-                    console.render_prompt(command_buffer)
 
             request_type: int | None = None
             request_payload = b""
@@ -917,7 +1095,7 @@ def persistent_monitor(
                     f"[{current_sequence:03d}] {processor_name} HEARTBEAT LOST  "
                     f"latency={latency_ms:.1f} ms  error={error}"
                 )
-            if display == "status":
+            if interactive:
                 console.render(
                     current_sequence, stats, connected, command_buffer
                 )
@@ -925,19 +1103,25 @@ def persistent_monitor(
             if current_sequence == 0:
                 current_sequence = 1
             next_due = time.monotonic() + interval
+            if owner_broker is not None:
+                owner_broker.publish(broker_snapshot())
     except KeyboardInterrupt:
         stop = True
     finally:
         console.clear()
         drain_cdc()
-        try:
-            hid_device.close()
-        except OSError:
-            pass
-        try:
-            connection.close()
-        except (OSError, serial.SerialException):
-            pass
+        if owner_broker is not None:
+            owner_broker.stop()
+        if hid_device is not None:
+            try:
+                hid_device.close()
+            except OSError:
+                pass
+        if connection is not None:
+            try:
+                connection.close()
+            except (OSError, serial.SerialException):
+                pass
         raw_path.write_bytes(captured)
         summary = {
             "schema": "pi86-rp2350.companion-heartbeat/v1",
@@ -992,7 +1176,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="request canonical RP2350 runtime status over USB CDC",
     )
     mode.add_argument("--list-devices", action="store_true")
-    parser.add_argument("--port", help="composite CDC port, for example COM14")
+    parser.add_argument(
+        "--port",
+        help="composite CDC port, for example COM14 (default: auto-detect)",
+    )
     parser.add_argument("--sequence", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--hid-serial")
@@ -1060,12 +1247,6 @@ def main() -> int:
                 )
         return PASS_EXIT if devices else TRANSPORT_EXIT
 
-    if not args.port:
-        parser.error("physical exchange requires --port COMxx")
-    if args.status:
-        return request_status(args.port, args.timeout)
-    if args.bootloader:
-        return request_bootloader(args.port, args.timeout)
     if args.interval <= 0:
         parser.error("--interval must be greater than zero")
     if args.heartbeat_timeout <= 0:
@@ -1076,6 +1257,110 @@ def main() -> int:
         parser.error("persistent heartbeat display cannot be combined with --json")
     if args.attach and not (args.interactive or args.heartbeat):
         parser.error("--attach requires --interactive or --heartbeat")
+
+    broker_record: BrokerRecord | None = None
+    if args.status or args.bootloader or (
+        args.attach and (args.interactive or args.heartbeat)
+    ):
+        device_hint = args.hid_serial
+        if device_hint is None and args.port:
+            try:
+                device_hint = cdc_serial_for_port(args.port)
+            except RuntimeError:
+                device_hint = None
+        try:
+            broker_record = select_broker(discover_brokers(), device_hint)
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return TRANSPORT_EXIT
+
+    if args.status and broker_record is not None:
+        try:
+            broker_client = BrokerClient(
+                broker_record, f"status-{os.getpid()}"
+            )
+            reply = broker_client.hello()
+            control = broker_client.control(
+                "status", f"status-{os.getpid()}", args.timeout
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"ERROR: Host broker status failed: {exc}", file=sys.stderr)
+            return TRANSPORT_EXIT
+        if not control.get("ok"):
+            print(
+                f"ERROR: Host broker status failed: {control.get('error')}",
+                file=sys.stderr,
+            )
+            return TRANSPORT_EXIT
+        snapshot = reply.get("snapshot", {})
+        print("\n[HOST BROKER STATUS]")
+        print(f"Device ID                  = {broker_record.device_id}")
+        print(f"Physical processor         = {reply.get('processor', 'UNKNOWN').upper()}")
+        print(f"Broker state               = {snapshot.get('state', 'UNKNOWN')}")
+        print(f"TCP / UDP                  = {broker_record.tcp_port} / {broker_record.udp_port}")
+        print(f"Heartbeat completed / lost = {snapshot.get('completed', 0)} / {snapshot.get('lost', 0)}")
+        print("Hardware owner              = EXISTING BROKER")
+        print("HOST BROKER STATUS RESULT = PASS")
+        print_status_evidence(bytes.fromhex(str(control["evidence_hex"])))
+        return PASS_EXIT
+
+    if args.bootloader and broker_record is not None:
+        try:
+            control = BrokerClient(
+                broker_record, f"bootloader-{os.getpid()}"
+            ).control("bootloader", f"bootloader-{os.getpid()}", args.timeout)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"ERROR: Host broker bootloader failed: {exc}", file=sys.stderr)
+            return TRANSPORT_EXIT
+        if not control.get("ok"):
+            print(
+                f"ERROR: Host broker bootloader failed: {control.get('error')}",
+                file=sys.stderr,
+            )
+            return TRANSPORT_EXIT
+        evidence = bytes.fromhex(str(control["evidence_hex"]))
+        print("RP2350 bootloader request = ACKNOWLEDGED VIA HOST BROKER")
+        print("RP2350 UF2 bootloader     = ENTERING")
+        print(f"CDC evidence bytes        = {len(evidence)}")
+        return PASS_EXIT
+
+    if broker_record is not None:
+        if not args.json:
+            print(
+                "Connected to existing Host broker = "
+                f"{broker_record.device_id} (TCP {broker_record.tcp_port}, "
+                f"{broker_record.processor})"
+            )
+        return persistent_monitor(
+            port="",
+            sequence=args.sequence or 1,
+            timeout=args.heartbeat_timeout,
+            interval=args.interval,
+            output_dir=args.output_dir,
+            serial_number=broker_record.device_id,
+            display=args.display,
+            interactive=args.interactive,
+            rounds=args.rounds,
+            processor=broker_record.processor,
+            broker_record=broker_record,
+        )
+
+    try:
+        args.port, auto_port = resolve_cdc_port(args.port, args.hid_serial)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return TRANSPORT_EXIT
+    if auto_port and not args.json:
+        print(f"Auto-selected CDC port = {args.port}")
+    if args.hid_serial is None:
+        try:
+            args.hid_serial = cdc_serial_for_port(args.port)
+        except RuntimeError:
+            args.hid_serial = None
+    if args.status:
+        return request_status(args.port, args.timeout)
+    if args.bootloader:
+        return request_bootloader(args.port, args.timeout)
     if args.attach:
         try:
             return persistent_monitor(

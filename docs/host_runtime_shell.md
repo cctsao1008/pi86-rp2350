@@ -69,6 +69,10 @@ management; an SD card uses its normal sector interface.
 | Supervision | `ping`, `timeout`, heartbeat, restart, `bootloader` |
 | Shell | `help`, `quiet`, `verbose`, `quit` |
 
+In interactive mode the physical-processor `ALIVE` row remains above the
+editable prompt in all three display modes. `quiet`, `status`, and `verbose`
+change event density only; they do not hide liveness.
+
 `top` describes one physical-CPU environment rather than an operating-system
 process list. Its eventual fields include processor liveness and clock, active
 workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`
@@ -97,8 +101,49 @@ The canonical composite CDC+HID firmware exposes its control and observation
 plane through CDC:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --status --port COM14 --timeout 5
+py tools\ai_bridge\v30bridge.py --status --timeout 5
 ```
+
+The Host automatically selects the CDC interface when exactly one
+`VID CAFE / PID 4011` composite device is present. `--port COM27` always
+overrides discovery. If no device or multiple devices are present, the Host
+does not guess: it reports the candidates and requires `--port` (or a matching
+`--hid-serial`) so multiple pi86-rp2350 systems can run concurrently.
+
+## Sharing one physical device between Host clients
+
+The first persistent interactive/heartbeat process is both the normal shell
+and the local Host broker. It is the only process that owns the composite CDC
+and HID interfaces. Later processes discover it by USB serial `device_id` and
+connect as clients instead of reopening the hardware:
+
+```text
+first v30bridge.py
+  = shell + Device Actor + CDC/HID owner + broker
+
+later v30bridge.py
+  = broker client
+```
+
+Reliable 64-byte request/reply transactions use localhost TCP. Read-only
+heartbeat/status snapshots use UDP telemetry. Every remote exchange enters the
+Device Actor queue, so the physical HID sequence and current bus transaction
+still have exactly one owner. The broker lifecycle is an explicit FSM:
+
+```text
+OPENING -> OWNER_ACTIVE -> QUIESCING -> STOPPED
+              |
+              +-> FAULT -> QUIESCING
+```
+
+`--status` automatically queries an active broker when one owns the device, so
+it does not contend for the COM port. With one connected board, no selection
+argument is needed. With multiple boards or brokers, use `--port COMxx` or
+`--hid-serial DEVICE_ID`; the Host refuses ambiguous selection.
+
+Broker termination disconnects clients. This initial contract deliberately
+does not migrate hardware ownership to another process automatically; a new
+script may become owner after the previous broker releases CDC/HID.
 
 The Host requires one complete `PI86 STATUS BEGIN` / `PI86 STATUS END` block,
 so USB startup text cannot be mistaken for the response to a new request. This
@@ -111,7 +156,7 @@ without disturbing the active physical bus or heartbeat runtime.
 The canonical CDC firmware implements the first Host control operation:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --bootloader --port COM14
+py tools\ai_bridge\v30bridge.py --bootloader
 ```
 
 The Host sends the exact `PI86 BOOTLOADER` token and requires
