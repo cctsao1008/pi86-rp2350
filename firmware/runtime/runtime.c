@@ -6,6 +6,7 @@
 #include "board/rp2350_pizero.h"
 #include "hardware/gpio.h"
 #include "pico/bootrom.h"
+#include "pico/stdio.h"
 #include "pico/stdlib.h"
 #include "v30/v30_pins.h"
 
@@ -166,7 +167,7 @@ pi86_runtime_enter_bootloader(pi86_runtime_t *runtime) {
     gpio_put(V30_PIN_CLK, false);
     runtime->state = PI86_RUNTIME_STOPPED;
     if (runtime->psram.available) pi86_psram_publish();
-    fflush(stdout);
+    stdio_flush();
     /*
      * Let Windows receive the CDC acknowledgement before the ROM bootloader
      * tears down this USB device. A shorter delay can complete the hardware

@@ -50,7 +50,7 @@ from protocol import (
 CANONICAL_GREETING = b"HELLO NEC V30"
 CANONICAL_REPLY = b"HELLO OPENAI CODEX"
 BOOTLOADER_REQUEST = b"PI86 BOOTLOADER\n"
-BOOTLOADER_ACK = b"PI86 BOOTLOADER ACK\n"
+BOOTLOADER_ACK = b"PI86 BOOTLOADER ACK"
 HEARTBEAT_REPLY = b"V30 HEARTBEAT OK"
 COMMAND_REPLY = b"V30 COMMAND OK"
 USB_VID = 0xCAFE
@@ -192,9 +192,9 @@ def send_bootloader_request(connection: Any, timeout: float) -> bytes:
     deadline = time.monotonic() + timeout
     while time.monotonic() <= deadline:
         try:
-            waiting = connection.in_waiting
-            if waiting:
-                received.extend(connection.read(waiting))
+            chunk = connection.read(4096)
+            if chunk:
+                received.extend(chunk)
                 if BOOTLOADER_ACK in received:
                     return bytes(received)
         except OSError as exc:
@@ -212,7 +212,7 @@ def request_bootloader(port: str, timeout: float) -> int:
     serial = _serial_module()
     try:
         connection = serial.Serial(
-            port=port, baudrate=115200, timeout=0, write_timeout=1.0
+            port=port, baudrate=115200, timeout=0.05, write_timeout=1.0
         )
         connection.dtr = True
         time.sleep(0.1)
