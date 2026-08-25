@@ -729,13 +729,6 @@ pico_add_extra_outputs(ai_bridge_hid_mailbox_600khz)
 # PIO response plane and C runtime; only the physical V30 clock definition
 # changes. The 0.600 MHz image is the formal acceptance baseline and 1.000 MHz
 # is the performance target. Neither target terminates by asserting RESET.
-pi86_add_v30_rom(companion_runtime_rom
-    SOURCE "${PROJECT_SOURCE_DIR}/firmware/v30/bios/companion_runtime_test.asm"
-    SYMBOL companion_runtime_rom
-    DEPENDS
-        "${PROJECT_SOURCE_DIR}/firmware/v30/bios/include/platform.inc"
-)
-
 function(pi86_add_companion_runtime target_name v30_hz)
     add_executable(${target_name}
         companion_runtime.c

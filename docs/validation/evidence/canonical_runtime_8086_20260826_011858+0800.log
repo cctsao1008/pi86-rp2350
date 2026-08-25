@@ -1,0 +1,298 @@
+
+[PERSISTENT COMPANION RUNTIME]
+Clock                      = 1.000 MHz
+RESET clock qualification = PASS
+Software INT 60h commit    = PASS
+Physical INTR assertions   = 8
+INTA #1 accepts            = 8 PASS
+INTA #2 completions        = 8 PASS
+IRQ mailbox commit         = PASS
+Native EOI                 = PASS
+Heartbeat active           = PASS
+IRQ mailbox commits        = 2
+Native EOI writes          = 2
+PIO1 non-AD isolation      = PASS
+Observer complete cycles   = 256
+DMA remain foreground/ROM/I/O = 33/85/11
+TX FIFO foreground/ROM/I/O = 4/4/4
+SM PC foreground/ROM/I/O/INTA = 15/15/15/1
+PIO1 allocation            = SM0 RESET+INT60, SM1 IRQ ROM, SM2 IRQ I/O, SM3 INTA
+PIO instruction words      = 22 + 10 = 32/32
+Current-cycle M33          = NONE
+V30 runtime state          = STI/HLT idle; IRQ heartbeat remains armed
+COMPANION RUNTIME RESULT   = PASS
+
+[PASSIVE ADDRESS / R2-DATA TRACE]
+00 addr=FFFF0 type=MEMR data=00EA addr_raw=09C6DF3F data_raw=002C1543
+01 addr=FFFF2 type=MEMR data=0000 addr_raw=09CEDF3F data_raw=00240102
+02 addr=FFFF4 type=MEMR data=90F0 addr_raw=09C6FF3F data_raw=0024D513
+03 addr=FFFF6 type=MEMR data=FFF6 addr_raw=09CEFF3F data_raw=086EFD1F
+04 addr=F0000 type=MEMR data=FCFA addr_raw=01840322 data_raw=082ED55F
+05 addr=F0002 type=MEMR data=C031 addr_raw=018C0322 data_raw=04248117
+06 addr=F0004 type=MEMR data=D08E addr_raw=01842322 data_raw=002C7156
+07 addr=F0006 type=MEMR data=00BC addr_raw=018C2322 data_raw=0024B143
+08 addr=F0008 type=MEMR data=FB80 addr_raw=01840362 data_raw=0066591E
+09 addr=F000A type=MEMR data=9090 addr_raw=018C0362 data_raw=0024D112
+10 addr=F000C type=MEMR data=9090 addr_raw=01842362 data_raw=00A4D112
+11 addr=F000E type=MEMR data=60CD addr_raw=018C2362 data_raw=04A4354E
+12 addr=F0010 type=MEMR data=F490 addr_raw=01848322 data_raw=08A4D11E
+13 addr=F0012 type=MEMR data=60CD addr_raw=018C8322 data_raw=04A4354E
+14 addr=00180 type=MEMR data=0100 addr_raw=00001B02 data_raw=00A40902
+15 addr=00182 type=MEMR data=F000 addr_raw=00081B02 data_raw=00A4411E
+16 addr=07FFE type=MEMW data=F246 addr_raw=084AFFCF data_raw=006865BE
+17 addr=07FFC type=MEMW data=F000 addr_raw=0842FFCF data_raw=002041BE
+18 addr=F0100 type=MEMR data=E2BA addr_raw=01840B22 data_raw=006C915F
+19 addr=07FFA type=MEMW data=0010 addr_raw=084ADFCF data_raw=002081A2
+20 addr=F0102 type=MEMR data=B800 addr_raw=018C0B22 data_raw=0026411A
+21 addr=F0104 type=MEMR data=4256 addr_raw=01842B22 data_raw=006CA506
+22 addr=F0106 type=MEMR data=BAEF addr_raw=018C2B22 data_raw=046E755B
+23 addr=F0108 type=MEMR data=00E6 addr_raw=01840B62 data_raw=002C3503
+24 addr=000E2 type=IOW data=4256 addr_raw=00081683 data_raw=006CA486
+25 addr=F010A type=MEMR data=01B8 addr_raw=018C0B62 data_raw=00249943
+26 addr=F010C type=MEMR data=EF00 addr_raw=01842B62 data_raw=0866091E
+27 addr=F010E type=MEMR data=90CF addr_raw=018C2B62 data_raw=042C7552
+28 addr=F0110 type=MEMR data=9090 addr_raw=01848B22 data_raw=0024D112
+29 addr=000E6 type=IOW data=0001 addr_raw=00083683 data_raw=04240082
+30 addr=F0112 type=MEMR data=9090 addr_raw=018C8B22 data_raw=0024D112
+31 addr=07FFA type=MEMR data=0010 addr_raw=084ADF4F data_raw=00208122
+32 addr=07FFC type=MEMR data=F000 addr_raw=0842FF4F data_raw=0020413E
+33 addr=07FFE type=MEMR data=F246 addr_raw=084AFF4F data_raw=0068653E
+34 addr=F0010 type=MEMR data=F490 addr_raw=01848322 data_raw=08A4D11E
+35 addr=F0012 type=MEMR data=60CD addr_raw=018C8322 data_raw=04A4354E
+36 addr=F0014 type=MEMR data=0014 addr_raw=0184A322 data_raw=00A4A102
+37 addr=20014 type=MEMR data=0014 addr_raw=0004A302 data_raw=02A4A002
+38 addr=00026 type=IOR data=0026 addr_raw=00182203 data_raw=00BC2001
+39 addr=00016 type=IOR data=0020 addr_raw=0008A202 data_raw=00A40001
+40 addr=00080 type=MEMR data=0140 addr_raw=00001302 data_raw=00A40D02
+41 addr=00082 type=MEMR data=F000 addr_raw=00081302 data_raw=00A4411E
+42 addr=07FFE type=MEMW data=F246 addr_raw=084AFFCF data_raw=006865BE
+43 addr=07FFC type=MEMW data=F000 addr_raw=0842FFCF data_raw=002041BE
+44 addr=F0140 type=MEMR data=E0BA addr_raw=01840F22 data_raw=002C915F
+45 addr=07FFA type=MEMW data=0012 addr_raw=084ADFCF data_raw=002881A2
+46 addr=F0142 type=MEMR data=ED00 addr_raw=018C0F22 data_raw=0826091E
+47 addr=F0144 type=MEMR data=C589 addr_raw=01842F22 data_raw=0C241956
+48 addr=000E0 type=IOR data=0001 addr_raw=00001603 data_raw=04240002
+49 addr=F0146 type=MEMR data=DB31 addr_raw=018C2F22 data_raw=0466C917
+50 addr=F0148 type=MEMR data=E4BA addr_raw=01840F62 data_raw=082C915F
+51 addr=F014A type=MEMR data=ED00 addr_raw=018C0F62 data_raw=0826091E
+52 addr=F014C type=MEMR data=C331 addr_raw=01842F62 data_raw=04648917
+53 addr=000E4 type=IOR data=4248 addr_raw=00003603 data_raw=00640446
+54 addr=F014E type=MEMR data=31ED addr_raw=018C2F62 data_raw=04247D4B
+55 addr=F0150 type=MEMR data=EDC3 addr_raw=01848F22 data_raw=0C2E1D1E
+56 addr=000E4 type=IOR data=0001 addr_raw=00003603 data_raw=04240002
+57 addr=F0152 type=MEMR data=C331 addr_raw=018C8F22 data_raw=04648917
+58 addr=F0154 type=MEMR data=31ED addr_raw=0184AF22 data_raw=04247D4B
+59 addr=000E4 type=IOR data=0000 addr_raw=00003603 data_raw=00240002
+60 addr=F0156 type=MEMR data=EDC3 addr_raw=018CAF22 data_raw=0C2E1D1E
+61 addr=F0158 type=MEMR data=C331 addr_raw=01848F62 data_raw=04648917
+62 addr=000E4 type=IOR data=BA6E addr_raw=00003603 data_raw=006E645B
+63 addr=F015A type=MEMR data=31ED addr_raw=018C8F62 data_raw=04247D4B
+64 addr=000E4 type=IOR data=98D0 addr_raw=00003603 data_raw=0026D412
+65 addr=F015C type=MEMR data=EDC3 addr_raw=0184AF62 data_raw=0C2E1D1E
+66 addr=F015E type=MEMR data=C331 addr_raw=018CAF62 data_raw=04648917
+67 addr=000E4 type=IOR data=87B4 addr_raw=00003603 data_raw=0864B813
+68 addr=F0160 type=MEMR data=E8BA addr_raw=01840F23 data_raw=002E915F
+69 addr=000E4 type=IOR data=D0FA addr_raw=00003603 data_raw=002CD457
+70 addr=F0162 type=MEMR data=8900 addr_raw=018C0F23 data_raw=00260912
+71 addr=F0164 type=MEMR data=EFD8 addr_raw=01842F23 data_raw=08669D5E
+72 addr=F0166 type=MEMR data=E2BA addr_raw=018C2F23 data_raw=006C915F
+73 addr=F0168 type=MEMR data=B800 addr_raw=01840F63 data_raw=0026411A
+74 addr=000E8 type=IOW data=37B9 addr_raw=000016C3 data_raw=0C64D8CB
+75 addr=F016A type=MEMR data=4548 addr_raw=018C0F63 data_raw=08240D46
+76 addr=F016C type=MEMR data=B8EF addr_raw=01842F63 data_raw=042E755B
+77 addr=F016E type=MEMR data=5241 addr_raw=018C2F63 data_raw=04644506
+78 addr=000E2 type=IOW data=4548 addr_raw=00081683 data_raw=08240CC6
+79 addr=F0170 type=MEMR data=B8EF addr_raw=01848F23 data_raw=042E755B
+80 addr=F0172 type=MEMR data=4254 addr_raw=018C8F23 data_raw=0064A506
+81 addr=000E2 type=IOW data=5241 addr_raw=00081683 data_raw=04644486
+82 addr=F0174 type=MEMR data=B8EF addr_raw=0184AF23 data_raw=042E755B
+83 addr=F0176 type=MEMR data=4145 addr_raw=018CAF23 data_raw=04242D06
+84 addr=000E2 type=IOW data=4254 addr_raw=00081683 data_raw=0064A486
+85 addr=F0178 type=MEMR data=B8EF addr_raw=01848F63 data_raw=042E755B
+86 addr=F017A type=MEMR data=2054 addr_raw=018C8F63 data_raw=0024A50A
+87 addr=000E2 type=IOW data=4145 addr_raw=00081683 data_raw=04242C86
+88 addr=F017C type=MEMR data=B8EF addr_raw=0184AF63 data_raw=042E755B
+89 addr=F017E type=MEMR data=4B4F addr_raw=018CAF63 data_raw=046E2D46
+90 addr=000E2 type=IOW data=2054 addr_raw=00081683 data_raw=0024A48A
+91 addr=F0180 type=MEMR data=BAEF addr_raw=01841B22 data_raw=046E755B
+92 addr=F0182 type=MEMR data=00E6 addr_raw=018C1B22 data_raw=002C3503
+93 addr=000E2 type=IOW data=4B4F addr_raw=00081683 data_raw=046E2CC6
+94 addr=F0184 type=MEMR data=01B8 addr_raw=01843B22 data_raw=00249943
+95 addr=F0186 type=MEMR data=EF00 addr_raw=018C3B22 data_raw=0866091E
+96 addr=F0188 type=MEMR data=20BA addr_raw=01841B62 data_raw=002C914B
+97 addr=F018A type=MEMR data=B800 addr_raw=018C1B62 data_raw=0026411A
+98 addr=000E6 type=IOW data=0001 addr_raw=00083683 data_raw=04240082
+99 addr=F018C type=MEMR data=0020 addr_raw=01843B62 data_raw=00240103
+100 addr=F018E type=MEMR data=CFEF addr_raw=018C3B62 data_raw=0C6E3D57
+101 addr=F0190 type=MEMR data=0190 addr_raw=01849B22 data_raw=00249902
+102 addr=00020 type=IOW data=0020 addr_raw=00000283 data_raw=00240083
+103 addr=F0192 type=MEMR data=0192 addr_raw=018C9B22 data_raw=002C9902
+104 addr=07FFA type=MEMR data=0012 addr_raw=084ADF4F data_raw=00288122
+105 addr=07FFC type=MEMR data=F000 addr_raw=0842FF4F data_raw=0020413E
+106 addr=07FFE type=MEMR data=F246 addr_raw=084AFF4F data_raw=0068653E
+107 addr=F0012 type=MEMR data=60CD addr_raw=018C8322 data_raw=04A4354E
+108 addr=F0014 type=MEMR data=0014 addr_raw=0184A322 data_raw=00A4A102
+109 addr=F0016 type=MEMR data=0016 addr_raw=018CA322 data_raw=00ACA102
+110 addr=00180 type=MEMR data=0100 addr_raw=00001B02 data_raw=00A40902
+111 addr=00182 type=MEMR data=F000 addr_raw=00081B02 data_raw=00A4411E
+112 addr=07FFE type=MEMW data=F246 addr_raw=084AFFCF data_raw=006865BE
+113 addr=07FFC type=MEMW data=F000 addr_raw=0842FFCF data_raw=002041BE
+114 addr=F0100 type=MEMR data=E2BA addr_raw=01840B22 data_raw=006C915F
+115 addr=07FFA type=MEMW data=0014 addr_raw=084ADFCF data_raw=0020A1A2
+116 addr=F0102 type=MEMR data=B800 addr_raw=018C0B22 data_raw=0026411A
+117 addr=F0104 type=MEMR data=4256 addr_raw=01842B22 data_raw=006CA506
+118 addr=F0106 type=MEMR data=BAEF addr_raw=018C2B22 data_raw=046E755B
+119 addr=F0108 type=MEMR data=00E6 addr_raw=01840B62 data_raw=002C3503
+120 addr=000E2 type=IOW data=4256 addr_raw=00081683 data_raw=006CA486
+121 addr=F010A type=MEMR data=01B8 addr_raw=018C0B62 data_raw=00249943
+122 addr=F010C type=MEMR data=EF00 addr_raw=01842B62 data_raw=0866091E
+123 addr=F010E type=MEMR data=90CF addr_raw=018C2B62 data_raw=042C7552
+124 addr=F0110 type=MEMR data=9090 addr_raw=01848B22 data_raw=0024D112
+125 addr=000E6 type=IOW data=0001 addr_raw=00083683 data_raw=04240082
+126 addr=F0112 type=MEMR data=9090 addr_raw=018C8B22 data_raw=0024D112
+127 addr=07FFA type=MEMR data=0014 addr_raw=084ADF4F data_raw=0020A122
+128 addr=07FFC type=MEMR data=F000 addr_raw=0842FF4F data_raw=0020413E
+129 addr=07FFE type=MEMR data=F246 addr_raw=084AFF4F data_raw=0068653E
+130 addr=F0014 type=MEMR data=FAEB addr_raw=0184A322 data_raw=04EE555F
+131 addr=F0016 type=MEMR data=0016 addr_raw=018CA322 data_raw=00ACA102
+132 addr=F0018 type=MEMR data=0018 addr_raw=01848362 data_raw=00A48142
+133 addr=F0010 type=MEMR data=F490 addr_raw=01848322 data_raw=08A4D11E
+134 addr=F0012 type=MEMR data=60CD addr_raw=018C8322 data_raw=04A4354E
+135 addr=F0014 type=MEMR data=0014 addr_raw=0184A322 data_raw=00A4A102
+136 addr=20014 type=MEMR data=0014 addr_raw=0004A302 data_raw=02A4A002
+137 addr=00026 type=IOR data=0026 addr_raw=00182203 data_raw=00BC2001
+138 addr=00016 type=IOR data=0020 addr_raw=0008A202 data_raw=00A40001
+139 addr=00080 type=MEMR data=0140 addr_raw=00001302 data_raw=00A40D02
+140 addr=00082 type=MEMR data=F000 addr_raw=00081302 data_raw=00A4411E
+141 addr=07FFE type=MEMW data=F246 addr_raw=084AFFCF data_raw=006865BE
+142 addr=07FFC type=MEMW data=F000 addr_raw=0842FFCF data_raw=002041BE
+143 addr=F0140 type=MEMR data=E0BA addr_raw=01840F22 data_raw=002C915F
+144 addr=07FFA type=MEMW data=0012 addr_raw=084ADFCF data_raw=002881A2
+145 addr=F0142 type=MEMR data=ED00 addr_raw=018C0F22 data_raw=0826091E
+146 addr=F0144 type=MEMR data=C589 addr_raw=01842F22 data_raw=0C241956
+147 addr=000E0 type=IOR data=0001 addr_raw=00001603 data_raw=04240002
+148 addr=F0146 type=MEMR data=DB31 addr_raw=018C2F22 data_raw=0466C917
+149 addr=F0148 type=MEMR data=E4BA addr_raw=01840F62 data_raw=082C915F
+150 addr=F014A type=MEMR data=ED00 addr_raw=018C0F62 data_raw=0826091E
+151 addr=F014C type=MEMR data=C331 addr_raw=01842F62 data_raw=04648917
+152 addr=000E4 type=IOR data=4248 addr_raw=00003603 data_raw=00640446
+153 addr=F014E type=MEMR data=31ED addr_raw=018C2F62 data_raw=04247D4B
+154 addr=F0150 type=MEMR data=EDC3 addr_raw=01848F22 data_raw=0C2E1D1E
+155 addr=000E4 type=IOR data=0001 addr_raw=00003603 data_raw=04240002
+156 addr=F0152 type=MEMR data=C331 addr_raw=018C8F22 data_raw=04648917
+157 addr=F0154 type=MEMR data=31ED addr_raw=0184AF22 data_raw=04247D4B
+158 addr=000E4 type=IOR data=0000 addr_raw=00003603 data_raw=00240002
+159 addr=F0156 type=MEMR data=EDC3 addr_raw=018CAF22 data_raw=0C2E1D1E
+160 addr=F0158 type=MEMR data=C331 addr_raw=01848F62 data_raw=04648917
+161 addr=000E4 type=IOR data=BA6E addr_raw=00003603 data_raw=006E645B
+162 addr=F015A type=MEMR data=31ED addr_raw=018C8F62 data_raw=04247D4B
+163 addr=000E4 type=IOR data=98D0 addr_raw=00003603 data_raw=0026D412
+164 addr=F015C type=MEMR data=EDC3 addr_raw=0184AF62 data_raw=0C2E1D1E
+165 addr=F015E type=MEMR data=C331 addr_raw=018CAF62 data_raw=04648917
+166 addr=000E4 type=IOR data=87B4 addr_raw=00003603 data_raw=0864B813
+167 addr=F0160 type=MEMR data=E8BA addr_raw=01840F23 data_raw=002E915F
+168 addr=000E4 type=IOR data=D0FA addr_raw=00003603 data_raw=002CD457
+169 addr=F0162 type=MEMR data=8900 addr_raw=018C0F23 data_raw=00260912
+170 addr=F0164 type=MEMR data=EFD8 addr_raw=01842F23 data_raw=08669D5E
+171 addr=F0166 type=MEMR data=E2BA addr_raw=018C2F23 data_raw=006C915F
+172 addr=F0168 type=MEMR data=B800 addr_raw=01840F63 data_raw=0026411A
+173 addr=000E8 type=IOW data=37B9 addr_raw=000016C3 data_raw=0C64D8CB
+174 addr=F016A type=MEMR data=4548 addr_raw=018C0F63 data_raw=08240D46
+175 addr=F016C type=MEMR data=B8EF addr_raw=01842F63 data_raw=042E755B
+176 addr=F016E type=MEMR data=5241 addr_raw=018C2F63 data_raw=04644506
+177 addr=000E2 type=IOW data=4548 addr_raw=00081683 data_raw=08240CC6
+178 addr=F0170 type=MEMR data=B8EF addr_raw=01848F23 data_raw=042E755B
+179 addr=F0172 type=MEMR data=4254 addr_raw=018C8F23 data_raw=0064A506
+180 addr=000E2 type=IOW data=5241 addr_raw=00081683 data_raw=04644486
+181 addr=F0174 type=MEMR data=B8EF addr_raw=0184AF23 data_raw=042E755B
+182 addr=F0176 type=MEMR data=4145 addr_raw=018CAF23 data_raw=04242D06
+183 addr=000E2 type=IOW data=4254 addr_raw=00081683 data_raw=0064A486
+184 addr=F0178 type=MEMR data=B8EF addr_raw=01848F63 data_raw=042E755B
+185 addr=F017A type=MEMR data=2054 addr_raw=018C8F63 data_raw=0024A50A
+186 addr=000E2 type=IOW data=4145 addr_raw=00081683 data_raw=04242C86
+187 addr=F017C type=MEMR data=B8EF addr_raw=0184AF63 data_raw=042E755B
+188 addr=F017E type=MEMR data=4B4F addr_raw=018CAF63 data_raw=046E2D46
+189 addr=000E2 type=IOW data=2054 addr_raw=00081683 data_raw=0024A48A
+190 addr=F0180 type=MEMR data=BAEF addr_raw=01841B22 data_raw=046E755B
+191 addr=F0182 type=MEMR data=00E6 addr_raw=018C1B22 data_raw=002C3503
+192 addr=000E2 type=IOW data=4B4F addr_raw=00081683 data_raw=046E2CC6
+193 addr=F0184 type=MEMR data=01B8 addr_raw=01843B22 data_raw=00249943
+194 addr=F0186 type=MEMR data=EF00 addr_raw=018C3B22 data_raw=0866091E
+195 addr=F0188 type=MEMR data=20BA addr_raw=01841B62 data_raw=002C914B
+196 addr=F018A type=MEMR data=B800 addr_raw=018C1B62 data_raw=0026411A
+197 addr=000E6 type=IOW data=0001 addr_raw=00083683 data_raw=04240082
+198 addr=F018C type=MEMR data=0020 addr_raw=01843B62 data_raw=00240103
+199 addr=F018E type=MEMR data=CFEF addr_raw=018C3B62 data_raw=0C6E3D57
+200 addr=F0190 type=MEMR data=0190 addr_raw=01849B22 data_raw=00249902
+201 addr=00020 type=IOW data=0020 addr_raw=00000283 data_raw=00240083
+202 addr=F0192 type=MEMR data=0192 addr_raw=018C9B22 data_raw=002C9902
+203 addr=07FFA type=MEMR data=0012 addr_raw=084ADF4F data_raw=00288122
+204 addr=07FFC type=MEMR data=F000 addr_raw=0842FF4F data_raw=0020413E
+205 addr=07FFE type=MEMR data=F246 addr_raw=084AFF4F data_raw=0068653E
+206 addr=F0012 type=MEMR data=60CD addr_raw=018C8322 data_raw=04A4354E
+207 addr=F0014 type=MEMR data=0014 addr_raw=0184A322 data_raw=00A4A102
+208 addr=F0016 type=MEMR data=0016 addr_raw=018CA322 data_raw=00ACA102
+209 addr=00180 type=MEMR data=0100 addr_raw=00001B02 data_raw=00A40902
+210 addr=00182 type=MEMR data=F000 addr_raw=00081B02 data_raw=00A4411E
+211 addr=07FFE type=MEMW data=F246 addr_raw=084AFFCF data_raw=006865BE
+212 addr=07FFC type=MEMW data=F000 addr_raw=0842FFCF data_raw=002041BE
+213 addr=F0100 type=MEMR data=E2BA addr_raw=01840B22 data_raw=006C915F
+214 addr=07FFA type=MEMW data=0014 addr_raw=084ADFCF data_raw=0020A1A2
+215 addr=F0102 type=MEMR data=B800 addr_raw=018C0B22 data_raw=0026411A
+216 addr=F0104 type=MEMR data=4256 addr_raw=01842B22 data_raw=006CA506
+217 addr=F0106 type=MEMR data=BAEF addr_raw=018C2B22 data_raw=046E755B
+218 addr=F0108 type=MEMR data=00E6 addr_raw=01840B62 data_raw=002C3503
+219 addr=000E2 type=IOW data=4256 addr_raw=00081683 data_raw=006CA486
+220 addr=F010A type=MEMR data=01B8 addr_raw=018C0B62 data_raw=00249943
+221 addr=F010C type=MEMR data=EF00 addr_raw=01842B62 data_raw=0866091E
+222 addr=F010E type=MEMR data=90CF addr_raw=018C2B62 data_raw=042C7552
+223 addr=F0110 type=MEMR data=9090 addr_raw=01848B22 data_raw=0024D112
+224 addr=000E6 type=IOW data=0001 addr_raw=00083683 data_raw=04240082
+225 addr=F0112 type=MEMR data=9090 addr_raw=018C8B22 data_raw=0024D112
+226 addr=07FFA type=MEMR data=0014 addr_raw=084ADF4F data_raw=0020A122
+227 addr=07FFC type=MEMR data=F000 addr_raw=0842FF4F data_raw=0020413E
+228 addr=07FFE type=MEMR data=F246 addr_raw=084AFF4F data_raw=0068653E
+229 addr=F0014 type=MEMR data=FAEB addr_raw=0184A322 data_raw=04EE555F
+230 addr=F0016 type=MEMR data=0016 addr_raw=018CA322 data_raw=00ACA102
+231 addr=F0018 type=MEMR data=0018 addr_raw=01848362 data_raw=00A48142
+232 addr=F0010 type=MEMR data=F490 addr_raw=01848322 data_raw=08A4D11E
+233 addr=F0012 type=MEMR data=60CD addr_raw=018C8322 data_raw=04A4354E
+234 addr=F0014 type=MEMR data=0014 addr_raw=0184A322 data_raw=00A4A102
+235 addr=20014 type=MEMR data=0014 addr_raw=0004A302 data_raw=02A4A002
+236 addr=00026 type=IOR data=0026 addr_raw=00182203 data_raw=00AC2001
+237 addr=00016 type=IOR data=0020 addr_raw=0008A202 data_raw=00A40001
+238 addr=00080 type=MEMR data=0140 addr_raw=00001302 data_raw=00A40D02
+239 addr=00082 type=MEMR data=F000 addr_raw=00081302 data_raw=00A4411E
+240 addr=07FFE type=MEMW data=F246 addr_raw=084AFFCF data_raw=006865BE
+241 addr=07FFC type=MEMW data=F000 addr_raw=0842FFCF data_raw=002041BE
+242 addr=F0140 type=MEMR data=E0BA addr_raw=01840F22 data_raw=002C915F
+243 addr=07FFA type=MEMW data=0012 addr_raw=084ADFCF data_raw=002881A2
+244 addr=F0142 type=MEMR data=ED00 addr_raw=018C0F22 data_raw=0826091E
+245 addr=F0144 type=MEMR data=C589 addr_raw=01842F22 data_raw=0C241956
+246 addr=000E0 type=IOR data=0001 addr_raw=00001603 data_raw=04240002
+247 addr=F0146 type=MEMR data=DB31 addr_raw=018C2F22 data_raw=0466C917
+248 addr=F0148 type=MEMR data=E4BA addr_raw=01840F62 data_raw=082C915F
+249 addr=F014A type=MEMR data=ED00 addr_raw=018C0F62 data_raw=0826091E
+250 addr=F014C type=MEMR data=C331 addr_raw=01842F62 data_raw=04648917
+251 addr=000E4 type=IOR data=4248 addr_raw=00003603 data_raw=00640446
+252 addr=F014E type=MEMR data=31ED addr_raw=018C2F62 data_raw=04247D4B
+253 addr=F0150 type=MEMR data=EDC3 addr_raw=01848F22 data_raw=0C2E1D1E
+254 addr=000E4 type=IOR data=0001 addr_raw=00003603 data_raw=04240002
+255 addr=F0152 type=MEMR data=C331 addr_raw=018C8F22 data_raw=04648917
+V30 remains active in STI/HLT; RESET is not asserted.
+[LIVE V30 ROUND] sequence=2 type=6 INTA=PASS witness=F086 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=3 type=6 INTA=PASS witness=9A20 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=4 type=6 INTA=PASS witness=46B3 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=5 type=6 INTA=PASS witness=DD2F PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=6 type=6 INTA=PASS witness=4265 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=7 type=6 INTA=PASS witness=1AFD PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=8 type=6 INTA=PASS witness=2C35 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=9 type=6 INTA=PASS witness=A46E PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=10 type=6 INTA=PASS witness=A26C PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=11 type=6 INTA=PASS witness=71E1 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=12 type=6 INTA=PASS witness=99DC PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=13 type=6 INTA=PASS witness=A7FB PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=14 type=6 INTA=PASS witness=3784 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=15 type=6 INTA=PASS witness=5973 PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=16 type=6 INTA=PASS witness=D50D PASS commit=PASS EOI=PASS idle=PASS result=PASS
+[LIVE V30 ROUND] sequence=17 type=6 INTA=PASS witness=6530 PASS commit=PASS EOI=PASS idle=PASS result=PASS

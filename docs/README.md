@@ -65,6 +65,8 @@ and interrupt services—not prompts, models, or providers.
 ## Validation and history
 
 - [`validation/`](validation/) contains accepted physical validation evidence.
+- [`validation/canonical_runtime_integration_1mhz_validation.md`](validation/canonical_runtime_integration_1mhz_validation.md)
+  records the canonical 1 MHz CDC+HID integration on a physical Intel 8086.
 - [`validation/intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
   records the first Intel P8086-2 interactive heartbeat observation.
 - [`bringup/gate_history.md`](bringup/gate_history.md) records the gate sequence.

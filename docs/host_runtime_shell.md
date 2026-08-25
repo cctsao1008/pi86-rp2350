@@ -78,10 +78,12 @@ watchdog state, and restart count.
 The Host now constructs and validates flat native workload manifests, divides
 images into fixed 64-byte upload records, and exposes `load`, `run`, `stop`, and
 `restart` transactions. The RP2350 firmware contains the matching PSRAM staging
-manager with ordered-chunk and CRC32 validation. Composite USB dispatch and the
-arbitrary-address physical bus responder are not yet integrated into canonical
-firmware, so current hardware that advertises only heartbeat correctly rejects
-these operations instead of reporting a false launch.
+manager with ordered-chunk and CRC32 validation. The canonical firmware now
+integrates composite CDC+HID, the accepted 1 MHz companion bus engine, physical
+INTR/two-cycle INTA, persistent heartbeat, command mailbox, status, trace, and
+Host-directed UF2 entry. Native workload upload dispatch and the
+arbitrary-address PSRAM-backed physical responder remain unintegrated, so those
+operations are still rejected instead of reporting a false launch.
 
 The first canonical image is `hello.bin`, assembled from
 `firmware/workloads/hello.asm`. It performs an `AAD 16` identity witness and
@@ -91,8 +93,8 @@ are integrated.
 
 ## Reading canonical runtime status
 
-The canonical firmware exposes a CDC-only status request that does not require
-the composite HID runtime:
+The canonical composite CDC+HID firmware exposes its control and observation
+plane through CDC:
 
 ```powershell
 py tools\ai_bridge\v30bridge.py --status --port COM14 --timeout 5
@@ -100,8 +102,9 @@ py tools\ai_bridge\v30bridge.py --status --port COM14 --timeout 5
 
 The Host requires one complete `PI86 STATUS BEGIN` / `PI86 STATUS END` block,
 so USB startup text cannot be mistaken for the response to a new request. This
-operation only observes RP2350 state; it does not release RESET or claim the
-8086-class processor bus.
+operation only observes RP2350 state. Before the first HID record it reports
+`IDLE` and leaves the processor in RESET. After startup it reports `RUNNING`
+without disturbing the active physical bus or heartbeat runtime.
 
 ## Entering the RP2350 UF2 bootloader
 

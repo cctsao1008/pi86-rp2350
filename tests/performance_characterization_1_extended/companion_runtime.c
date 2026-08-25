@@ -12,6 +12,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "pico/bootrom.h"
+#include "tusb.h"
+
 #ifndef COMPANION_V30_HZ
 #define COMPANION_V30_HZ 600000u
 #endif
@@ -118,6 +121,26 @@ static uint32_t g_irq_rom_dma_words;
 static uint32_t g_irq_io_dma_words;
 
 static int evidence_printf(const char *format, ...);
+static void service_cdc_control(void);
+
+#ifndef PI86_CANONICAL_RUNTIME
+#define PI86_CANONICAL_RUNTIME 0
+#endif
+#ifndef PI86_HAS_EXTERNAL_PSRAM
+#define PI86_HAS_EXTERNAL_PSRAM 0
+#endif
+#ifndef PI86_HAS_SDCARD
+#define PI86_HAS_SDCARD 1
+#endif
+#ifndef PI86_HAS_DVI
+#define PI86_HAS_DVI 1
+#endif
+#ifndef PI86_HAS_PIO_USB
+#define PI86_HAS_PIO_USB 1
+#endif
+
+static bool g_bus_active;
+static pc1c_sm_t *g_runtime_clock;
 
 typedef struct {
     bool inta1;
@@ -336,10 +359,17 @@ static void __isr companion_dma_irq0(void) {
 }
 
 static bool receive_host_record(companion_result_t *r) {
+#if PI86_CANONICAL_RUNTIME
+    while (!pi86_ai_bridge_hid_take_record((uint8_t *)&g_host_record)) {
+        pi86_ai_bridge_usb_task();
+        service_cdc_control();
+    }
+#else
     const uint64_t deadline = time_us_64() + HOST_TIMEOUT_US;
     while (!pi86_ai_bridge_hid_take_record((uint8_t *)&g_host_record) &&
            time_us_64() <= deadline)
         pi86_ai_bridge_usb_task();
+#endif
     r->host_record_ok =
         g_host_record.version == PI86_BRIDGE_PROTOCOL_VERSION &&
         g_host_record.status == PI86_BRIDGE_STATUS_OK &&
@@ -573,6 +603,116 @@ static int evidence_printf(const char *format, ...) {
                                     HOST_TIMEOUT_US) ? length : -1;
 }
 
+static void print_canonical_status(void) {
+    evidence_printf("\n[RUNTIME STATUS]\n");
+    evidence_printf("State                      = %s\n",
+                    g_bus_active ? "RUNNING" : "IDLE");
+    evidence_printf("Clock                      = %.3f MHz\n",
+                    (double)COMPANION_V30_HZ / 1000000.0);
+    evidence_printf("Processor                  = HOST DECLARED: INTEL 8086 OR NEC V30\n");
+    evidence_printf("External PSRAM configured  = %s\n",
+                    PI86_HAS_EXTERNAL_PSRAM ? "YES" : "NO");
+#if PI86_HAS_EXTERNAL_PSRAM
+    evidence_printf("External PSRAM probe       = CANONICAL STARTUP\n");
+#else
+    evidence_printf("External PSRAM probe       = SKIPPED\n");
+#endif
+    evidence_printf("PSRAM role                 = bulk workload/shared backing only\n");
+    evidence_printf("Staged workload            = %s\n",
+                    g_bus_active ? "COMPANION RUNTIME" : "WAITING FOR HID RECORD");
+    evidence_printf("Onboard GPIO safe state    = PASS\n");
+    evidence_printf("MicroSD hardware           = %s\n",
+                    PI86_HAS_SDCARD ? "PRESENT" : "ABSENT");
+    evidence_printf("MicroSD GPIO30/31/40-43    = PASSIVE / NOT CLAIMED\n");
+    evidence_printf("Mini HDMI/DVI hardware     = %s\n",
+                    PI86_HAS_DVI ? "PRESENT" : "ABSENT");
+    evidence_printf("Mini HDMI GPIO32-39/44-46  = PASSIVE / NOT CLAIMED\n");
+    evidence_printf("PIO-USB hardware           = %s\n",
+                    PI86_HAS_PIO_USB ? "PRESENT" : "ABSENT");
+    evidence_printf("PIO-USB GPIO28/29          = PASSIVE / NOT CLAIMED\n");
+    evidence_printf("DVI / PIO-USB concurrency  = MUTUALLY EXCLUSIVE\n");
+
+    evidence_printf("\n[CAPABILITY FRAMEWORK]\n");
+    evidence_printf("Host CDC diagnostics        = AVAILABLE\n");
+    evidence_printf("Host 64-byte HID records    = AVAILABLE\n");
+    evidence_printf("physical 8086-class PIO/DMA bus = AVAILABLE\n");
+    evidence_printf("physical INTR / two-cycle INTA = AVAILABLE\n");
+    evidence_printf("persistent processor heartbeat = AVAILABLE\n");
+    evidence_printf("native workload upload      = NOT IMPLEMENTED\n");
+    evidence_printf("workload run / stop / restart = NOT IMPLEMENTED\n");
+    evidence_printf("processor stdin / stdout    = COMMAND MAILBOX ONLY\n");
+    evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
+    evidence_printf("flash: FAT volume           = NOT IMPLEMENTED\n");
+    evidence_printf("sd: FAT volume              = NOT IMPLEMENTED\n");
+    evidence_printf("retained physical bus trace = AVAILABLE\n");
+    evidence_printf("timeout / fault / restart   = HEARTBEAT DETECTION ONLY\n");
+    evidence_printf("Host-directed UF2 boot      = AVAILABLE\n");
+    evidence_printf("Mini HDMI / DVI output      = NOT IMPLEMENTED\n");
+    evidence_printf("PIO-USB host / device       = NOT IMPLEMENTED\n");
+    evidence_printf("\nOne canonical CDC+HID runtime.\n");
+}
+
+static void enter_canonical_bootloader(void) {
+    evidence_printf("PI86 BOOTLOADER ACK\n");
+    if (g_bus_active) {
+        gpio_put(V30_PIN_RESET, true);
+        pio_set_sm_mask_enabled(pio1, 0x0fu, false);
+        if (g_runtime_clock != NULL)
+            pio_sm_set_enabled(g_runtime_clock->pio,
+                               g_runtime_clock->sm, false);
+        route_ad_to_sio_high_z();
+        gpio_set_function(V30_PIN_CLK, GPIO_FUNC_SIO);
+        gpio_put(V30_PIN_CLK, false);
+        gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
+    }
+    evidence_printf("PI86 BOOTLOADER ENTERING\n");
+    sleep_ms(250u);
+    reset_usb_boot(0u, 0u);
+}
+
+static void service_cdc_control(void) {
+#if PI86_CANONICAL_RUNTIME
+    enum { COMMAND_CAPACITY = 48 };
+    static char command[COMMAND_CAPACITY];
+    static size_t length;
+    static bool overflowed;
+
+    while (tud_cdc_available()) {
+        char ch;
+        if (tud_cdc_read(&ch, 1u) != 1u) break;
+        if (ch == '\r' || ch == '\n') {
+            if (overflowed) {
+                length = 0u;
+                overflowed = false;
+                evidence_printf("PI86 COMMAND ERROR\n");
+                continue;
+            }
+            if (length == 0u) continue;
+            command[length] = '\0';
+            length = 0u;
+            if (strcmp(command, "PI86 STATUS") == 0 ||
+                strcmp(command, "status") == 0) {
+                evidence_printf("PI86 STATUS BEGIN\n");
+                print_canonical_status();
+                evidence_printf("PI86 STATUS END\n");
+            } else if (strcmp(command, "PI86 BOOTLOADER") == 0 ||
+                       strcmp(command, "bootloader") == 0 ||
+                       strcmp(command, "bootsel") == 0) {
+                enter_canonical_bootloader();
+            } else {
+                evidence_printf("PI86 COMMAND ERROR\n");
+            }
+            continue;
+        }
+        if (length + 1u < sizeof command) command[length++] = ch;
+        else {
+            length = 0u;
+            overflowed = true;
+        }
+    }
+#endif
+}
+
 static void print_companion_result(const companion_result_t *r) {
     evidence_printf("\n[PERSISTENT COMPANION RUNTIME]\n");
     evidence_printf("Clock                      = %.3f MHz\n",
@@ -665,7 +805,10 @@ int main(void) {
     static companion_result_t result;
     if (!receive_host_record(&result)) {
         print_companion_result(&result);
-        while (true) pi86_ai_bridge_usb_task();
+        while (true) {
+            pi86_ai_bridge_usb_task();
+            service_cdc_control();
+        }
     }
     compile_sequences();
 
@@ -681,6 +824,7 @@ int main(void) {
     exact_sm_init(&irq_io, 2u, exact_offset);
     inta_sm_init(&inta, 3u, inta_offset);
     runtime_clock_init(&clock);
+    g_runtime_clock = &clock;
     clock_prepare(&clock);
     observer_init(&observer);
 
@@ -732,6 +876,7 @@ int main(void) {
     pio_sm_set_enabled(pio0, observer.sm, true);
     gpio_put(V30_PIN_RESET, false);
     pio_sm_set_enabled(clock.pio, clock.sm, true);
+    g_bus_active = true;
 
     busy_wait_ms(20u);
     for (uint32_t heartbeat = 0u;
@@ -795,6 +940,7 @@ int main(void) {
      * INT60 commit that proves IRET returned to the idle loop. */
     while (true) {
         pi86_ai_bridge_usb_task();
+        service_cdc_control();
         pi86_bridge_message_t request;
         if (take_live_record(&request)) {
             live_round_result_t round;

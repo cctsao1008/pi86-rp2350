@@ -1,0 +1,149 @@
+{
+  "schema": "pi86-rp2350.companion-heartbeat/v1",
+  "started": "2026-08-26T01:18:58.668531+08:00",
+  "clock_hz": 1000000,
+  "processor": "intel-8086",
+  "processor_name": "INTEL 8086",
+  "hid_identity": {
+    "vid": "CAFE",
+    "pid": "4011",
+    "product": "64-byte V30 AI Bridge",
+    "serial": "A1D538EA0A07378F",
+    "interface": 2,
+    "usage_page": 65280,
+    "usage": 1,
+    "path": "\\\\?\\HID#VID_CAFE&PID_4011&MI_02#8&3d1647c&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
+  },
+  "completed": 17,
+  "lost": 0,
+  "latency_ms": {
+    "last": 1.7827998381108046,
+    "minimum": 1.7827998381108046,
+    "average": 8.306947057409321,
+    "maximum": 102.86669991910458
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "request_type": 6,
+      "latency_ms": 102.867,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 2,
+      "request_type": 6,
+      "latency_ms": 2.842,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 3,
+      "request_type": 6,
+      "latency_ms": 2.6,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 4,
+      "request_type": 6,
+      "latency_ms": 2.644,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 5,
+      "request_type": 6,
+      "latency_ms": 1.896,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 6,
+      "request_type": 6,
+      "latency_ms": 1.996,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 7,
+      "request_type": 6,
+      "latency_ms": 1.945,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 8,
+      "request_type": 6,
+      "latency_ms": 1.843,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 9,
+      "request_type": 6,
+      "latency_ms": 2.822,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 10,
+      "request_type": 6,
+      "latency_ms": 2.38,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 11,
+      "request_type": 6,
+      "latency_ms": 2.622,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 12,
+      "request_type": 6,
+      "latency_ms": 2.465,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 13,
+      "request_type": 6,
+      "latency_ms": 2.429,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 14,
+      "request_type": 6,
+      "latency_ms": 2.695,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 15,
+      "request_type": 6,
+      "latency_ms": 2.703,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 16,
+      "request_type": 6,
+      "latency_ms": 2.688,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 17,
+      "request_type": 6,
+      "latency_ms": 1.783,
+      "passed": true,
+      "error": null
+    }
+  ],
+  "transport_error": null,
+  "raw_cdc_log": "D:\\pi86-validation-logs\\companion_heartbeat_20260826_011858+0800.log",
+  "passed": true
+}

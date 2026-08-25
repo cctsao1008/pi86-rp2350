@@ -1,0 +1,303 @@
+{
+  "schema": "pi86-rp2350.companion-heartbeat/v1",
+  "started": "2026-08-26T01:19:52.609091+08:00",
+  "clock_hz": 1000000,
+  "processor": "intel-8086",
+  "processor_name": "INTEL 8086",
+  "hid_identity": {
+    "vid": "CAFE",
+    "pid": "4011",
+    "product": "64-byte V30 AI Bridge",
+    "serial": "A1D538EA0A07378F",
+    "interface": 2,
+    "usage_page": 65280,
+    "usage": 1,
+    "path": "\\\\?\\HID#VID_CAFE&PID_4011&MI_02#8&3d1647c&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}"
+  },
+  "completed": 39,
+  "lost": 0,
+  "latency_ms": {
+    "last": 1.8201000057160854,
+    "minimum": 1.7733999993652105,
+    "average": 2.454120528478271,
+    "maximum": 3.1389999203383923
+  },
+  "events": [
+    {
+      "sequence": 1,
+      "request_type": 6,
+      "latency_ms": 2.492,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 2,
+      "request_type": 6,
+      "latency_ms": 2.336,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 3,
+      "request_type": 6,
+      "latency_ms": 1.819,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 4,
+      "request_type": 6,
+      "latency_ms": 2.94,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 5,
+      "request_type": 6,
+      "latency_ms": 2.997,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 6,
+      "request_type": 6,
+      "latency_ms": 2.988,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 7,
+      "request_type": 6,
+      "latency_ms": 2.264,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 8,
+      "request_type": 6,
+      "latency_ms": 2.63,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 9,
+      "request_type": 6,
+      "latency_ms": 2.105,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 10,
+      "request_type": 6,
+      "latency_ms": 2.286,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 11,
+      "request_type": 6,
+      "latency_ms": 2.247,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 12,
+      "request_type": 6,
+      "latency_ms": 2.572,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 13,
+      "request_type": 6,
+      "latency_ms": 2.643,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 14,
+      "request_type": 6,
+      "latency_ms": 2.206,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 15,
+      "request_type": 6,
+      "latency_ms": 2.593,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 16,
+      "request_type": 6,
+      "latency_ms": 1.851,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 17,
+      "request_type": 6,
+      "latency_ms": 2.282,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 18,
+      "request_type": 6,
+      "latency_ms": 2.537,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 19,
+      "request_type": 4,
+      "latency_ms": 2.616,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 20,
+      "request_type": 6,
+      "latency_ms": 2.476,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 21,
+      "request_type": 6,
+      "latency_ms": 2.588,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 22,
+      "request_type": 6,
+      "latency_ms": 2.013,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 23,
+      "request_type": 6,
+      "latency_ms": 1.934,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 24,
+      "request_type": 6,
+      "latency_ms": 2.765,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 25,
+      "request_type": 6,
+      "latency_ms": 2.753,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 26,
+      "request_type": 6,
+      "latency_ms": 2.84,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 27,
+      "request_type": 6,
+      "latency_ms": 2.925,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 28,
+      "request_type": 6,
+      "latency_ms": 2.494,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 29,
+      "request_type": 6,
+      "latency_ms": 2.229,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 30,
+      "request_type": 6,
+      "latency_ms": 3.115,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 31,
+      "request_type": 6,
+      "latency_ms": 2.395,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 32,
+      "request_type": 6,
+      "latency_ms": 3.139,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 33,
+      "request_type": 6,
+      "latency_ms": 1.912,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 34,
+      "request_type": 6,
+      "latency_ms": 2.322,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 35,
+      "request_type": 6,
+      "latency_ms": 2.689,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 36,
+      "request_type": 6,
+      "latency_ms": 2.672,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 37,
+      "request_type": 6,
+      "latency_ms": 2.453,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 38,
+      "request_type": 6,
+      "latency_ms": 1.773,
+      "passed": true,
+      "error": null
+    },
+    {
+      "sequence": 39,
+      "request_type": 6,
+      "latency_ms": 1.82,
+      "passed": true,
+      "error": null
+    }
+  ],
+  "transport_error": null,
+  "raw_cdc_log": "D:\\pi86-validation-logs\\companion_heartbeat_20260826_011952+0800.log",
+  "passed": true
+}
