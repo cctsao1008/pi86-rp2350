@@ -148,12 +148,6 @@ therefore remains in PIO/DMA and prepared RP2350 state. Host software, USB,
 filesystem work, and arbitrary storage transactions do not answer an active
 V30 bus cycle.
 
-That statement describes the unmodified original HAT used by the current
-validated hardware baseline. A proposal to replace or repurpose the same signal
-as controllable open-drain or bidirectional signaling belongs to a different
-hardware revision; it is not an available capability of this HAT or this
-runtime baseline.
-
 General PSRAM-backed arbitrary execution is the next major physical integration
 gate. The architecture and Host shell are defined, but documentation does not
 claim that this hardware path has already passed validation.

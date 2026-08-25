@@ -186,9 +186,9 @@ prepares and supervises future state; it does not perform an unbounded
 current-cycle lookup.
 
 General PSRAM-backed arbitrary execution remains a physical implementation gate.
-It requires a measured bounded response mechanism such as validated staging,
-clock hold/resume, or future controllable `READY` hardware. Architectural
-documents must not describe this gate as already complete.
+It requires a measured bounded response mechanism on the existing fixed-`READY`
+HAT, such as a validated prepared or staged hit path. Architectural documents
+must not describe this gate as already complete.
 
 ## 9. Host Protocol and shell
 

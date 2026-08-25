@@ -379,9 +379,8 @@ transactions do not answer a current V30 bus cycle directly.
 
 General PSRAM-backed arbitrary execution remains a physical implementation gate.
 The existing Pi86 HAT holds `READY` asserted, so the implementation must validate
-a bounded response mechanism such as clock hold/resume, prepared SRAM windows,
-or future controllable `READY` hardware. The Host architecture and shell do not
-pretend that this gate has already passed.
+a bounded prepared or staged hit path on that hardware. The Host architecture
+and shell do not pretend that this gate has already passed.
 
 ## 13. Failure and recovery policy
 
