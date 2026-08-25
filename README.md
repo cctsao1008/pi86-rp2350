@@ -108,8 +108,10 @@ includes:
 - V30-visible memory inspection and transfer;
 - liveness, status, `top`, trace, timeout, and fault reporting.
 
-Python is the first client, not the architecture. C, Rust, Web tools,
-ChatGPT/Codex, and other clients can use the same Host Protocol.
+Python is the first reference client, not the architecture. Other Host Protocol
+implementations may be written in C or Rust and presented through CLI or Web
+tools. Higher-level clients—including ChatGPT, Codex, and other agents—may use
+those implementations without becoming part of the V30 runtime architecture.
 
 The Host may disappear without becoming part of a current V30 bus cycle. A
 workload can crash or stop responding; the runtime reports it, preserves
@@ -145,6 +147,12 @@ The original Pi86 HAT keeps V30 `READY` asserted. Timing-critical bus behavior
 therefore remains in PIO/DMA and prepared RP2350 state. Host software, USB,
 filesystem work, and arbitrary storage transactions do not answer an active
 V30 bus cycle.
+
+That statement describes the unmodified original HAT used by the current
+validated hardware baseline. A proposal to replace or repurpose the same signal
+as controllable open-drain or bidirectional signaling belongs to a different
+hardware revision; it is not an available capability of this HAT or this
+runtime baseline.
 
 General PSRAM-backed arbitrary execution is the next major physical integration
 gate. The architecture and Host shell are defined, but documentation does not
