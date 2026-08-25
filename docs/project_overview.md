@@ -2,12 +2,12 @@
 
 ## Identity
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 
 It is a **Host-Managed Bare-Metal Physical Processor Runtime**: a modern
 remote-processor runtime for a vintage physical CPU.
 
-The V30 executes native x86-class code. It is not emulated. The Host loads,
+The installed Intel 8086 or NEC V30 executes native x86-class code. It is not emulated. The Host loads,
 communicates with, observes, and restarts workloads. The RP2350 owns the
 resources and physical bus connecting them.
 
@@ -16,12 +16,12 @@ resources and physical bus connecting them.
 ```text
 Host      = Runtime Controller
 RP2350    = Companion Resource and Bus Controller
-NEC V30   = Bare-Metal Remote Physical Processor
+8086/V30  = Bare-Metal Remote Physical Processor
 ```
 
 The Host supplies runtime services such as workload control, stdio, files,
 status, timeout, and restart. The RP2350 arbitrates memory, storage, mailbox,
-interrupt, clock, reset, PIO, DMA, and the physical V30 bus. The V30 owns native
+interrupt, clock, reset, PIO, DMA, and the physical processor bus. The installed processor owns native
 instruction execution and architectural CPU state.
 
 ## Operating model
@@ -30,7 +30,7 @@ instruction execution and architectural CPU state.
 load -> run -> communicate -> observe -> exit / fault / timeout -> restart
 ```
 
-A workload is native V30 machine code plus launch metadata. The RP2350 loads
+A workload is native 8086-class machine code plus launch metadata. The RP2350 loads
 assigned V30-visible memory, prepares a small reset handoff at `FFFF0h`, and
 releases the processor.
 
@@ -82,7 +82,7 @@ gate and is not yet claimed as accepted hardware behavior.
 ## What makes it different
 
 A conventional PC clone recreates BIOS, chipset, storage, and operating-system
-expectations around a processor. `pi86-rp2350` instead keeps the V30 bare metal
+expectations around a processor. `pi86-rp2350` instead keeps the Intel 8086 or NEC V30 bare metal
 and moves the surrounding runtime to a modern Host and RP2350 companion.
 
 The goal is not merely to boot an old CPU again. It is to give that physical CPU

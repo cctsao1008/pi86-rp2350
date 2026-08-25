@@ -2,7 +2,7 @@
 
 The documentation is organized around one current definition:
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 
 Historical experiments remain available as evidence, but they do not define the
 current architecture.
@@ -21,7 +21,7 @@ The three roles are:
 ```text
 Host      = Runtime Controller
 RP2350    = Companion Resource and Bus Controller
-NEC V30   = Bare-Metal Remote Physical Processor
+8086/V30  = Bare-Metal Remote Physical Processor
 ```
 
 ## Current architecture and interfaces
@@ -38,6 +38,7 @@ NEC V30   = Bare-Metal Remote Physical Processor
 | [`hardware_contract.md`](hardware_contract.md) | Current hardware contract |
 | [`pin_mapping.md`](pin_mapping.md) | Pi86 HAT to RP2350 signal mapping |
 | [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) | Current architecture decision |
+| [`adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md`](adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md) | Intel 8086 / NEC V30 processor scope |
 
 ## Host communication
 
@@ -64,6 +65,8 @@ and interrupt services—not prompts, models, or providers.
 ## Validation and history
 
 - [`validation/`](validation/) contains accepted physical validation evidence.
+- [`validation/intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
+  records the first Intel P8086-2 interactive heartbeat observation.
 - [`bringup/gate_history.md`](bringup/gate_history.md) records the gate sequence.
 - [`story/`](story/) preserves the public development story.
 - [`retrospectives/`](retrospectives/) records lessons learned.

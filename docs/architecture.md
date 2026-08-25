@@ -5,11 +5,11 @@
 
 ## 1. Definition
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 >
 > *A modern remote-processor runtime for a vintage physical CPU.*
 
-The V30 is the processor that executes the workload. The Host manages the
+The Intel 8086 or NEC V30 is the processor that executes the workload. The Host manages the
 runtime. The RP2350 supplies the resource, supervision, and physical-bus layer
 between them.
 
@@ -28,7 +28,7 @@ RP2350
   memory / storage / mailbox / interrupt / clock / reset / PIO / DMA
              |
              v
-NEC V30
+Intel 8086 / NEC V30
 = Bare-Metal Remote Physical Processor
   native x86-class workload execution
 ```
@@ -61,9 +61,9 @@ The RP2350 is the sole low-level owner of:
 It validates and serializes Host and V30 requests. It is not an x86 CPU and it
 does not execute the V30 workload.
 
-### NEC V30 — Bare-Metal Remote Physical Processor
+### Intel 8086 / NEC V30 — Bare-Metal Remote Physical Processor
 
-The physical NEC V30:
+The installed physical processor:
 
 - fetches and executes native instructions;
 - owns architectural registers and control flow;
@@ -72,7 +72,7 @@ The physical NEC V30:
 - may exit, fault, hang, or time out like any real bare-metal processor.
 
 The term *remote processor* means a processor loaded and supervised by another
-computer. It does not imply that the V30 is emulated or connected through a
+computer. It does not imply that the 8086 or V30 is emulated or connected through a
 network.
 
 ## 3. Runtime model
@@ -94,11 +94,11 @@ optional programs or experiments. They are not architectural prerequisites.
 
 ## 4. Workload and launch
 
-The initial transfer form is a flat native V30 binary plus explicit launch
+The initial transfer form is a flat native 8086-class binary plus explicit launch
 metadata:
 
 ```text
-image          native V30 machine code
+image          native 8086-class machine code
 load_address   V30 physical address
 entry          initial CS:IP
 stack          initial SS:SP
@@ -231,7 +231,7 @@ and restart a real vintage CPU while preserving native execution.
 The architecture can be summarized as:
 
 > **Host controls the runtime. RP2350 owns resources and the physical bus. The
-> NEC V30 owns native execution.**
+> Intel 8086 or NEC V30 owns native execution.**
 
 Or operationally:
 

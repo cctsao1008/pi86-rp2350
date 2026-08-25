@@ -6,9 +6,9 @@
 
 ## Purpose
 
-This document is the canonical human-readable contract for communication between a modern host and native software running on the physical NEC V30.
+This document is the canonical human-readable contract for communication between a modern host and native software running on a physical Intel 8086 or NEC V30.
 
-The V30-visible abstraction is a **Companion Service**, not an AI service. Codex was the first validated host adapter, but provider identity is not present in this ABI.
+The processor-visible abstraction is a **Companion Service**, not an AI service. Codex was the first validated host adapter, but provider identity is not present in this ABI.
 
 The ABI has two related layers:
 

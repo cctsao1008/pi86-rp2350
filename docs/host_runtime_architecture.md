@@ -1,11 +1,11 @@
 # Host Runtime Contract
 
 **Status:** Detailed contract subordinate to [`architecture.md`](architecture.md)
-**Scope:** Host runtime, RP2350 resource ownership, and physical NEC V30 execution
+**Scope:** Host runtime, RP2350 resource ownership, and physical Intel 8086 / NEC V30 execution
 
 ## 1. Purpose
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 
 The architecture class is **Host-Managed Bare-Metal Physical Processor
 Runtime**: a modern remote-processor runtime for a vintage physical CPU.
@@ -14,7 +14,7 @@ It does not emulate the V30 and does not rebuild a traditional PC around it.
 The V30 executes native bare-metal workloads. The Host supplies the surrounding
 runtime, while the RP2350 owns the resources and physical bus that connect them.
 
-> **The operating system stays on the Host. The physical V30 runs assigned work.**
+> **The operating system stays on the Host. The physical 8086 or V30 runs assigned work.**
 
 The operating model is deliberately small:
 
@@ -48,7 +48,7 @@ RP2350
 `-- PIO/DMA physical V30 bus engine
              |
              v
-Physical NEC V30
+Physical Intel 8086 / NEC V30
 `-- native bare-metal workload
 ```
 
@@ -421,7 +421,7 @@ already-defined service.
 The complete design can be summarized in one sentence:
 
 > **Host controls the runtime; RP2350 owns shared resources and the physical
-> bus; the real NEC V30 executes bare-metal native workloads.**
+> bus; the real Intel 8086 or NEC V30 executes bare-metal native workloads.**
 
 Or, operationally:
 

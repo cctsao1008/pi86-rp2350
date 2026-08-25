@@ -5,7 +5,7 @@
 This document defines the canonical host-facing contract for `pi86-rp2350`.
 
 The Host Protocol connects the **Runtime Controller** to the RP2350
-**Companion Resource and Bus Controller**. The physical NEC V30 remains the
+**Companion Resource and Bus Controller**. The physical Intel 8086 or NEC V30 remains the
 **Bare-Metal Remote Physical Processor**.
 
 The project does **not** require a particular host programming language, SDK, CLI, application framework, Web UI, or AI service.

@@ -202,6 +202,21 @@ py tools\ai_bridge\v30bridge.py --interactive --heartbeat --attach `
   --output-dir D:\pi86-validation-logs
 ```
 
+The installed processor has no CPUID and cannot be inferred reliably. Declare
+it explicitly when using the Intel 8086 experiment:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --interactive --heartbeat --attach `
+  --processor intel-8086 `
+  --port COM27 --display status --interval 1.0 `
+  --output-dir D:\pi86-validation-logs
+```
+
+Use `--processor nec-v30` for the canonical NEC V30 configuration. The option
+changes Host display and evidence metadata; protocol-version-1 reply payloads
+retain their existing `V30 ... OK` bytes for compatibility with deployed
+firmware.
+
 Use `--attach` only after the same powered runtime has already passed its
 bounded startup acceptance. Reset or reflash the RP2350 when startup evidence
 must be collected again.

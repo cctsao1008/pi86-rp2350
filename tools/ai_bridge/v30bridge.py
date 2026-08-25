@@ -42,6 +42,10 @@ HEARTBEAT_REPLY = b"V30 HEARTBEAT OK"
 COMMAND_REPLY = b"V30 COMMAND OK"
 USB_VID = 0xCAFE
 USB_PID = 0x4011
+PROCESSOR_NAMES = {
+    "nec-v30": "NEC V30",
+    "intel-8086": "INTEL 8086",
+}
 TERMINAL_MARKERS = tuple(
     profile.end_marker.encode("ascii")
     for profile in (AI_B2_HID, COMPANION_RUNTIME)
@@ -379,11 +383,17 @@ def print_human_result(result: dict[str, Any]) -> None:
     print(f"AI BRIDGE RESULT = {'PASS' if result['passed'] else 'FAIL'}")
 
 
-def _status_text(sequence: int, stats: HeartbeatStats, connected: bool) -> str:
+def _status_text(
+    sequence: int,
+    stats: HeartbeatStats,
+    connected: bool,
+    processor: str = "nec-v30",
+) -> str:
     state = "ALIVE" if connected else "LOST"
     latency = f"{stats.last_ms:.1f} ms" if stats.completed else "--"
+    processor_name = PROCESSOR_NAMES[processor]
     return (
-        f"| {'●' if connected else '○'} V30 {state}  "
+        f"| {'●' if connected else '○'} {processor_name} {state}  "
         f"seq={sequence:03d}  last={latency}  lost={stats.lost}"
     )
 
@@ -391,9 +401,11 @@ def _status_text(sequence: int, stats: HeartbeatStats, connected: bool) -> str:
 class ConsoleStatus:
     """Own two terminal rows: immutable status above an editable prompt."""
 
-    def __init__(self) -> None:
+    def __init__(self, processor: str) -> None:
         self._rows = 0
         self._tty = sys.stdout.isatty()
+        self._processor = processor
+        self._prompt = "8086" if processor == "intel-8086" else "V30"
 
     def _erase(self) -> None:
         if self._rows == 0 or not self._tty:
@@ -414,8 +426,8 @@ class ConsoleStatus:
             return
         self._erase()
         sys.stdout.write(
-            f"{_status_text(sequence, stats, connected)}\n"
-            f"V30> {command_buffer}"
+            f"{_status_text(sequence, stats, connected, self._processor)}\n"
+            f"{self._prompt}> {command_buffer}"
         )
         sys.stdout.flush()
         self._rows = 2
@@ -424,7 +436,7 @@ class ConsoleStatus:
         if not self._tty:
             return
         self._erase()
-        sys.stdout.write(f"V30> {command_buffer}")
+        sys.stdout.write(f"{self._prompt}> {command_buffer}")
         sys.stdout.flush()
         self._rows = 1
 
@@ -474,8 +486,9 @@ def persistent_monitor(
     display: str,
     interactive: bool,
     rounds: int,
+    processor: str,
 ) -> int:
-    """Keep one HID/CDC session synchronized with the living physical V30."""
+    """Keep one HID/CDC session synchronized with the living physical CPU."""
     serial = _serial_module()
     output_dir.mkdir(parents=True, exist_ok=True)
     started = datetime.now().astimezone()
@@ -485,7 +498,8 @@ def persistent_monitor(
     captured = bytearray()
     events: list[dict[str, Any]] = []
     stats = HeartbeatStats()
-    console = ConsoleStatus()
+    console = ConsoleStatus(processor)
+    processor_name = PROCESSOR_NAMES[processor]
     command_buffer = ""
     connected = True
     current_sequence = sequence & 0xFFFFFFFF
@@ -561,7 +575,7 @@ def persistent_monitor(
                 console.render_prompt(command_buffer)
 
     if interactive:
-        print("\n[V30 INTERACTIVE HEARTBEAT]")
+        print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
         print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
         if display == "status":
@@ -609,15 +623,15 @@ def persistent_monitor(
                         print_event(str(exc))
                 elif name in ("status", "top"):
                     print_event(
-                        f"V30 ALIVE={connected} completed={stats.completed} "
+                        f"{processor_name} ALIVE={connected} completed={stats.completed} "
                         f"lost={stats.lost} min/avg/max="
                         f"{stats.minimum_ms if stats.completed else 0:.1f}/"
                         f"{stats.average_ms:.1f}/{stats.maximum_ms:.1f} ms"
                     )
                     if name == "top":
                         print_event(
-                            "V30 runtime top\n"
-                            f"  V30       {'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz\n"
+                            "Physical processor runtime top\n"
+                            f"  {processor_name:<10} {'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz\n"
                             f"  Heartbeat {stats.completed} completed / {stats.lost} lost\n"
                             f"  Latency   {stats.average_ms:.1f} ms average\n"
                             "  Workload  NOT AVAILABLE\n"
@@ -687,15 +701,18 @@ def persistent_monitor(
                 stats.accept(latency_ms)
                 connected = True
                 if display == "verbose" or is_command:
+                    reply_text = reply.payload.decode("ascii")
+                    if processor == "intel-8086" and reply_text.startswith("V30 "):
+                        reply_text = "8086 " + reply_text[4:]
                     print_event(
-                        f"[{current_sequence:03d}] {reply.payload.decode('ascii')}  "
+                        f"[{current_sequence:03d}] {reply_text}  "
                         f"latency={latency_ms:.1f} ms"
                     )
             else:
                 stats.lost += 1
                 connected = False
                 print_event(
-                    f"[{current_sequence:03d}] V30 HEARTBEAT LOST  "
+                    f"[{current_sequence:03d}] {processor_name} HEARTBEAT LOST  "
                     f"latency={latency_ms:.1f} ms  error={error}"
                 )
             if display == "status":
@@ -724,6 +741,8 @@ def persistent_monitor(
             "schema": "pi86-rp2350.companion-heartbeat/v1",
             "started": started.isoformat(),
             "clock_hz": 1_000_000,
+            "processor": processor,
+            "processor_name": processor_name,
             "hid_identity": hid_identity,
             "completed": stats.completed,
             "lost": stats.lost,
@@ -744,7 +763,7 @@ def persistent_monitor(
             encoding="utf-8",
         )
         print(
-            f"V30 heartbeat stopped: completed={stats.completed} lost={stats.lost} "
+            f"{processor_name} heartbeat stopped: completed={stats.completed} lost={stats.lost} "
             f"avg={stats.average_ms:.1f} ms"
         )
         print(f"Raw CDC evidence = {raw_path}")
@@ -756,7 +775,7 @@ def persistent_monitor(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="exchange one fixed 64-byte message with a physical NEC V30"
+        description="exchange fixed 64-byte records with a physical 8086-class processor"
     )
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--simulate", action="store_true")
@@ -767,10 +786,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sequence", type=int, default=1)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--hid-serial")
+    parser.add_argument(
+        "--processor",
+        choices=tuple(PROCESSOR_NAMES),
+        default="nec-v30",
+        help="installed physical processor identity (default: nec-v30)",
+    )
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument(
         "--heartbeat", action="store_true",
-        help="continue with host-driven V30 heartbeat after acceptance",
+        help="continue with host-driven physical-processor heartbeat after acceptance",
     )
     parser.add_argument(
         "--attach", action="store_true",
@@ -849,6 +874,7 @@ def main() -> int:
                 display=args.display,
                 interactive=args.interactive,
                 rounds=args.rounds,
+                processor=args.processor,
             )
         except RuntimeError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -882,6 +908,7 @@ def main() -> int:
             display=args.display,
             interactive=args.interactive,
             rounds=args.rounds,
+            processor=args.processor,
         )
     return exit_code
 

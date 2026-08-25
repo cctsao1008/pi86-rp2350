@@ -1,12 +1,13 @@
 # pi86-rp2350
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 >
 > **Host-Managed Bare-Metal Physical Processor Runtime**
 > *A modern remote-processor runtime for a vintage physical CPU.*
 
-The NEC V30 is not emulated. It executes native x86-class machine code and owns
-its registers, control flow, interrupts, faults, and results. A modern Host
+The physical processor is not emulated. An Intel 8086 or NEC V30 executes native
+x86-class machine code and owns its registers, control flow, interrupts, faults,
+and results. A modern Host
 loads and supervises that work. The RP2350 connects the two worlds by owning the
 physical bus and the shared resources around the processor.
 
@@ -77,7 +78,7 @@ RP2350
              |
              | physical multiplexed V30 bus
              v
-NEC V30
+Intel 8086 / NEC V30
 = bare-metal remote physical processor
   native workload execution
 ```
@@ -85,7 +86,7 @@ NEC V30
 The responsibility split is fixed:
 
 > **The Host manages the runtime. The RP2350 owns shared resources and the
-> physical bus. The real NEC V30 executes bare-metal native workloads.**
+> physical bus. The real Intel 8086 or NEC V30 executes bare-metal native workloads.**
 
 Operationally:
 
@@ -155,7 +156,7 @@ claim that this hardware path has already passed validation.
 ## 🔌 Hardware baseline
 
 - Waveshare RP2350-PiZero with Raspberry Pi RP2350B
-- physical NEC V30 `D70116C-8` / `uPD70116C-8`
+- physical Intel `P8086-2` or NEC V30 `D70116C-8` / `uPD70116C-8`
 - original Homebrew8088 Pi86 V20/V30 HAT
 - Raspberry Pi-compatible 40-pin physical interface
 - 16 MB External NOR Flash
@@ -163,9 +164,28 @@ claim that this hardware path has already passed validation.
 - native USB HID/CDC Host interface
 - optional SD Card
 
-The installed V30 is nominally a 5 V device. Operation on the original Pi86 HAT
-at 3.3 V is a project-specific empirical condition, not the nominal NEC
-specification.
+The supported processors are nominally 5 V devices. Operation on the original
+Pi86 HAT at 3.3 V is a project-specific empirical condition, not the nominal
+Intel or NEC specification.
+
+### Intel 8086 support
+
+On 2026-08-25, an Intel `P8086-2` replaced the NEC V30 in the same powered-down
+HAT assembly and completed 55 interactive heartbeat exchanges with zero loss,
+followed by a successful command exchange. This is strong evidence that the
+runtime serves an Intel 8086-class physical processor. The retained run is an
+interactive-attach observation; a complete Intel cold-boot transcript remains a
+useful evidence improvement, not a prerequisite for processor support.
+
+The Host now accepts `--processor intel-8086` or `--processor nec-v30` because
+neither processor provides CPUID. Processor identity is declared by the user
+and recorded as Host metadata; it is not guessed by the runtime.
+
+> **The V30 was not an accident. A real Intel 8086 entered the same
+> runtime—and answered.**
+
+See the retained
+[`Intel 8086 interactive heartbeat observation`](docs/validation/intel_8086_interactive_heartbeat_1mhz_observation.md).
 
 ## 📚 Documentation
 
@@ -179,8 +199,10 @@ specification.
 - [`docs/archive/`](docs/archive/) — superseded plans and former project directions
 - [`docs/README.md`](docs/README.md) — complete documentation map
 
-The current architecture decision is
-[`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md).
+The current architecture decisions are
+[`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md)
+and its processor-scope extension,
+[`ADR 0009`](docs/adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md).
 
 ## 🙏 Lineage and acknowledgements
 

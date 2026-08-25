@@ -121,8 +121,14 @@ class ProtocolTests(unittest.TestCase):
         stats = HeartbeatStats()
         stats.accept(3.3)
         text = _status_text(919, stats, True)
-        self.assertEqual(text, "| ● V30 ALIVE  seq=919  last=3.3 ms  lost=0")
+        self.assertEqual(text, "| ● NEC V30 ALIVE  seq=919  last=3.3 ms  lost=0")
         self.assertNotIn("V30>", text)
+
+    def test_status_row_can_name_an_intel_8086(self) -> None:
+        stats = HeartbeatStats()
+        stats.accept(2.7)
+        text = _status_text(55, stats, True, "intel-8086")
+        self.assertEqual(text, "| ● INTEL 8086 ALIVE  seq=055  last=2.7 ms  lost=0")
 
     def test_interactive_monitor_can_attach_without_reset(self) -> None:
         args = build_parser().parse_args(
@@ -137,6 +143,20 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(args.interactive)
         self.assertTrue(args.heartbeat)
         self.assertTrue(args.attach)
+
+    def test_processor_identity_is_explicit_host_metadata(self) -> None:
+        args = build_parser().parse_args(
+            [
+                "--interactive",
+                "--heartbeat",
+                "--attach",
+                "--processor",
+                "intel-8086",
+                "--port",
+                "COM27",
+            ]
+        )
+        self.assertEqual(args.processor, "intel-8086")
 
     def test_runtime_messages_preserve_the_version_one_layout(self) -> None:
         records = (
