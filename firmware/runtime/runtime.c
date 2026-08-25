@@ -13,11 +13,11 @@
 static const char *const capability_names[PI86_CAP_COUNT] = {
     [PI86_CAP_HOST_CDC] = "Host CDC diagnostics",
     [PI86_CAP_HOST_HID_RECORDS] = "Host 64-byte HID records",
-    [PI86_CAP_V30_BUS_ENGINE] = "physical V30 PIO/DMA bus",
+    [PI86_CAP_V30_BUS_ENGINE] = "physical 8086-class PIO/DMA bus",
     [PI86_CAP_V30_INTERRUPTS] = "physical INTR / two-cycle INTA",
-    [PI86_CAP_HEARTBEAT] = "persistent V30 heartbeat",
+    [PI86_CAP_HEARTBEAT] = "persistent processor heartbeat",
     [PI86_CAP_WORKLOAD_UPLOAD] = "native workload upload",
-    [PI86_CAP_WORKLOAD_CONTROL] = "run / stop / restart / status",
+    [PI86_CAP_WORKLOAD_CONTROL] = "workload run / stop / restart",
     [PI86_CAP_V30_STDIO] = "V30 stdin / stdout",
     [PI86_CAP_SHARED_MEMORY] = "Host / V30 shared memory",
     [PI86_CAP_FLASH_FAT] = "flash: FAT volume",
@@ -135,12 +135,16 @@ void pi86_runtime_print_status(const pi86_runtime_t *runtime) {
            pi86_runtime_state_name(runtime->state));
     printf("External PSRAM configured  = %s\n",
            PI86_HAS_EXTERNAL_PSRAM ? "YES" : "NO");
+#if PI86_HAS_EXTERNAL_PSRAM
     printf("External PSRAM detected    = %s",
-           runtime->psram.available ? "AVAILABLE" : "UNAVAILABLE");
+           runtime->psram.available ? "AVAILABLE" : "NOT FOUND");
     if (runtime->psram.available)
         printf(" (%zu bytes / %zu MiB)", runtime->psram.size,
                runtime->psram.size / (1024u * 1024u));
     printf("\n");
+#else
+    printf("External PSRAM probe       = SKIPPED\n");
+#endif
     printf("PSRAM role                 = bulk workload/shared backing only\n");
     printf("Staged workload            = %s",
            pi86_workload_state_name(runtime->workload.state));
