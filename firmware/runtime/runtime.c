@@ -167,6 +167,11 @@ pi86_runtime_enter_bootloader(pi86_runtime_t *runtime) {
     runtime->state = PI86_RUNTIME_STOPPED;
     if (runtime->psram.available) pi86_psram_publish();
     fflush(stdout);
-    sleep_ms(50u);
+    /*
+     * Let Windows receive the CDC acknowledgement before the ROM bootloader
+     * tears down this USB device. A shorter delay can complete the hardware
+     * transition correctly while making the Host report a false failure.
+     */
+    sleep_ms(250u);
     reset_usb_boot(0u, 0u);
 }
