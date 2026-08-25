@@ -45,8 +45,9 @@ The central ownership rule is:
 
 - **RP2350 Internal SRAM** holds firmware, realtime state, mailbox, prepared
   windows, and short traces.
-- **External PSRAM** is the principal V30 execution memory and shared volatile
-  workspace.
+- **External PSRAM** is designated as the principal V30 execution memory and
+  shared volatile workspace; general PSRAM-backed V30 execution remains an
+  unvalidated physical integration target.
 - **External NOR Flash** contains firmware/reserved space and the shared
   `flash:` FAT volume.
 - **SD Card** is the optional removable `sd:` FAT volume.

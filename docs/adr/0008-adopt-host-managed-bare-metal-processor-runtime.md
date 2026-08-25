@@ -66,8 +66,9 @@ and may restart it.
 
 - RP2350 Internal SRAM is runtime/realtime working memory and may expose selected
   prepared V30 windows.
-- External PSRAM is the principal V30 execution memory and shared volatile
-  workspace.
+- External PSRAM is designated as the principal V30 execution memory and shared
+  volatile workspace; that architectural role does not claim that arbitrary
+  PSRAM-backed V30 execution is already physically validated.
 - External NOR contains platform-reserved space plus a shared FAT volume named
   `flash:`.
 - SD is the optional removable FAT volume named `sd:`.

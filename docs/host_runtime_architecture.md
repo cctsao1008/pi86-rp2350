@@ -99,8 +99,8 @@ memory.
 
 ### 4.2 External PSRAM
 
-External PSRAM is the principal V30 execution-memory backing and shared volatile
-workspace. It contains:
+External PSRAM is intended to become the principal V30 execution-memory backing
+and shared volatile workspace. Its assigned content will include:
 
 - native workload code;
 - data, stack, and heap;

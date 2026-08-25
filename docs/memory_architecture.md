@@ -13,15 +13,15 @@ The RP2350 owns every physical controller and arbitrates access.
 
 ## 2. Canonical terms
 
-| Term | Meaning |
-|---|---|
-| **RP2350 Internal SRAM** | on-chip memory used by firmware, realtime engines, mailbox, prepared windows, and short traces |
-| **External PSRAM** | principal V30 execution-memory backing and Host/V30 shared volatile workspace |
-| **External NOR Flash** | non-volatile device containing firmware/reserved space and the shared `flash:` FAT volume |
-| **SD Card** | optional removable `sd:` FAT volume |
-| **V30-visible memory** | the 20-bit physical address space presented to the V30 |
-| **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership |
-| **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline |
+| Term | Architectural meaning | Current implementation / validation status |
+|---|---|---|
+| **RP2350 Internal SRAM** | on-chip memory for firmware, realtime engines, mailbox, prepared windows, and short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
+| **External PSRAM** | intended principal V30 execution-memory backing and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
+| **External NOR Flash** | intended non-volatile home of firmware/reserved space and the shared `flash:` FAT volume | 16 MB device and firmware storage available; shared FAT volume not implemented |
+| **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
+| **V30-visible memory** | the 20-bit physical address space presented to the V30 | bounded Internal-SRAM/descriptor-fed paths validated; general PSRAM backing remains open |
+| **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
+| **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline | retained PIO/DMA implementations physically validated |
 
 Do not equate a V30 address with one physical device. The RP2350 maps and
 materializes the assigned memory.
@@ -43,7 +43,7 @@ for firmware, but it is not the primary bulk V30 execution memory.
 
 ### External PSRAM
 
-External PSRAM is the principal volatile resource for:
+External PSRAM is designated as the principal volatile resource for:
 
 - native V30 workload code;
 - data, stack, and heap;

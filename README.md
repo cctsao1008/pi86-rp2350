@@ -120,12 +120,12 @@ available evidence, and lets the user restart it.
 The RP2350 is the single low-level owner. Host and V30 share content through it,
 not raw controllers or filesystem metadata.
 
-| Resource | Runtime role |
-|---|---|
-| RP2350 Internal SRAM | firmware, PIO/DMA state, mailbox, cache/prepared windows, short traces |
-| External PSRAM | principal V30 execution memory and Host/V30 shared volatile workspace |
-| External NOR Flash | firmware/reserved region plus the shared `flash:` FAT volume |
-| SD Card | optional removable `sd:` FAT volume |
+| Resource | Intended runtime role | Implementation / validation status |
+|---|---|---|
+| RP2350 Internal SRAM | firmware, PIO/DMA state, mailbox, cache/prepared windows, short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
+| External PSRAM | principal V30 execution memory and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
+| External NOR Flash | firmware/reserved region plus the shared `flash:` FAT volume | 16 MB device and firmware storage available; shared FAT volume not implemented |
+| SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 
 Example shared paths:
 
