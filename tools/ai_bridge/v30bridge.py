@@ -51,6 +51,9 @@ CANONICAL_GREETING = b"HELLO NEC V30"
 CANONICAL_REPLY = b"HELLO OPENAI CODEX"
 BOOTLOADER_REQUEST = b"PI86 BOOTLOADER\n"
 BOOTLOADER_ACK = b"PI86 BOOTLOADER ACK"
+STATUS_REQUEST = b"PI86 STATUS\n"
+STATUS_BEGIN = b"PI86 STATUS BEGIN"
+STATUS_END = b"PI86 STATUS END"
 HEARTBEAT_REPLY = b"V30 HEARTBEAT OK"
 COMMAND_REPLY = b"V30 COMMAND OK"
 USB_VID = 0xCAFE
@@ -205,6 +208,64 @@ def send_bootloader_request(connection: Any, timeout: float) -> bytes:
             raise RuntimeError(f"CDC disconnected before bootloader ACK: {exc}") from exc
         time.sleep(0.005)
     raise RuntimeError("timed out waiting for RP2350 bootloader ACK")
+
+
+def send_status_request(connection: Any, timeout: float) -> bytes:
+    """Request one freshly framed runtime status block over CDC."""
+    connection.write(STATUS_REQUEST)
+    connection.flush()
+    received = bytearray()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        try:
+            chunk = connection.read(4096)
+        except OSError as exc:
+            raise RuntimeError(
+                f"CDC disconnected before status completed: {exc}"
+            ) from exc
+        if chunk:
+            received.extend(chunk)
+            end = received.find(STATUS_END)
+            if end >= 0:
+                begin = received.rfind(STATUS_BEGIN, 0, end)
+                if begin < 0:
+                    raise RuntimeError(
+                        "status end marker arrived without begin marker"
+                    )
+                return bytes(received[begin:end + len(STATUS_END)])
+        time.sleep(0.005)
+    raise RuntimeError("timed out waiting for complete RP2350 status")
+
+
+def request_status(port: str, timeout: float) -> int:
+    """Print canonical runtime status without requiring HID."""
+    serial = _serial_module()
+    try:
+        connection = serial.Serial(
+            port=port, baudrate=115200, timeout=0.05, write_timeout=1.0
+        )
+        connection.dtr = True
+        time.sleep(0.1)
+        evidence = send_status_request(connection, timeout)
+    except (OSError, serial.SerialException, RuntimeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return TRANSPORT_EXIT
+    finally:
+        if "connection" in locals():
+            try:
+                connection.close()
+            except (OSError, serial.SerialException):
+                pass
+
+    text = evidence.decode("utf-8", errors="replace")
+    lines = text.replace("\r\n", "\n").splitlines()
+    if lines and lines[0] == STATUS_BEGIN.decode("ascii"):
+        lines = lines[1:]
+    if lines and lines[-1] == STATUS_END.decode("ascii"):
+        lines = lines[:-1]
+    print("\n".join(lines))
+    print("RP2350 STATUS RESULT      = PASS")
+    return PASS_EXIT
 
 
 def request_bootloader(port: str, timeout: float) -> int:
@@ -926,6 +987,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--bootloader", action="store_true",
         help="request RP2350 UF2 bootloader mode over USB CDC",
     )
+    mode.add_argument(
+        "--status", action="store_true",
+        help="request canonical RP2350 runtime status over USB CDC",
+    )
     mode.add_argument("--list-devices", action="store_true")
     parser.add_argument("--port", help="composite CDC port, for example COM14")
     parser.add_argument("--sequence", type=int, default=1)
@@ -997,6 +1062,8 @@ def main() -> int:
 
     if not args.port:
         parser.error("physical exchange requires --port COMxx")
+    if args.status:
+        return request_status(args.port, args.timeout)
     if args.bootloader:
         return request_bootloader(args.port, args.timeout)
     if args.interval <= 0:

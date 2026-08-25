@@ -21,6 +21,9 @@ from protocol import (  # noqa: E402
 from v30bridge import (  # noqa: E402
     BOOTLOADER_ACK,
     BOOTLOADER_REQUEST,
+    STATUS_BEGIN,
+    STATUS_END,
+    STATUS_REQUEST,
     CANONICAL_GREETING,
     CANONICAL_REPLY,
     COMMAND_REPLY,
@@ -32,6 +35,7 @@ from v30bridge import (  # noqa: E402
     hid_output_report,
     normalize_hid_input,
     send_bootloader_request,
+    send_status_request,
     simulate_v30,
     validate_live_reply,
     validate_device_reply,
@@ -70,6 +74,42 @@ class ProtocolTests(unittest.TestCase):
     def test_bootloader_has_a_cdc_only_command_line_mode(self) -> None:
         args = build_parser().parse_args(["--bootloader", "--port", "COM14"])
         self.assertTrue(args.bootloader)
+        self.assertEqual(args.port, "COM14")
+
+    def test_cdc_status_request_requires_a_complete_framed_block(self) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.written = b""
+                self.response = bytearray(
+                    b"old boot text\r\n"
+                    + STATUS_BEGIN
+                    + b"\r\n[RUNTIME STATUS]\r\nState = READY\r\n"
+                    + STATUS_END
+                    + b"\r\n"
+                )
+
+            def write(self, data: bytes) -> int:
+                self.written += data
+                return len(data)
+
+            def flush(self) -> None:
+                pass
+
+            def read(self, length: int) -> bytes:
+                result = bytes(self.response[:length])
+                del self.response[:length]
+                return result
+
+        connection = FakeConnection()
+        evidence = send_status_request(connection, 0.1)
+        self.assertEqual(connection.written, STATUS_REQUEST)
+        self.assertTrue(evidence.startswith(STATUS_BEGIN))
+        self.assertTrue(evidence.endswith(STATUS_END))
+        self.assertNotIn(b"old boot text", evidence)
+
+    def test_status_has_a_cdc_only_command_line_mode(self) -> None:
+        args = build_parser().parse_args(["--status", "--port", "COM14"])
+        self.assertTrue(args.status)
         self.assertEqual(args.port, "COM14")
 
     def test_record_is_fixed_size_and_round_trips(self) -> None:

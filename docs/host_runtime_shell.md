@@ -89,6 +89,20 @@ prints `HELLO INTEL 8086` or `HELLO NEC V30`. Remaining shell commands are
 stable framework contracts whose backends are enabled as their capabilities
 are integrated.
 
+## Reading canonical runtime status
+
+The canonical firmware exposes a CDC-only status request that does not require
+the composite HID runtime:
+
+```powershell
+py tools\ai_bridge\v30bridge.py --status --port COM14 --timeout 5
+```
+
+The Host requires one complete `PI86 STATUS BEGIN` / `PI86 STATUS END` block,
+so USB startup text cannot be mistaken for the response to a new request. This
+operation only observes RP2350 state; it does not release RESET or claim the
+8086-class processor bus.
+
 ## Entering the RP2350 UF2 bootloader
 
 The canonical CDC firmware implements the first Host control operation:

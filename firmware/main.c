@@ -35,11 +35,21 @@ static void service_host_cdc(pi86_runtime_t *runtime) {
             }
             if (length == 0u) continue;
             command[length] = '\0';
+            const bool print_status =
+                strcmp(command, "PI86 STATUS") == 0 ||
+                strcmp(command, "status") == 0;
             const bool enter_bootloader =
                 strcmp(command, "PI86 BOOTLOADER") == 0 ||
                 strcmp(command, "bootloader") == 0 ||
                 strcmp(command, "bootsel") == 0;
             length = 0u;
+            if (print_status) {
+                printf("PI86 STATUS BEGIN\n");
+                pi86_runtime_print_status(runtime);
+                printf("PI86 STATUS END\n");
+                fflush(stdout);
+                continue;
+            }
             if (enter_bootloader) {
                 printf("PI86 BOOTLOADER ACK\n");
                 fflush(stdout);
