@@ -75,7 +75,16 @@ workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`
 availability, open service handles, I/O counters, interrupt counts, bus errors,
 watchdog state, and restart count.
 
-The initial implementation may expose only heartbeat, status, display control,
-and the existing bounded command exchange. Remaining commands are framework
-contracts whose backends are enabled only after their physical capability is
-implemented and validated.
+The Host now constructs and validates flat native workload manifests, divides
+images into fixed 64-byte upload records, and exposes `load`, `run`, `stop`, and
+`restart` transactions. The RP2350 firmware contains the matching PSRAM staging
+manager with ordered-chunk and CRC32 validation. Composite USB dispatch and the
+arbitrary-address physical bus responder are not yet integrated into canonical
+firmware, so current hardware that advertises only heartbeat correctly rejects
+these operations instead of reporting a false launch.
+
+The first canonical image is `hello.bin`, assembled from
+`firmware/workloads/hello.asm`. It performs an `AAD 16` identity witness and
+prints `HELLO INTEL 8086` or `HELLO NEC V30`. Remaining shell commands are
+stable framework contracts whose backends are enabled as their capabilities
+are integrated.

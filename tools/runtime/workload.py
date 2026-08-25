@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 import struct
 import zlib
 
@@ -10,7 +11,12 @@ from protocol import (
     Message,
     TYPE_WORKLOAD_BEGIN,
     TYPE_WORKLOAD_COMMIT,
+    TYPE_WORKLOAD_CONTROL,
     TYPE_WORKLOAD_DATA,
+    WORKLOAD_CONTROL_RESTART,
+    WORKLOAD_CONTROL_RUN,
+    WORKLOAD_CONTROL_STATUS,
+    WORKLOAD_CONTROL_STOP,
 )
 
 MAGIC = 0x57363850  # "P86W" in little endian
@@ -25,10 +31,19 @@ _MANIFEST = struct.Struct("<IHHIIIHHHHIII")
 _BEGIN_PREFIX = struct.Struct("<I")
 _DATA_PREFIX = struct.Struct("<II")
 _COMMIT = struct.Struct("<II")
+_CONTROL = struct.Struct("<B3xI")
+_STATUS = struct.Struct("<III")
 
 MANIFEST_SIZE = _MANIFEST.size
 HOST_PAYLOAD_SIZE = 52
 DATA_BYTES = HOST_PAYLOAD_SIZE - _DATA_PREFIX.size
+
+CONTROL_OPERATIONS = {
+    "run": WORKLOAD_CONTROL_RUN,
+    "stop": WORKLOAD_CONTROL_STOP,
+    "restart": WORKLOAD_CONTROL_RESTART,
+    "status": WORKLOAD_CONTROL_STATUS,
+}
 
 
 def _linear(segment: int, offset: int) -> int:
@@ -189,3 +204,91 @@ def decode_data_payload(payload: bytes) -> tuple[int, int, bytes]:
         raise ValueError("workload data payload is truncated")
     transfer_id, offset = _DATA_PREFIX.unpack_from(payload)
     return transfer_id, offset, payload[_DATA_PREFIX.size:]
+
+
+def parse_number(value: str) -> int:
+    """Parse the shell's decimal or 0x-prefixed numeric form."""
+    try:
+        return int(value, 0)
+    except ValueError as exc:
+        raise ValueError(f"invalid number: {value!r}") from exc
+
+
+def parse_far_pointer(value: str) -> tuple[int, int]:
+    try:
+        segment_text, offset_text = value.split(":", 1)
+    except ValueError as exc:
+        raise ValueError(f"expected segment:offset, got {value!r}") from exc
+    segment = int(segment_text, 16)
+    offset = int(offset_text, 16)
+    _linear(segment, offset)
+    return segment, offset
+
+
+def workload_from_command(
+    arguments: tuple[str, ...], *, transfer_id: int, first_sequence: int
+) -> tuple[WorkloadManifest, bytes, list[Message]]:
+    """Create an upload transaction from one ``load`` shell command."""
+    if not arguments:
+        raise ValueError("usage: load <bin> [--address N] [--entry CS:IP] [--stack SS:SP]")
+
+    source = Path(arguments[0])
+    load_address = 0x10000
+    entry: tuple[int, int] | None = None
+    stack = (0, 0)
+    index = 1
+    while index < len(arguments):
+        option = arguments[index]
+        if option not in ("--address", "--entry", "--stack") or index + 1 >= len(arguments):
+            raise ValueError(f"unknown or incomplete load option: {option!r}")
+        value = arguments[index + 1]
+        if option == "--address":
+            load_address = parse_number(value)
+        elif option == "--entry":
+            entry = parse_far_pointer(value)
+        else:
+            stack = parse_far_pointer(value)
+        index += 2
+
+    try:
+        encoded = source.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"cannot read workload {source}: {exc}") from exc
+    if source.suffix.lower() == ".p86w":
+        manifest, image = decode_workload_file(encoded)
+    else:
+        image = encoded
+        if entry is None:
+            entry = (load_address >> 4, load_address & 0x0F)
+        manifest = WorkloadManifest.for_image(
+            image,
+            load_address=load_address,
+            entry_segment=entry[0],
+            entry_offset=entry[1],
+            stack_segment=stack[0],
+            stack_offset=stack[1],
+            flags=FLAG_STDIO,
+        )
+    return manifest, image, upload_records(
+        manifest, image, transfer_id=transfer_id, first_sequence=first_sequence
+    )
+
+
+def control_record(operation: str, *, workload_id: int, sequence: int) -> Message:
+    try:
+        operation_id = CONTROL_OPERATIONS[operation]
+    except KeyError as exc:
+        raise ValueError(f"unknown workload operation: {operation!r}") from exc
+    if not 0 <= workload_id <= 0xFFFFFFFF:
+        raise ValueError("workload id is not a 32-bit value")
+    return Message(
+        TYPE_WORKLOAD_CONTROL,
+        sequence,
+        _CONTROL.pack(operation_id, workload_id),
+    )
+
+
+def decode_status_payload(payload: bytes) -> tuple[int, int, int]:
+    if len(payload) != _STATUS.size:
+        raise ValueError("workload status payload has the wrong size")
+    return _STATUS.unpack(payload)

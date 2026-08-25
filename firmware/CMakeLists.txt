@@ -3,6 +3,7 @@ add_executable(pi86_rp2350
     main.c
     memory/psram_backing.c
     runtime/runtime.c
+    runtime/workload_manager.c
 )
 
 target_include_directories(pi86_rp2350 PRIVATE
@@ -27,3 +28,12 @@ pico_enable_stdio_usb(pi86_rp2350 1)
 pico_enable_stdio_uart(pi86_rp2350 0)
 
 pico_add_extra_outputs(pi86_rp2350)
+
+# First canonical native workload. It is built as a standalone flat binary
+# for Host upload; it is not linked into the RP2350 firmware or presented as a
+# fixed ROM dependency.
+include("${PROJECT_SOURCE_DIR}/cmake/V30Rom.cmake")
+pi86_add_v30_rom(hello
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/hello.asm"
+    SYMBOL hello_workload
+)

@@ -177,9 +177,17 @@ runtime serves an Intel 8086-class physical processor. The retained run is an
 interactive-attach observation; a complete Intel cold-boot transcript remains a
 useful evidence improvement, not a prerequisite for processor support.
 
-The Host now accepts `--processor intel-8086` or `--processor nec-v30` because
+The Host accepts `--processor intel-8086` or `--processor nec-v30` because
 neither processor provides CPUID. Processor identity is declared by the user
-and recorded as Host metadata; it is not guessed by the runtime.
+and recorded as Host metadata; it is not silently guessed by the runtime.
+
+The canonical `hello.bin` workload adds an independent execution witness. It
+uses the historical `AAD 16` behavior difference and prints either `HELLO
+INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
+does not replace Host declaration; it lets the installed physical processor
+demonstrate which instruction behavior it actually executed. The workload and
+upload ABI are implemented, while arbitrary PSRAM-backed execution remains the
+physical integration gate described above.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
 > runtime—and answered.**

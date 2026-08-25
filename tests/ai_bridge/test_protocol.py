@@ -15,6 +15,8 @@ from protocol import (  # noqa: E402
     TYPE_HELLO,
     TYPE_RESULT,
     TYPE_TEXT,
+    TYPE_WORKLOAD_BEGIN,
+    TYPE_WORKLOAD_RESULT,
 )
 from v30bridge import (  # noqa: E402
     CANONICAL_GREETING,
@@ -29,6 +31,7 @@ from v30bridge import (  # noqa: E402
     normalize_hid_input,
     simulate_v30,
     validate_live_reply,
+    validate_device_reply,
     validate_reply,
 )
 
@@ -178,6 +181,17 @@ class ProtocolTests(unittest.TestCase):
         decoded_timeout = Message.decode(timed_out.encode())
         self.assertEqual(decoded_timeout.sequence, retry.sequence)
         self.assertEqual(decoded_timeout.status, STATUS_TIMEOUT)
+
+    def test_workload_reply_is_sequence_bound_without_text_magic(self) -> None:
+        request = Message(TYPE_WORKLOAD_BEGIN, 123, b"manifest")
+        reply = Message(TYPE_WORKLOAD_RESULT, 123, b"accepted").encode()
+        self.assertEqual(
+            validate_device_reply(reply, request).payload, b"accepted"
+        )
+        with self.assertRaisesRegex(ValueError, "sequence mismatch"):
+            validate_device_reply(
+                Message(TYPE_WORKLOAD_RESULT, 124, b"accepted").encode(), request
+            )
 
 
 if __name__ == "__main__":

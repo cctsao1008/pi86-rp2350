@@ -78,6 +78,7 @@ void pi86_runtime_init(pi86_runtime_t *runtime) {
     gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
 
     (void)pi86_psram_backing_init(&runtime->psram);
+    pi86_workload_manager_init(&runtime->workload, &runtime->psram);
     runtime->state = PI86_RUNTIME_IDLE;
 }
 
@@ -116,8 +117,8 @@ void pi86_runtime_print_identity(void) {
     printf("Runtime    : Host-Managed Bare-Metal Processor Runtime\n");
     printf("Host       : Runtime Controller\n");
     printf("RP2350     : Companion Resource and Bus Controller\n");
-    printf("Processor  : physical NEC V30 D70116C-8\n");
-    printf("Execution  : native V30 bare-metal workloads\n");
+    printf("Processor  : Host-declared Intel 8086 or NEC V30\n");
+    printf("Execution  : native 8086-class bare-metal workloads\n");
     printf("Board      : Waveshare RP2350-PiZero\n");
     printf("Interface  : original Pi86/Homebrew8088 V20/V30 HAT\n");
     printf("Header GPIO: GPIO%u..GPIO%u\n",
@@ -138,6 +139,12 @@ void pi86_runtime_print_status(const pi86_runtime_t *runtime) {
                runtime->psram.size / (1024u * 1024u));
     printf("\n");
     printf("PSRAM role                 = bulk workload/shared backing only\n");
+    printf("Staged workload            = %s",
+           pi86_workload_state_name(runtime->workload.state));
+    if (runtime->workload.state != PI86_WORKLOAD_STATE_EMPTY)
+        printf(" (%lu bytes)",
+               (unsigned long)runtime->workload.manifest.image_size);
+    printf("\n");
     printf("Onboard GPIO safe state    = %s\n",
            runtime->board_resources.safe_state_initialized ? "PASS" : "FAIL");
     printf("MicroSD GPIO30/31/40-43    = PASSIVE / NOT CLAIMED\n");

@@ -17,7 +17,12 @@ import sys
 import time
 from typing import Any
 
+RUNTIME_TOOLS = Path(__file__).resolve().parents[1] / "runtime"
+if str(RUNTIME_TOOLS) not in sys.path:
+    sys.path.insert(0, str(RUNTIME_TOOLS))
+
 from host_shell import command_help, parse_command, unavailable_message
+from workload import control_record, workload_from_command
 
 from physical_validator import (
     AI_B2_HID,
@@ -34,6 +39,12 @@ from protocol import (
     TYPE_HELLO,
     TYPE_RESULT,
     TYPE_TEXT,
+    TYPE_WORKLOAD_BEGIN,
+    TYPE_WORKLOAD_COMMIT,
+    TYPE_WORKLOAD_CONTROL,
+    TYPE_WORKLOAD_DATA,
+    TYPE_WORKLOAD_RESULT,
+    TYPE_WORKLOAD_STATUS,
 )
 
 CANONICAL_GREETING = b"HELLO NEC V30"
@@ -132,6 +143,31 @@ def validate_live_reply(record: bytes, request: Message) -> Message:
     reply = validate_reply(record, request.sequence, expected_type, expected_payload)
     if reply.status != STATUS_OK:
         raise ValueError(f"V30 live reply status is not OK: {reply.status}")
+    return reply
+
+
+def validate_device_reply(record: bytes, request: Message) -> Message:
+    """Validate either the deployed heartbeat ABI or the workload ABI."""
+    if request.message_type in (TYPE_COMMAND, TYPE_HEARTBEAT):
+        return validate_live_reply(record, request)
+
+    if request.message_type not in (
+        TYPE_WORKLOAD_BEGIN,
+        TYPE_WORKLOAD_DATA,
+        TYPE_WORKLOAD_COMMIT,
+        TYPE_WORKLOAD_CONTROL,
+    ):
+        raise ValueError(f"unsupported request type: {request.message_type}")
+    reply = Message.decode(normalize_hid_input(record))
+    allowed_types = (TYPE_WORKLOAD_RESULT, TYPE_WORKLOAD_STATUS)
+    if reply.message_type not in allowed_types:
+        raise ValueError(f"unexpected workload reply type: {reply.message_type}")
+    if reply.sequence != request.sequence:
+        raise ValueError(
+            f"workload reply sequence mismatch: {reply.sequence} != {request.sequence}"
+        )
+    if reply.status != STATUS_OK:
+        raise ValueError(f"workload request status is not OK: {reply.status}")
     return reply
 
 
@@ -543,7 +579,7 @@ def persistent_monitor(
                 candidate = bytes(hid_device.read(MESSAGE_SIZE + 1))
                 if candidate:
                     try:
-                        reply = validate_live_reply(candidate, request)
+                        reply = validate_device_reply(candidate, request)
                     except ValueError as exc:
                         return None, (time.monotonic() - began) * 1000.0, str(exc)
                     # Latency ends at the complete, sequence-bound HID reply.
@@ -573,6 +609,29 @@ def persistent_monitor(
                 console.render(current_sequence, stats, connected, command_buffer)
             else:
                 console.render_prompt(command_buffer)
+
+    def perform_workload_transaction(
+        records: list[Message], description: str
+    ) -> bool:
+        nonlocal current_sequence, next_due
+        for index, request in enumerate(records, 1):
+            reply, latency_ms, error = exchange(request)
+            if reply is None:
+                print_event(
+                    f"{description}: FAILED at record {index}/{len(records)}: {error}"
+                )
+                return False
+            current_sequence = (request.sequence + 1) & 0xFFFFFFFF
+            if current_sequence == 0:
+                current_sequence = 1
+            if display == "verbose":
+                print_event(
+                    f"{description}: record {index}/{len(records)} accepted "
+                    f"({latency_ms:.1f} ms)"
+                )
+        next_due = time.monotonic() + interval
+        print_event(f"{description}: PASS ({len(records)} records)")
+        return True
 
     if interactive:
         print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
@@ -661,6 +720,32 @@ def persistent_monitor(
                     request_type = TYPE_HEARTBEAT
                     request_payload = heartbeat_payload(current_sequence)
                     is_command = True
+                elif name == "load":
+                    try:
+                        transfer_id = secrets.randbits(32)
+                        manifest, image, records = workload_from_command(
+                            arguments,
+                            transfer_id=transfer_id,
+                            first_sequence=current_sequence,
+                        )
+                    except ValueError as exc:
+                        print_event(f"load: {exc}")
+                        continue
+                    print_event(
+                        "Native workload upload\n"
+                        f"  image   {len(image)} bytes\n"
+                        f"  address 0x{manifest.load_address:05X}\n"
+                        f"  entry   {manifest.entry_segment:04X}:{manifest.entry_offset:04X}\n"
+                        f"  CRC32   {manifest.image_crc32:08X}"
+                    )
+                    perform_workload_transaction(records, "workload upload")
+                    continue
+                elif name in ("run", "stop", "restart"):
+                    record = control_record(
+                        name, workload_id=0, sequence=current_sequence
+                    )
+                    perform_workload_transaction([record], f"workload {name}")
+                    continue
                 elif name == "console":
                     print_event(
                         "Console is active. Use: send <text>\n"
@@ -701,9 +786,14 @@ def persistent_monitor(
                 stats.accept(latency_ms)
                 connected = True
                 if display == "verbose" or is_command:
-                    reply_text = reply.payload.decode("ascii")
-                    if processor == "intel-8086" and reply_text.startswith("V30 "):
-                        reply_text = "8086 " + reply_text[4:]
+                    if reply.message_type in (
+                        TYPE_WORKLOAD_RESULT, TYPE_WORKLOAD_STATUS
+                    ):
+                        reply_text = "WORKLOAD REQUEST OK"
+                    else:
+                        reply_text = reply.payload.decode("ascii")
+                        if processor == "intel-8086" and reply_text.startswith("V30 "):
+                            reply_text = "8086 " + reply_text[4:]
                     print_event(
                         f"[{current_sequence:03d}] {reply_text}  "
                         f"latency={latency_ms:.1f} ms"

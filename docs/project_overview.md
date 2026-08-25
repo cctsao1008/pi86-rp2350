@@ -34,6 +34,12 @@ A workload is native 8086-class machine code plus launch metadata. The RP2350 lo
 assigned V30-visible memory, prepares a small reset handoff at `FFFF0h`, and
 releases the processor.
 
+The canonical flat image is `hello.bin`. The workload itself distinguishes
+Intel 8086 behavior from NEC V30 behavior with `AAD 16`, then reports `HELLO
+INTEL 8086` or `HELLO NEC V30`. It is both the first loader example and a
+physical execution witness; its PSRAM-backed arbitrary execution path remains
+to be integrated and validated on hardware.
+
 A traditional BIOS, boot sector, DOS, or V30 operating system is not required.
 Those remain possible workloads, not the project foundation.
 

@@ -22,7 +22,10 @@ from workload import (  # noqa: E402
     decode_data_payload,
     decode_workload_file,
     encode_workload_file,
+    control_record,
+    parse_far_pointer,
     upload_records,
+    workload_from_command,
 )
 
 
@@ -105,6 +108,30 @@ class WorkloadTests(unittest.TestCase):
         encoded[-1] ^= 1
         with self.assertRaisesRegex(ValueError, "CRC"):
             decode_workload_file(bytes(encoded))
+
+    def test_control_record_uses_current_workload_zero(self) -> None:
+        record = control_record("run", workload_id=0, sequence=22)
+        self.assertEqual(record.sequence, 22)
+        self.assertEqual(record.payload, b"\x01\0\0\0\0\0\0\0")
+
+    def test_far_pointer_is_hexadecimal(self) -> None:
+        self.assertEqual(parse_far_pointer("1000:000a"), (0x1000, 0x000A))
+
+    def test_flat_load_command_builds_manifest(self) -> None:
+        path = ROOT / "tests" / "runtime" / "sample_workload.bin"
+        path.write_bytes(b"\x90\xeb\xfd")
+        try:
+            manifest, image, records = workload_from_command(
+                (str(path), "--address", "0x10000", "--entry", "1000:0000"),
+                transfer_id=7,
+                first_sequence=30,
+            )
+        finally:
+            path.unlink(missing_ok=True)
+        self.assertEqual(image, b"\x90\xeb\xfd")
+        self.assertEqual(manifest.load_address, 0x10000)
+        self.assertEqual((manifest.entry_segment, manifest.entry_offset), (0x1000, 0))
+        self.assertEqual(records[0].sequence, 30)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@
 
 #include "board/rp2350_pizero_resources.h"
 #include "memory/psram_backing.h"
+#include "runtime/workload_manager.h"
 
 typedef enum {
     PI86_RUNTIME_BOOTING = 0,
@@ -48,6 +49,7 @@ typedef struct {
     pi86_runtime_state_t state;
     pi86_board_resources_t board_resources;
     pi86_psram_backing_t psram;
+    pi86_workload_manager_t workload;
     pi86_capability_state_t capabilities[PI86_CAP_COUNT];
 } pi86_runtime_t;
 
