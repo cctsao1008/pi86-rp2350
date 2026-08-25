@@ -13,16 +13,27 @@ target_include_directories(pi86_rp2350 PRIVATE
 target_link_libraries(pi86_rp2350
     pico_stdlib
     pico_bootrom
-    hardware_psram
-    hardware_xip_cache
 )
 
-# The board exposes an optional APS6404L-class footprint on QMI CS1/GPIO47.
-# Detect the device safely at boot instead of assuming that it is populated.
 target_compile_definitions(pi86_rp2350 PRIVATE
-    PICO_PSRAM_CS_PIN=47
-    PICO_AUTO_DETECT_PSRAM_SIZE=1
+    PI86_HAS_EXTERNAL_PSRAM=$<BOOL:${PI86_HAS_EXTERNAL_PSRAM}>
+    PI86_HAS_SDCARD=$<BOOL:${PI86_HAS_SDCARD}>
+    PI86_HAS_DVI=$<BOOL:${PI86_HAS_DVI}>
+    PI86_HAS_PIO_USB=$<BOOL:${PI86_HAS_PIO_USB}>
 )
+
+# The optional APS6404L-class footprint uses QMI CS1/GPIO47. Only configure
+# the SDK PSRAM probe when the build declares that the device is populated.
+if(PI86_HAS_EXTERNAL_PSRAM)
+    target_compile_definitions(pi86_rp2350 PRIVATE
+        PICO_PSRAM_CS_PIN=47
+        PICO_AUTO_DETECT_PSRAM_SIZE=1
+    )
+    target_link_libraries(pi86_rp2350
+        hardware_psram
+        hardware_xip_cache
+    )
+endif()
 
 pico_enable_stdio_usb(pi86_rp2350 1)
 pico_enable_stdio_uart(pi86_rp2350 0)

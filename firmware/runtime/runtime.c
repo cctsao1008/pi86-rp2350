@@ -133,7 +133,9 @@ void pi86_runtime_print_status(const pi86_runtime_t *runtime) {
     printf("\n[RUNTIME STATUS]\n");
     printf("State                      = %s\n",
            pi86_runtime_state_name(runtime->state));
-    printf("External PSRAM             = %s",
+    printf("External PSRAM configured  = %s\n",
+           PI86_HAS_EXTERNAL_PSRAM ? "YES" : "NO");
+    printf("External PSRAM detected    = %s",
            runtime->psram.available ? "AVAILABLE" : "UNAVAILABLE");
     if (runtime->psram.available)
         printf(" (%zu bytes / %zu MiB)", runtime->psram.size,
@@ -148,8 +150,14 @@ void pi86_runtime_print_status(const pi86_runtime_t *runtime) {
     printf("\n");
     printf("Onboard GPIO safe state    = %s\n",
            runtime->board_resources.safe_state_initialized ? "PASS" : "FAIL");
+    printf("MicroSD hardware           = %s\n",
+           PI86_HAS_SDCARD ? "PRESENT" : "ABSENT");
     printf("MicroSD GPIO30/31/40-43    = PASSIVE / NOT CLAIMED\n");
+    printf("Mini HDMI/DVI hardware     = %s\n",
+           PI86_HAS_DVI ? "PRESENT" : "ABSENT");
     printf("Mini HDMI GPIO32-39/44-46  = PASSIVE / NOT CLAIMED\n");
+    printf("PIO-USB hardware           = %s\n",
+           PI86_HAS_PIO_USB ? "PRESENT" : "ABSENT");
     printf("PIO-USB GPIO28/29          = PASSIVE / NOT CLAIMED\n");
     printf("DVI / PIO-USB concurrency  = MUTUALLY EXCLUSIVE\n");
 

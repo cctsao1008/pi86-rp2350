@@ -34,6 +34,34 @@ exclusive runtime resources on this board.
 
 The physical board pinout is authoritative for translating Raspberry Pi physical header positions to RP2350 GPIO numbers.
 
+### Physical feature flags
+
+The canonical build separates three different facts:
+
+1. `PI86_HAS_*` says whether hardware is physically populated or provided;
+2. runtime detection says whether a configured device actually responds; and
+3. the capability table says whether firmware support is implemented.
+
+The Waveshare board defaults are:
+
+| CMake option | Default | Meaning |
+|---|---:|---|
+| `PI86_HAS_EXTERNAL_PSRAM` | `OFF` | optional APS6404L-class device is not yet populated |
+| `PI86_HAS_SDCARD` | `ON` | onboard MicroSD socket is present |
+| `PI86_HAS_DVI` | `ON` | onboard Mini HDMI/DVI connector is present |
+| `PI86_HAS_PIO_USB` | `ON` | onboard GPIO28/29 PIO-USB connector is present |
+
+A socket or connector being present does not claim its GPIOs and does not
+mean its service is implemented. Until claimed, SD, DVI, and PIO-USB remain
+passive inputs. After the PSRAM device is soldered, configure a build with:
+
+```bash
+cmake -S . -B build -DPI86_HAS_EXTERNAL_PSRAM=ON
+```
+
+The runtime must still report successful PSRAM detection before any Host
+workload upload or shared-memory operation is accepted.
+
 ## CPU
 
 Installed physical CPU:

@@ -38,6 +38,22 @@ project(pi86_rp2350 C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
+# Physical population/configuration flags. These describe hardware presence,
+# not firmware capability or successful runtime detection.
+option(PI86_HAS_EXTERNAL_PSRAM
+       "APS6404L-class PSRAM is populated on GPIO47/QMI CS1" OFF)
+option(PI86_HAS_SDCARD
+       "The onboard MicroSD socket is present" ON)
+option(PI86_HAS_DVI
+       "The onboard Mini HDMI/DVI connector is present" ON)
+option(PI86_HAS_PIO_USB
+       "The onboard GPIO28/29 PIO-USB connector is present" ON)
+
+message(STATUS "pi86 external PSRAM: ${PI86_HAS_EXTERNAL_PSRAM}")
+message(STATUS "pi86 MicroSD:       ${PI86_HAS_SDCARD}")
+message(STATUS "pi86 Mini HDMI/DVI: ${PI86_HAS_DVI}")
+message(STATUS "pi86 PIO-USB:       ${PI86_HAS_PIO_USB}")
+
 pico_sdk_init()
 
 add_subdirectory(firmware)
