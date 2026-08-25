@@ -1,8 +1,8 @@
 # Host Runtime Shell
 
-The Host runtime is a small remote shell for a real NEC V30. It is not an
-operating system running on the V30. The Host provides control and runtime
-services; the RP2350 owns resources and the physical bus; the V30 executes
+The Host runtime is a small remote shell for a real Intel 8086 or NEC V30. It is
+not an operating system running on the processor. The Host provides control and
+runtime services; the RP2350 owns resources and the physical bus; the processor executes
 bare-metal native workloads.
 
 The shell is the reference interface to the
@@ -22,13 +22,13 @@ Host shell
    +-- workload control ------ load / run / stop / restart
    +-- console --------------- send / stdin / stdout
    +-- live observation ------ status / top / trace / timeout
-   +-- V30-visible memory ---- mem read / write / load / save
+   +-- processor-visible memory -- mem read / write / load / save
    `-- RP2350-owned storage
           +-- flash: --------- built-in shared persistent FAT volume
           `-- sd: ------------ removable shared FAT volume
 ```
 
-Both the Host and V30 are clients of RP2350-owned memory and storage services.
+Both the Host and physical processor are clients of RP2350-owned memory and storage services.
 Neither client directly owns a Flash controller, SD controller, filesystem
 metadata, PSRAM allocator, or bus-engine state.
 
@@ -70,7 +70,7 @@ management; an SD card uses its normal sector interface.
 | Shell | `help`, `quiet`, `verbose`, `quit` |
 
 `top` describes one physical-CPU environment rather than an operating-system
-process list. Its eventual fields include V30 liveness and clock, active
+process list. Its eventual fields include processor liveness and clock, active
 workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`
 availability, open service handles, I/O counters, interrupt counts, bus errors,
 watchdog state, and restart count.
