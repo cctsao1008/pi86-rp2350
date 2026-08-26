@@ -9,6 +9,8 @@ pretend that a physical-processor, memory, or storage operation completed.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
+from pathlib import Path
 import shlex
 
 
@@ -44,9 +46,9 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("console", "console", "console", "enter or describe the interactive console", "console"),
     CommandSpec("stdin", "stdin <file>", "console", "stream a Host file to processor stdin", "console"),
     CommandSpec("stdout", "stdout <file|off>", "console", "capture processor stdout", "console"),
-    CommandSpec("ls", "ls [flash:/|sd:/path]", "files", "list a shared filesystem directory", "filesystem"),
+    CommandSpec("ls", "ls [flash:/path|<Host path>]", "files", "list an RP-FLASH or Host directory", "filesystem"),
     CommandSpec("cat", "cat <flash:|sd:/file>", "files", "read a shared file", "filesystem"),
-    CommandSpec("put", "put <host-file> <flash:|sd:/path>", "files", "upload a Host file", "filesystem"),
+    CommandSpec("put", "put <host-file> <flash:|sd:/path>", "files", "upload an existing Host file; example: put README.md flash:/README.TXT", "filesystem"),
     CommandSpec("get", "get <flash:|sd:/file> [host-file]", "files", "download a shared file", "filesystem"),
     CommandSpec("rm", "rm <flash:|sd:/path>", "files", "remove a shared file", "filesystem"),
     CommandSpec("mv", "mv <source> <destination>", "files", "rename a shared file", "filesystem"),
@@ -77,10 +79,128 @@ def _command_index() -> dict[str, CommandSpec]:
 COMMAND_INDEX = _command_index()
 
 
+def is_device_path(path: str) -> bool:
+    """Return whether *path* names an RP2350-owned filesystem."""
+    lowered = path.lower()
+    return lowered == "flash:" or lowered.startswith("flash:/") or lowered == "sd:" or lowered.startswith("sd:/")
+
+
+def host_list_path(path: str) -> Path:
+    """Resolve a shell ``ls`` argument as a Host path.
+
+    A bare Windows drive designator means its root, not the drive-relative
+    working directory used by the Win32 ``C:`` spelling.
+    """
+    if len(path) == 2 and path[0].isalpha() and path[1] == ":":
+        path += os.sep
+    return Path(path).expanduser()
+
+
+def format_host_directory(path: str) -> str:
+    """Render one non-recursive Host directory listing."""
+    directory = host_list_path(path)
+    if not directory.exists():
+        raise ValueError(f"Host path does not exist: {path}")
+    if not directory.is_dir():
+        raise ValueError(f"Host path is not a directory: {path}")
+    try:
+        entries = sorted(
+            directory.iterdir(), key=lambda item: (not item.is_dir(), item.name.casefold())
+        )
+    except OSError as exc:
+        raise ValueError(f"cannot list Host directory {path}: {exc}") from exc
+    lines = []
+    for entry in entries:
+        try:
+            kind = "<DIR>" if entry.is_dir() else f"{entry.stat().st_size:>10}"
+        except OSError:
+            kind = "<ERR>"
+        lines.append(f"{kind:>10}  {entry.name}")
+    return f"Directory of Host {directory}\n" + ("\n".join(lines) if lines else "<empty>")
+
+
+def _replace_last_token(line: str, replacement: str) -> str:
+    split_at = max(line.rfind(" "), line.rfind("\t")) + 1
+    return line[:split_at] + replacement
+
+
+def completion_token(line: str) -> str:
+    """Return the unquoted final token used by the lightweight line editor."""
+    split_at = max(line.rfind(" "), line.rfind("\t")) + 1
+    return line[split_at:].strip('"')
+
+
+def complete_shell_input(
+    line: str,
+    remote_entries: tuple[tuple[str, bool], ...] = (),
+) -> tuple[str, tuple[str, ...]]:
+    """Complete commands, Host paths, or caller-supplied device entries.
+
+    The return value is ``(new_line, candidates)``.  One match is inserted;
+    multiple matches are displayed by the caller without disturbing the live
+    heartbeat status line.
+    """
+    token = completion_token(line)
+    if not line.strip() or (" " not in line and "\t" not in line):
+        prefix = line.strip().casefold()
+        names = tuple(
+            spec.name for spec in COMMANDS if spec.name.casefold().startswith(prefix)
+        )
+        if len(names) == 1:
+            return names[0] + " ", names
+        return line, names
+
+    if token.lower().startswith(("flash:", "sd:")):
+        slash = token.rfind("/")
+        base = token[: slash + 1] if slash >= 0 else token + "/"
+        prefix = token[slash + 1 :] if slash >= 0 else ""
+        matches = tuple(
+            base + name + ("/" if directory else "")
+            for name, directory in remote_entries
+            if name.casefold().startswith(prefix.casefold())
+        )
+    else:
+        expanded = os.path.expanduser(token or ".")
+        candidate_path = host_list_path(expanded)
+        if token.endswith(("/", "\\")):
+            parent, prefix = candidate_path, ""
+            base = token
+        elif len(token) == 2 and token[0].isalpha() and token[1] == ":":
+            parent, prefix = candidate_path, ""
+            base = token + os.sep
+        else:
+            parent, prefix = candidate_path.parent, candidate_path.name
+            base = token[: len(token) - len(prefix)] if prefix else token
+        if str(parent) == "":
+            parent = Path(".")
+        try:
+            entries = sorted(parent.iterdir(), key=lambda item: item.name.casefold())
+        except OSError:
+            entries = []
+        separator = "\\" if "\\" in base else "/" if "/" in base else os.sep
+        matches = tuple(
+            base + entry.name + (separator if entry.is_dir() else "")
+            for entry in entries
+            if entry.name.casefold().startswith(prefix.casefold())
+        )
+
+    if len(matches) == 1:
+        replacement = matches[0]
+        if " " in replacement and not replacement.startswith('"'):
+            replacement = f'"{replacement}"'
+        return _replace_last_token(line, replacement), matches
+    return line, matches
+
+
 def parse_command(line: str) -> ShellCommand | None:
     """Parse one shell line without executing or claiming a device operation."""
     try:
-        words = shlex.split(line, posix=True)
+        lexer = shlex.shlex(line, posix=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        # A Windows Host path uses backslashes as separators, not escapes.
+        lexer.escape = ""
+        words = list(lexer)
     except ValueError as exc:
         raise ValueError(f"command syntax error: {exc}") from exc
     if not words:

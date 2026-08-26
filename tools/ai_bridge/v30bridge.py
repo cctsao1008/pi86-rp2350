@@ -22,7 +22,15 @@ RUNTIME_TOOLS = Path(__file__).resolve().parents[1] / "runtime"
 if str(RUNTIME_TOOLS) not in sys.path:
     sys.path.insert(0, str(RUNTIME_TOOLS))
 
-from host_shell import command_help, parse_command, unavailable_message
+from host_shell import (
+    command_help,
+    complete_shell_input,
+    completion_token,
+    format_host_directory,
+    is_device_path,
+    parse_command,
+    unavailable_message,
+)
 from filesystem import (
     df_request,
     list_request,
@@ -861,33 +869,68 @@ class ConsoleStatus:
         self._rows = 0
 
 
-def _read_windows_command(buffer: str) -> tuple[str, str | None, bool]:
-    """Nonblocking single-line input for the Windows status display."""
-    if os.name != "nt" or not sys.stdin.isatty():
-        return buffer, None, False
+def _apply_input_character(
+    buffer: str, char: str
+) -> tuple[str, str | None, bool, bool]:
+    """Apply one terminal character and report enter/change/Tab state."""
+    changed = False
+    command: str | None = None
+    tab_requested = False
+    if char in ("\r", "\n"):
+        return "", buffer.strip(), True, False
+    if char == "\x03":
+        raise KeyboardInterrupt
+    if char == "\t":
+        return buffer, None, False, True
+    if char in ("\b", "\x7f"):
+        return buffer[:-1], None, True, False
+    if char.isprintable():
+        return buffer + char, None, True, False
+    return buffer, command, changed, tab_requested
+
+
+def _read_terminal_command(
+    buffer: str,
+) -> tuple[str, str | None, bool, bool]:
+    """Read one nonblocking command fragment on Windows or POSIX."""
+    if not sys.stdin.isatty():
+        return buffer, None, False, False
+    if os.name != "nt":
+        import select
+
+        changed = False
+        tab_requested = False
+        command: str | None = None
+        while select.select([sys.stdin], [], [], 0)[0]:
+            char = sys.stdin.read(1)
+            buffer, command, one_changed, one_tab = _apply_input_character(
+                buffer, char
+            )
+            changed = changed or one_changed
+            tab_requested = tab_requested or one_tab
+            if command is not None or tab_requested:
+                break
+        return buffer, command, changed, tab_requested
+
     import msvcrt
 
     changed = False
+    tab_requested = False
     command: str | None = None
     while msvcrt.kbhit():
         char = msvcrt.getwch()
-        if char in ("\r", "\n"):
-            command = buffer.strip()
-            buffer = ""
-            changed = True
-            break
-        if char == "\x03":
-            raise KeyboardInterrupt
-        if char == "\b":
-            buffer = buffer[:-1]
-            changed = True
-        elif char in ("\x00", "\xe0"):
+        if char in ("\x00", "\xe0"):
             if msvcrt.kbhit():
                 msvcrt.getwch()
-        elif char.isprintable():
-            buffer += char
-            changed = True
-    return buffer, command, changed
+            continue
+        buffer, command, one_changed, one_tab = _apply_input_character(
+            buffer, char
+        )
+        changed = changed or one_changed
+        tab_requested = tab_requested or one_tab
+        if command is not None or tab_requested:
+            break
+    return buffer, command, changed, tab_requested
 
 
 def persistent_monitor(
@@ -1165,11 +1208,52 @@ def persistent_monitor(
             return None, str(exc)
         return reply, None
 
+    def read_device_directory(
+        path: str,
+    ) -> tuple[list[Any] | None, str | None]:
+        """Read one RP2350 filesystem directory without formatting it."""
+        cursor = 0
+        entries: list[Any] = []
+        while True:
+            try:
+                request = list_request(path, cursor, current_sequence)
+            except ValueError as exc:
+                return None, str(exc)
+            reply, error = perform_filesystem_request(request)
+            if reply is None:
+                return None, error
+            try:
+                entry = parse_list(reply, request)
+            except ValueError as exc:
+                return None, f"invalid device reply: {exc}"
+            if entry.eof:
+                return entries, None
+            entries.append(entry)
+            cursor = entry.next_cursor
+
+    def remote_completion_entries(token: str) -> tuple[tuple[str, bool], ...]:
+        """Return device-directory candidates for a Tab request."""
+        slash = token.rfind("/")
+        path = token[: slash + 1] if slash >= 0 else token + "/"
+        entries, error = read_device_directory(path)
+        if entries is None:
+            print_event(f"completion: {error}")
+            return ()
+        return tuple((entry.name, entry.directory) for entry in entries)
+
     if interactive:
         print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
         print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
         console.render(current_cpu_sequence, stats, connected, command_buffer)
+
+    posix_terminal_state = None
+    if interactive and os.name != "nt" and sys.stdin.isatty():
+        import termios
+        import tty
+
+        posix_terminal_state = termios.tcgetattr(sys.stdin.fileno())
+        tty.setcbreak(sys.stdin.fileno())
 
     try:
         while not stop and (rounds == 0 or stats.completed + stats.lost < rounds):
@@ -1181,7 +1265,21 @@ def persistent_monitor(
                 continue
             command: str | None = None
             if interactive:
-                command_buffer, command, changed = _read_windows_command(command_buffer)
+                command_buffer, command, changed, tab_requested = (
+                    _read_terminal_command(command_buffer)
+                )
+                if tab_requested:
+                    token = completion_token(command_buffer)
+                    remote_entries: tuple[tuple[str, bool], ...] = ()
+                    if is_device_path(token):
+                        remote_entries = remote_completion_entries(token)
+                    completed_buffer, candidates = complete_shell_input(
+                        command_buffer, remote_entries
+                    )
+                    command_buffer = completed_buffer
+                    if len(candidates) > 1:
+                        print_event("Completions:\n  " + "\n  ".join(candidates))
+                    changed = True
                 if changed:
                     console.render(
                         current_cpu_sequence, stats, connected, command_buffer
@@ -1294,40 +1392,46 @@ def persistent_monitor(
                         is_command = True
                 elif name == "ls":
                     if len(arguments) > 1:
-                        print_event("Usage: ls [flash:/path]")
+                        print_event("Usage: ls [flash:/path|<Host path>]")
                         continue
                     path = arguments[0] if arguments else "flash:/"
-                    cursor = 0
+                    if not is_device_path(path):
+                        try:
+                            print_event(format_host_directory(path))
+                        except ValueError as exc:
+                            print_event(f"ls: {exc}")
+                        continue
+                    entries, error = read_device_directory(path)
+                    if entries is None:
+                        print_event(f"ls: {error}")
+                        continue
                     lines: list[str] = []
-                    while True:
-                        request = list_request(path, cursor, current_sequence)
-                        reply, error = perform_filesystem_request(request)
-                        if reply is None:
-                            print_event(f"ls: {error}")
-                            break
-                        entry = parse_list(reply, request)
-                        if entry.eof:
-                            if not lines:
-                                lines.append("<empty>")
-                            print_event(
-                                f"Directory of {path}\n" + "\n".join(lines)
-                            )
-                            break
+                    for entry in entries:
                         kind = "<DIR>" if entry.directory else f"{entry.size:>10}"
                         lines.append(f"{kind:>10}  {entry.name}")
-                        cursor = entry.next_cursor
+                    print_event(
+                        f"Directory of {path}\n" + ("\n".join(lines) if lines else "<empty>")
+                    )
                     continue
                 elif name == "df":
                     if len(arguments) > 1:
                         print_event("Usage: df [flash:]")
                         continue
                     path = arguments[0] if arguments else "flash:"
-                    request = df_request(path, current_sequence)
+                    try:
+                        request = df_request(path, current_sequence)
+                    except ValueError as exc:
+                        print_event(f"df: {exc}")
+                        continue
                     reply, error = perform_filesystem_request(request)
                     if reply is None:
                         print_event(f"df: {error}")
                         continue
-                    disk = parse_df(reply, request)
+                    try:
+                        disk = parse_df(reply, request)
+                    except ValueError as exc:
+                        print_event(f"df: invalid device reply: {exc}")
+                        continue
                     used = disk.total_kib - disk.free_kib
                     filesystem_names = {1: "FAT12", 2: "FAT16", 3: "FAT32", 4: "exFAT"}
                     print_event(
@@ -1347,12 +1451,20 @@ def persistent_monitor(
                     offset = 0
                     content = bytearray()
                     while True:
-                        request = read_request(path, offset, current_sequence)
+                        try:
+                            request = read_request(path, offset, current_sequence)
+                        except ValueError as exc:
+                            print_event(f"cat: {exc}")
+                            break
                         reply, error = perform_filesystem_request(request)
                         if reply is None:
                             print_event(f"cat: {error}")
                             break
-                        chunk = parse_read(reply, request)
+                        try:
+                            chunk = parse_read(reply, request)
+                        except ValueError as exc:
+                            print_event(f"cat: invalid device reply: {exc}")
+                            break
                         if chunk.offset != offset:
                             print_event(
                                 f"cat: reply offset mismatch {chunk.offset} != {offset}"
@@ -1371,7 +1483,10 @@ def persistent_monitor(
                     continue
                 elif name == "put":
                     if len(arguments) != 2:
-                        print_event("Usage: put <host-file> <flash:/path>")
+                        print_event(
+                            "Usage: put <host-file> <flash:/path>\n"
+                            "Example: put README.md flash:/README.TXT"
+                        )
                         continue
                     host_path = Path(arguments[0])
                     try:
@@ -1381,7 +1496,11 @@ def persistent_monitor(
                             current_sequence,
                         )
                     except (OSError, ValueError) as exc:
-                        print_event(f"put: {exc}")
+                        print_event(
+                            f"put: {exc}\n"
+                            "Use an existing Host file, for example:\n"
+                            "  put README.md flash:/README.TXT"
+                        )
                         continue
                     failed = None
                     for index, record in enumerate(records, 1):
@@ -1491,6 +1610,12 @@ def persistent_monitor(
     except KeyboardInterrupt:
         stop = True
     finally:
+        if posix_terminal_state is not None:
+            import termios
+
+            termios.tcsetattr(
+                sys.stdin.fileno(), termios.TCSADRAIN, posix_terminal_state
+            )
         console.clear()
         drain_cdc()
         if owner_broker is not None:

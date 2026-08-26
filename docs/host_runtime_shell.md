@@ -78,14 +78,37 @@ interface.
 | Supervision | `ping`, `timeout`, heartbeat, restart, `bootloader` |
 | Shell | `help`, `quiet`, `verbose`, `quit` |
 
-The canonical RP-FLASH Host service currently implements four commands:
+The canonical RP-FLASH Host service currently implements four device-backed
+commands. `ls` also lists directories on the Host running the Python shell:
 
 ```text
-ls [flash:/path]
+ls [flash:/path|<Host path>]
 df [flash:]
 cat <flash:/file>
 put <host-file> <flash:/path>
 ```
+
+`<host-file>` means a file that already exists on the Windows Host. From the
+repository root, for example:
+
+```text
+put README.md flash:/README.TXT
+ls C:\Users
+ls D:/my-github
+ls /home/build/github
+```
+
+The first two `ls` examples are Windows paths; the third is a native Linux/WSL
+path. A bare Windows drive such as `ls C:` means its root. With no argument,
+`ls` continues to mean `ls flash:/`. Device paths are transported over HID;
+Host paths are read locally and never sent to the RP2350.
+
+Interactive Tab completion covers command names, Host paths, and `flash:/`
+entries. One match is inserted immediately; multiple matches are printed above
+the persistent heartbeat prompt. This line editor is implemented on both
+Windows and POSIX Hosts, so completion does not depend on a particular shell.
+
+`<host-file>` is syntax notation, not a literal `C:\path\hello.txt` filename.
 
 They use the same sequence-bound 64-byte HID ABI and the same single-owner
 Device Actor as heartbeat and runtime control. `put` writes a hidden temporary
