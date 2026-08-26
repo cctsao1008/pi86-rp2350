@@ -202,8 +202,9 @@ py tools\rp86.py --interactive --heartbeat --attach `
   --output-dir D:\pi86-validation-logs
 ```
 
-The installed processor has no CPUID and cannot be inferred reliably. Declare
-it explicitly when using the Intel 8086 experiment:
+The default command automatically identifies Intel 8086 or NEC V30 behavior
+from the native `AAD 16` witness. Use `--processor` only when a validation run
+must assert that one particular processor is installed:
 
 ```powershell
 py tools\rp86.py --interactive --heartbeat --attach `
@@ -212,10 +213,10 @@ py tools\rp86.py --interactive --heartbeat --attach `
   --output-dir D:\pi86-validation-logs
 ```
 
-Use `--processor nec-v30` for the canonical NEC V30 configuration. The option
-changes Host display and evidence metadata; protocol-version-1 reply payloads
-retain their existing `V30 ... OK` bytes for compatibility with deployed
-firmware.
+The corresponding strict assertion is `--processor nec-v30`. Without either
+option, Host display and the prompt adopt the physical result automatically.
+Protocol-version-1 reply payloads retain their existing `V30 ... OK` bytes for
+compatibility with deployed firmware.
 
 Use `--attach` only after the same powered runtime has already passed its
 bounded startup acceptance. Reset or reflash the RP2350 when startup evidence

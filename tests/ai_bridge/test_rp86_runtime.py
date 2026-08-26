@@ -8,7 +8,7 @@ TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 from rp86_runtime.cli import build_parser  # noqa: E402
-from rp86_runtime.console import _apply_input_character  # noqa: E402
+from rp86_runtime.console import ConsoleStatus, _apply_input_character  # noqa: E402
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.shell_commands import (  # noqa: E402
@@ -19,10 +19,22 @@ from rp86_runtime.shell_commands import (  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
+    def test_processor_identity_defaults_to_native_auto_detection(self) -> None:
+        args = build_parser().parse_args(["--interactive"])
+        self.assertEqual(args.processor, "auto")
+
     def test_new_cli_keeps_existing_modes(self) -> None:
         args = build_parser().parse_args(["--interactive", "--processor", "intel-8086"])
         self.assertTrue(args.interactive)
         self.assertEqual(args.processor, "intel-8086")
+
+    def test_console_adopts_native_processor_identity(self) -> None:
+        console = ConsoleStatus("auto")
+        self.assertEqual(console._prompt, "CPU")
+        console.set_processor("intel-8086")
+        self.assertEqual(console._prompt, "8086")
+        console.set_processor("nec-v30")
+        self.assertEqual(console._prompt, "V30")
 
     def test_pwd_and_cd_are_first_class_commands(self) -> None:
         self.assertEqual(parse_command("pwd").spec.name, "pwd")

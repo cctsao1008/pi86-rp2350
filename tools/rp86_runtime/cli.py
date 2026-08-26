@@ -37,8 +37,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--processor",
         choices=tuple(PROCESSOR_NAMES),
-        default="nec-v30",
-        help="installed physical processor identity (default: nec-v30)",
+        default="auto",
+        help=(
+            "optional strict processor assertion; default auto uses the "
+            "physical AAD 16 identity witness"
+        ),
     )
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument(
@@ -146,7 +149,11 @@ def main() -> int:
         snapshot = reply.get("snapshot", {})
         print("\n[HOST BROKER STATUS]")
         print(f"Device ID                  = {broker_record.device_id}")
-        print(f"Physical processor         = {reply.get('processor', 'UNKNOWN').upper()}")
+        processor_status = (
+            snapshot.get("native_processor")
+            or reply.get("processor", "UNKNOWN")
+        )
+        print(f"Physical processor         = {str(processor_status).upper()}")
         print(f"Broker state               = {snapshot.get('state', 'UNKNOWN')}")
         print(f"TCP / UDP                  = {broker_record.tcp_port} / {broker_record.udp_port}")
         print(f"Heartbeat completed / lost = {snapshot.get('completed', 0)} / {snapshot.get('lost', 0)}")
@@ -194,11 +201,19 @@ def main() -> int:
         return PASS_EXIT
 
     if broker_record is not None:
+        session_processor = (
+            args.processor if args.processor != "auto" else "auto"
+        )
+        identity_policy = (
+            "native identity auto-detect"
+            if session_processor == "auto"
+            else f"strict {session_processor} assertion"
+        )
         if not args.json:
             print(
                 "Connected to existing Host broker = "
                 f"{broker_record.device_id} (TCP {broker_record.tcp_port}, "
-                f"{broker_record.processor})"
+                f"{identity_policy})"
             )
         return persistent_monitor(
             port="",
@@ -210,7 +225,7 @@ def main() -> int:
             display=args.display,
             interactive=args.interactive,
             rounds=args.rounds,
-            processor=broker_record.processor,
+            processor=session_processor,
             broker_record=broker_record,
         )
 

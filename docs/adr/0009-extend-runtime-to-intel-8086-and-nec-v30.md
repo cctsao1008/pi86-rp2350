@@ -25,16 +25,19 @@ The project definition becomes:
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel
 > 8086 and NEC V30 processors.**
 
-Processor identity is explicit Host metadata:
+Processor identity is produced by the physical processor's native `AAD 16`
+witness and selected automatically by default. These options remain available
+as strict Host assertions:
 
 ```text
 --processor intel-8086
 --processor nec-v30
 ```
 
-The runtime does not guess the installed processor. Protocol-version-1 payloads
-retain their existing bytes for compatibility; Host display and evidence record
-the declared physical processor.
+The runtime does not claim CPUID support or infer identity from a product label.
+It records instruction behavior executed by the installed processor.
+Protocol-version-1 payloads retain their existing bytes for compatibility;
+Host display and evidence record the witnessed physical processor.
 
 ## Consequences
 

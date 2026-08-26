@@ -10,7 +10,7 @@ def physical_exchange(
     sequence: int,
     timeout: float,
     output_dir: Path,
-    processor: str = "nec-v30",
+    processor: str = "auto",
     serial_number: str | None = None,
     echo_cdc: bool = True,
 ) -> tuple[dict[str, Any], int]:
@@ -97,7 +97,11 @@ def physical_exchange(
                 # The persistent runtime now returns the same processor-owned
                 # witness used by every later heartbeat.  Do not compare the
                 # complete payload with the legacy bare text string.
-                reply = validate_live_reply(hid_reply_raw, request, processor)
+                reply = validate_live_reply(
+                    hid_reply_raw,
+                    request,
+                    None if processor == "auto" else processor,
+                )
             else:
                 reply = validate_reply(
                     hid_reply_raw, sequence, TYPE_TEXT, CANONICAL_REPLY
@@ -132,11 +136,16 @@ def physical_exchange(
                 "processor": native_witness.processor,
                 "identity_source": "physical AAD 16 discriminator",
             }
+    detected_processor = (
+        native_witness.processor
+        if reply is not None and profile is COMPANION_RUNTIME
+        else processor
+    )
     result: dict[str, Any] = {
         "schema": "pi86-rp2350.ai-bridge.exchange/v1",
         "profile": profile.name,
-        "processor": processor,
-        "processor_name": PROCESSOR_NAMES[processor],
+        "processor": detected_processor,
+        "processor_name": PROCESSOR_NAMES[detected_processor],
         "timestamp": started.isoformat(),
         "request": {
             "transport": "USB HID",

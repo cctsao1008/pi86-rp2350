@@ -33,6 +33,7 @@ def persistent_monitor(
     stats = HeartbeatStats()
     console = ConsoleStatus(processor)
     processor_name = PROCESSOR_NAMES[processor]
+    expected_processor = None if processor == "auto" else processor
     command_buffer = ""
     command_cursor = 0
     command_history = CommandHistory()
@@ -106,7 +107,7 @@ def persistent_monitor(
                     return None, latency_ms, str(response.get("error") or "broker exchange failed")
                 candidate = bytes.fromhex(str(response["reply_hex"]))
                 return (
-                    validate_device_reply(candidate, request, processor),
+                    validate_device_reply(candidate, request, expected_processor),
                     latency_ms,
                     None,
                 )
@@ -130,7 +131,7 @@ def persistent_monitor(
                 if candidate:
                     try:
                         reply = validate_device_reply(
-                            candidate, request, processor
+                            candidate, request, expected_processor
                         )
                     except ValueError as exc:
                         return None, (time.monotonic() - began) * 1000.0, str(exc)
@@ -687,7 +688,10 @@ def persistent_monitor(
             if reply is not None:
                 witness = NativeServiceWitness.decode(reply.payload)
                 first_identity = current_native_processor is None
+                identity_changed = witness.processor != current_native_processor
                 if (
+                    not identity_changed
+                    and
                     current_boot_id == witness.boot_id
                     and current_cpu_sequence is not None
                 ):
@@ -713,10 +717,23 @@ def persistent_monitor(
                             "native_processor": witness.processor,
                         }
                     )
-                    if first_identity:
+                    if identity_changed:
+                        previous_processor = current_native_processor
+                        processor_name = PROCESSOR_NAMES[witness.processor]
+                        console.set_processor(witness.processor)
+                        if first_identity:
+                            identity_text = (
+                                f"{processor_name} (native AAD 16) automatically identified"
+                                if expected_processor is None
+                                else f"{processor_name} (native AAD 16) matches Host declaration"
+                            )
+                        else:
+                            identity_text = (
+                                f"changed from {PROCESSOR_NAMES[previous_processor]} "
+                                f"to {processor_name} (native AAD 16)"
+                            )
                         print_event(
-                            "[PROCESSOR IDENTITY] "
-                            f"{processor_name} (native AAD 16) matches Host declaration"
+                            f"[PROCESSOR IDENTITY] {identity_text}"
                         )
             if reply is not None:
                 stats.accept(latency_ms)
@@ -730,7 +747,7 @@ def persistent_monitor(
                         reply_text = NativeServiceWitness.decode(
                             reply.payload
                         ).text.decode("ascii")
-                        if processor == "intel-8086" and reply_text.startswith("V30 "):
+                        if current_native_processor == "intel-8086" and reply_text.startswith("V30 "):
                             reply_text = "8086 " + reply_text[4:]
                     print_event(
                         f"[{current_sequence:03d}] {reply_text}  "

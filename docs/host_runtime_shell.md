@@ -1,10 +1,11 @@
 # RP86 Host Runtime Shell
 
-The Host declares the installed processor with `--processor`, because the
-8086-class interface has no CPUID instruction. The canonical native runtime
-independently executes a branch-free `AAD 16` discriminator and returns the
-result in every committed 64-byte witness. A declaration of `intel-8086` or
-`nec-v30` is accepted only when it matches that physical processor evidence.
+The 8086-class interface has no CPUID instruction. Instead, the canonical
+native runtime executes a branch-free `AAD 16` discriminator and returns the
+result in every committed 64-byte witness. RP86 uses that physical evidence to
+identify the processor automatically. An optional `--processor intel-8086` or
+`--processor nec-v30` argument is a strict assertion and is accepted only when
+it matches the native result.
 
 **RP86** is the Host runtime and small remote shell for a real Intel 8086 or NEC V30. It is
 not an operating system running on the processor. The Host provides control and

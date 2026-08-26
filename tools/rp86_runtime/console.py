@@ -26,7 +26,20 @@ class ConsoleStatus:
         self._rows = 0
         self._tty = sys.stdout.isatty()
         self._processor = processor
-        self._prompt = "8086" if processor == "intel-8086" else "V30"
+        self._prompt = self._prompt_for(processor)
+
+    @staticmethod
+    def _prompt_for(processor: str) -> str:
+        if processor == "intel-8086":
+            return "8086"
+        if processor == "nec-v30":
+            return "V30"
+        return "CPU"
+
+    def set_processor(self, processor: str) -> None:
+        """Adopt the identity reported by the current physical processor."""
+        self._processor = processor
+        self._prompt = self._prompt_for(processor)
 
     def _erase(self) -> None:
         if self._rows == 0 or not self._tty:
