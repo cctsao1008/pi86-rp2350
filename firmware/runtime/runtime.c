@@ -5,6 +5,7 @@
 
 #include "board/rp2350_pizero.h"
 #include "hardware/gpio.h"
+#include "memory/internal_sram_backing.h"
 #include "pico/bootrom.h"
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
@@ -79,7 +80,9 @@ void pi86_runtime_init(pi86_runtime_t *runtime) {
     gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
 
     (void)pi86_psram_backing_init(&runtime->psram);
-    pi86_workload_manager_init(&runtime->workload, &runtime->psram);
+    pi86_internal_sram_backing_init(&runtime->workload_memory);
+    pi86_workload_manager_init(&runtime->workload,
+                               &runtime->workload_memory);
     runtime->state = PI86_RUNTIME_IDLE;
 }
 
@@ -145,7 +148,14 @@ void pi86_runtime_print_status(const pi86_runtime_t *runtime) {
 #else
     printf("External PSRAM probe       = SKIPPED\n");
 #endif
-    printf("PSRAM role                 = bulk workload/shared backing only\n");
+    printf("Workload memory            = %s\n",
+           runtime->workload_memory.name);
+    printf("Processor memory range     = %05lX-%05lX (%zu KiB)\n",
+           (unsigned long)runtime->workload_memory.processor_base,
+           (unsigned long)(runtime->workload_memory.processor_base +
+                           runtime->workload_memory.size - 1u),
+           runtime->workload_memory.size / 1024u);
+    printf("External PSRAM role        = OPTIONAL CAPACITY TIER\n");
     printf("Staged workload            = %s",
            pi86_workload_state_name(runtime->workload.state));
     if (runtime->workload.state != PI86_WORKLOAD_STATE_EMPTY)

@@ -134,7 +134,7 @@ not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and Host/processor shared-memory tier | available; current canonical firmware occupies about 32 KiB of 512 KiB main SRAM; selected CPU-visible paths are physically validated, while the general arbitrary-address runtime remains open |
+| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and Host/processor shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved and Host HID staging with address/CRC checks is implemented; about 224 KiB main SRAM remains for firmware growth; physical arbitrary-address execution remains open |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |

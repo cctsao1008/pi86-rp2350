@@ -155,17 +155,18 @@ workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`
 availability, open service handles, I/O counters, interrupt counts, bus errors,
 watchdog state, and restart count.
 
-The Host now constructs and validates flat native workload manifests, divides
+The Host constructs and validates flat native workload manifests, divides
 images into fixed 64-byte upload records, and exposes `load`, `run`, `stop`, and
-`restart` transactions. The RP2350 firmware contains an existing PSRAM-specific
-staging manager with ordered-chunk and CRC32 validation; that backend does not
-define or block the canonical workload interface. The canonical firmware now
-integrates composite CDC+HID, the accepted 1 MHz companion bus engine, physical
-INTR/two-cycle INTA, persistent heartbeat, command mailbox, status, trace, and
-Host-directed UF2 entry. Native workload upload dispatch and the general
-arbitrary-address Internal-SRAM physical responder remain unintegrated, so those
-operations are still rejected instead of reporting a false launch. External
-PSRAM support is a later optional capacity backend.
+`restart` transactions. Canonical firmware now accepts begin/data/commit/status
+records and stages valid images in a 256 KiB Internal-SRAM processor range with
+address, ordered-chunk, and CRC32 validation. Composite CDC+HID, the accepted
+1 MHz companion bus engine, physical INTR/two-cycle INTA, persistent heartbeat,
+command mailbox, status, trace, and Host-directed UF2 entry remain integrated.
+
+`run`, `stop`, and `restart` still report service unavailable because the
+general arbitrary-address Internal-SRAM PIO/DMA responder is not integrated.
+Staging therefore cannot be mistaken for native launch. External PSRAM remains
+a later optional capacity backend behind the same workload contract.
 
 The first canonical image is `hello.bin`, assembled from
 `firmware/workloads/hello.asm`. It performs an `AAD 16` identity witness and

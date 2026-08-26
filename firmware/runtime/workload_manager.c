@@ -13,23 +13,36 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
 }
 
 static bool manifest_valid(const pi86_workload_manifest_t *manifest,
-                           size_t backing_size) {
+                           const pi86_memory_backing_t *backing) {
     if (manifest == NULL || manifest->magic != PI86_WORKLOAD_MAGIC ||
         manifest->version != PI86_WORKLOAD_FORMAT_VERSION ||
         manifest->header_size != sizeof *manifest ||
-        manifest->image_size == 0u || manifest->image_size > backing_size)
+        manifest->image_size == 0u || backing == NULL || !backing->available)
         return false;
 
     const uint32_t image_end = manifest->load_address + manifest->image_size;
     if (manifest->load_address >= PI86_V30_ADDRESS_SPACE_SIZE ||
         image_end < manifest->load_address ||
-        image_end > PI86_V30_ADDRESS_SPACE_SIZE)
+        image_end > PI86_V30_ADDRESS_SPACE_SIZE ||
+        !pi86_memory_backing_range_valid(backing, manifest->load_address,
+                                         manifest->image_size))
         return false;
 
     const uint32_t entry = ((uint32_t)manifest->entry_segment << 4u) +
                            manifest->entry_offset;
     if (entry < manifest->load_address || entry >= image_end)
         return false;
+
+    /* 0000:0000 means that the workload does not request an initial stack.
+     * Any explicit stack must name writable space in the selected backing;
+     * validate two bytes because the first PUSH consumes a complete word. */
+    if (manifest->stack_segment != 0u || manifest->stack_offset != 0u) {
+        const uint32_t stack = ((uint32_t)manifest->stack_segment << 4u) +
+                               manifest->stack_offset;
+        if (stack >= PI86_V30_ADDRESS_SPACE_SIZE ||
+            !pi86_memory_backing_range_valid(backing, stack, 2u))
+            return false;
+    }
 
     const uint32_t known_flags = PI86_WORKLOAD_FLAG_PERSISTENT |
                                  PI86_WORKLOAD_FLAG_STDIO |
@@ -41,14 +54,16 @@ static bool manifest_valid(const pi86_workload_manifest_t *manifest,
     if (manifest->shared_size != 0u) {
         const uint32_t shared_end = manifest->shared_base + manifest->shared_size;
         if (shared_end < manifest->shared_base ||
-            shared_end > PI86_V30_ADDRESS_SPACE_SIZE)
+            shared_end > PI86_V30_ADDRESS_SPACE_SIZE ||
+            !pi86_memory_backing_range_valid(backing, manifest->shared_base,
+                                             manifest->shared_size))
             return false;
     }
     return true;
 }
 
 void pi86_workload_manager_init(pi86_workload_manager_t *manager,
-                                pi86_psram_backing_t *backing) {
+                                pi86_memory_backing_t *backing) {
     memset(manager, 0, sizeof *manager);
     manager->backing = backing;
     manager->state = PI86_WORKLOAD_STATE_EMPTY;
@@ -59,7 +74,7 @@ bool pi86_workload_begin(pi86_workload_manager_t *manager,
                          const pi86_workload_manifest_t *manifest) {
     if (manager == NULL || manager->backing == NULL ||
         !manager->backing->available ||
-        !manifest_valid(manifest, manager->backing->size) ||
+        !manifest_valid(manifest, manager->backing) ||
         manager->state == PI86_WORKLOAD_STATE_RUNNING)
         return false;
 
@@ -80,7 +95,9 @@ bool pi86_workload_write(pi86_workload_manager_t *manager,
         length > manager->manifest.image_size - manager->received)
         return false;
 
-    if (!pi86_psram_write(manager->backing, offset, data, length)) return false;
+    const uint32_t address = manager->manifest.load_address + offset;
+    if (!pi86_memory_backing_write(manager->backing, address, data, length))
+        return false;
     manager->running_crc32 = crc32_update(manager->running_crc32, data, length);
     manager->received += (uint32_t)length;
     return true;
@@ -97,7 +114,7 @@ bool pi86_workload_commit(pi86_workload_manager_t *manager,
         return false;
     }
 
-    pi86_psram_publish();
+    pi86_memory_backing_publish(manager->backing);
     manager->workload_id++;
     if (manager->workload_id == 0u) manager->workload_id = 1u;
     manager->state = PI86_WORKLOAD_STATE_READY;

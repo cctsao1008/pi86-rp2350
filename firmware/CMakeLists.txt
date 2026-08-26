@@ -15,6 +15,8 @@ set(PI86_EXTENDED_DIR
 
 add_executable(pi86_rp2350
     board/rp2350_pizero_resources.c
+    memory/backing.c
+    memory/internal_sram_backing.c
     memory/psram_backing.c
     runtime/runtime.c
     runtime/workload_manager.c

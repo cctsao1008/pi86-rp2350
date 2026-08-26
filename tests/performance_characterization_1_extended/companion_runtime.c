@@ -27,7 +27,9 @@
 
 #include "ai_bridge_usb.h"
 #include "companion_runtime_rom.h"
+#include "memory/internal_sram_backing.h"
 #include "pc1c_companion_runtime.pio.h"
+#include "runtime/workload_manager.h"
 #include "storage/flash_layout.h"
 #include "storage/flash_service.h"
 #include "storage/flash_volume.h"
@@ -128,6 +130,8 @@ static pi86_bridge_message_t g_reply_record;
 static pi86_flash_volume_t g_flash_volume;
 static pi86_flash_service_t g_flash_service;
 static bool g_flash_volume_ready;
+static pi86_memory_backing_t g_workload_memory;
+static pi86_workload_manager_t g_workload_manager;
 static int g_foreground_dma = -1;
 static int g_irq_rom_dma = -1;
 static int g_irq_io_dma = -1;
@@ -141,6 +145,7 @@ static int evidence_printf(const char *format, ...);
 static void service_cdc_control(void);
 static bool handle_runtime_control(const pi86_bridge_message_t *record);
 static bool handle_filesystem_record(const pi86_bridge_message_t *record);
+static bool handle_workload_record(const pi86_bridge_message_t *record);
 
 #ifndef PI86_CANONICAL_RUNTIME
 #define PI86_CANONICAL_RUNTIME 0
@@ -171,6 +176,12 @@ static bool take_non_control_record(pi86_bridge_message_t *record) {
     if (record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
         record->type == PI86_BRIDGE_MESSAGE_FILESYSTEM_REQUEST) {
         handle_filesystem_record(record);
+        return false;
+    }
+    if (record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
+        record->type >= PI86_BRIDGE_MESSAGE_WORKLOAD_BEGIN &&
+        record->type <= PI86_BRIDGE_MESSAGE_WORKLOAD_CONTROL) {
+        handle_workload_record(record);
         return false;
     }
     return true;
@@ -735,7 +746,14 @@ static void print_canonical_status(void) {
 #else
     evidence_printf("External PSRAM probe       = SKIPPED\n");
 #endif
-    evidence_printf("PSRAM role                 = bulk workload/shared backing only\n");
+    evidence_printf("Workload memory            = %s\n",
+                    g_workload_memory.name);
+    evidence_printf("Processor memory range     = %05lX-%05lX (%lu KiB)\n",
+                    (unsigned long)g_workload_memory.processor_base,
+                    (unsigned long)(g_workload_memory.processor_base +
+                                    g_workload_memory.size - 1u),
+                    (unsigned long)(g_workload_memory.size / 1024u));
+    evidence_printf("External PSRAM role        = OPTIONAL CAPACITY TIER\n");
     evidence_printf("Onboard NOR flash          = W25Q128JV / 16 MiB\n");
     evidence_printf("Firmware reserved          = 0x000000-0x3FFFFF / 4 MiB\n");
     evidence_printf("flash:/ partition          = 0x400000-0xFFFFFF / 12 MiB\n");
@@ -756,7 +774,14 @@ static void print_canonical_status(void) {
         evidence_printf("flash:/ FatFs result       = %u\n",
                         (unsigned)g_flash_volume.result);
     }
-    evidence_printf("Staged workload            = %s\n",
+    evidence_printf("Staged Host workload       = %s",
+                    pi86_workload_state_name(g_workload_manager.state));
+    if (g_workload_manager.state != PI86_WORKLOAD_STATE_EMPTY)
+        evidence_printf(" (%lu bytes / id %lu)",
+                        (unsigned long)g_workload_manager.manifest.image_size,
+                        (unsigned long)g_workload_manager.workload_id);
+    evidence_printf("\n");
+    evidence_printf("Active physical workload   = %s\n",
                     g_bus_active ? "COMPANION RUNTIME" : "WAITING FOR HID RECORD");
     evidence_printf("Onboard GPIO safe state    = PASS\n");
     evidence_printf("MicroSD hardware           = %s\n",
@@ -776,7 +801,7 @@ static void print_canonical_status(void) {
     evidence_printf("physical 8086-class PIO/DMA bus = AVAILABLE\n");
     evidence_printf("physical INTR / two-cycle INTA = AVAILABLE\n");
     evidence_printf("persistent processor heartbeat = AVAILABLE\n");
-    evidence_printf("native workload upload      = NOT IMPLEMENTED\n");
+    evidence_printf("native workload staging     = AVAILABLE / INTERNAL SRAM\n");
     evidence_printf("workload run / stop / restart = NOT IMPLEMENTED\n");
     evidence_printf("processor stdin / stdout    = COMMAND MAILBOX ONLY\n");
     evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
@@ -825,6 +850,87 @@ static bool send_runtime_control_ack(
     reply.payload[0] = operation;
     return pi86_ai_bridge_hid_send_record(
         (const uint8_t *)&reply, 100000u);
+}
+
+static bool send_workload_reply(const pi86_bridge_message_t *request,
+                                pi86_bridge_status_t status,
+                                bool status_reply) {
+    pi86_bridge_message_t reply = {0};
+    const pi86_workload_status_payload_t payload = {
+        .workload_id = g_workload_manager.workload_id,
+        .state = (uint32_t)g_workload_manager.state,
+        .detail = g_workload_manager.received,
+    };
+    reply.version = PI86_BRIDGE_PROTOCOL_VERSION;
+    reply.type = status_reply ? PI86_BRIDGE_MESSAGE_WORKLOAD_STATUS :
+                                PI86_BRIDGE_MESSAGE_WORKLOAD_RESULT;
+    reply.sequence = request->sequence;
+    reply.length = sizeof payload;
+    reply.status = status;
+    memcpy(reply.payload, &payload, sizeof payload);
+    return pi86_ai_bridge_hid_send_record(
+        (const uint8_t *)&reply, HOST_TIMEOUT_US);
+}
+
+static bool handle_workload_record(const pi86_bridge_message_t *request) {
+    pi86_bridge_status_t status = PI86_BRIDGE_STATUS_BAD_LENGTH;
+    bool status_reply = false;
+
+    if (request->status != PI86_BRIDGE_STATUS_OK) {
+        status = PI86_BRIDGE_STATUS_BAD_WORKLOAD;
+    } else if (request->type == PI86_BRIDGE_MESSAGE_WORKLOAD_BEGIN &&
+               request->length == sizeof(pi86_workload_begin_payload_t)) {
+        pi86_workload_begin_payload_t begin;
+        memcpy(&begin, request->payload, sizeof begin);
+        status = pi86_workload_begin(&g_workload_manager,
+                                     begin.transfer_id,
+                                     &begin.manifest) ?
+            PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_BAD_WORKLOAD;
+    } else if (request->type == PI86_BRIDGE_MESSAGE_WORKLOAD_DATA &&
+               request->length > sizeof(uint32_t) * 2u) {
+        uint32_t transfer_id;
+        uint32_t offset;
+        memcpy(&transfer_id, request->payload, sizeof transfer_id);
+        memcpy(&offset, request->payload + sizeof transfer_id, sizeof offset);
+        const uint8_t *data = request->payload + sizeof(uint32_t) * 2u;
+        const size_t length = request->length - sizeof(uint32_t) * 2u;
+        status = pi86_workload_write(&g_workload_manager, transfer_id,
+                                     offset, data, length) ?
+            PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_BAD_SEQUENCE;
+    } else if (request->type == PI86_BRIDGE_MESSAGE_WORKLOAD_COMMIT &&
+               request->length == sizeof(pi86_workload_commit_payload_t)) {
+        pi86_workload_commit_payload_t commit;
+        memcpy(&commit, request->payload, sizeof commit);
+        status = pi86_workload_commit(&g_workload_manager,
+                                      commit.transfer_id,
+                                      commit.image_crc32) ?
+            PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_BAD_CRC;
+    } else if (request->type == PI86_BRIDGE_MESSAGE_WORKLOAD_CONTROL &&
+               request->length == sizeof(pi86_workload_control_payload_t)) {
+        pi86_workload_control_payload_t control;
+        memcpy(&control, request->payload, sizeof control);
+        status_reply = true;
+        if (control.operation == PI86_WORKLOAD_CONTROL_STATUS &&
+            (control.workload_id == 0u ||
+             control.workload_id == g_workload_manager.workload_id)) {
+            status = PI86_BRIDGE_STATUS_OK;
+        } else if (control.operation == PI86_WORKLOAD_CONTROL_RUN ||
+                   control.operation == PI86_WORKLOAD_CONTROL_STOP ||
+                   control.operation == PI86_WORKLOAD_CONTROL_RESTART) {
+            status = PI86_BRIDGE_STATUS_SERVICE_UNAVAILABLE;
+        } else {
+            status = PI86_BRIDGE_STATUS_BAD_WORKLOAD;
+        }
+    }
+
+    const bool sent = send_workload_reply(request, status, status_reply);
+    evidence_printf(
+        "WORKLOAD op=%u seq=%lu state=%s received=%lu status=%u %s\n",
+        request->type, (unsigned long)request->sequence,
+        pi86_workload_state_name(g_workload_manager.state),
+        (unsigned long)g_workload_manager.received,
+        (unsigned)status, sent ? "REPLIED" : "REPLY TIMEOUT");
+    return sent;
 }
 
 static bool handle_filesystem_record(const pi86_bridge_message_t *request) {
@@ -1018,6 +1124,8 @@ int main(void) {
     prepare_header_high_z();
     init_control_outputs();
     route_ad_to_sio_high_z();
+    pi86_internal_sram_backing_init(&g_workload_memory);
+    pi86_workload_manager_init(&g_workload_manager, &g_workload_memory);
     g_flash_volume_ready = pi86_flash_volume_init(&g_flash_volume);
     pi86_flash_service_init(&g_flash_service, &g_flash_volume,
                             g_flash_volume_ready);

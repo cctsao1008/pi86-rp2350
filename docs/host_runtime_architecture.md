@@ -99,10 +99,12 @@ Internal SRAM is primarily the RP2350's immediate working memory:
 - firmware runtime state.
 
 Internal SRAM is also the first native workload-execution, processor-visible
-RAM, and Host/processor shared-memory tier. The current canonical firmware uses
-only about 32 KiB of the 512 KiB main SRAM bank, so PSRAM is not a prerequisite
-for the first useful runtime. Allocation boundaries must protect firmware and
-realtime state from workload memory.
+RAM, and Host/processor shared-memory tier. Canonical firmware reserves a
+256 KiB pool mapped to processor addresses `00000h-3FFFFh`; Host HID staging
+already enforces address bounds, ordered chunks, and CRC32. The measured linker
+map leaves about 224 KiB of main SRAM for firmware and realtime growth, so PSRAM
+is not a prerequisite for the first useful runtime. Physical arbitrary-address
+PIO/DMA execution remains a separate integration boundary.
 
 ### 4.2 External PSRAM
 

@@ -15,11 +15,11 @@ The RP2350 owns every physical controller and arbitrates access.
 
 | Term | Architectural meaning | Current implementation / validation status |
 |---|---|---|
-| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | available; current canonical firmware occupies about 32 KiB of 512 KiB main SRAM; selected CPU-visible paths are validated, while the general arbitrary-address runtime remains open |
+| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved and Host HID staging with address/CRC checks is implemented; about 224 KiB main SRAM remains for firmware growth; physical arbitrary-address execution remains open |
 | **External PSRAM** | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
-| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | bounded Internal-SRAM/descriptor-fed paths validated; general Internal-SRAM backing remains open |
+| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract implemented; bounded descriptor-fed paths validated; general arbitrary-address physical response remains open |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
 | **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline | retained PIO/DMA implementations physically validated |
 
@@ -39,11 +39,16 @@ Internal SRAM is immediate runtime memory for:
 - short trace and fault-preservation buffers.
 
 Internal SRAM is also the first execution-memory backend for native workloads,
-processor-visible writable RAM, and Host/processor shared windows. The current
-canonical firmware linker map reaches only about 32 KiB into the 512 KiB main
-SRAM bank, leaving roughly 480 KiB unallocated before runtime growth. That
-headroom must still be partitioned deliberately rather than treated as one
-unprotected pool.
+processor-visible writable RAM, and Host/processor shared windows. Canonical
+firmware now reserves a 256 KiB backing pool mapped to processor addresses
+`00000h-3FFFFh`. Host HID begin/data/commit transactions stage a flat image in
+that pool with range, ordered-chunk, and CRC32 validation. The measured linker
+map leaves about 224 KiB of main SRAM for firmware, realtime state, and future
+integration growth.
+
+Successful staging means that the bytes are safely present and identified; it
+does not yet mean that the general PIO/DMA bus engine can serve every address.
+That physical arbitrary-address response remains the next integration step.
 
 The first general runtime must therefore not wait for External PSRAM. It should
 prove arbitrary-address Internal-SRAM-backed execution, load/run control, shared
