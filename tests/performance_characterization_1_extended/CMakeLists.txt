@@ -760,6 +760,7 @@ function(pi86_add_companion_runtime target_name v30_hz)
         hardware_dma
         hardware_pio
         hardware_sync
+        hardware_watchdog
         tinyusb_device
     )
 

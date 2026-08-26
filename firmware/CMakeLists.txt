@@ -38,6 +38,7 @@ target_link_libraries(pi86_rp2350
     hardware_dma
     hardware_pio
     hardware_sync
+    hardware_watchdog
     tinyusb_device
 )
 

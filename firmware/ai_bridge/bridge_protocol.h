@@ -54,6 +54,7 @@ typedef enum {
 typedef enum {
     PI86_RUNTIME_CONTROL_ENTER_BOOTLOADER = 1,
     PI86_RUNTIME_CONTROL_SELFTEST = 2,
+    PI86_RUNTIME_CONTROL_REBOOT = 3,
 } pi86_runtime_control_operation_t;
 
 enum {

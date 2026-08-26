@@ -1,6 +1,7 @@
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 TOOLS = Path(__file__).resolve().parents[2] / "tools" / "ai_bridge"
 sys.path.insert(0, str(TOOLS))
@@ -17,13 +18,19 @@ from protocol import (  # noqa: E402
     TYPE_HEARTBEAT,
     TYPE_HELLO,
     TYPE_RESULT,
+    TYPE_RUNTIME_CONTROL,
+    TYPE_RUNTIME_STATUS,
     TYPE_TEXT,
     TYPE_WORKLOAD_BEGIN,
     TYPE_WORKLOAD_RESULT,
+    RUNTIME_CONTROL_ENTER_BOOTLOADER,
+    RUNTIME_CONTROL_REBOOT,
 )
 from v30bridge import (  # noqa: E402
     BOOTLOADER_ACK,
     BOOTLOADER_REQUEST,
+    REBOOT_ACK,
+    REBOOT_REQUEST,
     STATUS_BEGIN,
     STATUS_END,
     STATUS_REQUEST,
@@ -41,6 +48,8 @@ from v30bridge import (  # noqa: E402
     resolve_cdc_port,
     select_cdc_port,
     send_bootloader_request,
+    send_hid_runtime_control,
+    send_reboot_request,
     send_status_request,
     simulate_v30,
     validate_live_reply,
@@ -77,10 +86,79 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(connection.written, BOOTLOADER_REQUEST)
         self.assertIn(BOOTLOADER_ACK, evidence)
 
-    def test_bootloader_has_a_cdc_only_command_line_mode(self) -> None:
+    def test_bootloader_has_a_hid_first_command_line_mode(self) -> None:
         args = build_parser().parse_args(["--bootloader", "--port", "COM14"])
         self.assertTrue(args.bootloader)
         self.assertEqual(args.port, "COM14")
+
+    def test_reboot_has_a_hid_first_command_line_mode(self) -> None:
+        args = build_parser().parse_args(["--reboot"])
+        self.assertTrue(args.reboot)
+        self.assertIsNone(args.port)
+
+    def test_cdc_reboot_fallback_requires_exact_ack(self) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.written = b""
+                self.response = bytearray(REBOOT_ACK)
+
+            def write(self, data: bytes) -> int:
+                self.written += data
+                return len(data)
+
+            def flush(self) -> None:
+                pass
+
+            def read(self, length: int) -> bytes:
+                result = bytes(self.response[:length])
+                del self.response[:length]
+                return result
+
+        connection = FakeConnection()
+        evidence = send_reboot_request(connection, 0.1)
+        self.assertEqual(connection.written, REBOOT_REQUEST)
+        self.assertIn(REBOOT_ACK, evidence)
+
+    def test_hid_runtime_control_is_sequence_bound_and_acknowledged(self) -> None:
+        class FakeHid:
+            def __init__(self) -> None:
+                self.written = b""
+                self.reads = [b""]
+
+            def write(self, report: bytes) -> int:
+                self.written = report
+                request = Message.decode(report[1:])
+                reply = Message(
+                    TYPE_RUNTIME_STATUS,
+                    request.sequence,
+                    request.payload,
+                ).encode()
+                self.reads.append(reply)
+                return len(report)
+
+            def read(self, _length: int) -> bytes:
+                return self.reads.pop(0) if self.reads else b""
+
+            def close(self) -> None:
+                pass
+
+        for operation in (
+            RUNTIME_CONTROL_ENTER_BOOTLOADER,
+            RUNTIME_CONTROL_REBOOT,
+        ):
+            device = FakeHid()
+            with patch(
+                "v30bridge._open_hid",
+                return_value=(device, {"serial": "TEST"}),
+            ):
+                identity = send_hid_runtime_control(
+                    operation, 0x1234, 0.1, "TEST"
+                )
+            request = Message.decode(device.written[1:])
+            self.assertEqual(request.message_type, TYPE_RUNTIME_CONTROL)
+            self.assertEqual(request.sequence, 0x1234)
+            self.assertEqual(request.payload, bytes((operation,)))
+            self.assertEqual(identity["serial"], "TEST")
 
     def test_cdc_status_request_requires_a_complete_framed_block(self) -> None:
         class FakeConnection:

@@ -47,6 +47,8 @@ from protocol import (
     TYPE_HEARTBEAT,
     TYPE_HELLO,
     TYPE_RESULT,
+    TYPE_RUNTIME_CONTROL,
+    TYPE_RUNTIME_STATUS,
     TYPE_TEXT,
     TYPE_WORKLOAD_BEGIN,
     TYPE_WORKLOAD_COMMIT,
@@ -54,12 +56,16 @@ from protocol import (
     TYPE_WORKLOAD_DATA,
     TYPE_WORKLOAD_RESULT,
     TYPE_WORKLOAD_STATUS,
+    RUNTIME_CONTROL_ENTER_BOOTLOADER,
+    RUNTIME_CONTROL_REBOOT,
 )
 
 CANONICAL_GREETING = b"HELLO NEC V30"
 CANONICAL_REPLY = b"HELLO OPENAI CODEX"
 BOOTLOADER_REQUEST = b"PI86 BOOTLOADER\n"
 BOOTLOADER_ACK = b"PI86 BOOTLOADER ACK"
+REBOOT_REQUEST = b"PI86 REBOOT\n"
+REBOOT_ACK = b"PI86 REBOOT ACK"
 STATUS_REQUEST = b"PI86 STATUS\n"
 STATUS_BEGIN = b"PI86 STATUS BEGIN"
 STATUS_END = b"PI86 STATUS END"
@@ -246,6 +252,27 @@ def send_bootloader_request(connection: Any, timeout: float) -> bytes:
     raise RuntimeError("timed out waiting for RP2350 bootloader ACK")
 
 
+def send_reboot_request(connection: Any, timeout: float) -> bytes:
+    """Request a normal firmware reboot over CDC and require its ACK."""
+    connection.write(REBOOT_REQUEST)
+    connection.flush()
+    received = bytearray()
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        try:
+            chunk = connection.read(4096)
+            if chunk:
+                received.extend(chunk)
+                if REBOOT_ACK in received:
+                    return bytes(received)
+        except OSError as exc:
+            if REBOOT_ACK in received:
+                return bytes(received)
+            raise RuntimeError(f"CDC disconnected before reboot ACK: {exc}") from exc
+        time.sleep(0.005)
+    raise RuntimeError("timed out waiting for RP2350 reboot ACK")
+
+
 def send_status_request(connection: Any, timeout: float) -> bytes:
     """Request one freshly framed runtime status block over CDC."""
     connection.write(STATUS_REQUEST)
@@ -335,6 +362,32 @@ def request_bootloader(port: str, timeout: float) -> int:
     return PASS_EXIT
 
 
+def request_reboot_cdc(port: str, timeout: float) -> int:
+    """Reboot the canonical runtime over the CDC fallback path."""
+    serial = _serial_module()
+    try:
+        connection = serial.Serial(
+            port=port, baudrate=115200, timeout=0.05, write_timeout=1.0
+        )
+        connection.dtr = True
+        time.sleep(0.1)
+        evidence = send_reboot_request(connection, timeout)
+    except (OSError, serial.SerialException, RuntimeError) as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return TRANSPORT_EXIT
+    finally:
+        if "connection" in locals():
+            try:
+                connection.close()
+            except (OSError, serial.SerialException):
+                pass
+    print("RP2350 reboot request     = ACKNOWLEDGED VIA CDC FALLBACK")
+    print("RP2350 canonical runtime  = RESTARTING")
+    if evidence:
+        print(f"CDC evidence bytes        = {len(evidence)}")
+    return PASS_EXIT
+
+
 def _hid_module():
     try:
         import hid  # type: ignore[import-not-found]
@@ -388,6 +441,57 @@ def _open_hid(serial_number: str | None = None):
     device.set_nonblocking(1)
     identity = {key: value for key, value in matches[0].items() if key != "_native_path"}
     return device, identity
+
+
+def send_hid_runtime_control(
+    operation: int, sequence: int, timeout: float,
+    serial_number: str | None = None,
+) -> dict[str, Any]:
+    """Send one sequence-bound runtime control record and require its HID ACK."""
+    device, identity = _open_hid(serial_number)
+    try:
+        exchange_hid_runtime_control(device, operation, sequence, timeout)
+        return identity
+    finally:
+        try:
+            device.close()
+        except OSError:
+            pass
+
+
+def exchange_hid_runtime_control(
+    device: Any, operation: int, sequence: int, timeout: float,
+) -> Message:
+    """Exchange runtime control using an already-owned HID device."""
+    request = Message(TYPE_RUNTIME_CONTROL, sequence, bytes((operation,)))
+    while bytes(device.read(MESSAGE_SIZE + 1)):
+        pass
+    written = device.write(hid_output_report(request.encode()))
+    if written != MESSAGE_SIZE + 1:
+        raise RuntimeError(
+            f"short HID control write: {written}/{MESSAGE_SIZE + 1} bytes"
+        )
+    deadline = time.monotonic() + timeout
+    while time.monotonic() <= deadline:
+        candidate = bytes(device.read(MESSAGE_SIZE + 1))
+        if not candidate:
+            time.sleep(0.001)
+            continue
+        reply = Message.decode(normalize_hid_input(candidate))
+        if reply.message_type != TYPE_RUNTIME_STATUS:
+            raise RuntimeError(
+                f"unexpected runtime control reply type: {reply.message_type}"
+            )
+        if reply.sequence != request.sequence:
+            raise RuntimeError(
+                f"runtime control sequence mismatch: {reply.sequence} != {request.sequence}"
+            )
+        if reply.status != STATUS_OK:
+            raise RuntimeError(f"runtime control status is not OK: {reply.status}")
+        if reply.payload != bytes((operation,)):
+            raise RuntimeError("runtime control operation ACK mismatch")
+        return reply
+    raise RuntimeError("timed out waiting for HID runtime control ACK")
 
 
 def list_cdc_ports() -> list[dict[str, str]]:
@@ -940,16 +1044,33 @@ def persistent_monitor(
                 break
             try:
                 bootloader_requested = False
-                if connection is None:
-                    raise RuntimeError("broker does not own a CDC connection")
                 if pending_control.command == "status":
+                    if connection is None:
+                        raise RuntimeError("broker does not own a CDC connection")
                     evidence = send_status_request(
                         connection, pending_control.timeout
                     )
                 elif pending_control.command == "bootloader":
-                    evidence = send_bootloader_request(
-                        connection, pending_control.timeout
+                    if hid_device is None:
+                        raise RuntimeError("broker does not own a HID connection")
+                    exchange_hid_runtime_control(
+                        hid_device,
+                        RUNTIME_CONTROL_ENTER_BOOTLOADER,
+                        current_sequence,
+                        pending_control.timeout,
                     )
+                    evidence = b""
+                    bootloader_requested = True
+                elif pending_control.command == "reboot":
+                    if hid_device is None:
+                        raise RuntimeError("broker does not own a HID connection")
+                    exchange_hid_runtime_control(
+                        hid_device,
+                        RUNTIME_CONTROL_REBOOT,
+                        current_sequence,
+                        pending_control.timeout,
+                    )
+                    evidence = b""
                     bootloader_requested = True
                 else:
                     raise RuntimeError(
@@ -1287,7 +1408,11 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--interactive", action="store_true")
     mode.add_argument(
         "--bootloader", action="store_true",
-        help="request RP2350 UF2 bootloader mode over USB CDC",
+        help="request RP2350 UF2 bootloader mode over HID, with CDC fallback",
+    )
+    mode.add_argument(
+        "--reboot", action="store_true",
+        help="restart the canonical RP2350 firmware over HID, with CDC fallback",
     )
     mode.add_argument(
         "--status", action="store_true",
@@ -1377,7 +1502,7 @@ def main() -> int:
         parser.error("--attach requires --interactive or --heartbeat")
 
     broker_record: BrokerRecord | None = None
-    if args.status or args.bootloader or (
+    if args.status or args.bootloader or args.reboot or (
         args.attach and (args.interactive or args.heartbeat)
     ):
         device_hint = args.hid_serial
@@ -1442,6 +1567,24 @@ def main() -> int:
         print(f"CDC evidence bytes        = {len(evidence)}")
         return PASS_EXIT
 
+    if args.reboot and broker_record is not None:
+        try:
+            control = BrokerClient(
+                broker_record, f"reboot-{os.getpid()}"
+            ).control("reboot", f"reboot-{os.getpid()}", args.timeout)
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(f"ERROR: Host broker reboot failed: {exc}", file=sys.stderr)
+            return TRANSPORT_EXIT
+        if not control.get("ok"):
+            print(
+                f"ERROR: Host broker reboot failed: {control.get('error')}",
+                file=sys.stderr,
+            )
+            return TRANSPORT_EXIT
+        print("RP2350 reboot request     = ACKNOWLEDGED VIA HOST BROKER")
+        print("RP2350 canonical runtime  = RESTARTING")
+        return PASS_EXIT
+
     if broker_record is not None:
         if not args.json:
             print(
@@ -1463,6 +1606,37 @@ def main() -> int:
             broker_record=broker_record,
         )
 
+    if args.bootloader or args.reboot:
+        operation = (
+            RUNTIME_CONTROL_ENTER_BOOTLOADER
+            if args.bootloader else RUNTIME_CONTROL_REBOOT
+        )
+        device_hint = args.hid_serial
+        if device_hint is None and args.port:
+            try:
+                device_hint = cdc_serial_for_port(args.port)
+            except RuntimeError:
+                pass
+        try:
+            identity = send_hid_runtime_control(
+                operation, args.sequence, args.timeout, device_hint
+            )
+            print(
+                "RP2350 bootloader request = ACKNOWLEDGED VIA HID"
+                if args.bootloader else
+                "RP2350 reboot request     = ACKNOWLEDGED VIA HID"
+            )
+            print(
+                "RP2350 UF2 bootloader     = ENTERING"
+                if args.bootloader else
+                "RP2350 canonical runtime  = RESTARTING"
+            )
+            print(f"USB device serial         = {identity.get('serial') or '<none>'}")
+            return PASS_EXIT
+        except RuntimeError as hid_error:
+            if not args.json:
+                print(f"HID control unavailable; trying CDC fallback: {hid_error}")
+
     try:
         args.port, auto_port = resolve_cdc_port(args.port, args.hid_serial)
     except RuntimeError as exc:
@@ -1479,6 +1653,8 @@ def main() -> int:
         return request_status(args.port, args.timeout)
     if args.bootloader:
         return request_bootloader(args.port, args.timeout)
+    if args.reboot:
+        return request_reboot_cdc(args.port, args.timeout)
     if args.attach:
         try:
             return persistent_monitor(

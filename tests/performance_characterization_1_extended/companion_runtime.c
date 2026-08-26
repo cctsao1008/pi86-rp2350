@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "pico/bootrom.h"
+#include "hardware/watchdog.h"
 #include "tusb.h"
 
 #ifndef COMPANION_V30_HZ
@@ -124,6 +125,7 @@ static pi86_bridge_message_t g_reply_record;
 static int g_foreground_dma = -1;
 static int g_irq_rom_dma = -1;
 static int g_irq_io_dma = -1;
+static int g_observer_dma = -1;
 static uint32_t g_int60_dma_words;
 static uint32_t g_irq_rom_dma_words;
 static uint32_t g_irq_io_dma_words;
@@ -131,6 +133,7 @@ static uint32_t g_processor_boot_id;
 
 static int evidence_printf(const char *format, ...);
 static void service_cdc_control(void);
+static bool handle_runtime_control(const pi86_bridge_message_t *record);
 
 #ifndef PI86_CANONICAL_RUNTIME
 #define PI86_CANONICAL_RUNTIME 0
@@ -150,6 +153,16 @@ static void service_cdc_control(void);
 
 static bool g_bus_active;
 static pc1c_sm_t *g_runtime_clock;
+
+static bool take_non_control_record(pi86_bridge_message_t *record) {
+    if (!pi86_ai_bridge_hid_take_record((uint8_t *)record)) return false;
+    if (record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
+        record->type == PI86_BRIDGE_MESSAGE_RUNTIME_CONTROL) {
+        handle_runtime_control(record);
+        return false;
+    }
+    return true;
+}
 
 typedef struct {
     bool inta1;
@@ -385,7 +398,7 @@ static void __isr companion_dma_irq0(void) {
 
 static bool receive_host_record(companion_result_t *r) {
 #if PI86_CANONICAL_RUNTIME
-    while (!pi86_ai_bridge_hid_take_record((uint8_t *)&g_host_record)) {
+    while (!take_non_control_record(&g_host_record)) {
         pi86_ai_bridge_usb_task();
         service_cdc_control();
     }
@@ -410,7 +423,7 @@ static bool receive_host_record(companion_result_t *r) {
 }
 
 static bool take_live_record(pi86_bridge_message_t *record) {
-    if (!pi86_ai_bridge_hid_take_record((uint8_t *)record)) return false;
+    if (!take_non_control_record(record)) return false;
     return record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
            record->status == PI86_BRIDGE_STATUS_OK &&
            record->length <= sizeof record->payload &&
@@ -745,22 +758,79 @@ static void print_canonical_status(void) {
     evidence_printf("\nOne canonical CDC+HID runtime.\n");
 }
 
-static void enter_canonical_bootloader(void) {
-    evidence_printf("PI86 BOOTLOADER ACK\n");
-    if (g_bus_active) {
-        gpio_put(V30_PIN_RESET, true);
-        pio_set_sm_mask_enabled(pio1, 0x0fu, false);
-        if (g_runtime_clock != NULL)
-            pio_sm_set_enabled(g_runtime_clock->pio,
-                               g_runtime_clock->sm, false);
-        route_ad_to_sio_high_z();
-        gpio_set_function(V30_PIN_CLK, GPIO_FUNC_SIO);
-        gpio_put(V30_PIN_CLK, false);
-        gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
+static void park_physical_processor(void) {
+    gpio_put(V30_PIN_INTR, false);
+    gpio_put(V30_PIN_RESET, true);
+    g_bus_active = false;
+    irq_set_enabled(DMA_IRQ_0, false);
+    pio_set_sm_mask_enabled(pio1, 0x0fu, false);
+    pio_set_sm_mask_enabled(pio0, 0x0fu, false);
+    if (g_runtime_clock != NULL)
+        pio_sm_set_enabled(g_runtime_clock->pio, g_runtime_clock->sm, false);
+    const int channels[] = {
+        g_foreground_dma, g_irq_rom_dma, g_irq_io_dma, g_observer_dma,
+    };
+    for (uint32_t i = 0u; i < count_of(channels); ++i) {
+        if (channels[i] >= 0) dma_channel_abort((uint)channels[i]);
     }
+    route_ad_to_sio_high_z();
+    gpio_set_function(V30_PIN_CLK, GPIO_FUNC_SIO);
+    gpio_put(V30_PIN_CLK, false);
+    gpio_set_dir(V30_PIN_CLK, GPIO_OUT);
+}
+
+static bool send_runtime_control_ack(
+    const pi86_bridge_message_t *request, uint8_t operation) {
+    pi86_bridge_message_t reply = {0};
+    reply.version = PI86_BRIDGE_PROTOCOL_VERSION;
+    reply.type = PI86_BRIDGE_MESSAGE_RUNTIME_STATUS;
+    reply.sequence = request->sequence;
+    reply.length = 1u;
+    reply.status = PI86_BRIDGE_STATUS_OK;
+    reply.payload[0] = operation;
+    return pi86_ai_bridge_hid_send_record(
+        (const uint8_t *)&reply, 100000u);
+}
+
+static void wait_for_usb_ack_flush(void) {
+    const uint64_t deadline = time_us_64() + 100000u;
+    while (time_us_64() < deadline) {
+        pi86_ai_bridge_usb_task();
+        sleep_us(100u);
+    }
+}
+
+static void enter_canonical_bootloader(void) {
+    park_physical_processor();
+    evidence_printf("PI86 BOOTLOADER ACK\n");
     evidence_printf("PI86 BOOTLOADER ENTERING\n");
     sleep_ms(250u);
     reset_usb_boot(0u, 0u);
+}
+
+static void reboot_canonical_runtime(void) {
+    park_physical_processor();
+    evidence_printf("PI86 REBOOT ACK\n");
+    evidence_printf("PI86 REBOOT ENTERING\n");
+    sleep_ms(100u);
+    watchdog_reboot(0u, 0u, 0u);
+    while (true) tight_loop_contents();
+}
+
+static bool handle_runtime_control(const pi86_bridge_message_t *record) {
+    if (record->status != PI86_BRIDGE_STATUS_OK || record->length != 1u)
+        return false;
+    const uint8_t operation = record->payload[0];
+    if (operation != PI86_RUNTIME_CONTROL_ENTER_BOOTLOADER &&
+        operation != PI86_RUNTIME_CONTROL_REBOOT)
+        return false;
+    park_physical_processor();
+    if (!send_runtime_control_ack(record, operation)) return false;
+    wait_for_usb_ack_flush();
+    if (operation == PI86_RUNTIME_CONTROL_ENTER_BOOTLOADER)
+        reset_usb_boot(0u, 0u);
+    watchdog_reboot(0u, 0u, 0u);
+    while (true) tight_loop_contents();
 }
 
 static void service_cdc_control(void) {
@@ -792,6 +862,9 @@ static void service_cdc_control(void) {
                        strcmp(command, "bootloader") == 0 ||
                        strcmp(command, "bootsel") == 0) {
                 enter_canonical_bootloader();
+            } else if (strcmp(command, "PI86 REBOOT") == 0 ||
+                       strcmp(command, "reboot") == 0) {
+                reboot_canonical_runtime();
             } else {
                 evidence_printf("PI86 COMMAND ERROR\n");
             }
@@ -958,6 +1031,7 @@ int main(void) {
     irq_set_priority(DMA_IRQ_0, 0x40u);
     irq_set_enabled(DMA_IRQ_0, true);
     const int observer_dma = start_observer_dma(&observer);
+    g_observer_dma = observer_dma;
 
     route_ad_to_responder(&foreground);
     result.non_ad_isolation = responder_non_ad_pins_isolated(&foreground);

@@ -174,21 +174,25 @@ operation only observes RP2350 state. Before the first HID record it reports
 `IDLE` and leaves the processor in RESET. After startup it reports `RUNNING`
 without disturbing the active physical bus or heartbeat runtime.
 
-## Entering the RP2350 UF2 bootloader
+## Restarting or entering the RP2350 UF2 bootloader
 
-The canonical CDC firmware implements the first Host control operation:
+Both operations use one sequence-bound 64-byte HID runtime-control record:
 
 ```powershell
+py tools\ai_bridge\v30bridge.py --reboot
 py tools\ai_bridge\v30bridge.py --bootloader
 ```
 
-The Host sends the exact `PI86 BOOTLOADER` token and requires
-`PI86 BOOTLOADER ACK` before treating the request as accepted. The RP2350 then
-holds the installed 8086-class processor in RESET, stops CLK low, publishes any
-dirty PSRAM state, and enters its ROM UF2 bootloader. The expected USB
-disconnect after the acknowledgement is therefore a successful transition,
-not a transport failure.
+Before acknowledging either operation, the RP2350 holds the installed
+8086-class processor in RESET, deasserts INTR, stops CLK low, disables the bus
+PIO state machines, aborts their DMA channels, and leaves AD high-Z. It then
+returns a matching HID runtime-status record. `--reboot` restarts the canonical
+firmware; `--bootloader` enters the ROM UF2 bootloader. The expected USB
+disconnect after that acknowledgement is a successful transition, not a
+transport failure.
 
-The same operation can be typed as `bootloader` or `bootsel` through the raw
-Python CDC console. No Host command can release processor RESET or claim the
-bus through this early control path.
+HID is the primary control path and does not depend on a healthy CDC stream.
+For compatibility and recovery, the Host falls back to the exact CDC tokens
+`PI86 REBOOT` and `PI86 BOOTLOADER` and requires their ACKs. The raw CDC console
+also accepts `reboot`, `bootloader`, or `bootsel`. No early control command can
+release processor RESET or claim the bus.
