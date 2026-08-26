@@ -57,8 +57,11 @@
 #define MAX_PAIRS                       96u
 #define STREAM_WORDS (MAX_PAIRS * 2u)
 #define NATIVE_TEXT_WORDS                 6u
+#define NATIVE_PROCESSOR_WORDS            1u
 #define NATIVE_COUNTER_COPIES              3u
-#define NATIVE_REPLY_WORDS               12u
+#define NATIVE_REPLY_WORDS               13u
+#define PROCESSOR_SIGNATURE_INTEL_8086 0x0012u
+#define PROCESSOR_SIGNATURE_NEC_V30    0x000Cu
 
 typedef struct {
     uint32_t key;
@@ -82,6 +85,8 @@ typedef struct {
     bool heartbeat_active;
     bool non_ad_isolation;
     bool observer_complete;
+    bool processor_identity_valid;
+    uint16_t processor_signature;
     uint32_t host_sequence;
     uint32_t irq_assertions;
     uint32_t irq_accepts;
@@ -154,7 +159,9 @@ typedef struct {
     bool eoi;
     bool foreground_commit;
     bool native_counter_valid;
+    bool processor_identity_valid;
     uint16_t observed_witness;
+    uint16_t processor_signature;
     uint32_t observed_cycles;
     uint32_t cpu_sequence;
     uint32_t command_sequence;
@@ -503,6 +510,8 @@ static void classify_live_round(live_round_result_t *round,
     round->eoi = false;
     round->foreground_commit = false;
     round->native_counter_valid = false;
+    round->processor_identity_valid = false;
+    round->processor_signature = 0u;
     round->observed_witness = 0u;
     uint16_t tx_data[NATIVE_REPLY_WORDS] = {0};
     uint32_t tx_words = 0u;
@@ -524,9 +533,14 @@ static void classify_live_round(live_round_result_t *round,
         } else if (address == CONTROL_PORT && data == 1u) {
             if (tx_words >= NATIVE_REPLY_WORDS) {
                 round->irq_commit = true;
+                round->processor_signature = tx_data[NATIVE_TEXT_WORDS];
+                round->processor_identity_valid =
+                    round->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ||
+                    round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30;
                 uint32_t counters[NATIVE_COUNTER_COPIES];
                 for (uint32_t copy = 0u; copy < NATIVE_COUNTER_COPIES; ++copy) {
-                    const uint32_t word = NATIVE_TEXT_WORDS + copy * 2u;
+                    const uint32_t word = NATIVE_TEXT_WORDS +
+                        NATIVE_PROCESSOR_WORDS + copy * 2u;
                     counters[copy] = (uint32_t)tx_data[word] |
                         ((uint32_t)tx_data[word + 1u] << 16);
                 }
@@ -607,7 +621,8 @@ static bool run_live_round(const pc1c_sm_t *foreground,
         __dmb();
         classify_live_round(round, words, expected_witness);
         if (round->witness && round->irq_commit &&
-            round->native_counter_valid && round->eoi &&
+            round->native_counter_valid &&
+            round->processor_identity_valid && round->eoi &&
             round->foreground_commit)
             return true;
         pi86_ai_bridge_usb_task();
@@ -634,6 +649,11 @@ static void send_live_reply(const pi86_bridge_message_t *request,
     witness.magic[3] = PI86_NATIVE_WITNESS_MAGIC_3;
     witness.version = PI86_NATIVE_WITNESS_VERSION;
     witness.service_type = request->type;
+    witness.flags = round->processor_signature ==
+            PROCESSOR_SIGNATURE_INTEL_8086 ?
+        PI86_NATIVE_WITNESS_PROCESSOR_INTEL_8086 :
+        round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
+        PI86_NATIVE_WITNESS_PROCESSOR_NEC_V30 : 0u;
     witness.boot_id = g_processor_boot_id;
     witness.cpu_sequence = round->cpu_sequence;
     witness.command_sequence = round->command_sequence;
@@ -655,6 +675,14 @@ static void send_live_reply(const pi86_bridge_message_t *request,
         round->eoi ? "PASS" : "FAIL",
         round->foreground_commit ? "PASS" : "FAIL",
         passed ? "PASS" : "FAIL");
+    evidence_printf(
+        "[NATIVE PROCESSOR ID] signature=%04X identity=%s result=%s\n",
+        round->processor_signature,
+        round->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ?
+            "INTEL 8086" :
+        round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
+            "NEC V30" : "UNKNOWN",
+        round->processor_identity_valid ? "PASS" : "FAIL");
 }
 
 static int evidence_printf(const char *format, ...) {
@@ -800,6 +828,13 @@ static void print_companion_result(const companion_result_t *r) {
                     r->eoi_seen ? "PASS" : "FAIL");
     evidence_printf("Heartbeat active           = %s\n",
                     r->heartbeat_active ? "PASS" : "FAIL");
+    evidence_printf("Native processor identity  = %s (AAD16=%04X) %s\n",
+        r->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ?
+            "INTEL 8086" :
+        r->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
+            "NEC V30" : "UNKNOWN",
+        r->processor_signature,
+        r->processor_identity_valid ? "PASS" : "FAIL");
     evidence_printf("IRQ mailbox commits        = %lu\n",
                     (unsigned long)r->irq_commits);
     evidence_printf("Native EOI writes          = %lu\n",
@@ -828,12 +863,13 @@ static void print_companion_result(const companion_result_t *r) {
         pc1c_runtime_exact_responder_program.length +
             pc1c_runtime_inta_responder_program.length);
     evidence_printf("Current-cycle M33          = NONE\n");
-    evidence_printf("V30 runtime state          = STI/HLT idle; IRQ heartbeat remains armed\n");
+    evidence_printf("Processor runtime state    = STI/HLT idle; IRQ heartbeat remains armed\n");
     evidence_printf("COMPANION RUNTIME RESULT   = %s\n",
         r->host_record_ok && r->pre_release_clean &&
         r->int60_commit_seen && r->first_inta_seen &&
         r->second_inta_complete && r->irq_commit_seen &&
-        r->eoi_seen && r->heartbeat_active ? "PASS" : "FAIL");
+        r->eoi_seen && r->heartbeat_active &&
+        r->processor_identity_valid ? "PASS" : "FAIL");
 
     evidence_printf("\n[PASSIVE ADDRESS / R2-DATA TRACE]\n");
     /* Persistent-runtime failures often occur only after the first complete
@@ -853,7 +889,7 @@ static void print_companion_result(const companion_result_t *r) {
             decode_ad(data_raw), (unsigned long)address_raw,
             (unsigned long)data_raw);
     }
-    evidence_printf("V30 remains active in STI/HLT; RESET is not asserted.\n");
+    evidence_printf("Physical processor remains active in STI/HLT; RESET is not asserted.\n");
 }
 
 int main(void) {
@@ -982,10 +1018,13 @@ int main(void) {
                         stage_live_payload(&g_host_record));
     initial_round.inta1 = result.first_inta_seen;
     initial_round.inta2 = result.second_inta_complete;
+    result.processor_signature = initial_round.processor_signature;
+    result.processor_identity_valid = initial_round.processor_identity_valid;
     result.heartbeat_active = result.irq_completions >= 2u &&
         result.irq_commits >= 2u && result.eoi_writes >= 2u &&
         initial_round.witness && initial_round.irq_commit &&
-        initial_round.native_counter_valid && initial_round.eoi &&
+        initial_round.native_counter_valid &&
+        initial_round.processor_identity_valid && initial_round.eoi &&
         initial_round.foreground_commit;
     result.foreground_dma_remain = dma_remaining(g_foreground_dma);
     result.irq_rom_dma_remain = dma_remaining(g_irq_rom_dma);

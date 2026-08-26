@@ -280,7 +280,7 @@ AI_B2_HID = ValidationProfile(
 COMPANION_RUNTIME = ValidationProfile(
     name="companion-runtime",
     filename_prefix="companion_runtime",
-    end_marker="V30 remains active in STI/HLT; RESET is not asserted.",
+    end_marker="Physical processor remains active in STI/HLT; RESET is not asserted.",
     checks=(
         _line("reset qualification", r"RESET clock qualification\s+=\s+PASS"),
         _line("software INT60", r"Software INT 60h commit\s+=\s+PASS"),
@@ -290,6 +290,11 @@ COMPANION_RUNTIME = ValidationProfile(
         _line("IRQ mailbox commit", r"IRQ mailbox commit\s+=\s+PASS"),
         _line("native EOI", r"Native EOI\s+=\s+PASS"),
         _line("heartbeat active", r"Heartbeat active\s+=\s+PASS"),
+        _line(
+            "native processor identity",
+            r"Native processor identity\s+=\s+(?:INTEL 8086 \(AAD16=0012\)|"
+            r"NEC V30 \(AAD16=000C\)) PASS",
+        ),
         _line("IRQ commit count", r"IRQ mailbox commits\s+=\s+(?:[2-9]|[1-9][0-9]+)"),
         _line("EOI count", r"Native EOI writes\s+=\s+(?:[2-9]|[1-9][0-9]+)"),
         _line("PIO1 non-AD isolation", r"PIO1 non-AD isolation\s+=\s+PASS"),
@@ -302,13 +307,13 @@ COMPANION_RUNTIME = ValidationProfile(
         _line("PIO instruction budget", r"PIO instruction words\s+=\s+22 \+ 10 = 32/32"),
         _line("current-cycle M33", r"Current-cycle M33\s+=\s+NONE"),
         _line(
-            "persistent V30 state",
-            r"V30 runtime state\s+=\s+STI/HLT idle; IRQ heartbeat remains armed",
+            "persistent processor state",
+            r"Processor runtime state\s+=\s+STI/HLT idle; IRQ heartbeat remains armed",
         ),
         _line("companion result", r"COMPANION RUNTIME RESULT\s+=\s+PASS"),
         _line(
             "persistent electrical state",
-            r"V30 remains active in STI/HLT; RESET is not asserted\.",
+            r"Physical processor remains active in STI/HLT; RESET is not asserted\.",
         ),
     ),
 )
@@ -367,12 +372,12 @@ def explain_output(text: str, report: ValidationReport) -> tuple[str, ...]:
 
     if {"software INT60", "first INTA count", "second INTA count"} <= passed:
         story.append(
-            "The physical V30 completed its native INT 60h service, then accepted "
+            "The physical processor completed its native INT 60h service, then accepted "
             "all eight RP2350 interrupt requests through real two-cycle INTA handshakes."
         )
     if {"IRQ mailbox commit", "native EOI", "heartbeat active"} <= passed:
         story.append(
-            "Each accepted companion interrupt reached the native V30 ISR, consumed "
+            "Each accepted companion interrupt reached the native processor ISR, consumed "
             "the mailbox record, committed its reply, issued EOI, and returned to STI/HLT."
         )
     if {"PIO allocation", "current-cycle M33"} <= passed:
@@ -380,9 +385,9 @@ def explain_output(text: str, report: ValidationReport) -> tuple[str, ...]:
             "Independent PIO exact streams served foreground, IRQ ROM, and IRQ I/O "
             "cycles; M33 did not answer any current bus cycle."
         )
-    if {"persistent V30 state", "persistent electrical state"} <= passed:
+    if {"persistent processor state", "persistent electrical state"} <= passed:
         story.append(
-            "The run did not terminate by resetting the CPU: the V30 remains alive "
+            "The run did not terminate by resetting the CPU: the physical processor remains alive "
             "in STI/HLT with its interrupt heartbeat armed."
         )
 

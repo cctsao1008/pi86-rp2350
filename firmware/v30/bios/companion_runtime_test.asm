@@ -45,6 +45,21 @@ companion_runtime_entry:
     xor bp, bp
     mov es, ax
 
+    ; Identify the installed physical processor without adding a branch or
+    ; another instruction-fetch target. Intel 8086 evaluates undocumented
+    ; AAD imm8 with the supplied base, while NEC V20/V30 retains base 10:
+    ;
+    ;   AX=0102h, AAD 10h -> AL=12h on Intel 8086
+    ;   AX=0102h, AAD 10h -> AL=0Ch on NEC V20/V30
+    ;
+    ; DI owns this native signature for the lifetime of the STI/HLT runtime.
+    ; It is published with every committed IRQ reply, so the Host declaration
+    ; can be checked against evidence produced by the physical processor.
+    mov ax, 0x0102
+    db 0xD5, 0x10               ; undocumented AAD 16 discriminator
+    xor ah, ah
+    mov di, ax
+
     sti
     nop                         ; required interrupt-enable settling point
 align 2, db 0x90
@@ -127,6 +142,11 @@ PI86_EVEN_FETCH_TARGET companion_irq_handler
     mov ax, 0x2054              ; T<space>
     out dx, ax
     mov ax, 0x4B4F              ; OK
+    out dx, ax
+
+    ; Native processor signature: 0012h = Intel 8086 behavior,
+    ; 000Ch = NEC V20/V30 behavior.
+    mov ax, di
     out dx, ax
 
     ; Count a completed native service immediately before publishing the

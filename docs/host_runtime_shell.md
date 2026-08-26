@@ -1,5 +1,11 @@
 # Host Runtime Shell
 
+The Host declares the installed processor with `--processor`, because the
+8086-class interface has no CPUID instruction. The canonical native runtime
+independently executes a branch-free `AAD 16` discriminator and returns the
+result in every committed 64-byte witness. A declaration of `intel-8086` or
+`nec-v30` is accepted only when it matches that physical processor evidence.
+
 The Host runtime is a small remote shell for a real Intel 8086 or NEC V30. It is
 not an operating system running on the processor. The Host provides control and
 runtime services; the RP2350 owns resources and the physical bus; the processor executes

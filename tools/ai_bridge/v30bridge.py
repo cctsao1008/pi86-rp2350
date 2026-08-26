@@ -151,7 +151,11 @@ def validate_reply(
     return reply
 
 
-def validate_live_reply(record: bytes, request: Message) -> Message:
+def validate_live_reply(
+    record: bytes,
+    request: Message,
+    expected_processor: str | None = None,
+) -> Message:
     expected_type = TYPE_RESULT if request.message_type == TYPE_COMMAND else TYPE_HEARTBEAT
     expected_payload = COMMAND_REPLY if request.message_type == TYPE_COMMAND else HEARTBEAT_REPLY
     reply = Message.decode(normalize_hid_input(record))
@@ -171,13 +175,22 @@ def validate_live_reply(record: bytes, request: Message) -> Message:
         )
     if witness.text != expected_payload:
         raise ValueError(f"unexpected native reply text: {witness.text!r}")
+    if expected_processor is not None and witness.processor != expected_processor:
+        raise ValueError(
+            "native processor identity mismatch: "
+            f"AAD16={witness.processor or 'unknown'} host={expected_processor}"
+        )
     return reply
 
 
-def validate_device_reply(record: bytes, request: Message) -> Message:
+def validate_device_reply(
+    record: bytes,
+    request: Message,
+    expected_processor: str | None = None,
+) -> Message:
     """Validate either the deployed heartbeat ABI or the workload ABI."""
     if request.message_type in (TYPE_COMMAND, TYPE_HEARTBEAT):
-        return validate_live_reply(record, request)
+        return validate_live_reply(record, request, expected_processor)
 
     if request.message_type not in (
         TYPE_WORKLOAD_BEGIN,
@@ -543,7 +556,7 @@ def physical_exchange(
                 # The persistent runtime now returns the same processor-owned
                 # witness used by every later heartbeat.  Do not compare the
                 # complete payload with the legacy bare text string.
-                reply = validate_live_reply(hid_reply_raw, request)
+                reply = validate_live_reply(hid_reply_raw, request, processor)
             else:
                 reply = validate_reply(
                     hid_reply_raw, sequence, TYPE_TEXT, CANONICAL_REPLY
@@ -575,6 +588,8 @@ def physical_exchange(
                 "cpu_sequence": native_witness.cpu_sequence,
                 "command_sequence": native_witness.command_sequence,
                 "service_type": native_witness.service_type,
+                "processor": native_witness.processor,
+                "identity_source": "physical AAD 16 discriminator",
             }
     result: dict[str, Any] = {
         "schema": "pi86-rp2350.ai-bridge.exchange/v1",
@@ -777,6 +792,7 @@ def persistent_monitor(
     current_boot_id: int | None = None
     current_cpu_sequence: int | None = None
     current_command_sequence: int | None = None
+    current_native_processor: str | None = None
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -836,7 +852,11 @@ def persistent_monitor(
                 if not response.get("ok"):
                     return None, latency_ms, str(response.get("error") or "broker exchange failed")
                 candidate = bytes.fromhex(str(response["reply_hex"]))
-                return validate_device_reply(candidate, request), latency_ms, None
+                return (
+                    validate_device_reply(candidate, request, processor),
+                    latency_ms,
+                    None,
+                )
             except (OSError, RuntimeError, ValueError, KeyError) as exc:
                 transport_error = f"Host broker disconnected: {exc}"
                 return None, (time.monotonic() - began) * 1000.0, transport_error
@@ -856,7 +876,9 @@ def persistent_monitor(
                 candidate = bytes(hid_device.read(MESSAGE_SIZE + 1))
                 if candidate:
                     try:
-                        reply = validate_device_reply(candidate, request)
+                        reply = validate_device_reply(
+                            candidate, request, processor
+                        )
                     except ValueError as exc:
                         return None, (time.monotonic() - began) * 1000.0, str(exc)
                     # Latency ends at the complete, sequence-bound HID reply.
@@ -886,6 +908,7 @@ def persistent_monitor(
             "boot_id": current_boot_id,
             "cpu_sequence": current_cpu_sequence,
             "command_sequence": current_command_sequence,
+            "native_processor": current_native_processor,
             "completed": stats.completed,
             "lost": stats.lost,
             "last_ms": stats.last_ms,
@@ -1129,6 +1152,7 @@ def persistent_monitor(
             events.append(event)
             if reply is not None:
                 witness = NativeServiceWitness.decode(reply.payload)
+                first_identity = current_native_processor is None
                 if (
                     current_boot_id == witness.boot_id
                     and current_cpu_sequence is not None
@@ -1146,13 +1170,20 @@ def persistent_monitor(
                     current_boot_id = witness.boot_id
                     current_cpu_sequence = witness.cpu_sequence
                     current_command_sequence = witness.command_sequence
+                    current_native_processor = witness.processor
                     event.update(
                         {
                             "boot_id": witness.boot_id,
                             "cpu_sequence": witness.cpu_sequence,
                             "command_sequence": witness.command_sequence,
+                            "native_processor": witness.processor,
                         }
                     )
+                    if first_identity:
+                        print_event(
+                            "[PROCESSOR IDENTITY] "
+                            f"{processor_name} (native AAD 16) matches Host declaration"
+                        )
             if reply is not None:
                 stats.accept(latency_ms)
                 connected = True
@@ -1215,6 +1246,7 @@ def persistent_monitor(
             "boot_id": current_boot_id,
             "cpu_sequence": current_cpu_sequence,
             "command_sequence": current_command_sequence,
+            "native_processor": current_native_processor,
             "hid_identity": hid_identity,
             "completed": stats.completed,
             "lost": stats.lost,

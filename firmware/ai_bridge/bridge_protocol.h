@@ -84,6 +84,12 @@ typedef struct {
 #define PI86_NATIVE_WITNESS_MAGIC_3 'N'
 #define PI86_NATIVE_WITNESS_VERSION 1u
 
+enum {
+    PI86_NATIVE_WITNESS_PROCESSOR_MASK = 3u << 0,
+    PI86_NATIVE_WITNESS_PROCESSOR_INTEL_8086 = 1u << 0,
+    PI86_NATIVE_WITNESS_PROCESSOR_NEC_V30 = 2u << 0,
+};
+
 typedef struct {
     uint8_t magic[4];
     uint8_t version;

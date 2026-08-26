@@ -12,6 +12,13 @@ _MESSAGE = struct.Struct("<BBHIHH52s")
 NATIVE_WITNESS_MAGIC = b"P86N"
 NATIVE_WITNESS_VERSION = 1
 _NATIVE_WITNESS = struct.Struct("<4sBBHIII")
+NATIVE_PROCESSOR_MASK = 0x0003
+NATIVE_PROCESSOR_INTEL_8086 = 0x0001
+NATIVE_PROCESSOR_NEC_V30 = 0x0002
+NATIVE_PROCESSOR_NAMES = {
+    NATIVE_PROCESSOR_INTEL_8086: "intel-8086",
+    NATIVE_PROCESSOR_NEC_V30: "nec-v30",
+}
 
 TYPE_HELLO = 1
 TYPE_TEXT = 2
@@ -62,6 +69,11 @@ class NativeServiceWitness:
     text: bytes
     flags: int = 0
     version: int = NATIVE_WITNESS_VERSION
+
+    @property
+    def processor(self) -> str | None:
+        """Identity produced by the physical processor's AAD 16 behavior."""
+        return NATIVE_PROCESSOR_NAMES.get(self.flags & NATIVE_PROCESSOR_MASK)
 
     def encode(self) -> bytes:
         payload = _NATIVE_WITNESS.pack(

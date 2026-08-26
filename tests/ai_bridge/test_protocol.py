@@ -8,6 +8,8 @@ sys.path.insert(0, str(TOOLS))
 from protocol import (  # noqa: E402
     FLAG_RETRY,
     MESSAGE_SIZE,
+    NATIVE_PROCESSOR_INTEL_8086,
+    NATIVE_PROCESSOR_NEC_V30,
     STATUS_TIMEOUT,
     Message,
     NativeServiceWitness,
@@ -171,6 +173,47 @@ class ProtocolTests(unittest.TestCase):
         self.assertEqual(witness.cpu_sequence, 0x12345678)
         self.assertEqual(witness.command_sequence, 3)
         self.assertEqual(witness.text, HEARTBEAT_REPLY)
+
+    def test_native_witness_carries_physical_aad_processor_identity(self) -> None:
+        intel = NativeServiceWitness(
+            TYPE_HEARTBEAT,
+            1,
+            2,
+            0,
+            HEARTBEAT_REPLY,
+            flags=NATIVE_PROCESSOR_INTEL_8086,
+        )
+        nec = NativeServiceWitness(
+            TYPE_HEARTBEAT,
+            1,
+            2,
+            0,
+            HEARTBEAT_REPLY,
+            flags=NATIVE_PROCESSOR_NEC_V30,
+        )
+        self.assertEqual(
+            NativeServiceWitness.decode(intel.encode()).processor,
+            "intel-8086",
+        )
+        self.assertEqual(
+            NativeServiceWitness.decode(nec.encode()).processor,
+            "nec-v30",
+        )
+
+    def test_host_processor_declaration_must_match_native_identity(self) -> None:
+        request = Message(TYPE_HEARTBEAT, 9, heartbeat_payload(9, 1))
+        payload = NativeServiceWitness(
+            TYPE_HEARTBEAT,
+            1,
+            2,
+            0,
+            HEARTBEAT_REPLY,
+            flags=NATIVE_PROCESSOR_INTEL_8086,
+        ).encode()
+        record = Message(TYPE_HEARTBEAT, 9, payload).encode()
+        validate_live_reply(record, request, "intel-8086")
+        with self.assertRaisesRegex(ValueError, "identity mismatch"):
+            validate_live_reply(record, request, "nec-v30")
 
     def test_companion_initial_hello_reply_uses_native_witness(self) -> None:
         request = Message(TYPE_HELLO, 1, CANONICAL_GREETING)

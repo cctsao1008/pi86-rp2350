@@ -29,6 +29,7 @@ INTA #2 completions        = 8 PASS
 IRQ mailbox commit         = PASS
 Native EOI                 = PASS
 Heartbeat active           = PASS
+Native processor identity  = INTEL 8086 (AAD16=0012) PASS
 IRQ mailbox commits        = 8
 Native EOI writes          = 8
 PIO1 non-AD isolation      = PASS
@@ -36,9 +37,9 @@ Observer complete cycles   = 256
 PIO1 allocation            = SM0 RESET+INT60, SM1 IRQ ROM, SM2 IRQ I/O, SM3 INTA
 PIO instruction words      = 22 + 10 = 32/32
 Current-cycle M33          = NONE
-V30 runtime state          = STI/HLT idle; IRQ heartbeat remains armed
+Processor runtime state    = STI/HLT idle; IRQ heartbeat remains armed
 COMPANION RUNTIME RESULT   = PASS
-V30 remains active in STI/HLT; RESET is not asserted.
+Physical processor remains active in STI/HLT; RESET is not asserted.
 """
 
     HID_OUTPUT = """[HOST MAILBOX INPUT]
