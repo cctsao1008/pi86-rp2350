@@ -43,6 +43,9 @@ def persistent_monitor(
     current_cpu_sequence: int | None = None
     current_command_sequence: int | None = None
     current_native_processor: str | None = None
+    staged_workload_id = 0
+    staged_workload_state = 0
+    staged_workload_detail = 0
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -250,6 +253,7 @@ def persistent_monitor(
         records: list[Message], description: str
     ) -> bool:
         nonlocal current_sequence, next_due
+        nonlocal staged_workload_id, staged_workload_state, staged_workload_detail
         for index, request in enumerate(records, 1):
             reply, latency_ms, error = exchange(request)
             if reply is None:
@@ -260,13 +264,27 @@ def persistent_monitor(
             current_sequence = (request.sequence + 1) & 0xFFFFFFFF
             if current_sequence == 0:
                 current_sequence = 1
+            try:
+                (staged_workload_id, staged_workload_state,
+                 staged_workload_detail) = decode_status_payload(reply.payload)
+            except ValueError as exc:
+                print_event(f"{description}: invalid status payload: {exc}")
+                return False
             if display == "verbose":
                 print_event(
                     f"{description}: record {index}/{len(records)} accepted "
                     f"({latency_ms:.1f} ms)"
                 )
         next_due = time.monotonic() + interval
-        print_event(f"{description}: PASS ({len(records)} records)")
+        state_name = {
+            0: "EMPTY", 1: "RECEIVING", 2: "READY", 3: "RUNNING",
+            4: "STOPPED", 5: "EXITED", 6: "FAULT", 7: "TIMEOUT",
+        }.get(staged_workload_state, f"UNKNOWN({staged_workload_state})")
+        print_event(
+            f"{description}: PASS ({len(records)} records)\n"
+            f"  workload_id={staged_workload_id} state={state_name} "
+            f"detail={staged_workload_detail}"
+        )
         return True
 
     def perform_filesystem_request(
@@ -443,17 +461,24 @@ def persistent_monitor(
                             f"  {processor_name:<10} {'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz\n"
                             f"  Heartbeat {stats.completed} completed / {stats.lost} lost\n"
                             f"  Latency   {stats.average_ms:.1f} ms average\n"
-                            "  Workload  NOT AVAILABLE\n"
+                            f"  Workload  staging id={staged_workload_id} "
+                            f"state={staged_workload_state} detail={staged_workload_detail}\n"
                             "  PSRAM     NOT AVAILABLE\n"
                             "  flash:    RP-FLASH FAT16 AVAILABLE\n"
                             "  sd:       NOT AVAILABLE"
                         )
+                    record = control_record(
+                        "status", workload_id=staged_workload_id,
+                        sequence=current_sequence
+                    )
+                    perform_workload_transaction([record], "workload status")
+                    continue
                 elif name == "info":
                     print_event(
                         "Negotiated capabilities:\n"
                         "  heartbeat  AVAILABLE\n"
                         "  console    bounded 14-byte command exchange\n"
-                        "  workload   NOT AVAILABLE\n"
+                        "  workload   INTERNAL SRAM STAGING AVAILABLE; execution pending\n"
                         "  memory     NOT AVAILABLE\n"
                         "  filesystem RP-FLASH ls / df / cat / put\n"
                         "  storage    flash: FAT16 AVAILABLE\n"

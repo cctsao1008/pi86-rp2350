@@ -45,7 +45,7 @@ from .broker import (
     discover_brokers,
     select_broker,
 )
-from .workload import control_record, workload_from_command
+from .workload import control_record, decode_status_payload, workload_from_command
 
 from .evidence import (
     AI_B2_HID,
