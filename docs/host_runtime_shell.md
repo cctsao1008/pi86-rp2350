@@ -78,6 +78,21 @@ interface.
 | Supervision | `ping`, `timeout`, heartbeat, restart, `bootloader` |
 | Shell | `help`, `quiet`, `verbose`, `quit` |
 
+The canonical RP-FLASH Host service currently implements four commands:
+
+```text
+ls [flash:/path]
+df [flash:]
+cat <flash:/file>
+put <host-file> <flash:/path>
+```
+
+They use the same sequence-bound 64-byte HID ABI and the same single-owner
+Device Actor as heartbeat and runtime control. `put` writes a hidden temporary
+file, verifies the complete CRC32, flushes NOR state, and only then replaces the
+target. `get`, `rm`, `mv`, `sync`, processor-side file calls, and `sd:` remain
+framework contracts until their backends are integrated.
+
 In interactive mode the physical-processor `ALIVE` row remains above the
 editable prompt in all three display modes. `quiet`, `status`, and `verbose`
 change event density only; they do not hide liveness.

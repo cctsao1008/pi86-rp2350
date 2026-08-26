@@ -17,7 +17,7 @@ The RP2350 owns every physical controller and arbitrates access.
 |---|---|---|
 | **RP2350 Internal SRAM** | on-chip memory for firmware, realtime engines, mailbox, prepared windows, and short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
 | **External PSRAM** | intended principal V30 execution-memory backing and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
-| **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, first-boot format, persistence, and media self-test physically validated; Host/processor file services remain open |
+| **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 | **V30-visible memory** | the 20-bit physical address space presented to the V30 | bounded Internal-SRAM/descriptor-fed paths validated; general PSRAM backing remains open |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |

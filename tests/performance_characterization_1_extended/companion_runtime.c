@@ -29,6 +29,7 @@
 #include "companion_runtime_rom.h"
 #include "pc1c_companion_runtime.pio.h"
 #include "storage/flash_layout.h"
+#include "storage/flash_service.h"
 #include "storage/flash_volume.h"
 
 #define COMPANION_VECTOR             0x20u
@@ -125,6 +126,7 @@ static uint16_t g_host_words[HOST_WORDS];
 static pi86_bridge_message_t g_host_record;
 static pi86_bridge_message_t g_reply_record;
 static pi86_flash_volume_t g_flash_volume;
+static pi86_flash_service_t g_flash_service;
 static bool g_flash_volume_ready;
 static int g_foreground_dma = -1;
 static int g_irq_rom_dma = -1;
@@ -138,6 +140,7 @@ static uint32_t g_processor_boot_id;
 static int evidence_printf(const char *format, ...);
 static void service_cdc_control(void);
 static bool handle_runtime_control(const pi86_bridge_message_t *record);
+static bool handle_filesystem_record(const pi86_bridge_message_t *record);
 
 #ifndef PI86_CANONICAL_RUNTIME
 #define PI86_CANONICAL_RUNTIME 0
@@ -163,6 +166,11 @@ static bool take_non_control_record(pi86_bridge_message_t *record) {
     if (record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
         record->type == PI86_BRIDGE_MESSAGE_RUNTIME_CONTROL) {
         handle_runtime_control(record);
+        return false;
+    }
+    if (record->version == PI86_BRIDGE_PROTOCOL_VERSION &&
+        record->type == PI86_BRIDGE_MESSAGE_FILESYSTEM_REQUEST) {
+        handle_filesystem_record(record);
         return false;
     }
     return true;
@@ -774,6 +782,8 @@ static void print_canonical_status(void) {
     evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
     evidence_printf("flash: FAT volume           = %s\n",
                     g_flash_volume_ready ? "AVAILABLE" : "FAULT");
+    evidence_printf("Host flash file service    = %s\n",
+                    g_flash_volume_ready ? "LS / DF / CAT / PUT" : "FAULT");
     evidence_printf("sd: FAT volume              = NOT IMPLEMENTED\n");
     evidence_printf("retained physical bus trace = AVAILABLE\n");
     evidence_printf("timeout / fault / restart   = HEARTBEAT DETECTION ONLY\n");
@@ -815,6 +825,20 @@ static bool send_runtime_control_ack(
     reply.payload[0] = operation;
     return pi86_ai_bridge_hid_send_record(
         (const uint8_t *)&reply, 100000u);
+}
+
+static bool handle_filesystem_record(const pi86_bridge_message_t *request) {
+    pi86_bridge_message_t reply = {0};
+    if (!pi86_flash_service_handle(&g_flash_service, request, &reply))
+        return false;
+    const bool sent = pi86_ai_bridge_hid_send_record(
+        (const uint8_t *)&reply, HOST_TIMEOUT_US);
+    evidence_printf("RP-FLASH op=%u seq=%lu status=%u %s\n",
+                    request->length == 0u ? 0u : request->payload[0],
+                    (unsigned long)request->sequence,
+                    (unsigned)reply.status,
+                    sent ? "REPLIED" : "REPLY TIMEOUT");
+    return sent;
 }
 
 static void wait_for_usb_ack_flush(void) {
@@ -995,6 +1019,8 @@ int main(void) {
     init_control_outputs();
     route_ad_to_sio_high_z();
     g_flash_volume_ready = pi86_flash_volume_init(&g_flash_volume);
+    pi86_flash_service_init(&g_flash_service, &g_flash_volume,
+                            g_flash_volume_ready);
     pi86_ai_bridge_usb_init();
     stdio_init_all();
     while (!stdio_usb_connected()) {

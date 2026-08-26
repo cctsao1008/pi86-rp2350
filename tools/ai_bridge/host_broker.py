@@ -286,7 +286,7 @@ class DeviceBroker:
                 response = await asyncio.wrap_future(future)
             elif operation == "control":
                 command = str(request["command"])
-                if command not in ("status", "bootloader"):
+                if command not in ("status", "bootloader", "reboot"):
                     raise ValueError(f"unsupported broker control command: {command}")
                 future = Future()
                 control = BrokerControlRequest(

@@ -28,6 +28,8 @@ typedef enum {
     PI86_BRIDGE_MESSAGE_WORKLOAD_RESULT = 0x25,
     PI86_BRIDGE_MESSAGE_RUNTIME_CONTROL = 0x30,
     PI86_BRIDGE_MESSAGE_RUNTIME_STATUS = 0x31,
+    PI86_BRIDGE_MESSAGE_FILESYSTEM_REQUEST = 0x40,
+    PI86_BRIDGE_MESSAGE_FILESYSTEM_RESULT = 0x41,
     PI86_BRIDGE_MESSAGE_ERROR = 0x7F,
 } pi86_bridge_message_type_t;
 
@@ -42,6 +44,10 @@ typedef enum {
     PI86_BRIDGE_STATUS_BAD_CRC = 7,
     PI86_BRIDGE_STATUS_BAD_STATE = 8,
     PI86_BRIDGE_STATUS_BAD_WORKLOAD = 9,
+    PI86_BRIDGE_STATUS_IO_ERROR = 10,
+    PI86_BRIDGE_STATUS_NOT_FOUND = 11,
+    PI86_BRIDGE_STATUS_INVALID_PATH = 12,
+    PI86_BRIDGE_STATUS_NO_SPACE = 13,
 } pi86_bridge_status_t;
 
 typedef enum {
@@ -56,6 +62,29 @@ typedef enum {
     PI86_RUNTIME_CONTROL_SELFTEST = 2,
     PI86_RUNTIME_CONTROL_REBOOT = 3,
 } pi86_runtime_control_operation_t;
+
+/* Host filesystem service. Each request/reply still occupies one complete
+ * 64-byte bridge record. Larger files are transferred as sequence-bound
+ * 40-byte chunks; the RP2350 remains the sole FatFs and NOR owner. */
+typedef enum {
+    PI86_FILESYSTEM_LIST = 1,
+    PI86_FILESYSTEM_DF = 2,
+    PI86_FILESYSTEM_READ = 3,
+    PI86_FILESYSTEM_WRITE_BEGIN = 4,
+    PI86_FILESYSTEM_WRITE_DATA = 5,
+    PI86_FILESYSTEM_WRITE_COMMIT = 6,
+} pi86_filesystem_operation_t;
+
+enum {
+    PI86_FILESYSTEM_FLAG_EOF = 1u << 0,
+    PI86_FILESYSTEM_FLAG_DIRECTORY = 1u << 1,
+    PI86_FILESYSTEM_FLAG_TRUNCATED = 1u << 2,
+    PI86_FILESYSTEM_READ_DATA_BYTES = 40u,
+    PI86_FILESYSTEM_WRITE_DATA_BYTES = 40u,
+    PI86_FILESYSTEM_LIST_NAME_BYTES = 42u,
+    PI86_FILESYSTEM_READ_PATH_BYTES = 44u,
+    PI86_FILESYSTEM_WRITE_PATH_BYTES = 36u,
+};
 
 enum {
     /* A retry reuses the original live sequence. It never authorizes a

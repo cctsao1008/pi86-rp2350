@@ -23,6 +23,16 @@ if str(RUNTIME_TOOLS) not in sys.path:
     sys.path.insert(0, str(RUNTIME_TOOLS))
 
 from host_shell import command_help, parse_command, unavailable_message
+from filesystem import (
+    df_request,
+    list_request,
+    parse_df,
+    parse_list,
+    parse_read,
+    read_request,
+    validate_reply as validate_filesystem_payload,
+    write_records,
+)
 from host_broker import (
     BrokerClient,
     BrokerRecord,
@@ -46,6 +56,8 @@ from protocol import (
     TYPE_COMMAND,
     TYPE_HEARTBEAT,
     TYPE_HELLO,
+    TYPE_FILESYSTEM_REQUEST,
+    TYPE_FILESYSTEM_RESULT,
     TYPE_RESULT,
     TYPE_RUNTIME_CONTROL,
     TYPE_RUNTIME_STATUS,
@@ -197,6 +209,19 @@ def validate_device_reply(
     """Validate either the deployed heartbeat ABI or the workload ABI."""
     if request.message_type in (TYPE_COMMAND, TYPE_HEARTBEAT):
         return validate_live_reply(record, request, expected_processor)
+
+    if request.message_type == TYPE_FILESYSTEM_REQUEST:
+        reply = Message.decode(normalize_hid_input(record))
+        if reply.message_type != TYPE_FILESYSTEM_RESULT:
+            raise ValueError(
+                f"unexpected filesystem reply type: {reply.message_type}"
+            )
+        if reply.sequence != request.sequence:
+            raise ValueError(
+                f"filesystem reply sequence mismatch: {reply.sequence} != "
+                f"{request.sequence}"
+            )
+        return reply
 
     if request.message_type not in (
         TYPE_WORKLOAD_BEGIN,
@@ -1123,6 +1148,23 @@ def persistent_monitor(
         print_event(f"{description}: PASS ({len(records)} records)")
         return True
 
+    def perform_filesystem_request(
+        request: Message,
+    ) -> tuple[Message | None, str | None]:
+        nonlocal current_sequence, next_due
+        reply, _latency_ms, error = exchange(request)
+        current_sequence = (request.sequence + 1) & 0xFFFFFFFF
+        if current_sequence == 0:
+            current_sequence = 1
+        next_due = time.monotonic() + interval
+        if reply is None:
+            return None, error or "filesystem exchange failed"
+        try:
+            validate_filesystem_payload(reply, request)
+        except ValueError as exc:
+            return None, str(exc)
+        return reply, None
+
     if interactive:
         print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
         print("Host runtime shell: type help for the complete command framework.")
@@ -1184,7 +1226,7 @@ def persistent_monitor(
                             f"  Latency   {stats.average_ms:.1f} ms average\n"
                             "  Workload  NOT AVAILABLE\n"
                             "  PSRAM     NOT AVAILABLE\n"
-                            "  flash:    NOT AVAILABLE\n"
+                            "  flash:    RP-FLASH FAT16 AVAILABLE\n"
                             "  sd:       NOT AVAILABLE"
                         )
                 elif name == "info":
@@ -1194,8 +1236,8 @@ def persistent_monitor(
                         "  console    bounded 14-byte command exchange\n"
                         "  workload   NOT AVAILABLE\n"
                         "  memory     NOT AVAILABLE\n"
-                        "  filesystem NOT AVAILABLE\n"
-                        "  storage    NOT AVAILABLE\n"
+                        "  filesystem RP-FLASH ls / df / cat / put\n"
+                        "  storage    flash: FAT16 AVAILABLE\n"
                         "  sd         NOT AVAILABLE\n"
                         "  trace      NOT AVAILABLE"
                     )
@@ -1250,6 +1292,112 @@ def persistent_monitor(
                         request_type = TYPE_COMMAND
                         request_payload = payload
                         is_command = True
+                elif name == "ls":
+                    if len(arguments) > 1:
+                        print_event("Usage: ls [flash:/path]")
+                        continue
+                    path = arguments[0] if arguments else "flash:/"
+                    cursor = 0
+                    lines: list[str] = []
+                    while True:
+                        request = list_request(path, cursor, current_sequence)
+                        reply, error = perform_filesystem_request(request)
+                        if reply is None:
+                            print_event(f"ls: {error}")
+                            break
+                        entry = parse_list(reply, request)
+                        if entry.eof:
+                            if not lines:
+                                lines.append("<empty>")
+                            print_event(
+                                f"Directory of {path}\n" + "\n".join(lines)
+                            )
+                            break
+                        kind = "<DIR>" if entry.directory else f"{entry.size:>10}"
+                        lines.append(f"{kind:>10}  {entry.name}")
+                        cursor = entry.next_cursor
+                    continue
+                elif name == "df":
+                    if len(arguments) > 1:
+                        print_event("Usage: df [flash:]")
+                        continue
+                    path = arguments[0] if arguments else "flash:"
+                    request = df_request(path, current_sequence)
+                    reply, error = perform_filesystem_request(request)
+                    if reply is None:
+                        print_event(f"df: {error}")
+                        continue
+                    disk = parse_df(reply, request)
+                    used = disk.total_kib - disk.free_kib
+                    filesystem_names = {1: "FAT12", 2: "FAT16", 3: "FAT32", 4: "exFAT"}
+                    print_event(
+                        f"{path}  label={disk.label or '<none>'}  "
+                        f"type={filesystem_names.get(disk.filesystem_type, disk.filesystem_type)}\n"
+                        f"  total={disk.total_kib} KiB  used={used} KiB  "
+                        f"free={disk.free_kib} KiB\n"
+                        f"  cluster={disk.cluster_bytes} bytes  "
+                        f"erase={disk.erase_bytes} bytes"
+                    )
+                    continue
+                elif name == "cat":
+                    if len(arguments) != 1:
+                        print_event("Usage: cat <flash:/file>")
+                        continue
+                    path = arguments[0]
+                    offset = 0
+                    content = bytearray()
+                    while True:
+                        request = read_request(path, offset, current_sequence)
+                        reply, error = perform_filesystem_request(request)
+                        if reply is None:
+                            print_event(f"cat: {error}")
+                            break
+                        chunk = parse_read(reply, request)
+                        if chunk.offset != offset:
+                            print_event(
+                                f"cat: reply offset mismatch {chunk.offset} != {offset}"
+                            )
+                            break
+                        content.extend(chunk.data)
+                        offset += len(chunk.data)
+                        if chunk.eof:
+                            try:
+                                rendered = content.decode("utf-8")
+                            except UnicodeDecodeError:
+                                rendered = content.hex(" ")
+                                rendered = "Binary data (hex):\n" + rendered
+                            print_event(rendered if rendered else "<empty>")
+                            break
+                    continue
+                elif name == "put":
+                    if len(arguments) != 2:
+                        print_event("Usage: put <host-file> <flash:/path>")
+                        continue
+                    host_path = Path(arguments[0])
+                    try:
+                        content = host_path.read_bytes()
+                        records = write_records(
+                            arguments[1], content, secrets.randbits(32),
+                            current_sequence,
+                        )
+                    except (OSError, ValueError) as exc:
+                        print_event(f"put: {exc}")
+                        continue
+                    failed = None
+                    for index, record in enumerate(records, 1):
+                        _reply, failed = perform_filesystem_request(record)
+                        if failed is not None:
+                            print_event(
+                                f"put: FAILED at record {index}/{len(records)}: "
+                                f"{failed}"
+                            )
+                            break
+                    if failed is None:
+                        print_event(
+                            f"put: PASS  {host_path} -> {arguments[1]}  "
+                            f"({len(content)} bytes, {len(records)} records)"
+                        )
+                    continue
                 else:
                     print_event(unavailable_message(shell_command))
 

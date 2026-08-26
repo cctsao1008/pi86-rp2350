@@ -202,10 +202,10 @@ users, groups, or general ACLs.
 | Trace | owner/producer | read/save/control | no direct access |
 | Clock/reset/interrupt | owner/control | commands through protocol | receives execution effects |
 
-The public baseline is the volume root (`flash:/`). The Host can eventually
-manage all non-firmware content through mediated file services; those Host and
-processor service commands are separate from the now-validated filesystem
-layer.
+The public baseline is the volume root (`flash:/`). The Host can list the
+volume, inspect capacity, read files, and atomically upload/replace files through
+the mediated 64-byte HID service. Processor file services and the remaining
+Host mutation commands are separate later integrations.
 
 ## 7. Runtime states
 

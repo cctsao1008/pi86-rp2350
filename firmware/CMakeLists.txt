@@ -19,6 +19,7 @@ add_executable(pi86_rp2350
     runtime/runtime.c
     runtime/workload_manager.c
     storage/flash_disk.c
+    storage/flash_service.c
     storage/flash_volume.c
     ${PROJECT_SOURCE_DIR}/third_party/fatfs/source/ff.c
     ${PROJECT_SOURCE_DIR}/third_party/fatfs/source/ffunicode.c

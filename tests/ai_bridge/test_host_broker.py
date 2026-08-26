@@ -105,6 +105,30 @@ class HostBrokerTests(unittest.TestCase):
             self.assertTrue(result["ok"])
             broker.stop()
 
+    def test_reboot_control_is_accepted_by_the_device_actor(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ", {"PI86_BROKER_DIR": directory}
+        ):
+            broker = DeviceBroker("REBOOT", "intel-8086")
+            record = broker.start()
+            result: dict[str, object] = {}
+
+            def request() -> None:
+                result.update(
+                    BrokerClient(record, "client-reboot").control(
+                        "reboot", "control-reboot", 1.0
+                    )
+                )
+
+            thread = threading.Thread(target=request)
+            thread.start()
+            pending = broker.controls.get(timeout=1.0)
+            self.assertEqual(pending.command, "reboot")
+            pending.future.set_result({"ok": True, "evidence_hex": ""})
+            thread.join(timeout=1.0)
+            self.assertTrue(result["ok"])
+            broker.stop()
+
     def test_udp_telemetry_is_read_only_fanout(self) -> None:
         with tempfile.TemporaryDirectory() as directory, patch.dict(
             "os.environ", {"PI86_BROKER_DIR": directory}

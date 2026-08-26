@@ -127,7 +127,7 @@ not raw controllers or filesystem metadata.
 |---|---|---|
 | RP2350 Internal SRAM | firmware, PIO/DMA state, mailbox, cache/prepared windows, short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
 | External PSRAM | principal V30 execution memory and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
-| External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, first-boot format, persistence, and media self-test physically validated; Host/processor file-service commands remain open |
+| External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 
 Example shared paths:
