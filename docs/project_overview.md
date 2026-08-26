@@ -37,8 +37,8 @@ releases the processor.
 The canonical flat image is `hello.bin`. The workload itself distinguishes
 Intel 8086 behavior from NEC V30 behavior with `AAD 16`, then reports `HELLO
 INTEL 8086` or `HELLO NEC V30`. It is both the first loader example and a
-physical execution witness; its PSRAM-backed arbitrary execution path remains
-to be integrated and validated on hardware.
+physical execution witness; its general Internal-SRAM-backed arbitrary execution
+path remains to be integrated and validated on hardware.
 
 A traditional BIOS, boot sector, DOS, or V30 operating system is not required.
 Those remain possible workloads, not the project foundation.
@@ -49,11 +49,12 @@ The central ownership rule is:
 
 > **Host and V30 share content, but they do not share low-level ownership.**
 
-- **RP2350 Internal SRAM** holds firmware, realtime state, mailbox, prepared
-  windows, and short traces.
-- **External PSRAM** is designated as the principal V30 execution memory and
-  shared volatile workspace; general PSRAM-backed V30 execution remains an
-  unvalidated physical integration target.
+- **RP2350 Internal SRAM** holds firmware and realtime state and is also the
+  first native workload-execution, processor-visible RAM, and shared-memory
+  tier.
+- **External PSRAM** is an optional capacity tier for larger workloads, bulk
+  shared memory, snapshots, and cache/refill backing; processor execution from
+  that tier remains a separate physical integration target.
 - **External NOR Flash** contains firmware/reserved space and the shared
   `flash:` FAT volume.
 - **SD Card** is the optional removable `sd:` FAT volume.
@@ -82,8 +83,9 @@ The existing Pi86 HAT keeps V30 `READY` asserted. Current-cycle bus behavior
 must therefore remain in PIO/DMA and prepared RP2350 state. Host latency, USB,
 FAT, NOR, SD, and arbitrary PSRAM accesses do not answer a live V30 cycle.
 
-General PSRAM-backed arbitrary native execution remains a physical integration
-gate and is not yet claimed as accepted hardware behavior.
+General arbitrary-address Internal-SRAM-backed native execution is the next
+physical integration gate. PSRAM capacity follows only after a measured
+staging/cache policy exists.
 
 ## What makes it different
 

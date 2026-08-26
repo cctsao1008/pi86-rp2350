@@ -125,8 +125,8 @@ V30 service request ----+
 
 | Resource | Intended primary role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware, PIO/DMA state, mailbox, prepared/cache windows, short trace | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
-| External PSRAM | principal V30 execution memory and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
+| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | available; current canonical firmware occupies about 32 KiB of 512 KiB main SRAM; selected CPU-visible paths are validated, while the general arbitrary-address runtime remains open |
+| External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is shared `flash:` | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 
@@ -185,10 +185,10 @@ PIO/DMA and prepared RP2350 state own timing-critical bus behavior. M33 firmware
 prepares and supervises future state; it does not perform an unbounded
 current-cycle lookup.
 
-General PSRAM-backed arbitrary execution remains a physical implementation gate.
-It requires a measured bounded response mechanism on the existing fixed-`READY`
-HAT, such as a validated prepared or staged hit path. Architectural documents
-must not describe this gate as already complete.
+General arbitrary-address execution remains a physical implementation gate. The
+first backend is Internal SRAM because it is already available and deterministic.
+External PSRAM is a later capacity tier and requires a measured prepared,
+cached, or staged hit path on the existing fixed-`READY` HAT.
 
 ## 9. Host Protocol and shell
 

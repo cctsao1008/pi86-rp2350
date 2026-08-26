@@ -63,7 +63,8 @@ cmake -S . -B build -DPI86_HAS_EXTERNAL_PSRAM=ON
 ```
 
 The runtime must still report successful PSRAM detection before any Host
-workload upload or shared-memory operation is accepted.
+operation targeting the PSRAM capacity tier is accepted. PSRAM absence must not
+block Internal-SRAM-backed workload upload, execution, or shared memory.
 
 ## CPU
 

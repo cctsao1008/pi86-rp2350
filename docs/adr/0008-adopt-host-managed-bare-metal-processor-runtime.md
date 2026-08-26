@@ -64,11 +64,12 @@ and may restart it.
 
 ## Resource decision
 
-- RP2350 Internal SRAM is runtime/realtime working memory and may expose selected
-  prepared V30 windows.
-- External PSRAM is designated as the principal V30 execution memory and shared
-  volatile workspace; that architectural role does not claim that arbitrary
-  PSRAM-backed V30 execution is already physically validated.
+- RP2350 Internal SRAM is runtime/realtime working memory and the first native
+  workload-execution, processor-visible RAM, and shared-memory tier.
+- External PSRAM is an optional capacity tier for larger workloads, bulk shared
+  memory, snapshots, and cache/refill backing. It is not a prerequisite for
+  native workload execution, and PSRAM-backed execution requires separate
+  physical validation.
 - External NOR contains platform-reserved space plus a shared FAT volume named
   `flash:`.
 - SD is the optional removable FAT volume named `sd:`.
@@ -89,8 +90,9 @@ The current Pi86 HAT keeps V30 `READY` asserted. PIO/DMA and prepared RP2350
 state remain responsible for timing-critical cycles. Host software, USB,
 filesystems, and arbitrary storage latency do not answer current cycles.
 
-General PSRAM-backed arbitrary execution remains an implementation gate until a
-bounded physical response mechanism is validated.
+General arbitrary-address Internal-SRAM-backed execution remains an
+implementation gate. PSRAM follows as a capacity tier after a bounded physical
+staging/cache mechanism is validated.
 
 ## Consequences
 

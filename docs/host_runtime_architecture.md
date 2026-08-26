@@ -98,19 +98,20 @@ Internal SRAM is primarily the RP2350's immediate working memory:
 - trace buffers;
 - firmware runtime state.
 
-Selected Internal SRAM windows may be presented to the V30 when useful. It is
-not reserved exclusively for firmware, but it is not the V30's primary bulk
-memory.
+Internal SRAM is also the first native workload-execution, processor-visible
+RAM, and Host/processor shared-memory tier. The current canonical firmware uses
+only about 32 KiB of the 512 KiB main SRAM bank, so PSRAM is not a prerequisite
+for the first useful runtime. Allocation boundaries must protect firmware and
+realtime state from workload memory.
 
 ### 4.2 External PSRAM
 
-External PSRAM is intended to become the principal V30 execution-memory backing
-and shared volatile workspace. Its assigned content will include:
+External PSRAM is an optional capacity tier. Its assigned content may include:
 
-- native workload code;
-- data, stack, and heap;
-- Host/V30 shared-memory regions;
+- larger workload code, data, stack, and heap images;
+- bulk Host/processor shared-memory regions;
 - large transfer and trace buffers;
+- cache/refill backing;
 - snapshots and restart state when required.
 
 The Host addresses the V30-visible address space through the RP2350. It does not
@@ -372,10 +373,11 @@ PIO/DMA and prepared RP2350 state satisfy timing-critical bus behavior. Host
 software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
 transactions do not answer a current V30 bus cycle directly.
 
-General PSRAM-backed arbitrary execution remains a physical implementation gate.
-The existing Pi86 HAT holds `READY` asserted, so the implementation must validate
-a bounded prepared or staged hit path on that hardware. The Host architecture
-and shell do not pretend that this gate has already passed.
+General arbitrary-address Internal-SRAM-backed execution remains a physical
+implementation gate. After that path is validated, External PSRAM may extend it
+through a measured prepared/cache/refill policy. The existing Pi86 HAT holds
+`READY` asserted, so neither backend may depend on an unbounded current-cycle
+software lookup.
 
 ## 13. Failure and recovery policy
 
@@ -398,15 +400,15 @@ The architecture is fixed; implementation proceeds by connecting backends to
 the stable Host shell:
 
 1. Host shell framework and capability reporting;
-2. External PSRAM detection, integrity, and Host read/write;
-3. External NOR shared FAT volume as `flash:`;
-4. SD FAT volume as `sd:` with insert/remove handling;
-5. workload upload and stopped-state memory loading;
-6. minimal Reset Handoff and Internal-SRAM execution proof;
-7. PSRAM-backed arbitrary native V30 execution;
-8. stdio and mailbox runtime;
-9. V30 file services;
-10. `top`, trace, timeout, fault preservation, and restart integration.
+2. arbitrary-address Internal-SRAM execution and stopped-state loading;
+3. native workload load/run/stop/restart and stdio;
+4. Internal-SRAM Host/processor shared memory;
+5. External NOR shared FAT volume as `flash:`;
+6. External PSRAM detection, integrity, and Host read/write;
+7. optional PSRAM capacity through measured staging/cache/refill;
+8. SD FAT volume as `sd:` with insert/remove handling;
+9. processor file services;
+10. `top`, trace, timeout, and fault-preservation integration.
 
 This sequence does not introduce new architecture. Each step only implements an
 already-defined service.

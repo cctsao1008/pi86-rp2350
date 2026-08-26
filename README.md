@@ -134,8 +134,8 @@ not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware, PIO/DMA state, mailbox, cache/prepared windows, short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
-| External PSRAM | principal V30 execution memory and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
+| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and Host/processor shared-memory tier | available; current canonical firmware occupies about 32 KiB of 512 KiB main SRAM; selected CPU-visible paths are physically validated, while the general arbitrary-address runtime remains open |
+| External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 
@@ -158,9 +158,9 @@ therefore remains in PIO/DMA and prepared RP2350 state. Host software, USB,
 filesystem work, and arbitrary storage transactions do not answer an active
 V30 bus cycle.
 
-General PSRAM-backed arbitrary execution is the next major physical integration
-gate. The architecture and Host shell are defined, but documentation does not
-claim that this hardware path has already passed validation.
+The next major physical integration gate is an arbitrary-address responder
+backed first by Internal SRAM. External PSRAM then extends capacity through a
+measured staging/cache policy; it is not a prerequisite for the runtime.
 
 ## 🔌 Hardware baseline
 
@@ -169,7 +169,7 @@ claim that this hardware path has already passed validation.
 - original Homebrew8088 Pi86 V20/V30 HAT
 - Raspberry Pi-compatible 40-pin physical interface
 - 16 MB External NOR Flash
-- External PSRAM footprint/device for the target runtime
+- optional External PSRAM footprint/device for capacity expansion
 - native USB HID/CDC Host interface
 - optional SD Card
 
@@ -195,8 +195,8 @@ uses the historical `AAD 16` behavior difference and prints either `HELLO
 INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
 does not replace Host declaration; it lets the installed physical processor
 demonstrate which instruction behavior it actually executed. The workload and
-upload ABI are implemented, while arbitrary PSRAM-backed execution remains the
-physical integration gate described above.
+upload ABI are implemented, while the general arbitrary-address Internal-SRAM
+execution path remains the physical integration gate described above.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
 > runtime—and answered.**

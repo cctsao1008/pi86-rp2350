@@ -15,11 +15,11 @@ The RP2350 owns every physical controller and arbitrates access.
 
 | Term | Architectural meaning | Current implementation / validation status |
 |---|---|---|
-| **RP2350 Internal SRAM** | on-chip memory for firmware, realtime engines, mailbox, prepared windows, and short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
-| **External PSRAM** | intended principal V30 execution-memory backing and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
+| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | available; current canonical firmware occupies about 32 KiB of 512 KiB main SRAM; selected CPU-visible paths are validated, while the general arbitrary-address runtime remains open |
+| **External PSRAM** | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
-| **V30-visible memory** | the 20-bit physical address space presented to the V30 | bounded Internal-SRAM/descriptor-fed paths validated; general PSRAM backing remains open |
+| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | bounded Internal-SRAM/descriptor-fed paths validated; general Internal-SRAM backing remains open |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
 | **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline | retained PIO/DMA implementations physically validated |
 
@@ -38,26 +38,34 @@ Internal SRAM is immediate runtime memory for:
 - prepared or cached V30 windows;
 - short trace and fault-preservation buffers.
 
-Selected windows may be presented to the V30. Internal SRAM is not reserved only
-for firmware, but it is not the primary bulk V30 execution memory.
+Internal SRAM is also the first execution-memory backend for native workloads,
+processor-visible writable RAM, and Host/processor shared windows. The current
+canonical firmware linker map reaches only about 32 KiB into the 512 KiB main
+SRAM bank, leaving roughly 480 KiB unallocated before runtime growth. That
+headroom must still be partitioned deliberately rather than treated as one
+unprotected pool.
+
+The first general runtime must therefore not wait for External PSRAM. It should
+prove arbitrary-address Internal-SRAM-backed execution, load/run control, shared
+memory, stdio, and fault/restart behavior first.
 
 ### External PSRAM
 
-External PSRAM is designated as the principal volatile resource for:
+External PSRAM is an optional capacity tier for:
 
-- native V30 workload code;
-- data, stack, and heap;
-- Host/V30 shared-memory regions;
+- larger native workload code/data/stack/heap images;
+- bulk Host/processor shared-memory regions;
 - large transfers and traces;
+- cache/refill backing outside the current processor bus cycle;
 - restart snapshots when required.
 
 The Host addresses assigned V30-visible memory through RP2350 operations. It does
 not receive raw access to the PSRAM controller, allocator metadata, or
 firmware-private regions.
 
-General PSRAM-backed arbitrary V30 execution is still an implementation and
-physical-validation gate. The architecture describes its role without claiming
-the fixed-`READY` bus path is complete.
+PSRAM absence must not prevent small Internal-SRAM-backed workloads from being
+loaded and executed. Any PSRAM-backed processor execution remains a separate
+implementation and physical-validation gate.
 
 ### External NOR Flash
 
@@ -206,15 +214,15 @@ IDs, raw erase blocks, or SD sectors.
 
 The order of implementation does not change the architecture:
 
-1. detect and test External PSRAM;
-2. provide Host PSRAM read/write through RP2350 ownership;
-3. expose `flash:` file operations through the Host Protocol;
-4. mount/unmount and hot-remove `sd:`;
-5. upload a flat V30 workload while stopped;
-6. prove reset handoff and native execution;
-7. validate general PSRAM-backed V30 execution;
-8. add shared memory and V30 file services;
-9. integrate fault preservation, timeout, and restart.
+1. implement an arbitrary-address Internal-SRAM responder;
+2. upload a flat 8086-class workload into Internal SRAM while stopped;
+3. prove reset handoff, native execution, stdio, and restart;
+4. expose Internal-SRAM shared memory through RP2350 ownership;
+5. expose `flash:` file operations through the Host Protocol;
+6. detect/test External PSRAM and provide Host read/write;
+7. add PSRAM-backed capacity through a measured staging/cache policy;
+8. mount/unmount and hot-remove `sd:`;
+9. add processor file services and complete fault preservation.
 
 ## 10. Related documents
 
