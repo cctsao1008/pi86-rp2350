@@ -69,6 +69,8 @@ and interrupt services—not prompts, models, or providers.
   records the canonical 1 MHz CDC+HID integration on a physical Intel 8086.
 - [`validation/intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
   records the first Intel P8086-2 interactive heartbeat observation.
+- [`validation/internal_sram_workload_staging_1mhz_validation.md`](validation/internal_sram_workload_staging_1mhz_validation.md)
+  records Host-to-Internal-SRAM native workload staging on physical hardware.
 - [`bringup/gate_history.md`](bringup/gate_history.md) records the gate sequence.
 - [`story/`](story/) preserves the public development story.
 - [`retrospectives/`](retrospectives/) records lessons learned.
