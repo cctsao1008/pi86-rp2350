@@ -100,7 +100,12 @@ they are not prerequisites and do not define the project.
 
 ## 🖥️ What the Host provides
 
-The reference Python runtime is a small remote shell. Its stable command model
+The reference Python runtime and shell are named **RP86**. `RP86` is
+processor-neutral: Intel 8086 and NEC V30 are explicit physical-processor
+profiles, while **RPBridge** names only the CDC/HID and local-broker transport
+layer. The repository keeps its `pi86-rp2350` name to preserve lineage.
+
+The RP86 runtime is a small remote shell. Its stable command model
 includes:
 
 - workload loading, launch, stop, and restart;
@@ -113,6 +118,10 @@ Python is the first reference client, not the architecture. Other Host Protocol
 implementations may be written in C or Rust and presented through CLI or Web
 tools. Higher-level clients—including ChatGPT, Codex, and other agents—may use
 those implementations without becoming part of the V30 runtime architecture.
+
+The canonical entry point is `tools/rp86.py`. The former
+`tools/ai_bridge/v30bridge.py` remains as a compatibility wrapper for existing
+validation commands and saved workflows.
 
 The Host may disappear without becoming part of a current V30 bus cycle. A
 workload can crash or stop responding; the runtime reports it, preserves

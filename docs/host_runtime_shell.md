@@ -1,4 +1,4 @@
-# Host Runtime Shell
+# RP86 Host Runtime Shell
 
 The Host declares the installed processor with `--processor`, because the
 8086-class interface has no CPUID instruction. The canonical native runtime
@@ -6,7 +6,7 @@ independently executes a branch-free `AAD 16` discriminator and returns the
 result in every committed 64-byte witness. A declaration of `intel-8086` or
 `nec-v30` is accepted only when it matches that physical processor evidence.
 
-The Host runtime is a small remote shell for a real Intel 8086 or NEC V30. It is
+**RP86** is the Host runtime and small remote shell for a real Intel 8086 or NEC V30. It is
 not an operating system running on the processor. The Host provides control and
 runtime services; the RP2350 owns resources and the physical bus; the processor executes
 bare-metal native workloads.
@@ -14,6 +14,10 @@ bare-metal native workloads.
 The shell is the reference interface to the
 **Host-Managed Bare-Metal Physical Processor Runtime**. It is not the wire
 protocol and it is not required to be implemented in Python forever.
+
+`RPBridge` is the narrower transport layer beneath RP86: composite CDC/HID,
+the 64-byte ABI, and the local multi-client broker. `v30bridge.py` is retained
+only as a backward-compatible command name.
 
 The shell shape is defined before every backend is complete so later PSRAM,
 NOR Flash, SD Card, trace, and debugger work can attach to a stable interface.
@@ -76,7 +80,7 @@ interface.
 | Memory | `mem read`, `mem write`, `mem load`, `mem save` |
 | Observation | `status`, `top`, `info`, `trace`, `regs` |
 | Supervision | `ping`, `timeout`, heartbeat, restart, `bootloader` |
-| Shell | `help`, `quiet`, `verbose`, `quit` |
+| Shell | `help`, `pwd`, `cd`, `quiet`, `verbose`, `quit` |
 
 The canonical RP-FLASH Host service currently implements four device-backed
 commands. `ls` also lists directories on the Host running the Python shell:
@@ -110,6 +114,11 @@ Windows and POSIX Hosts, so completion does not depend on a particular shell.
 The Up and Down arrow keys traverse in-memory command history; moving past the
 newest entry restores the unfinished draft that was present before navigation.
 Adjacent duplicate commands occupy only one history entry.
+
+Left/Right, Home, End, Backspace, and Delete edit the current line. `Ctrl+C`
+cancels the line without terminating the living processor session, while
+`Ctrl+L` clears and redraws the terminal. `pwd` and `cd` maintain a Host-side
+working directory without changing the RP2350 `flash:/` or `sd:/` namespaces.
 
 `<host-file>` is syntax notation, not a literal `C:\path\hello.txt` filename.
 
@@ -168,7 +177,7 @@ The canonical composite CDC+HID firmware exposes its control and observation
 plane through CDC:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --status --timeout 5
+py tools\rp86.py --status --timeout 5
 ```
 
 The Host automatically selects the CDC interface when exactly one
@@ -185,10 +194,10 @@ and HID interfaces. Later processes discover it by USB serial `device_id` and
 connect as clients instead of reopening the hardware:
 
 ```text
-first v30bridge.py
+first rp86.py
   = shell + Device Actor + CDC/HID owner + broker
 
-later v30bridge.py
+later rp86.py or another rp86_runtime client
   = broker client
 ```
 
@@ -223,8 +232,8 @@ without disturbing the active physical bus or heartbeat runtime.
 Both operations use one sequence-bound 64-byte HID runtime-control record:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --reboot
-py tools\ai_bridge\v30bridge.py --bootloader
+py tools\rp86.py --reboot
+py tools\rp86.py --bootloader
 ```
 
 Before acknowledging either operation, the RP2350 holds the installed

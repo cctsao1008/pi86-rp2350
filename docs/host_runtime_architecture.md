@@ -1,9 +1,14 @@
-# Host Runtime Contract
+# RP86 Host Runtime Contract
 
 **Status:** Detailed contract subordinate to [`architecture.md`](architecture.md)
 **Scope:** Host runtime, RP2350 resource ownership, and physical Intel 8086 / NEC V30 execution
 
 ## 1. Purpose
+
+The processor-neutral Host runtime is named **RP86**. Intel 8086 and NEC V30
+are installed processor profiles, not separate applications. **RPBridge** is
+the transport/broker layer that gives RP86 and other Host clients shared access
+to one CDC/HID device without creating multiple physical bus owners.
 
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 
@@ -30,7 +35,7 @@ Load -> Run -> Communicate -> Observe
 
 ```text
 Host OS
-+-- Python Host shell
++-- RP86 Python Host shell and API
 +-- optional C/Rust/Web clients
 `-- optional Codex/ChatGPT client
              |
@@ -288,9 +293,9 @@ minimum useful services are:
 Services are exposed through RP2350-managed mailbox and interrupt mechanisms.
 The V30 never directly owns USB, FAT, NOR Flash, SD, or PSRAM controllers.
 
-## 10. Host Runtime Shell
+## 10. RP86 Host Runtime Shell
 
-The Python Host runtime presents one small remote shell. The complete command
+The RP86 Python runtime presents one small remote shell. The complete command
 framework is defined from the beginning even when a backend is not yet
 implemented. An unavailable backend must report `NOT AVAILABLE`; it must never
 claim a hardware operation succeeded.

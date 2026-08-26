@@ -148,7 +148,7 @@ class ProtocolTests(unittest.TestCase):
         ):
             device = FakeHid()
             with patch(
-                "v30bridge._open_hid",
+                "rp86_runtime.transport._open_hid",
                 return_value=(device, {"serial": "TEST"}),
             ):
                 identity = send_hid_runtime_control(

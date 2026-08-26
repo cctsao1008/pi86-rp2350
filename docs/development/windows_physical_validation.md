@@ -94,14 +94,14 @@ Find the new CDC COM port, then confirm that the HID interface is visible:
 
 ```powershell
 py tools\ai_bridge\physical_validator.py --list-ports
-py tools\ai_bridge\v30bridge.py --list-devices
+py tools\rp86.py --list-devices
 ```
 
 Run one physical exchange, replacing `COM14` when Windows assigns another
 port:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --exchange --port COM14 `
+py tools\rp86.py --exchange --port COM14 `
   --output-dir D:\pi86-validation-logs
 ```
 
@@ -124,7 +124,7 @@ publication, seven V30 reads, V30 reply/commit, and terminal high-Z—but never
 replaces the raw evidence. For an agent-friendly single JSON value:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --exchange --port COM14 --json `
+py tools\rp86.py --exchange --port COM14 --json `
   --output-dir D:\pi86-validation-logs
 ```
 
@@ -139,7 +139,7 @@ point. After its bounded acceptance gate passes, enter the recommended
 interactive heartbeat session:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --interactive --heartbeat --port COM27 `
+py tools\rp86.py --interactive --heartbeat --port COM27 `
   --display status --interval 1.0 `
   --output-dir D:\pi86-validation-logs
 ```
@@ -183,7 +183,7 @@ quit            stop Windows monitoring without resetting the V30
 For a bounded unattended run, omit `--interactive` and specify a round count:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --exchange --heartbeat --port COM27 `
+py tools\rp86.py --exchange --heartbeat --port COM27 `
   --rounds 100 --display quiet --interval 1.0 `
   --output-dir D:\pi86-validation-logs
 ```
@@ -197,7 +197,7 @@ Because the V30 remains alive after `Ctrl+C`, a later host process can attach
 to the existing `STI`/`HLT` runtime without expecting another reset transcript:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --interactive --heartbeat --attach `
+py tools\rp86.py --interactive --heartbeat --attach `
   --port COM27 --display status --interval 1.0 `
   --output-dir D:\pi86-validation-logs
 ```
@@ -206,7 +206,7 @@ The installed processor has no CPUID and cannot be inferred reliably. Declare
 it explicitly when using the Intel 8086 experiment:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --interactive --heartbeat --attach `
+py tools\rp86.py --interactive --heartbeat --attach `
   --processor intel-8086 `
   --port COM27 --display status --interval 1.0 `
   --output-dir D:\pi86-validation-logs

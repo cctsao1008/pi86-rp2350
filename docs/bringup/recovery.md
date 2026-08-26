@@ -41,7 +41,7 @@ The RP2350 firmware must not require a CDC connection before releasing or safely
 ## HID appears but no CDC evidence arrives
 
 - Confirm that the selected UF2 is the composite target, not an older HID-only or CDC-only image.
-- Use `v30bridge.py --list-devices` to verify the HID interface.
+- Use `rp86.py --list-devices` to verify the HID interface.
 - Rediscover the associated CDC COM port.
 - Start the bridge with both the HID device and explicit COM port available.
 - Reset after capture is armed if the report is emitted once per boot.

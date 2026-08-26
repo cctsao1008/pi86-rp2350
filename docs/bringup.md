@@ -102,13 +102,13 @@ cd D:\my-github\pi86-rp2350
 git pull origin main
 py -m pip install -r tools\ai_bridge\requirements.txt
 py tools\ai_bridge\physical_validator.py --list-ports
-py tools\ai_bridge\v30bridge.py --list-devices
+py tools\rp86.py --list-devices
 ```
 
 Run the exact named profile or bridge command documented for the target. For the accepted composite Host Bridge:
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --exchange --port COM<n> `
+py tools\rp86.py --exchange --port COM<n> `
   --output-dir D:\pi86-validation-logs
 ```
 
