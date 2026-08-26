@@ -6,7 +6,8 @@
 - Configured processor clock: 1.000 MHz
 - Runtime target: `companion_runtime_1mhz`
 - Host mode: interactive heartbeat with `--attach`
-- Result: **PASS — interactive observation only**
+- Follow-up identity validation: 2026-08-27, Host commit `f13434b`
+- Result: **PASS — native Intel 8086 identity and interactive heartbeat**
 
 ## Observed conclusion
 
@@ -20,6 +21,13 @@ runtime to remain interruptible, enter the mailbox service path, and produce
 request/reply progress visible to the Host. It is strong experimental evidence
 that the physical runtime is not inherently limited to the NEC V30.
 
+On 2026-08-27, the same physical Intel `P8086-2` was tested with RP86 Host
+commit `f13434b` and no `--processor` argument. The processor executed the
+native `AAD 16` discriminator, returned Intel behavior, and caused the Host to
+adopt `INTEL 8086`, the `8086>` prompt, and Intel heartbeat presentation
+automatically. Three bounded confirmation rounds completed with zero loss and
+2.5 ms average Host round-trip latency.
+
 ## Scope and limitation
 
 This run used `--attach`; it did not retain the complete cold-start RESET,
@@ -27,11 +35,12 @@ This run used `--attach`; it did not retain the complete cold-start RESET,
 That limits the retained transcript, but it does not block Intel 8086 support or
 the expanded canonical processor scope.
 
-The Host version used for this observation printed fixed `V30` labels. Those
-labels were presentation strings and protocol-version-1 payload text, not CPU
-auto-detection. The physical processor had been manually replaced with the Intel
-`P8086-2`. A later Host update adds explicit `--processor intel-8086` metadata
-while retaining the deployed wire payload for compatibility.
+The original 2026-08-25 observation printed fixed `V30` presentation strings.
+The 2026-08-27 follow-up closes that presentation limitation: RP86 now uses the
+processor-executed identity witness by default. Explicit `--processor
+intel-8086` and `--processor nec-v30` options remain strict assertions, not
+required identity declarations. Protocol-version-1 payload text remains
+unchanged for deployed-firmware compatibility.
 
 Heartbeat latency is end-to-end Host/USB/runtime latency and must not be treated
 as an Intel 8086 versus NEC V30 performance comparison.
@@ -39,9 +48,28 @@ as an Intel 8086 versus NEC V30 performance comparison.
 ## Host command
 
 ```powershell
-py tools\ai_bridge\v30bridge.py --interactive --heartbeat --attach `
-  --port COM27 --display status --interval 1.0 `
+py tools\rp86.py --interactive --heartbeat --attach `
+  --display status --interval 1.0 `
   --output-dir D:\pi86-validation-logs
+```
+
+The CDC port is selected automatically when exactly one compatible device is
+present. `--port COM27` remains available when multiple devices are attached.
+
+## Native identity follow-up output
+
+```text
+Auto-selected CDC port = COM27
+
+[8086-CLASS PROCESSOR INTERACTIVE HEARTBEAT]
+Host runtime shell: type help for the complete command framework.
+Heartbeat runs in the background; command traffic has priority.
+
+[PROCESSOR IDENTITY] INTEL 8086 (native AAD 16) automatically identified
+[001] 8086 HEARTBEAT OK  latency=2.2 ms
+[002] 8086 HEARTBEAT OK  latency=2.5 ms
+[003] 8086 HEARTBEAT OK  latency=2.8 ms
+INTEL 8086 heartbeat stopped: completed=3 lost=0 avg=2.5 ms
 ```
 
 ## Retained output
@@ -83,13 +111,9 @@ V30 ALIVE=True completed=55 lost=0 min/avg/max=1.7/2.7/3.8 ms
 V30>
 ```
 
-## Next formal step
-
-For stronger evidence, run the Intel `P8086-2` from a cold power cycle with explicit processor metadata
-and retain the complete startup evidence: RESET qualification, first `FFFF0h`
-fetch, first response, native ROM execution, software interrupt service,
-physical INTR/two-cycle INTA, heartbeat, command exchange, and terminal bus
-safety.
+This document records interactive physical-processor evidence. It does not
+claim that the still-separate arbitrary-address Internal-SRAM execution path is
+already integrated into the canonical bus responder.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
 > runtime—and answered.**
