@@ -7,6 +7,69 @@ from .transport import _open_hid, _serial_module
 from .exchange import *
 from .console import *
 from .console import _read_terminal_command
+from .workload import WorkloadManifest
+
+
+_WORKLOAD_STATE_NAMES = {
+    0: "EMPTY",
+    1: "RECEIVING",
+    2: "READY",
+    3: "RUNNING",
+    4: "STOPPED",
+    5: "EXITED",
+    6: "FAULT",
+    7: "TIMEOUT",
+}
+
+
+def _workload_state_name(state: int) -> str:
+    return _WORKLOAD_STATE_NAMES.get(state, f"UNKNOWN({state})")
+
+
+def _format_runtime_top(
+    *,
+    processor_name: str,
+    connected: bool,
+    completed: int,
+    lost: int,
+    average_ms: float,
+    workload_id: int,
+    workload_state: int,
+    workload_detail: int,
+    manifest: WorkloadManifest | None,
+) -> str:
+    """Present CPU-visible resources without exposing protocol state numbers."""
+    state_name = _workload_state_name(workload_state)
+    if workload_state in (1, 2):
+        workload_text = (
+            f"{state_name} id={workload_id} size={workload_detail} bytes"
+        )
+    else:
+        workload_text = f"{state_name} id={workload_id} detail={workload_detail}"
+
+    lines = [
+        "Physical processor runtime top",
+        f"  {processor_name:<10} "
+        f"{'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz",
+        f"  Heartbeat  {completed} completed / {lost} lost",
+        f"  Latency    {average_ms:.1f} ms average",
+        f"  Workload   {workload_text}",
+    ]
+    if manifest is not None:
+        lines.append(
+            f"  Load       0x{manifest.load_address:05X} "
+            f"entry={manifest.entry_segment:04X}:{manifest.entry_offset:04X}"
+        )
+    lines.extend(
+        (
+            "  Memory     INTERNAL SRAM 00000-3FFFF 256 KiB",
+            "  PSRAM      NOT AVAILABLE (optional expansion)",
+            "  flash:     RP-FLASH FAT16 AVAILABLE",
+            "  sd:        NOT AVAILABLE",
+        )
+    )
+    return "\n".join(lines)
+
 
 def persistent_monitor(
     port: str,
@@ -47,6 +110,7 @@ def persistent_monitor(
     staged_workload_id = 0
     staged_workload_state = 0
     staged_workload_detail = 0
+    staged_workload_manifest: WorkloadManifest | None = None
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -277,10 +341,7 @@ def persistent_monitor(
                     f"({latency_ms:.1f} ms)"
                 )
         next_due = time.monotonic() + interval
-        state_name = {
-            0: "EMPTY", 1: "RECEIVING", 2: "READY", 3: "RUNNING",
-            4: "STOPPED", 5: "EXITED", 6: "FAULT", 7: "TIMEOUT",
-        }.get(staged_workload_state, f"UNKNOWN({staged_workload_state})")
+        state_name = _workload_state_name(staged_workload_state)
         print_event(
             f"{description}: PASS ({len(records)} records)\n"
             f"  workload_id={staged_workload_id} state={state_name} "
@@ -458,15 +519,17 @@ def persistent_monitor(
                     )
                     if name == "top":
                         print_event(
-                            "Physical processor runtime top\n"
-                            f"  {processor_name:<10} {'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz\n"
-                            f"  Heartbeat {stats.completed} completed / {stats.lost} lost\n"
-                            f"  Latency   {stats.average_ms:.1f} ms average\n"
-                            f"  Workload  staging id={staged_workload_id} "
-                            f"state={staged_workload_state} detail={staged_workload_detail}\n"
-                            "  PSRAM     NOT AVAILABLE\n"
-                            "  flash:    RP-FLASH FAT16 AVAILABLE\n"
-                            "  sd:       NOT AVAILABLE"
+                            _format_runtime_top(
+                                processor_name=processor_name,
+                                connected=connected,
+                                completed=stats.completed,
+                                lost=stats.lost,
+                                average_ms=stats.average_ms,
+                                workload_id=staged_workload_id,
+                                workload_state=staged_workload_state,
+                                workload_detail=staged_workload_detail,
+                                manifest=staged_workload_manifest,
+                            )
                         )
                     record = control_record(
                         "status", workload_id=staged_workload_id,
@@ -514,7 +577,8 @@ def persistent_monitor(
                         f"  entry   {manifest.entry_segment:04X}:{manifest.entry_offset:04X}\n"
                         f"  CRC32   {manifest.image_crc32:08X}"
                     )
-                    perform_workload_transaction(records, "workload upload")
+                    if perform_workload_transaction(records, "workload upload"):
+                        staged_workload_manifest = manifest
                     continue
                 elif name in ("run", "stop", "restart"):
                     record = control_record(

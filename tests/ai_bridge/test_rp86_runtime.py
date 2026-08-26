@@ -11,11 +11,13 @@ from rp86_runtime.cli import build_parser  # noqa: E402
 from rp86_runtime.console import ConsoleStatus, _apply_input_character  # noqa: E402
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
+from rp86_runtime.session import _format_runtime_top  # noqa: E402
 from rp86_runtime.shell_commands import (  # noqa: E402
     complete_shell_input,
     host_list_path,
     parse_command,
 )
+from rp86_runtime.workload import WorkloadManifest  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
@@ -74,6 +76,32 @@ class Rp86RuntimeTests(unittest.TestCase):
         names = {path.name for path in broker_registry_dirs()}
         self.assertIn("rp86-brokers", names)
         self.assertIn("pi86-rp2350-brokers", names)
+
+    def test_top_explains_internal_sram_workload_state(self) -> None:
+        image = bytes(range(157))
+        manifest = WorkloadManifest.for_image(
+            image,
+            load_address=0x10000,
+            entry_segment=0x1000,
+            entry_offset=0,
+        )
+        output = _format_runtime_top(
+            processor_name="INTEL 8086",
+            connected=True,
+            completed=25,
+            lost=0,
+            average_ms=2.6,
+            workload_id=1,
+            workload_state=2,
+            workload_detail=len(image),
+            manifest=manifest,
+        )
+        self.assertIn("Workload   READY id=1 size=157 bytes", output)
+        self.assertIn("Load       0x10000 entry=1000:0000", output)
+        self.assertIn("Memory     INTERNAL SRAM 00000-3FFFF 256 KiB", output)
+        self.assertIn("PSRAM      NOT AVAILABLE (optional expansion)", output)
+        self.assertNotIn("state=2", output)
+        self.assertNotIn("detail=157", output)
 
 
 if __name__ == "__main__":
