@@ -18,6 +18,10 @@ add_executable(pi86_rp2350
     memory/psram_backing.c
     runtime/runtime.c
     runtime/workload_manager.c
+    storage/flash_disk.c
+    storage/flash_volume.c
+    ${PROJECT_SOURCE_DIR}/third_party/fatfs/source/ff.c
+    ${PROJECT_SOURCE_DIR}/third_party/fatfs/source/ffunicode.c
     ${PI86_EXTENDED_DIR}/companion_runtime.c
     ${PI86_EXTENDED_DIR}/ai_bridge_usb.c
     ${PI86_EXTENDED_DIR}/ai_bridge_usb_descriptors.c
@@ -26,16 +30,19 @@ add_executable(pi86_rp2350
 target_include_directories(pi86_rp2350 PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
     ${PI86_EXTENDED_DIR}
+    ${PROJECT_SOURCE_DIR}/third_party/fatfs/source
 )
 
 target_link_libraries(pi86_rp2350
     companion_runtime_rom
     pico_stdlib
     pico_bootrom
+    pico_flash
     pico_multicore
     pico_unique_id
     hardware_clocks
     hardware_dma
+    hardware_flash
     hardware_pio
     hardware_sync
     hardware_watchdog
@@ -47,6 +54,7 @@ target_compile_definitions(pi86_rp2350 PRIVATE
     PI86_HAS_SDCARD=$<BOOL:${PI86_HAS_SDCARD}>
     PI86_HAS_DVI=$<BOOL:${PI86_HAS_DVI}>
     PI86_HAS_PIO_USB=$<BOOL:${PI86_HAS_PIO_USB}>
+    PICO_FLASH_ASSUME_CORE1_SAFE=1
     PC1C_ROM_HEADER="companion_runtime_rom.h"
     PC1C_ROM_DATA=companion_runtime_rom_data
     PC1C_ROM_SIZE=companion_runtime_rom_size
@@ -90,6 +98,16 @@ pico_generate_pio_header(pi86_rp2350
 )
 
 pico_add_extra_outputs(pi86_rp2350)
+
+# The final 12 MiB belongs to flash:/, so no canonical firmware may grow past
+# the first 4 MiB of the 16 MiB W25Q128JV.
+add_custom_command(TARGET pi86_rp2350 POST_BUILD
+    COMMAND ${CMAKE_COMMAND}
+        -DPI86_FIRMWARE_BIN=$<TARGET_FILE_DIR:pi86_rp2350>/pi86_rp2350.bin
+        -DPI86_FIRMWARE_LIMIT=4194304
+        -P ${PROJECT_SOURCE_DIR}/cmake/CheckFirmwareSize.cmake
+    VERBATIM
+)
 
 # First canonical native workload. It is built as a standalone flat binary
 # for Host upload; it is not linked into the RP2350 firmware or presented as a

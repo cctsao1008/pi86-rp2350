@@ -52,15 +52,18 @@ metadata, PSRAM allocator, or bus-engine state.
 The public names are semantic and stable:
 
 ```text
-flash:/workloads/hello.bin
+flash:/hello.bin
 sd:/datasets/input.dat
 ```
 
 They are not DOS drive letters and do not expose Linux block-device names.
 FatFs may use numeric logical drives internally, but values such as `0:` and
-`1:` are private implementation details. The External NOR Flash volume requires
-a Flash-aware block layer so FAT updates respect erase geometry and wear
-management; an SD card uses its normal sector interface.
+`1:` are private implementation details. The External NOR Flash volume is the
+physically validated `RP-FLASH` FAT16 filesystem in the final 12 MiB of the
+onboard W25Q128JV. Its Flash-aware block layer uses 512-byte logical sectors,
+2 KiB allocation units, and 4 KiB erase alignment. Host shell file commands are
+still a separate integration step; an SD card will use its normal sector
+interface.
 
 ## Shell framework
 

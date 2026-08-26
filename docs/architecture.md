@@ -127,7 +127,7 @@ V30 service request ----+
 |---|---|---|
 | RP2350 Internal SRAM | firmware, PIO/DMA state, mailbox, prepared/cache windows, short trace | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
 | External PSRAM | principal V30 execution memory and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
-| External NOR Flash | firmware/reserved region plus shared `flash:` FAT volume | 16 MB device and firmware storage available; shared FAT volume not implemented |
+| External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is shared `flash:` | FAT16 `RP-FLASH` mount, first-boot format, persistence, and media self-test physically validated; service commands remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 
 The RP2350 owns the controllers and filesystem metadata. The Host and V30 access
@@ -136,8 +136,8 @@ assigned content through RP2350 services.
 Stable public paths use semantic volume names:
 
 ```text
-flash:/workloads/hello.bin
-flash:/results/output.txt
+flash:/hello.bin
+flash:/output.txt
 sd:/datasets/input.dat
 sd:/traces/run001.log
 ```

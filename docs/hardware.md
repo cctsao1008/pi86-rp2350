@@ -24,6 +24,9 @@ The RP2350-PiZero resource split relevant to this project is:
 - GPIO32-GPIO39 and GPIO44-GPIO46: onboard Mini HDMI / DVI (three data
   pairs, clock pair, SDA, SCL, and CEC).
 - GPIO47: optional PSRAM CS1.
+- Primary XIP NOR: Winbond W25Q128JV, 16 MiB. The canonical layout reserves
+  `0x000000-0x3FFFFF` for firmware and exposes `0x400000-0xFFFFFF` as the
+  12 MiB `RP-FLASH` FAT16 volume (`flash:/`).
 
 Canonical firmware initializes GPIO28-GPIO46 as passive inputs with RP2350
 pulls disabled. MicroSD, DVI, and PIO-USB remain electrically inactive until

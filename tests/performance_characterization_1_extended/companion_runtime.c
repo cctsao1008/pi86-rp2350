@@ -28,6 +28,8 @@
 #include "ai_bridge_usb.h"
 #include "companion_runtime_rom.h"
 #include "pc1c_companion_runtime.pio.h"
+#include "storage/flash_layout.h"
+#include "storage/flash_volume.h"
 
 #define COMPANION_VECTOR             0x20u
 #define INT60_VECTOR                 0x60u
@@ -122,6 +124,8 @@ static uint32_t g_irq_io_words[STREAM_WORDS];
 static uint16_t g_host_words[HOST_WORDS];
 static pi86_bridge_message_t g_host_record;
 static pi86_bridge_message_t g_reply_record;
+static pi86_flash_volume_t g_flash_volume;
+static bool g_flash_volume_ready;
 static int g_foreground_dma = -1;
 static int g_irq_rom_dma = -1;
 static int g_irq_io_dma = -1;
@@ -724,6 +728,26 @@ static void print_canonical_status(void) {
     evidence_printf("External PSRAM probe       = SKIPPED\n");
 #endif
     evidence_printf("PSRAM role                 = bulk workload/shared backing only\n");
+    evidence_printf("Onboard NOR flash          = W25Q128JV / 16 MiB\n");
+    evidence_printf("Firmware reserved          = 0x000000-0x3FFFFF / 4 MiB\n");
+    evidence_printf("flash:/ partition          = 0x400000-0xFFFFFF / 12 MiB\n");
+    if (g_flash_volume_ready) {
+        evidence_printf("flash:/ filesystem         = %s / %s\n",
+                        pi86_flash_filesystem_name(
+                            g_flash_volume.filesystem_type),
+                        g_flash_volume.label);
+        evidence_printf("flash:/ free               = %lu KiB\n",
+                        (unsigned long)g_flash_volume.free_kib);
+        evidence_printf("flash:/ boot state         = %s\n",
+                        g_flash_volume.formatted_on_boot ?
+                            "FORMATTED" : "EXISTING");
+        evidence_printf("flash:/ media self-test    = %s\n",
+                        g_flash_volume.self_test_passed ? "PASS" : "FAIL");
+    } else {
+        evidence_printf("flash:/ filesystem         = FAULT\n");
+        evidence_printf("flash:/ FatFs result       = %u\n",
+                        (unsigned)g_flash_volume.result);
+    }
     evidence_printf("Staged workload            = %s\n",
                     g_bus_active ? "COMPANION RUNTIME" : "WAITING FOR HID RECORD");
     evidence_printf("Onboard GPIO safe state    = PASS\n");
@@ -748,7 +772,8 @@ static void print_canonical_status(void) {
     evidence_printf("workload run / stop / restart = NOT IMPLEMENTED\n");
     evidence_printf("processor stdin / stdout    = COMMAND MAILBOX ONLY\n");
     evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
-    evidence_printf("flash: FAT volume           = NOT IMPLEMENTED\n");
+    evidence_printf("flash: FAT volume           = %s\n",
+                    g_flash_volume_ready ? "AVAILABLE" : "FAULT");
     evidence_printf("sd: FAT volume              = NOT IMPLEMENTED\n");
     evidence_printf("retained physical bus trace = AVAILABLE\n");
     evidence_printf("timeout / fault / restart   = HEARTBEAT DETECTION ONLY\n");
@@ -969,6 +994,7 @@ int main(void) {
     prepare_header_high_z();
     init_control_outputs();
     route_ad_to_sio_high_z();
+    g_flash_volume_ready = pi86_flash_volume_init(&g_flash_volume);
     pi86_ai_bridge_usb_init();
     stdio_init_all();
     while (!stdio_usb_connected()) {

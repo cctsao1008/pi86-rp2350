@@ -116,14 +116,9 @@ receive raw ownership of the PSRAM controller or RP2350-private metadata.
 External NOR Flash has two conceptual areas:
 
 ```text
-External NOR Flash
-+-- RP2350 firmware and reserved platform region
-`-- PI86FLASH shared FAT volume
-    +-- workloads/
-    +-- data/
-    +-- config/
-    +-- shared/
-    `-- results/
+W25Q128JV (16 MiB)
++-- 0x000000-0x3FFFFF  RP2350 firmware / reserved (4 MiB)
+`-- 0x400000-0xFFFFFF  RP-FLASH FAT16 volume (12 MiB)
 ```
 
 The public volume name is:
@@ -135,14 +130,16 @@ flash:
 Example paths:
 
 ```text
-flash:/workloads/hello.bin
-flash:/data/input.dat
-flash:/results/output.txt
+flash:/hello.bin
+flash:/input.dat
+flash:/output.txt
 ```
 
-The shared NOR volume uses FAT through a Flash-aware block layer that respects
-erase geometry and wear management. The FAT implementation's internal numeric
-drive identifier is private and is not exposed to Host or V30 software.
+The shared NOR volume uses FatFs R0.16p2 through a 4 KiB-aligned Flash-aware
+block layer. First-boot format, FAT16 persistence, volume-label migration, and
+media self-test are physically validated. The FAT implementation's internal
+numeric drive identifier is private and is not exposed to Host or processor
+software.
 
 ### 4.4 SD Card
 
@@ -205,17 +202,10 @@ users, groups, or general ACLs.
 | Trace | owner/producer | read/save/control | no direct access |
 | Clock/reset/interrupt | owner/control | commands through protocol | receives execution effects |
 
-The V30 file service may initially restrict workloads to selected directories,
-for example:
-
-```text
-flash:/shared/
-flash:/results/
-sd:/shared/
-sd:/results/
-```
-
-The Host can manage all non-firmware content on the shared volumes.
+The public baseline is the volume root (`flash:/`). The Host can eventually
+manage all non-firmware content through mediated file services; those Host and
+processor service commands are separate from the now-validated filesystem
+layer.
 
 ## 7. Runtime states
 

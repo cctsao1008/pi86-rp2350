@@ -17,7 +17,7 @@ The RP2350 owns every physical controller and arbitrates access.
 |---|---|---|
 | **RP2350 Internal SRAM** | on-chip memory for firmware, realtime engines, mailbox, prepared windows, and short traces | available; firmware use implemented; selected V30-visible paths physically validated in retained targets |
 | **External PSRAM** | intended principal V30 execution-memory backing and Host/V30 shared volatile workspace | SDK-backed detection/access framework implemented; arbitrary V30 execution not physically validated |
-| **External NOR Flash** | intended non-volatile home of firmware/reserved space and the shared `flash:` FAT volume | 16 MB device and firmware storage available; shared FAT volume not implemented |
+| **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, first-boot format, persistence, and media self-test physically validated; Host/processor file services remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 | **V30-visible memory** | the 20-bit physical address space presented to the V30 | bounded Internal-SRAM/descriptor-fed paths validated; general PSRAM backing remains open |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
@@ -64,26 +64,22 @@ the fixed-`READY` bus path is complete.
 NOR is divided conceptually:
 
 ```text
-External NOR Flash
-+-- RP2350 firmware / recovery / reserved platform area
-`-- PI86FLASH shared FAT volume
-    +-- workloads/
-    +-- data/
-    +-- config/
-    +-- shared/
-    `-- results/
+W25Q128JV (16 MiB)
++-- 0x000000-0x3FFFFF  RP2350 firmware / reserved (4 MiB)
+`-- 0x400000-0xFFFFFF  RP-FLASH FAT16 volume (12 MiB)
 ```
 
 The public name is `flash:`:
 
 ```text
-flash:/workloads/hello.bin
-flash:/data/input.dat
-flash:/results/output.txt
+flash:/hello.bin
+flash:/input.dat
+flash:/output.txt
 ```
 
-The FAT volume sits on a Flash-aware block layer that handles erase geometry and
-wear behavior. Raw media and internal numeric drive IDs are not public APIs.
+The volume uses FatFs R0.16p2, 512-byte logical sectors, 2 KiB allocation units,
+and a 4 KiB read-modify-erase-program cache aligned to the NOR erase geometry.
+Raw media and internal numeric drive IDs are not public APIs.
 
 ### SD Card
 
@@ -172,14 +168,8 @@ V30 FS request -----+
 Requests are serialized. “Shared” means one namespace and shared file content,
 not simultaneous raw block-device ownership.
 
-A V30 service may initially be restricted to directories such as:
-
-```text
-flash:/shared/
-flash:/results/
-sd:/shared/
-sd:/results/
-```
+The initial public contract is the volume root (`flash:/`). Directory policy is
+not embedded in the block layer and can be added later by the runtime service.
 
 ## 7. Physical timing policy
 
@@ -218,7 +208,7 @@ The order of implementation does not change the architecture:
 
 1. detect and test External PSRAM;
 2. provide Host PSRAM read/write through RP2350 ownership;
-3. mount and exercise `flash:`;
+3. expose `flash:` file operations through the Host Protocol;
 4. mount/unmount and hot-remove `sd:`;
 5. upload a flat V30 workload while stopped;
 6. prove reset handoff and native execution;
