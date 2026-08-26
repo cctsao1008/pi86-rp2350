@@ -107,6 +107,9 @@ Interactive Tab completion covers command names, Host paths, and `flash:/`
 entries. One match is inserted immediately; multiple matches are printed above
 the persistent heartbeat prompt. This line editor is implemented on both
 Windows and POSIX Hosts, so completion does not depend on a particular shell.
+The Up and Down arrow keys traverse in-memory command history; moving past the
+newest entry restores the unfinished draft that was present before navigation.
+Adjacent duplicate commands occupy only one history entry.
 
 `<host-file>` is syntax notation, not a literal `C:\path\hello.txt` filename.
 

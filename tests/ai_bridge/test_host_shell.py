@@ -8,6 +8,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools" / "ai_bridge"))
 
 from host_shell import (  # noqa: E402
+    CommandHistory,
     command_help,
     complete_shell_input,
     format_host_directory,
@@ -75,6 +76,22 @@ class HostShellTests(unittest.TestCase):
     def test_bare_windows_drive_is_rooted(self) -> None:
         rooted = str(host_list_path("C:"))
         self.assertTrue(rooted.startswith("C:"))
+
+    def test_history_moves_up_down_and_restores_draft(self) -> None:
+        history = CommandHistory()
+        history.remember("status")
+        history.remember("ls flash:/")
+        self.assertEqual(history.move("sta", -1), "ls flash:/")
+        self.assertEqual(history.move("ls flash:/", -1), "status")
+        self.assertEqual(history.move("status", 1), "ls flash:/")
+        self.assertEqual(history.move("ls flash:/", 1), "sta")
+
+    def test_history_suppresses_adjacent_duplicates(self) -> None:
+        history = CommandHistory()
+        history.remember("status")
+        history.remember("status")
+        self.assertEqual(history.move("", -1), "status")
+        self.assertEqual(history.move("status", -1), "status")
 
     def test_aliases_are_canonicalized(self) -> None:
         self.assertEqual(parse_command("exit").spec.name, "quit")

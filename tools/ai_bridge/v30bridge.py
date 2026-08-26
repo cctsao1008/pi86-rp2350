@@ -23,6 +23,7 @@ if str(RUNTIME_TOOLS) not in sys.path:
     sys.path.insert(0, str(RUNTIME_TOOLS))
 
 from host_shell import (
+    CommandHistory,
     command_help,
     complete_shell_input,
     completion_token,
@@ -871,66 +872,80 @@ class ConsoleStatus:
 
 def _apply_input_character(
     buffer: str, char: str
-) -> tuple[str, str | None, bool, bool]:
+) -> tuple[str, str | None, bool, bool, int]:
     """Apply one terminal character and report enter/change/Tab state."""
     changed = False
     command: str | None = None
     tab_requested = False
     if char in ("\r", "\n"):
-        return "", buffer.strip(), True, False
+        return "", buffer.strip(), True, False, 0
     if char == "\x03":
         raise KeyboardInterrupt
     if char == "\t":
-        return buffer, None, False, True
+        return buffer, None, False, True, 0
     if char in ("\b", "\x7f"):
-        return buffer[:-1], None, True, False
+        return buffer[:-1], None, True, False, 0
     if char.isprintable():
-        return buffer + char, None, True, False
-    return buffer, command, changed, tab_requested
+        return buffer + char, None, True, False, 0
+    return buffer, command, changed, tab_requested, 0
 
 
 def _read_terminal_command(
     buffer: str,
-) -> tuple[str, str | None, bool, bool]:
+) -> tuple[str, str | None, bool, bool, int]:
     """Read one nonblocking command fragment on Windows or POSIX."""
     if not sys.stdin.isatty():
-        return buffer, None, False, False
+        return buffer, None, False, False, 0
     if os.name != "nt":
         import select
 
         changed = False
         tab_requested = False
+        history_delta = 0
         command: str | None = None
         while select.select([sys.stdin], [], [], 0)[0]:
             char = sys.stdin.read(1)
-            buffer, command, one_changed, one_tab = _apply_input_character(
+            if char == "\x1b" and select.select([sys.stdin], [], [], 0.02)[0]:
+                second = sys.stdin.read(1)
+                third = ""
+                if second == "[" and select.select([sys.stdin], [], [], 0.02)[0]:
+                    third = sys.stdin.read(1)
+                if third in ("A", "B"):
+                    history_delta = -1 if third == "A" else 1
+                    break
+                continue
+            buffer, command, one_changed, one_tab, _ = _apply_input_character(
                 buffer, char
             )
             changed = changed or one_changed
             tab_requested = tab_requested or one_tab
             if command is not None or tab_requested:
                 break
-        return buffer, command, changed, tab_requested
+        return buffer, command, changed, tab_requested, history_delta
 
     import msvcrt
 
     changed = False
     tab_requested = False
+    history_delta = 0
     command: str | None = None
     while msvcrt.kbhit():
         char = msvcrt.getwch()
         if char in ("\x00", "\xe0"):
             if msvcrt.kbhit():
-                msvcrt.getwch()
+                key = msvcrt.getwch()
+                if key in ("H", "P"):
+                    history_delta = -1 if key == "H" else 1
+                    break
             continue
-        buffer, command, one_changed, one_tab = _apply_input_character(
+        buffer, command, one_changed, one_tab, _ = _apply_input_character(
             buffer, char
         )
         changed = changed or one_changed
         tab_requested = tab_requested or one_tab
         if command is not None or tab_requested:
             break
-    return buffer, command, changed, tab_requested
+    return buffer, command, changed, tab_requested, history_delta
 
 
 def persistent_monitor(
@@ -959,6 +974,7 @@ def persistent_monitor(
     console = ConsoleStatus(processor)
     processor_name = PROCESSOR_NAMES[processor]
     command_buffer = ""
+    command_history = CommandHistory()
     connected = True
     current_sequence = sequence & 0xFFFFFFFF
     current_boot_id: int | None = None
@@ -1265,9 +1281,14 @@ def persistent_monitor(
                 continue
             command: str | None = None
             if interactive:
-                command_buffer, command, changed, tab_requested = (
+                command_buffer, command, changed, tab_requested, history_delta = (
                     _read_terminal_command(command_buffer)
                 )
+                if history_delta:
+                    command_buffer = command_history.move(
+                        command_buffer, history_delta
+                    )
+                    changed = True
                 if tab_requested:
                     token = completion_token(command_buffer)
                     remote_entries: tuple[tuple[str, bool], ...] = ()
@@ -1277,9 +1298,12 @@ def persistent_monitor(
                         command_buffer, remote_entries
                     )
                     command_buffer = completed_buffer
+                    command_history.edit(command_buffer)
                     if len(candidates) > 1:
                         print_event("Completions:\n  " + "\n  ".join(candidates))
                     changed = True
+                elif changed and command is None and not history_delta:
+                    command_history.edit(command_buffer)
                 if changed:
                     console.render(
                         current_cpu_sequence, stats, connected, command_buffer
@@ -1289,6 +1313,7 @@ def persistent_monitor(
             request_payload = b""
             is_command = False
             if command is not None:
+                command_history.remember(command)
                 try:
                     shell_command = parse_command(command)
                 except ValueError as exc:

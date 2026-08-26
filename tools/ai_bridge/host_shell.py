@@ -31,6 +31,42 @@ class ShellCommand:
     raw: str
 
 
+class CommandHistory:
+    """Small in-memory history with an editable draft after the newest entry."""
+
+    def __init__(self) -> None:
+        self._entries: list[str] = []
+        self._cursor = 0
+        self._draft = ""
+
+    def remember(self, command: str) -> None:
+        command = command.strip()
+        if command and (not self._entries or self._entries[-1] != command):
+            self._entries.append(command)
+        self._cursor = len(self._entries)
+        self._draft = ""
+
+    def edit(self, buffer: str) -> None:
+        self._cursor = len(self._entries)
+        self._draft = buffer
+
+    def move(self, buffer: str, delta: int) -> str:
+        if not self._entries or delta == 0:
+            return buffer
+        if self._cursor == len(self._entries):
+            self._draft = buffer
+        if delta < 0 and self._cursor > 0:
+            self._cursor -= 1
+            return self._entries[self._cursor]
+        if delta > 0 and self._cursor < len(self._entries) - 1:
+            self._cursor += 1
+            return self._entries[self._cursor]
+        if delta > 0 and self._cursor == len(self._entries) - 1:
+            self._cursor = len(self._entries)
+            return self._draft
+        return buffer
+
+
 COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("help", "help [command]", "shell", "show commands or command help", aliases=("?",)),
     CommandSpec("status", "status", "observe", "show a concise runtime status"),
