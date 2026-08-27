@@ -139,7 +139,7 @@ content through it, not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved and Host HID staging with address/CRC checks is implemented; about 224 KiB main SRAM remains for firmware growth; physical arbitrary-address execution remains open |
+| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded calculator execution at `10000h` are physically validated; general image/RAM response remains open |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -163,9 +163,10 @@ bus behavior therefore remains in PIO/DMA and prepared RP2350 state. Host
 software, USB, filesystem work, and arbitrary storage transactions do not
 answer an active processor bus cycle.
 
-The next major physical integration gate is an arbitrary-address responder
-backed first by Internal SRAM. External PSRAM then extends capacity through a
-measured staging/cache policy; it is not a prerequisite for the runtime.
+The next memory gate expands this bounded two-word workload fetch into a
+general image and writable-RAM responder backed first by Internal SRAM.
+External PSRAM then extends capacity through a measured staging/cache policy;
+it is not a prerequisite for the first useful runtime.
 
 ## 🔌 Hardware baseline
 
@@ -201,9 +202,10 @@ The canonical `hello.bin` workload adds an independent execution witness. It
 uses the historical `AAD 16` behavior difference and prints either `HELLO
 INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
 uses the same physical identity mechanism and lets the installed processor
-demonstrate which instruction behavior it actually executed. The workload and
-upload ABI are implemented, while the general arbitrary-address Internal-SRAM
-execution path remains the physical integration gate described above.
+demonstrate which instruction behavior it actually executed. The upload and
+lifecycle ABI are implemented; bounded Host-loaded calculator execution is
+physically validated, while general image and writable-RAM response remains
+the memory integration gate described above.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
 > runtime—and answered.**
@@ -217,6 +219,10 @@ selected `ADD`, `SUB`, `MUL`, or `DIV` instruction and returns the result
 through the interrupt-driven mailbox. The first physical Intel 8086 run passed
 all four operations and continued with zero heartbeat loss; see the
 [`native calculator validation`](docs/validation/native_calculator_1mhz_validation.md).
+The subsequent Host-loaded extension uploaded a 16-byte image into Internal
+SRAM and physically validated `load`, `run`, `stop`, and `restart`; see the
+[`Host-loaded Internal-SRAM calculator validation`](docs/validation/host_loaded_internal_sram_calculator_1mhz_validation.md).
+
 
 ## 📚 Documentation
 

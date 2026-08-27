@@ -59,6 +59,18 @@ int main(void) {
     assert(storage[0] == 0xa5u);
     assert(memcmp(storage + 0x20u, image, sizeof image) == 0);
 
+    /* Lifecycle controls are sequence-bound and never invent execution. */
+    assert(!pi86_workload_run(&manager, manager.workload_id + 1u));
+    assert(pi86_workload_run(&manager, manager.workload_id));
+    assert(manager.state == PI86_WORKLOAD_STATE_RUNNING);
+    assert(!pi86_workload_run(&manager, manager.workload_id));
+    assert(pi86_workload_stop(&manager, 0u));
+    assert(manager.state == PI86_WORKLOAD_STATE_STOPPED);
+    assert(pi86_workload_restart(&manager, manager.workload_id));
+    assert(manager.state == PI86_WORKLOAD_STATE_RUNNING);
+    assert(pi86_workload_stop(&manager, manager.workload_id));
+    assert(manager.state == PI86_WORKLOAD_STATE_STOPPED);
+
     /* A manifest outside the selected backing must fail before receiving. */
     pi86_workload_discard(&manager);
     manifest.load_address = TEST_BASE + TEST_SIZE - 2u;

@@ -121,6 +121,42 @@ bool pi86_workload_commit(pi86_workload_manager_t *manager,
     return true;
 }
 
+static bool workload_id_matches(const pi86_workload_manager_t *manager,
+                                uint32_t workload_id) {
+    return manager != NULL && manager->workload_id != 0u &&
+        (workload_id == 0u || workload_id == manager->workload_id);
+}
+
+bool pi86_workload_run(pi86_workload_manager_t *manager,
+                       uint32_t workload_id) {
+    if (!workload_id_matches(manager, workload_id) ||
+        (manager->state != PI86_WORKLOAD_STATE_READY &&
+         manager->state != PI86_WORKLOAD_STATE_STOPPED))
+        return false;
+    manager->state = PI86_WORKLOAD_STATE_RUNNING;
+    return true;
+}
+
+bool pi86_workload_stop(pi86_workload_manager_t *manager,
+                        uint32_t workload_id) {
+    if (!workload_id_matches(manager, workload_id) ||
+        manager->state != PI86_WORKLOAD_STATE_RUNNING)
+        return false;
+    manager->state = PI86_WORKLOAD_STATE_STOPPED;
+    return true;
+}
+
+bool pi86_workload_restart(pi86_workload_manager_t *manager,
+                           uint32_t workload_id) {
+    if (!workload_id_matches(manager, workload_id) ||
+        (manager->state != PI86_WORKLOAD_STATE_READY &&
+         manager->state != PI86_WORKLOAD_STATE_RUNNING &&
+         manager->state != PI86_WORKLOAD_STATE_STOPPED))
+        return false;
+    manager->state = PI86_WORKLOAD_STATE_RUNNING;
+    return true;
+}
+
 void pi86_workload_discard(pi86_workload_manager_t *manager) {
     if (manager == NULL) return;
     manager->transfer_id = 0u;

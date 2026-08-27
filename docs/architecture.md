@@ -125,7 +125,7 @@ V30 service request ----+
 
 | Resource | Intended primary role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved and Host HID staging with address/CRC checks is implemented; about 224 KiB main SRAM remains for firmware growth; physical arbitrary-address execution remains open |
+| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded calculator execution at `10000h` are physically validated; general image/RAM response remains open |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is shared `flash:` | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -185,10 +185,11 @@ PIO/DMA and prepared RP2350 state own timing-critical bus behavior. M33 firmware
 prepares and supervises future state; it does not perform an unbounded
 current-cycle lookup.
 
-General arbitrary-address execution remains a physical implementation gate. The
-first backend is Internal SRAM because it is already available and deterministic.
-External PSRAM is a later capacity tier and requires a measured prepared,
-cached, or staged hit path on the existing fixed-`READY` HAT.
+Bounded Host-loaded execution is physically accepted for the calculator image
+at `10000h`, including manifest/CRC validation, lifecycle control, physical
+fetch, interrupt return, and mailbox result. General image sizes and writable
+processor-visible RAM remain a physical implementation gate. External PSRAM is
+a later capacity tier behind a measured prepared, cached, or staged hit path.
 
 ## 9. Host Protocol and shell
 

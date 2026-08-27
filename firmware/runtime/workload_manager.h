@@ -37,6 +37,12 @@ bool pi86_workload_write(pi86_workload_manager_t *manager,
                          const uint8_t *data, size_t length);
 bool pi86_workload_commit(pi86_workload_manager_t *manager,
                           uint32_t transfer_id, uint32_t expected_crc32);
+bool pi86_workload_run(pi86_workload_manager_t *manager,
+                       uint32_t workload_id);
+bool pi86_workload_stop(pi86_workload_manager_t *manager,
+                        uint32_t workload_id);
+bool pi86_workload_restart(pi86_workload_manager_t *manager,
+                           uint32_t workload_id);
 void pi86_workload_discard(pi86_workload_manager_t *manager);
 const char *pi86_workload_state_name(pi86_workload_state_t state);
 

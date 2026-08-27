@@ -543,7 +543,7 @@ def persistent_monitor(
                         "Negotiated capabilities:\n"
                         "  heartbeat  AVAILABLE\n"
                         "  console    bounded 14-byte command exchange\n"
-                        "  workload   INTERNAL SRAM STAGING AVAILABLE; execution pending\n"
+                        "  workload   INTERNAL SRAM CALCULATOR EXECUTION AVAILABLE\n"
                         "  memory     NOT AVAILABLE\n"
                         "  filesystem RP-FLASH ls / df / cat / put\n"
                         "  storage    flash: FAT16 AVAILABLE\n"
@@ -593,14 +593,18 @@ def persistent_monitor(
                         "Current native mailbox payload limit: 14 bytes"
                     )
                 elif name == "send":
-                    payload = " ".join(arguments).encode("utf-8")
-                    if not payload:
+                    text_payload = " ".join(arguments)
+                    if not text_payload:
                         print_event("Usage: send <text>")
-                    if len(payload) > 14:
+                        continue
+                    try:
+                        request_payload = calculator_payload(arguments)
+                    except ValueError:
+                        request_payload = text_payload.encode("utf-8")
+                    if len(request_payload) > 14:
                         print_event("Command rejected: current native mailbox consumes at most 14 bytes")
-                    elif payload:
+                    else:
                         request_type = TYPE_COMMAND
-                        request_payload = payload
                         is_command = True
                 elif name == "calc":
                     try:

@@ -152,12 +152,19 @@ PI86_EVEN_FETCH_TARGET companion_irq_handler
     mov ax, si
     xor dx, dx
     times CALCULATOR_SLOT - ($ - $$) db 0x90
-PI86_EVEN_FETCH_TARGET calculator_instruction
+PI86_EVEN_FETCH_TARGET calculator_dispatch
+    ; The default response words retain the accepted inline ADD behavior.
+    ; When a Host-staged calculator workload is RUNNING, the RP2350 replaces
+    ; these six bytes with NOP + CALL FAR imm16:16.  The physical processor
+    ; then fetches the selected four-byte entry from Internal SRAM and RETF
+    ; returns at the same aligned continuation below.
     add ax, cx
+    times 4 db 0x90
 
     ; Publish six processor-produced words.  The passive observer must see
     ; this exact record before the Host exposes a calculator result:
     ; result-low, result-high/remainder, magic, operation, lhs, rhs.
+PI86_EVEN_FETCH_TARGET calculator_return
     out TX_PORT, ax
     mov ax, dx
     out TX_PORT, ax

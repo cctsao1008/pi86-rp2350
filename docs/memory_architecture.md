@@ -15,11 +15,11 @@ The RP2350 owns every physical controller and arbitrates access.
 
 | Term | Architectural meaning | Current implementation / validation status |
 |---|---|---|
-| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved and Host HID staging with address/CRC checks is implemented; about 224 KiB main SRAM remains for firmware growth; physical arbitrary-address execution remains open |
+| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded calculator execution at `10000h` are physically validated; general image/RAM response remains open |
 | **External PSRAM** | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
-| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract implemented; bounded descriptor-fed paths validated; general arbitrary-address physical response remains open |
+| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract and bounded Host-loaded execution validated; general image/RAM response remains open |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
 | **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline | retained PIO/DMA implementations physically validated |
 
@@ -46,13 +46,14 @@ that pool with range, ordered-chunk, and CRC32 validation. The measured linker
 map leaves about 224 KiB of main SRAM for firmware, realtime state, and future
 integration growth.
 
-Successful staging means that the bytes are safely present and identified; it
+The first physical launch is now accepted: a 16-byte Host-uploaded calculator
+at `10000h` is fetched and executed by the real processor under `run`, `stop`,
+and `restart` control. This remains a bounded two-word fetch per operation; it
 does not yet mean that the general PIO/DMA bus engine can serve every address.
-That physical arbitrary-address response remains the next integration step.
 
-The first general runtime must therefore not wait for External PSRAM. It should
-prove arbitrary-address Internal-SRAM-backed execution, load/run control, shared
-memory, stdio, and fault/restart behavior first.
+The next implementation gate expands that path to general image sizes,
+processor-visible writable RAM, shared-memory behavior, stdio, and
+timeout/restart handling without making External PSRAM a prerequisite.
 
 ### External PSRAM
 
@@ -219,15 +220,14 @@ IDs, raw erase blocks, or SD sectors.
 
 The order of implementation does not change the architecture:
 
-1. implement an arbitrary-address Internal-SRAM responder;
-2. upload a flat 8086-class workload into Internal SRAM while stopped;
-3. prove reset handoff, native execution, stdio, and restart;
-4. expose Internal-SRAM shared memory through RP2350 ownership;
-5. expose `flash:` file operations through the Host Protocol;
-6. detect/test External PSRAM and provide Host read/write;
-7. add PSRAM-backed capacity through a measured staging/cache policy;
-8. mount/unmount and hot-remove `sd:`;
-9. add processor file services and complete fault preservation.
+1. expand the accepted bounded Internal-SRAM responder to general images and writable RAM;
+2. add stdio, fault reporting, timeout, and Host restart around that execution path;
+3. expose Internal-SRAM shared memory through RP2350 ownership;
+4. complete remaining `flash:` file operations and processor file services;
+5. detect/test External PSRAM and provide Host read/write;
+6. add PSRAM-backed capacity through a measured staging/cache policy;
+7. mount/unmount and hot-remove `sd:`;
+8. complete fault preservation.
 
 ## 10. Related documents
 

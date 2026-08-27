@@ -45,6 +45,8 @@
 #define IVT20_SEGMENT_ADDRESS      0x0082u
 #define IVT60_OFFSET_ADDRESS       0x0180u
 #define IVT60_SEGMENT_ADDRESS      0x0182u
+#define CALCULATOR_STACK_IP_ADDRESS 0x7FF6u
+#define CALCULATOR_STACK_CS_ADDRESS 0x7FF8u
 #define STACK_IP_ADDRESS           0x7FFAu
 #define STACK_CS_ADDRESS           0x7FFCu
 #define STACK_FLAGS_ADDRESS        0x7FFEu
@@ -70,6 +72,9 @@
 #define PROCESSOR_SIGNATURE_NEC_V30    0x000Cu
 #define CALCULATOR_MAGIC               0xCA1Cu
 #define CALCULATOR_SLOT_OFFSET         0x0170u
+#define CALCULATOR_RETURN_OFFSET       0x0176u
+#define CALCULATOR_WORKLOAD_SIZE             16u
+#define CALCULATOR_ENTRY_STRIDE               4u
 #define CALCULATOR_ADD                       1u
 #define CALCULATOR_SUB                       2u
 #define CALCULATOR_MUL                       3u
@@ -151,6 +156,13 @@ static uint32_t g_irq_rom_dma_words;
 static uint32_t g_irq_io_dma_words;
 static uint32_t g_processor_boot_id;
 static uint16_t g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+static uint32_t g_calculator_entry_linear;
+static const uint8_t g_calculator_workload_contract[CALCULATOR_WORKLOAD_SIZE] = {
+    0x01u, 0xC8u, 0xCBu, 0x90u,
+    0x29u, 0xC8u, 0xCBu, 0x90u,
+    0xF7u, 0xE1u, 0xCBu, 0x90u,
+    0xF7u, 0xF1u, 0xCBu, 0x90u,
+};
 
 static int evidence_printf(const char *format, ...);
 static void service_cdc_control(void);
@@ -251,18 +263,65 @@ static void add_image_range(exact_sequence_t *s, uint32_t first,
 static uint16_t image_word(uint32_t offset) {
     hard_assert((offset & 1u) == 0u);
     hard_assert(offset + 1u < companion_runtime_rom_size);
-    if (offset == CALCULATOR_SLOT_OFFSET)
+    if (g_workload_manager.state == PI86_WORKLOAD_STATE_RUNNING) {
+        if (offset == CALCULATOR_SLOT_OFFSET)
+            return 0x9A90u;
+        if (offset == CALCULATOR_SLOT_OFFSET + 2u)
+            return (uint16_t)(g_calculator_entry_linear & 0x000Fu);
+        if (offset == CALCULATOR_SLOT_OFFSET + 4u)
+            return (uint16_t)(g_calculator_entry_linear >> 4u);
+    } else if (offset == CALCULATOR_SLOT_OFFSET) {
         return g_calculator_opcode;
+    }
     return (uint16_t)companion_runtime_rom_data[offset] |
            ((uint16_t)companion_runtime_rom_data[offset + 1u] << 8);
+}
+
+static bool calculator_workload_valid(void) {
+    const pi86_workload_manifest_t *manifest = &g_workload_manager.manifest;
+    if ((g_workload_manager.state != PI86_WORKLOAD_STATE_READY &&
+         g_workload_manager.state != PI86_WORKLOAD_STATE_STOPPED &&
+         g_workload_manager.state != PI86_WORKLOAD_STATE_RUNNING) ||
+        manifest->image_size != CALCULATOR_WORKLOAD_SIZE ||
+        (((uint32_t)manifest->entry_segment << 4u) +
+         manifest->entry_offset) != manifest->load_address)
+        return false;
+
+    uint8_t image[CALCULATOR_WORKLOAD_SIZE];
+    return pi86_memory_backing_read(&g_workload_memory,
+                                    manifest->load_address,
+                                    image, sizeof image) &&
+           memcmp(image, g_calculator_workload_contract, sizeof image) == 0;
+}
+
+static uint16_t calculator_workload_word(uint32_t address) {
+    uint8_t bytes[2];
+    hard_assert(pi86_memory_backing_read(&g_workload_memory, address,
+                                         bytes, sizeof bytes));
+    return (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u);
 }
 
 static void compile_irq_rom_sequence(void) {
     memset(&g_irq_rom, 0, sizeof g_irq_rom);
     add_memory(&g_irq_rom, IVT20_OFFSET_ADDRESS, IRQ_HANDLER_OFFSET);
     add_memory(&g_irq_rom, IVT20_SEGMENT_ADDRESS, 0xF000u);
-    add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
-                    companion_runtime_rom_size & ~1u);
+    if (g_workload_manager.state == PI86_WORKLOAD_STATE_RUNNING) {
+        add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
+                        CALCULATOR_RETURN_OFFSET);
+        add_memory(&g_irq_rom, g_calculator_entry_linear,
+                   calculator_workload_word(g_calculator_entry_linear));
+        add_memory(&g_irq_rom, g_calculator_entry_linear + 2u,
+                   calculator_workload_word(g_calculator_entry_linear + 2u));
+        /* The nested far call pushes F000:0176 below the interrupt frame.
+         * RETF consumes these two words before ROM fetching resumes. */
+        add_memory(&g_irq_rom, CALCULATOR_STACK_IP_ADDRESS, CALCULATOR_RETURN_OFFSET);
+        add_memory(&g_irq_rom, CALCULATOR_STACK_CS_ADDRESS, 0xF000u);
+        add_image_range(&g_irq_rom, CALCULATOR_RETURN_OFFSET,
+                        companion_runtime_rom_size & ~1u);
+    } else {
+        add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
+                        companion_runtime_rom_size & ~1u);
+    }
     add_memory(&g_irq_rom, STACK_IP_ADDRESS, IRQ_RETURN_OFFSET);
     add_memory(&g_irq_rom, STACK_CS_ADDRESS, 0xF000u);
     add_memory(&g_irq_rom, STACK_FLAGS_ADDRESS, 0xF246u);
@@ -496,26 +555,36 @@ static uint16_t stage_live_payload(const pi86_bridge_message_t *record) {
 
 static bool select_calculator_opcode(const pi86_bridge_message_t *record) {
     g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
     if (record->type != PI86_BRIDGE_MESSAGE_COMMAND ||
         g_host_words[0] != CALCULATOR_MAGIC)
         return false;
 
+    uint32_t operation_offset;
     switch (g_host_words[1]) {
         case CALCULATOR_ADD:
             g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+            operation_offset = 0u;
             break;
         case CALCULATOR_SUB:
             g_calculator_opcode = CALCULATOR_OPCODE_SUB;
+            operation_offset = CALCULATOR_ENTRY_STRIDE;
             break;
         case CALCULATOR_MUL:
             g_calculator_opcode = CALCULATOR_OPCODE_MUL;
+            operation_offset = CALCULATOR_ENTRY_STRIDE * 2u;
             break;
         case CALCULATOR_DIV:
             if (g_host_words[3] == 0u) return false;
             g_calculator_opcode = CALCULATOR_OPCODE_DIV;
+            operation_offset = CALCULATOR_ENTRY_STRIDE * 3u;
             break;
         default:
             return false;
+    }
+    if (g_workload_manager.state == PI86_WORKLOAD_STATE_RUNNING) {
+        if (!calculator_workload_valid()) return false;
+        g_calculator_entry_linear += operation_offset;
     }
     return true;
 }
@@ -677,6 +746,11 @@ static bool run_live_round(const pc1c_sm_t *foreground,
     memset(round, 0, sizeof *round);
     const uint16_t expected_witness = stage_live_payload(record);
     g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    /* A RUNNING workload owns the dispatch target for every IRQ round,
+     * including background heartbeat records.  Calculator commands may add
+     * an operation offset below, but a non-command round must never inherit
+     * the zero-initialized reset value as a far-call segment. */
+    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
     round->calculator_requested =
         record->type == PI86_BRIDGE_MESSAGE_COMMAND &&
         g_host_words[0] == CALCULATOR_MAGIC;
@@ -887,7 +961,10 @@ static void print_canonical_status(void) {
                         (unsigned long)g_workload_manager.workload_id);
     evidence_printf("\n");
     evidence_printf("Active physical workload   = %s\n",
-                    g_bus_active ? "COMPANION RUNTIME" : "WAITING FOR HID RECORD");
+                    !g_bus_active ? "WAITING FOR HID RECORD" :
+                    g_workload_manager.state == PI86_WORKLOAD_STATE_RUNNING ?
+                        "INTERNAL SRAM CALCULATOR" :
+                        "COMPANION RUNTIME");
     evidence_printf("Onboard GPIO safe state    = PASS\n");
     evidence_printf("MicroSD hardware           = %s\n",
                     PI86_HAS_SDCARD ? "PRESENT" : "ABSENT");
@@ -907,8 +984,8 @@ static void print_canonical_status(void) {
     evidence_printf("physical INTR / two-cycle INTA = AVAILABLE\n");
     evidence_printf("persistent processor heartbeat = AVAILABLE\n");
     evidence_printf("native workload staging     = AVAILABLE / INTERNAL SRAM\n");
-    evidence_printf("workload run / stop / restart = NOT IMPLEMENTED\n");
-    evidence_printf("processor stdin / stdout    = COMMAND MAILBOX ONLY\n");
+    evidence_printf("workload run / stop / restart = AVAILABLE / CALCULATOR\n");
+    evidence_printf("processor stdin / stdout    = COMMAND MAILBOX AVAILABLE\n");
     evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
     evidence_printf("flash: FAT volume           = %s\n",
                     g_flash_volume_ready ? "AVAILABLE" : "FAULT");
@@ -1019,10 +1096,20 @@ static bool handle_workload_record(const pi86_bridge_message_t *request) {
             (control.workload_id == 0u ||
              control.workload_id == g_workload_manager.workload_id)) {
             status = PI86_BRIDGE_STATUS_OK;
-        } else if (control.operation == PI86_WORKLOAD_CONTROL_RUN ||
-                   control.operation == PI86_WORKLOAD_CONTROL_STOP ||
-                   control.operation == PI86_WORKLOAD_CONTROL_RESTART) {
-            status = PI86_BRIDGE_STATUS_SERVICE_UNAVAILABLE;
+        } else if (control.operation == PI86_WORKLOAD_CONTROL_RUN) {
+            status = calculator_workload_valid() &&
+                     pi86_workload_run(&g_workload_manager,
+                                       control.workload_id) ?
+                PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_BAD_WORKLOAD;
+        } else if (control.operation == PI86_WORKLOAD_CONTROL_STOP) {
+            status = pi86_workload_stop(&g_workload_manager,
+                                        control.workload_id) ?
+                PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_BAD_STATE;
+        } else if (control.operation == PI86_WORKLOAD_CONTROL_RESTART) {
+            status = calculator_workload_valid() &&
+                     pi86_workload_restart(&g_workload_manager,
+                                           control.workload_id) ?
+                PI86_BRIDGE_STATUS_OK : PI86_BRIDGE_STATUS_BAD_WORKLOAD;
         } else {
             status = PI86_BRIDGE_STATUS_BAD_WORKLOAD;
         }

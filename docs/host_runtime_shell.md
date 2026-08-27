@@ -136,26 +136,43 @@ change event density only; they do not hide liveness.
 
 ### Native calculator service
 
-`calc` is the first small interactive service whose result is computed by the
-installed physical processor rather than by Python or the RP2350:
+The calculator is the first Host-loaded native workload. Build output contains:
 
 ```text
-8086> calc 12 + 34
+build/firmware/generated/calculator_workload/calculator_workload.bin
+```
+
+Load it into the Internal-SRAM execution tier, start it, then use either
+`send <expression>` or the explicit `calc` alias:
+
+```text
+8086> load build/firmware/generated/calculator_workload/calculator_workload.bin --address 0x10000 --entry 1000:0000
+workload upload: PASS
+8086> run
+workload run: PASS
+
+8086> send 12+34
 [019] CALC 12+34=46  latency=2.2 ms
 
 8086> calc 300 * 200
 [040] CALC 300*200=60000  latency=2.6 ms
 
-8086> calc 1000 / 33
+8086> send 1000/33
 [052] CALC 1000/33=30 R10  latency=3.8 ms
+
+8086> stop
+workload stop: PASS
+8086> restart
+workload restart: PASS
 ```
 
 The Host parses the expression and transports a seven-word request. The
-RP2350 prepares the matching native instruction in the accepted 1 MHz
-interrupt service, asserts physical `INTR`, and completes the real two-cycle
-`INTA` handshake. The Intel 8086 or NEC V30 loads the operands, executes
-`ADD`, `SUB`, unsigned `MUL`, or unsigned `DIV`, publishes the result through
-the mailbox, issues EOI, executes `IRET`, and returns to `STI`/`HLT` idle.
+RP2350 dispatches a far call to the selected entry in the uploaded image,
+asserts physical `INTR`, and completes the real two-cycle `INTA` handshake.
+The Intel 8086 or NEC V30 fetches that code from the Internal-SRAM-backed
+processor address, executes `ADD`, `SUB`, unsigned `MUL`, or unsigned `DIV`,
+returns to the interrupt handler, publishes the result through the mailbox,
+issues EOI, executes `IRET`, and returns to `STI`/`HLT` idle.
 
 Operands are unsigned 16-bit values written in decimal or with Python-style
 base prefixes such as `0x1234`. Addition and subtraction use 16-bit wraparound;
@@ -163,9 +180,9 @@ multiplication returns the full 32-bit product; division returns quotient and
 remainder. Division by zero is rejected by the Host and is not sent to the
 physical processor.
 
-This bounded native service is not presented as completion of general
-arbitrary-address `load -> run` execution. It demonstrates the intended shell
-interaction model while reusing the physically accepted companion runtime.
+This validates bounded Host-loaded Internal-SRAM execution at the manifest's
+declared address and entry point. It does not yet claim a general responder for
+arbitrary image sizes or unrestricted processor-visible RAM.
 
 The displayed `cpu_seq` is not a Host loop counter. It is maintained by the
 physical Intel 8086 or NEC V30 inside the native interrupt service routine and
@@ -190,18 +207,15 @@ workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`
 availability, open service handles, I/O counters, interrupt counts, bus errors,
 watchdog state, and restart count.
 
-The Host constructs and validates flat native workload manifests, divides
-images into fixed 64-byte upload records, and exposes `load`, `run`, `stop`, and
-`restart` transactions. Canonical firmware now accepts begin/data/commit/status
-records and stages valid images in a 256 KiB Internal-SRAM processor range with
-address, ordered-chunk, and CRC32 validation. Composite CDC+HID, the accepted
-1 MHz companion bus engine, physical INTR/two-cycle INTA, persistent heartbeat,
-command mailbox, status, trace, and Host-directed UF2 entry remain integrated.
-
-`run`, `stop`, and `restart` still report service unavailable because the
-general arbitrary-address Internal-SRAM PIO/DMA responder is not integrated.
-Staging therefore cannot be mistaken for native launch. External PSRAM remains
-a later optional capacity backend behind the same workload contract.
+The Host constructs flat native workload manifests, divides images into fixed
+64-byte upload records, and exposes `load`, `run`, `stop`, and `restart`
+transactions. Canonical firmware accepts begin/data/commit/status records,
+validates address, chunk order, and CRC32, stages the calculator in the 256 KiB
+Internal-SRAM processor range, and physically dispatches its four entry points.
+Composite CDC+HID, the accepted 1 MHz bus engine, physical INTR/two-cycle INTA,
+persistent heartbeat, command mailbox, status, trace, and Host-directed UF2
+entry remain integrated. External PSRAM is a later optional capacity backend
+behind the same workload contract.
 
 The first canonical image is `hello.bin`, assembled from
 `firmware/workloads/hello.asm`. It performs an `AAD 16` identity witness and

@@ -30,6 +30,11 @@ class Rp86RuntimeTests(unittest.TestCase):
             bytes.fromhex("1cca030034120300000000000000"),
         )
 
+    def test_compact_send_expression_uses_native_calculator_abi(self) -> None:
+        self.assertEqual(
+            calculator_payload(("12+34",)), calculator_payload(("12", "+", "34"))
+        )
+
     def test_calculator_rejects_unsafe_native_division(self) -> None:
         with self.assertRaisesRegex(ValueError, "division by zero"):
             calculator_payload(("7/0",))

@@ -10,6 +10,12 @@ pi86_add_v30_rom(companion_runtime_rom
         "${CMAKE_CURRENT_LIST_DIR}/v30/bios/include/platform.inc"
 )
 
+# A standalone flat image loaded by the Host into the Internal SRAM backing.
+pi86_add_v30_rom(calculator_workload
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/calculator.asm"
+    SYMBOL calculator_workload
+)
+
 set(PI86_EXTENDED_DIR
     "${PROJECT_SOURCE_DIR}/tests/performance_characterization_1_extended")
 
@@ -51,6 +57,7 @@ target_link_libraries(pi86_rp2350
     hardware_watchdog
     tinyusb_device
 )
+add_dependencies(pi86_rp2350 calculator_workload_image)
 
 target_compile_definitions(pi86_rp2350 PRIVATE
     PI86_HAS_EXTERNAL_PSRAM=$<BOOL:${PI86_HAS_EXTERNAL_PSRAM}>

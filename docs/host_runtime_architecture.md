@@ -103,8 +103,10 @@ RAM, and Host/processor shared-memory tier. Canonical firmware reserves a
 256 KiB pool mapped to processor addresses `00000h-3FFFFh`; Host HID staging
 already enforces address bounds, ordered chunks, and CRC32. The measured linker
 map leaves about 224 KiB of main SRAM for firmware and realtime growth, so PSRAM
-is not a prerequisite for the first useful runtime. Physical arbitrary-address
-PIO/DMA execution remains a separate integration boundary.
+is not a prerequisite for the first useful runtime. A bounded 16-byte
+calculator image has completed Host upload, lifecycle control, and physical
+execution at `10000h`. General binary layouts, arbitrary control flow, and
+writable processor RAM remain a separate integration boundary.
 
 ### 4.2 External PSRAM
 
@@ -375,8 +377,10 @@ PIO/DMA and prepared RP2350 state satisfy timing-critical bus behavior. Host
 software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
 transactions do not answer a current V30 bus cycle directly.
 
-General arbitrary-address Internal-SRAM-backed execution remains a physical
-implementation gate. After that path is validated, External PSRAM may extend it
+Bounded Host-loaded Internal-SRAM execution is physically accepted for the
+calculator image. General binary layouts, arbitrary control flow, and writable
+processor RAM remain a physical implementation gate. After that path is
+validated, External PSRAM may extend it
 through a measured prepared/cache/refill policy. The existing Pi86 HAT holds
 `READY` asserted, so neither backend may depend on an unbounded current-cycle
 software lookup.
@@ -402,8 +406,9 @@ The architecture is fixed; implementation proceeds by connecting backends to
 the stable Host shell:
 
 1. Host shell framework and capability reporting;
-2. arbitrary-address Internal-SRAM execution and stopped-state loading;
-3. native workload load/run/stop/restart and stdio;
+2. bounded Internal-SRAM workload load/run/stop/restart and execution
+   (calculator accepted); then general binary layouts and writable RAM;
+3. native workload stdio;
 4. Internal-SRAM Host/processor shared memory;
 5. External NOR shared FAT volume as `flash:`;
 6. External PSRAM detection, integrity, and Host read/write;
