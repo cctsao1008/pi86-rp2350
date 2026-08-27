@@ -29,15 +29,16 @@ asks a different question:
 > load, communicate with, supervise, and restart—without first rebuilding a
 > traditional PC around it?**
 
-The V30 knows nothing about USB, Python, FAT filesystems, or AI. It only knows
-its native instruction set, interrupts, and physical bus. The Host does not
-pretend to be the V30 or execute instructions for it. Instead, the RP2350
-bridges those two worlds: modern control and shared resources on one side, real
-native execution on forty-year-old silicon on the other.
+The physical processor knows nothing about USB, Python, FAT filesystems, or AI.
+It only knows its native instruction set, interrupts, and physical bus. The Host
+does not pretend to be the processor or execute instructions for it. Instead,
+the RP2350 bridges those two worlds: modern control and shared resources on one
+side, real native execution on forty-year-old silicon on the other.
 
-That changes the role of the processor. The V30 is no longer confined to being
-the CPU of a reconstructed PC, and it is not reduced to a software model. It
-becomes a bare-metal physical execution target inside a modern runtime.
+That changes the role of the processor. The physical processor is no longer
+confined to being the CPU of a reconstructed PC, and it is not reduced to a
+software model. It becomes a bare-metal physical execution target inside a
+modern runtime.
 
 > **This project is not only about making an old CPU boot again. It explores a
 > new way for that CPU to remain useful, observable, and alive.**
@@ -76,7 +77,7 @@ RP2350
 = companion resource and bus controller
   memory / storage / mailbox / interrupt / clock / reset / PIO / DMA
              |
-             | physical multiplexed V30 bus
+             | physical 8086-class multiplexed bus
              v
 Intel 8086 / NEC V30
 = bare-metal remote physical processor
@@ -111,26 +112,27 @@ includes:
 - workload loading, launch, stop, and restart;
 - stdin/stdout and mailbox communication;
 - file operations on RP2350-owned FAT volumes;
-- V30-visible memory inspection and transfer;
+- processor-visible memory inspection and transfer;
 - liveness, status, `top`, trace, timeout, and fault reporting.
 
 Python is the first reference client, not the architecture. Other Host Protocol
 implementations may be written in C or Rust and presented through CLI or Web
 tools. Higher-level clients—including ChatGPT, Codex, and other agents—may use
-those implementations without becoming part of the V30 runtime architecture.
+those implementations without becoming part of the physical-processor runtime
+architecture.
 
 The canonical entry point is `tools/rp86.py`. The former
 `tools/ai_bridge/v30bridge.py` remains as a compatibility wrapper for existing
 validation commands and saved workflows.
 
-The Host may disappear without becoming part of a current V30 bus cycle. A
-workload can crash or stop responding; the runtime reports it, preserves
+The Host may disappear without becoming part of a current processor bus cycle.
+A workload can crash or stop responding; the runtime reports it, preserves
 available evidence, and lets the user restart it.
 
 ## 💾 Resource model
 
-The RP2350 is the single low-level owner. Host and V30 share content through it,
-not raw controllers or filesystem metadata.
+The RP2350 is the single low-level owner. Host and physical processor share
+content through it, not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
@@ -148,15 +150,15 @@ sd:/datasets/input.dat
 sd:/traces/run001.log
 ```
 
-The V30 sees assigned memory and runtime services; it never directly owns USB,
-PSRAM, NOR Flash, SD, FAT, PIO, or DMA controllers.
+The physical processor sees assigned memory and runtime services; it never
+directly owns USB, PSRAM, NOR Flash, SD, FAT, PIO, or DMA controllers.
 
 ## ⏱️ Physical timing boundary
 
-The original Pi86 HAT keeps V30 `READY` asserted. Timing-critical bus behavior
-therefore remains in PIO/DMA and prepared RP2350 state. Host software, USB,
-filesystem work, and arbitrary storage transactions do not answer an active
-V30 bus cycle.
+The original Pi86 HAT keeps the processor `READY` input asserted. Timing-critical
+bus behavior therefore remains in PIO/DMA and prepared RP2350 state. Host
+software, USB, filesystem work, and arbitrary storage transactions do not
+answer an active processor bus cycle.
 
 The next major physical integration gate is an arbitrary-address responder
 backed first by Internal SRAM. External PSRAM then extends capacity through a
