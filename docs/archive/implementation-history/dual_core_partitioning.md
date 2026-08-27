@@ -125,9 +125,9 @@ These records describe specific tested implementations and may include explicit 
 
 See:
 
-- [`validation/dc_a_dual_core_foundation_validation.md`](validation/dc_a_dual_core_foundation_validation.md)
-- [`validation/dc_b0_service_core_output_validation.md`](validation/dc_b0_service_core_output_validation.md)
-- [`validation/dc_b1a_trace_backpressure_validation.md`](validation/dc_b1a_trace_backpressure_validation.md)
+- [`validation/dc_a_dual_core_foundation_validation.md`](../../validation/dc_a_dual_core_foundation_validation.md)
+- [`validation/dc_b0_service_core_output_validation.md`](../../validation/dc_b0_service_core_output_validation.md)
+- [`validation/dc_b1a_trace_backpressure_validation.md`](../../validation/dc_b1a_trace_backpressure_validation.md)
 
 ## Relationship to the host/AI interface
 
@@ -135,6 +135,6 @@ The Host Runtime Controller sits above this partitioning model.
 
 Host tools and AI agents may consume structured state, request bounded operations, and analyze experiments, but they remain outside current-cycle V30 timing. The service role terminates host-facing complexity; the realtime role only accepts state changes through explicit bounded publication.
 
-See [`architecture.md`](architecture.md),
-[`host_runtime_architecture.md`](host_runtime_architecture.md), and
-[`companion_service_abi.md`](companion_service_abi.md).
+See [`architecture.md`](../../architecture.md),
+[`host_runtime_architecture.md`](../../host_runtime_architecture.md), and
+[`companion_service_abi.md`](../../companion_service_abi.md).

@@ -55,11 +55,10 @@ Before accepting any pin-map change:
 2. Identify the Raspberry Pi physical header pin from the HAT design.
 3. Read the target-board official pinout or schematic for that physical pin.
 4. Record the target MCU GPIO.
-5. Update `docs/hardware_contract.md`.
-6. Update `docs/pin_mapping.md`.
-7. Update `firmware/v30/v30_pins.h`.
-8. Search PIO and test sources for absolute GPIO references.
-9. Re-run the minimum affected bring-up gate.
+5. Update the consolidated `docs/hardware.md` contract.
+6. Update `firmware/v30/v30_pins.h` and any absolute PIO pin references.
+7. Search PIO and test sources for additional absolute GPIO references.
+8. Re-run the minimum affected bring-up gate.
 
 ## Alternatives considered
 

@@ -6,7 +6,7 @@ Waveshare RP2350-PiZero.
 
 The project uses the Raspberry Pi-compatible 40-pin header. RP2350 GPIO0-GPIO27 are distributed across that header and form the interface to the original Pi86 HAT.
 
-**Important:** Raspberry Pi compatibility here is a physical-header compatibility statement. The RP2350 GPIO number present at a given 40-pin header position is not always numerically equal to the Raspberry Pi BCM GPIO number at that same position. Pi86 signal mapping must therefore translate through the physical header pin. See `docs/pin_mapping.md`.
+**Important:** Raspberry Pi compatibility here is a physical-header compatibility statement. The RP2350 GPIO number present at a given 40-pin header position is not always numerically equal to the Raspberry Pi BCM GPIO number at that same position. The locked translation table and electrical ownership rules are defined below.
 
 Primary board references:
 
@@ -65,6 +65,138 @@ cmake -S . -B build -DPI86_HAS_EXTERNAL_PSRAM=ON
 The runtime must still report successful PSRAM detection before any Host
 operation targeting the PSRAM capacity tier is accepted. PSRAM absence must not
 block Internal-SRAM-backed workload upload, execution, or shared memory.
+
+## Physical interface contract
+
+The Raspberry Pi **physical 40-pin header position** is the cross-platform
+hardware ABI. The translation chain is always:
+
+```text
+8086-class signal
+  -> Raspberry Pi physical header pin
+  -> RP2350-PiZero board routing
+  -> RP2350 GPIO
+```
+
+These numbering domains are different:
+
+```text
+WiringPi number != Raspberry Pi BCM GPIO != physical header pin != RP2350 GPIO
+```
+
+A Raspberry Pi BCM number is reference-platform metadata. It must never be
+copied directly into an RP2350 GPIO definition unless the Waveshare physical
+pinout independently confirms the mapping.
+
+### Locked signal mapping
+
+The original HAT is not redesigned or remapped.
+
+| Signal | RPi physical pin | RPi BCM metadata | RP2350 GPIO | Normal direction |
+|---|---:|---:|---:|---|
+| CLK | 40 | 21 | 21 | RP2350 -> processor |
+| RESET | 36 | 16 | 16 | RP2350 -> processor |
+| ASTB | 32 | 12 | 9 | processor -> RP2350 |
+| IO/M | 24 | 8 | 8 | processor -> RP2350 |
+| BUFR/W | 26 | 7 | 7 | processor -> RP2350 |
+| UBE | 22 | 25 | 25 | processor -> RP2350 |
+| INTR | 38 | 20 | 20 | RP2350 -> processor |
+| INTAK | 28 | 1 | 1 | processor -> RP2350 |
+| AD0 | 37 | 26 | 26 | Bidirectional |
+| AD1 | 35 | 19 | 19 | Bidirectional |
+| AD2 | 33 | 13 | 13 | Bidirectional |
+| AD3 | 31 | 6 | 6 | Bidirectional |
+| AD4 | 29 | 5 | 15 | Bidirectional |
+| AD5 | 27 | 0 | 0 | Bidirectional |
+| AD6 | 23 | 11 | 10 | Bidirectional |
+| AD7 | 21 | 9 | 12 | Bidirectional |
+| AD8 | 19 | 10 | 11 | Bidirectional |
+| AD9 | 15 | 22 | 22 | Bidirectional |
+| AD10 | 13 | 27 | 27 | Bidirectional |
+| AD11 | 11 | 17 | 17 | Bidirectional |
+| AD12 | 7 | 4 | 14 | Bidirectional |
+| AD13 | 5 | 3 | 3 | Bidirectional |
+| AD14 | 3 | 2 | 2 | Bidirectional |
+| AD15 | 8 | 14 | 4 | Bidirectional |
+| A16 | 10 | 15 | 5 | processor -> RP2350 |
+| A17 | 12 | 18 | 18 | processor -> RP2350 |
+| A18 | 16 | 23 | 23 | processor -> RP2350 |
+| A19 | 18 | 24 | 24 | processor -> RP2350 |
+
+Firmware definitions live in `firmware/v30/v30_pins.h` and must remain
+consistent with this table. AD0-AD15 are intentionally scattered in RP2350
+GPIO space; realtime code uses snapshots, masks, and lookup-based packing
+instead of slow per-pin operations.
+
+### Historical mapping correction
+
+An early RP2350 mapping treated Raspberry Pi BCM numbers as RP2350 GPIO
+numbers. The affected signals were:
+
+| Signal | Incorrect GPIO | Correct GPIO |
+|---|---:|---:|
+| ASTB | 12 | 9 |
+| AD4 | 5 | 15 |
+| AD6 | 11 | 10 |
+| AD7 | 9 | 12 |
+| AD8 | 10 | 11 |
+| AD12 | 4 | 14 |
+| AD15 | 14 | 4 |
+| A16 | 15 | 5 |
+
+Correcting this translation restored deterministic reset fetch, executable
+ROM, memory reads, and RAM write/readback. Historical results that depended on
+the incorrect identities are superseded unless explicitly revalidated.
+
+### Firmware and ownership rules
+
+1. `firmware/v30/v30_pins.h` is the firmware source of processor GPIO constants.
+2. Bus code uses `V30_PIN_*` definitions rather than undocumented literals.
+3. Absolute GPIO references in PIO must name the corresponding signal and
+   physical header pin.
+4. Any mapping change requires simultaneous review of this document,
+   `firmware/v30/v30_pins.h`, and affected PIO programs.
+5. A new host board must rebuild the translation from physical header pins;
+   BCM numbering is not a portable intermediate ABI.
+6. Before diagnosing timing or protocol behavior, prove signal identity,
+   direction, ownership, and electrical state in that order.
+
+AD0-AD15 must be high-Z whenever the physical processor owns the bus. RP2350
+data is prepared before output enable. PIO owns timing-critical data and
+direction transitions; DMA may feed PIO FIFOs but must not write SIO registers.
+PIO output windows must be proven to affect only AD pins. The accepted runtime
+uses a continuous PIO-generated processor clock; M33 software does not step or
+answer current bus cycles.
+
+A bounded validation may finish at `RESET=HIGH`, `CLK=LOW`, AD high-Z. The
+persistent runtime instead leaves the processor in validated `STI`/`HLT` idle,
+with AD high-Z and interrupt service armed.
+
+### Fixed HAT connections
+
+| Processor pin/function | Connection |
+|---|---|
+| Pin 40 VCC | 3.3 V |
+| Pin 22 READY | 3.3 V |
+| Pin 33 mode strap | 3.3 V |
+| Pin 17 NMI | GND |
+| Pin 23 TEST/POLL | GND |
+| Pin 31 HOLD | GND |
+
+The upstream PCB routes Raspberry Pi physical pin 4 (5 V) only to the auxiliary
+FAN rail. Physical pin 2 is unconnected in the referenced source.
+
+### Source hierarchy
+
+Resolve mapping discrepancies in this order:
+
+1. physical working-system evidence;
+2. target-board official pinout or schematic;
+3. HAT PCB routing;
+4. original Pi86 software mapping;
+5. WiringPi/BCM translation tables;
+6. historical schematics and netlists;
+7. inference.
 
 ## CPU
 
@@ -131,22 +263,7 @@ The RP2350 firmware mapping is therefore established in two steps:
 1. Pi86 HAT signal -> Raspberry Pi physical 40-pin header position.
 2. That physical position -> RP2350-PiZero GPIO number using the Waveshare board pinout.
 
-This distinction is critical because several physical positions use different BCM and RP2350 GPIO numbers.
-
-Power and fixed control straps in the current PCB source:
-
-| Function | Current PCB connection |
-|---|---|
-| V30 pin 40 VCC | 3.3 V |
-| V30 pin 22 READY | 3.3 V |
-| V30 pin 33 MN/MX | 3.3 V |
-| V30 pin 17 NMI | GND |
-| V30 pin 23 TEST | GND |
-| V30 pin 31 HOLD | GND |
-| Raspberry Pi physical pin 4 / 5 V | FAN `5+` rail |
-| Raspberry Pi physical pin 2 / 5 V | unconnected in current PCB |
-
-The two-pin FAN connector is therefore a separate 5 V/GND auxiliary load; the current PCB does not route the 5 V rail to V30 VCC.
+This distinction is critical because several physical positions use different BCM and RP2350 GPIO numbers. Fixed straps and auxiliary power routing are consolidated in the physical interface contract above.
 
 ### Revision caveat
 

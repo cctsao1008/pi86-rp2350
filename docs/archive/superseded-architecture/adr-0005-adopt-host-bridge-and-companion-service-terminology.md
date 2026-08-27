@@ -65,5 +65,5 @@ A new host or AI adapter is accepted only when the provider-neutral Host Bridge 
 ## Related documents
 
 - [`../../companion_service_abi.md`](../../companion_service_abi.md)
-- [`../../ai_bridge_architecture.md`](../../ai_bridge_architecture.md)
+- [`host_bridge_and_ai_client_architecture.md`](host_bridge_and_ai_client_architecture.md)
 - [`../../adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md`](../../adr/0004-use-parallel-pio-sequencers-for-ai-mailbox.md)

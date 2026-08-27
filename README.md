@@ -225,7 +225,7 @@ all four operations and continued with zero heartbeat loss; see the
 - [`docs/host_runtime_shell.md`](docs/host_runtime_shell.md) — Host shell command model
 - [`docs/memory_architecture.md`](docs/memory_architecture.md) — memory and shared-storage ownership
 - [`docs/host_protocol.md`](docs/host_protocol.md) — language-independent Host Protocol
-- [`docs/hardware_contract.md`](docs/hardware_contract.md) — physical interface contract
+- [`docs/hardware.md`](docs/hardware.md) — board resources, locked signal mapping, and physical interface contract
 - [`docs/validation/`](docs/validation/) — accepted physical evidence
 - [`docs/archive/`](docs/archive/) — superseded plans and former project directions
 - [`docs/README.md`](docs/README.md) — complete documentation map

@@ -428,7 +428,7 @@ This is substantially stronger than host-side loopback because the V30 itself co
 ### Hardware/interface
 
 - Treat physical header position as the hardware ABI.
-- Maintain `docs/hardware_contract.md`.
+- Maintain `docs/hardware.md`.
 - Keep `firmware/v30/v30_pins.h` consistent with the hardware contract.
 - Prohibit undocumented raw V30 GPIO literals.
 - Audit PIO files separately for absolute GPIO references.

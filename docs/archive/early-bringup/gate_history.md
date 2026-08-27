@@ -4,12 +4,12 @@
 >
 > This file preserves the original functional path, observations, and stage
 > boundaries. It is not the current operator guide or project roadmap. Use
-> [`../bringup.md`](../bringup.md) for current physical procedure and
-> [`recovery.md`](recovery.md) for recoverable host/device failures.
+> [`../../bringup.md`](../../bringup.md) for current physical procedure and
+> [`../../bringup/recovery.md`](../../bringup/recovery.md) for recoverable host/device failures.
 
 The bring-up sequence is intentionally gated. Do not combine multiple unverified subsystems in the same first test.
 
-Before using any GPIO mapping in bring-up work, read [`hardware_contract.md`](../hardware_contract.md). The Raspberry Pi physical 40-pin header position is the canonical cross-platform hardware ABI.
+Before using any GPIO mapping in bring-up work, read [`hardware_contract.md`](../../hardware.md). The Raspberry Pi physical 40-pin header position is the canonical cross-platform hardware ABI.
 
 ## Gate 0 — RP2350-PiZero SDK and USB debug
 
@@ -301,7 +301,7 @@ Target: `gate10_8259a`.
 
 Hardware result established CPU-visible ICW1-4 programming, `IMR=FEh`, IRQ0 request handling, exactly two INTA cycles with vector `20h` on INTA #2, IRR -> ISR movement, IVT/ISR execution, non-specific EOI, final `ISR=00h`, and 3/3 SUCCESS loop observations.
 
-See [`validation/gate10_8259a_validation.md`](../validation/gate10_8259a_validation.md).
+See [`validation/gate10_8259a_validation.md`](../../validation/gate10_8259a_validation.md).
 
 ## Gate 11 — Multi IRQ priority, ISR blocking, EOI recovery and IRET
 
@@ -357,7 +357,7 @@ Success-loop hits F002E              = 3/3
 GATE 11 PHYSICAL V30 RESULT          = PASS
 ```
 
-See [`bringup_gate11.md`](../archive/early-bringup/bringup_gate11.md) and [`validation/gate11_multi_irq_priority_validation.md`](../validation/gate11_multi_irq_priority_validation.md).
+See [`bringup_gate11.md`](bringup_gate11.md) and [`validation/gate11_multi_irq_priority_validation.md`](../../validation/gate11_multi_irq_priority_validation.md).
 
 ## Gate 12 — Minimal programmable PIT IRQ0 validation
 
@@ -387,7 +387,7 @@ Initial scope is one deterministic channel-0 one-shot path only. Periodic BIOS t
 
 **Status: PASS — IMPLEMENTED AND VALIDATED ON PHYSICAL V30 HARDWARE**
 
-See [`bringup_gate12.md`](../archive/early-bringup/bringup_gate12.md) and [`validation/gate12_pit_irq0_validation.md`](../validation/gate12_pit_irq0_validation.md).
+See [`bringup_gate12.md`](bringup_gate12.md) and [`validation/gate12_pit_irq0_validation.md`](../../validation/gate12_pit_irq0_validation.md).
 
 ## Current capability boundary
 
@@ -434,15 +434,15 @@ PC1-B proved that the RP2350 can deliver a pre-staged fixed instruction response
 
 PC1-C must first execute a reset-vector far jump from `FFFF0` to ROM at `F0000` and expose a CPU-visible checkpoint. The following increment adds a minimal debug output port so a ROM program can emit `OK`. Periodic BIOS timer semantics remain deferred until address-qualified memory and I/O service are established on the continuous-clock front end.
 
-See [`minimal_pc_compatibility_matrix.md`](../archive/completed-plans/minimal_pc_compatibility_matrix.md) for the broader dependency-driven route toward BIOS and DOS boot.
+See [`minimal_pc_compatibility_matrix.md`](../completed-plans/minimal_pc_compatibility_matrix.md) for the broader dependency-driven route toward BIOS and DOS boot.
 
 ## Retrospective and evidence
 
 For the mapping failure, superseded diagnostics, test-design lessons, and permanent process rules, see:
 
-- [`hardware_contract.md`](../hardware_contract.md)
-- [`adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](../adr/0001-use-rpi-physical-pin-as-hardware-abi.md)
-- [`retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](../retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md)
+- [`hardware_contract.md`](../../hardware.md)
+- [`adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](../../adr/0001-use-rpi-physical-pin-as-hardware-abi.md)
+- [`retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md`](../../retrospectives/2026-08-rp2350-pi86-bringup-retrospective.md)
 - GitHub Issue #14
 
 Raw/human-readable Gate evidence is archived in the project Google Drive under `02_Bringup_Logs` and `03_Scope_Captures`. Gate 11 raw evidence is stored under `02_Bringup_Logs/Gate11_MultiIRQ_Priority`.

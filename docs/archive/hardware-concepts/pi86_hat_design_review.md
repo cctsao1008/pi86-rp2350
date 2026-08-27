@@ -14,7 +14,7 @@ This review uses:
 
 - the physical 2021 Pi86 HAT and its observed behavior;
 - supplied Pi86 V20/V30 schematic and PCB material;
-- current upstream Homebrew8088 design evidence summarized in [`hardware.md`](hardware.md);
+- current upstream Homebrew8088 design evidence summarized in [`hardware.md`](../../hardware.md);
 - NEC V30 documentation;
 - measured pi86-rp2350 physical validation results.
 
@@ -69,7 +69,7 @@ Consequences:
 - general PSRAM/storage access belongs outside the unbounded current-cycle path;
 - clock stopping is not used as a substitute for a normal wait-state contract on the installed `D70116C-8`.
 
-The memory policy is defined in [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md).
+The memory policy is defined in [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](../../adr/0003-require-ready-or-deterministic-hits-for-general-memory.md).
 
 ### CPU voltage is an empirical project condition
 
@@ -125,7 +125,7 @@ This keeps hardware evolution demand-driven rather than roadmap-driven.
 The repository contains earlier work exploring a buffered replacement board with controllable `READY`, bus transceivers, auxiliary control signals, and additional electrical safeguards.
 
 That work is preserved as engineering history in
-[`archive/hardware-concepts/v3_companion_board_architecture.md`](archive/hardware-concepts/v3_companion_board_architecture.md).
+[`archive/hardware-concepts/v3_companion_board_architecture.md`](v3_companion_board_architecture.md).
 It is **not the canonical hardware target and is not currently planned for
 implementation**.
 
@@ -135,6 +135,6 @@ The document may still be useful if future measurements reveal a hard limitation
 
 - [`hardware_contract.md`](hardware_contract.md) — canonical physical interface
 - [`pin_mapping.md`](pin_mapping.md) — signal mapping
-- [`architecture.md`](architecture.md) — current companion-chip architecture
-- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) — current fixed-`READY` memory policy
-- [`archive/hardware-concepts/v3_companion_board_architecture.md`](archive/hardware-concepts/v3_companion_board_architecture.md) — superseded historical replacement-board concept
+- [`architecture.md`](../../architecture.md) — current companion-chip architecture
+- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](../../adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) — current fixed-`READY` memory policy
+- [`archive/hardware-concepts/v3_companion_board_architecture.md`](v3_companion_board_architecture.md) — superseded historical replacement-board concept

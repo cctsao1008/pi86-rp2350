@@ -125,7 +125,7 @@ The currently validated mailbox implementation uses these I/O ports:
 
 These ports describe an accepted bounded implementation. Future services may use different machine-facing wrappers while preserving the same architectural separation between realtime bus handling and asynchronous host work.
 
-The exact record layout and versioning rules are defined in [`companion_service_abi.md`](companion_service_abi.md).
+The exact record layout and versioning rules are defined in [`companion_service_abi.md`](../../companion_service_abi.md).
 
 ## Transport
 
@@ -219,12 +219,12 @@ native execution.
 
 ## Related documents
 
-- [`architecture.md`](architecture.md) - canonical Host-managed runtime architecture
-- [`host_runtime_architecture.md`](host_runtime_architecture.md) - detailed runtime contract
+- [`architecture.md`](../../architecture.md) - canonical Host-managed runtime architecture
+- [`host_runtime_architecture.md`](../../host_runtime_architecture.md) - detailed runtime contract
 - [`project_overview.md`](project_overview.md) - project identity and scope
-- [`companion_service_abi.md`](companion_service_abi.md) - canonical host record and V30 mailbox ABI
-- [`dual_core_partitioning.md`](dual_core_partitioning.md) - RP2350 realtime/service role partition
-- [`ai_bridge_implementation_plan.md`](archive/completed-plans/ai_bridge_implementation_plan.md) - archived staged bridge implementation work
-- [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - Windows validation workflow
-- [`validation/ai_b2_hid_composite_600khz_validation.md`](validation/ai_b2_hid_composite_600khz_validation.md) - accepted HID/CDC physical bridge evidence
-- [`validation/ai_b3_codex_initiated_greeting_validation.md`](validation/ai_b3_codex_initiated_greeting_validation.md) - accepted Codex adapter evidence
+- [`companion_service_abi.md`](../../companion_service_abi.md) - canonical host record and V30 mailbox ABI
+- [`dual_core_partitioning.md`](../implementation-history/dual_core_partitioning.md) - RP2350 realtime/service role partition
+- [`ai_bridge_implementation_plan.md`](../completed-plans/ai_bridge_implementation_plan.md) - archived staged bridge implementation work
+- [`development/windows_physical_validation.md`](../../development/windows_physical_validation.md) - Windows validation workflow
+- [`validation/ai_b2_hid_composite_600khz_validation.md`](../../validation/ai_b2_hid_composite_600khz_validation.md) - accepted HID/CDC physical bridge evidence
+- [`validation/ai_b3_codex_initiated_greeting_validation.md`](../../validation/ai_b3_codex_initiated_greeting_validation.md) - accepted Codex adapter evidence

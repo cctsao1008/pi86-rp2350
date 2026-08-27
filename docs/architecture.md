@@ -243,6 +243,5 @@ Or operationally:
 - [`host_runtime_shell.md`](host_runtime_shell.md) — shell command surface
 - [`memory_architecture.md`](memory_architecture.md) — memory and storage ownership
 - [`host_protocol.md`](host_protocol.md) — Host/RP2350 wire semantics
-- [`dual_core_partitioning.md`](dual_core_partitioning.md) — RP2350 realtime/service ownership
-- [`hardware_contract.md`](hardware_contract.md) — current physical interface
+- [`hardware.md`](hardware.md) — board resources, signal mapping, and physical ownership
 - [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision

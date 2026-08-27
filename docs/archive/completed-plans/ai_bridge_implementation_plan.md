@@ -8,7 +8,7 @@
 >
 > This file records reversible implementation stages, including accepted and
 > future gates. It is not the canonical machine architecture or V30-visible ABI.
-> Use [`ai_bridge_architecture.md`](../../ai_bridge_architecture.md) for the stable
+> Use [`ai_bridge_architecture.md`](../superseded-architecture/host_bridge_and_ai_client_architecture.md) for the stable
 > Host Bridge boundary and [`companion_service_abi.md`](../../companion_service_abi.md)
 > for the exact version 1 record and mailbox contract. Historical AI-B gate
 > names remain evidence identities under ADR 0005.
@@ -16,7 +16,7 @@
 ## Purpose
 
 This document turns the accepted target in
-[`ai_bridge_architecture.md`](../../ai_bridge_architecture.md) into independently
+[`ai_bridge_architecture.md`](../superseded-architecture/host_bridge_and_ai_client_architecture.md) into independently
 reversible implementation gates. It is intentionally separate from the design
 note: the design note defines the destination; this file records how the
 repository approaches it.
@@ -32,7 +32,7 @@ This is a validated host-adapter exchange, not a V30-visible AI abstraction.
 The physical V30 sees only the companion mailbox and native I/O operations.
 Codex, ChatGPT, a conventional test program, or another client remains above
 the provider-neutral Host Bridge boundary. The stable architecture is defined
-in [`ai_bridge_architecture.md`](../../ai_bridge_architecture.md).
+in [`ai_bridge_architecture.md`](../superseded-architecture/host_bridge_and_ai_client_architecture.md).
 
 The canonical packed record and mailbox ABI is [`companion_service_abi.md`](../../companion_service_abi.md).
 

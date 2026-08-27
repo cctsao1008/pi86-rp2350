@@ -99,10 +99,10 @@ restart.
 
 ## Read next
 
-- [Canonical architecture](architecture.md)
-- [Detailed Host runtime contract](host_runtime_architecture.md)
-- [Host shell](host_runtime_shell.md)
-- [Memory and storage](memory_architecture.md)
-- [Host Protocol](host_protocol.md)
-- [Hardware contract](hardware_contract.md)
-- [Physical validation](validation/)
+- [Canonical architecture](../../architecture.md)
+- [Detailed Host runtime contract](../../host_runtime_architecture.md)
+- [Host shell](../../host_runtime_shell.md)
+- [Memory and storage](../../memory_architecture.md)
+- [Host Protocol](../../host_protocol.md)
+- [Hardware contract](../../hardware.md)
+- [Physical validation](../../validation/)

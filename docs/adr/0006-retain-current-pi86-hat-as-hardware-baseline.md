@@ -97,6 +97,6 @@ Costs and limitations:
 - Issue #46 — general address-indexed SRAM ROM service
 - Issue #51 — canonical firmware/runtime consolidation
 - Issue #48 — HAT redesign, closed as not planned
-- [`../pi86_hat_design_review.md`](../pi86_hat_design_review.md)
+- [`../archive/hardware-concepts/pi86_hat_design_review.md`](../archive/hardware-concepts/pi86_hat_design_review.md)
 - [`../architecture.md`](../architecture.md)
 - [`0003-require-ready-or-deterministic-hits-for-general-memory.md`](0003-require-ready-or-deterministic-hits-for-general-memory.md)

@@ -108,7 +108,7 @@ J1 retains the Raspberry Pi physical 40-pin positions used by the original HAT. 
 | ASTB, I/O-M, BUFR/W, UBE, INTAK | 32, 24, 26, 22, 28 | input |
 | CLK, RESET, INTR | 40, 36, 38 | output |
 
-The physical-pin mapping is canonical in [`../../hardware_contract.md`](../../hardware_contract.md). This table is an architectural grouping, not a replacement for the full pin contract.
+The physical-pin mapping is canonical in [`../../hardware.md`](../../hardware.md). This table is an architectural grouping, not a replacement for the full pin contract.
 
 Physical pins 27 and 28 remain Pi86 bus signals rather than a standard HAT ID-EEPROM interface.
 
@@ -313,9 +313,9 @@ Architecture may advance to schematic review only when:
 
 ## Related documents
 
-- [`../../pi86_hat_design_review.md`](../../pi86_hat_design_review.md) - source review and rationale
-- [`../../hardware_contract.md`](../../hardware_contract.md) - canonical J1 physical mapping
-- [`../../pin_mapping.md`](../../pin_mapping.md) - detailed signal mapping
+- [`pi86_hat_design_review.md`](pi86_hat_design_review.md) - source review and rationale
+- [`../../hardware.md`](../../hardware.md) - canonical J1 physical mapping
+- [`pin_mapping.md`](pin_mapping.md) - detailed signal mapping
 - [`../../adr/0001-use-rpi-physical-pin-as-hardware-abi.md`](../../adr/0001-use-rpi-physical-pin-as-hardware-abi.md) - 40-pin ABI decision
 - [`../../adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](../../adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) - READY policy
 - [`../../architecture.md`](../../architecture.md) - system timing and ownership architecture

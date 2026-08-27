@@ -143,5 +143,5 @@ control flow. It is execution evidence, not random-access service.
 
 - [`0006-retain-current-pi86-hat-as-hardware-baseline.md`](0006-retain-current-pi86-hat-as-hardware-baseline.md) - superseding hardware-baseline decision
 - [`../archive/hardware-concepts/v3_companion_board_architecture.md`](../archive/hardware-concepts/v3_companion_board_architecture.md) - historical V3.0 board-level READY study
-- [`../pi86_hat_design_review.md`](../pi86_hat_design_review.md) - present HAT evidence and design review
+- [`../archive/hardware-concepts/pi86_hat_design_review.md`](../archive/hardware-concepts/pi86_hat_design_review.md) - present HAT evidence and design review
 - [`../architecture.md`](../architecture.md) - system-level timing and miss policy

@@ -1,6 +1,6 @@
 # pi86-rp2350 Documentation
 
-The documentation is organized around one current definition:
+The current project definition is:
 
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 
@@ -9,90 +9,102 @@ current architecture.
 
 ## Start here
 
-1. [`architecture.md`](architecture.md) — canonical architecture and role boundaries
-2. [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime, permissions, services, and implementation gates
-3. [`host_runtime_shell.md`](host_runtime_shell.md) — remote-shell command model
+The active documentation set is intentionally small:
+
+1. [`architecture.md`](architecture.md) — canonical identity, roles, runtime, and boundaries
+2. [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime, resources, permissions, and failure model
+3. [`host_runtime_shell.md`](host_runtime_shell.md) — RP86 Host shell and command framework
 4. [`memory_architecture.md`](memory_architecture.md) — Internal SRAM, PSRAM, NOR, SD, FAT, and shared ownership
-5. [`host_protocol.md`](host_protocol.md) — language-independent Host/RP2350 operations
-6. [`hardware_contract.md`](hardware_contract.md) — physical signal and ownership contract
+5. [`host_protocol.md`](host_protocol.md) — language-independent Host operations and transport semantics
+6. [`companion_service_abi.md`](companion_service_abi.md) — 64-byte Host/Core record and processor mailbox ABI
+7. [`hardware.md`](hardware.md) — board resources, locked signal mapping, and electrical ownership
+8. [`bringup.md`](bringup.md) — current physical bring-up and acceptance workflow
+9. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — canonical build instructions
+10. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — Windows physical validation workflow
+11. [`bringup/recovery.md`](bringup/recovery.md) — recovery procedures
 
 The three roles are:
 
 ```text
-Host      = Runtime Controller
-RP2350    = Companion Resource and Bus Controller
-8086/V30  = Bare-Metal Remote Physical Processor
+Host       = Runtime Controller
+RP2350     = Companion Resource and Bus Controller
+8086 / V30 = Bare-Metal Remote Physical Processor
 ```
 
-## Current architecture and interfaces
+## Document authority
 
-| Document | Authority |
+| Topic | Canonical document |
 |---|---|
-| [`architecture.md`](architecture.md) | Project identity, roles, runtime, and boundaries |
-| [`host_runtime_architecture.md`](host_runtime_architecture.md) | Detailed resource, permission, workload, service, and failure model |
-| [`host_runtime_shell.md`](host_runtime_shell.md) | Host command framework |
-| [`memory_architecture.md`](memory_architecture.md) | Shared memory/storage ownership and public volume names |
-| [`host_protocol.md`](host_protocol.md) | Typed Host operations and transport-independent semantics |
-| [`companion_service_abi.md`](companion_service_abi.md) | Existing 64-byte record and V30 mailbox ABI |
-| [`dual_core_partitioning.md`](dual_core_partitioning.md) | RP2350 realtime and service-role partition |
-| [`hardware_contract.md`](hardware_contract.md) | Current hardware contract |
-| [`pin_mapping.md`](pin_mapping.md) | Pi86 HAT to RP2350 signal mapping |
-| [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) | Current architecture decision |
-| [`adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md`](adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md) | Intel 8086 / NEC V30 processor scope |
+| Project identity and boundary | [`architecture.md`](architecture.md) |
+| Runtime states, services, and ownership | [`host_runtime_architecture.md`](host_runtime_architecture.md) |
+| Operator commands | [`host_runtime_shell.md`](host_runtime_shell.md) |
+| Memory and persistent storage | [`memory_architecture.md`](memory_architecture.md) |
+| Host operations and transport | [`host_protocol.md`](host_protocol.md) |
+| Record and mailbox ABI | [`companion_service_abi.md`](companion_service_abi.md) |
+| Board, pins, and electrical contract | [`hardware.md`](hardware.md) |
+| Build and physical validation | [`development/`](development/) and [`bringup.md`](bringup.md) |
 
-## Host communication
+Avoid redefining the project in another document. Link to the appropriate
+canonical contract instead.
 
-- [`ai_bridge_architecture.md`](ai_bridge_architecture.md) describes the
-  provider-neutral Host bridge and the validated AI greeting as one application.
-- [`development/windows_physical_validation.md`](development/windows_physical_validation.md)
-  documents Windows-side physical validation.
-- The Python tools under [`../tools/ai_bridge/`](../tools/ai_bridge/) are
-  reference clients, not mandatory architecture layers.
+## Decisions
 
-AI is simply a possible Host client. The V30 sees mailbox, stdio, file, memory,
-and interrupt services—not prompts, models, or providers.
+The files under [`adr/`](adr/) preserve architectural decisions individually.
+They remain separate because each records one decision, its context, and its
+consequences. Current defining decisions include:
 
-## Hardware and development
+- [`ADR 0008`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — Host-managed bare-metal runtime
+- [`ADR 0009`](adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md) — Intel 8086 and NEC V30 scope
 
-- [`hardware.md`](hardware.md) — physical platform notes
-- [`pi86_hat_design_review.md`](pi86_hat_design_review.md) — original HAT review
-- [`bringup.md`](bringup.md) — physical bring-up and acceptance
-- [`bringup/recovery.md`](bringup/recovery.md) — recovery procedures
-- [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build workflow
-- [`toolchain.md`](toolchain.md) — toolchain reference
-- [`../tools/docs/README.md`](../tools/docs/README.md) — documentation checks
+## Validation evidence
 
-## Validation and history
+[`validation/`](validation/) contains accepted physical evidence. Validation
+files remain separate so their original firmware identity, clock, output,
+limitations, and result cannot be blurred by later architecture changes.
 
-- [`validation/`](validation/) contains accepted physical validation evidence.
-- [`validation/canonical_runtime_integration_1mhz_validation.md`](validation/canonical_runtime_integration_1mhz_validation.md)
-  records the canonical 1 MHz CDC+HID integration on a physical Intel 8086.
-- [`validation/intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
-  records the first Intel P8086-2 interactive heartbeat observation.
-- [`validation/internal_sram_workload_staging_1mhz_validation.md`](validation/internal_sram_workload_staging_1mhz_validation.md)
-  records Host-to-Internal-SRAM native workload staging on physical hardware.
-- [`bringup/gate_history.md`](bringup/gate_history.md) records the gate sequence.
-- [`story/`](story/) preserves the public development story.
-- [`retrospectives/`](retrospectives/) records lessons learned.
-- [`releases/`](releases/) contains historical milestones.
-- [`archive/`](archive/) holds superseded plans and former project directions.
+Useful current evidence includes:
 
-Validation files preserve their original clocks, terminology, outputs, and
-terminal states. A later architecture does not rewrite an earlier measurement.
+- [`canonical_runtime_integration_1mhz_validation.md`](validation/canonical_runtime_integration_1mhz_validation.md)
+- [`internal_sram_workload_staging_1mhz_validation.md`](validation/internal_sram_workload_staging_1mhz_validation.md)
+- [`native_calculator_1mhz_validation.md`](validation/native_calculator_1mhz_validation.md)
+- [`intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
 
-## Current versus archived material
+## Story and retrospective
 
-The main documentation tree describes the Host-managed runtime or current
-hardware/validation facts. BIOS-first, PC-machine, ELKS boot, replacement-board,
-and former terminology documents are archived because they no longer define the
-project.
+- [`story/`](story/) preserves the four public development articles.
+- [`retrospectives/`](retrospectives/) records engineering lessons learned.
 
-Archive status does not mean those experiments were wrong. It means their active
-architectural role was superseded.
+These are narrative records, not competing architecture specifications.
+
+## Archive
+
+[`archive/`](archive/) holds superseded architecture, completed plans, early
+bring-up history, former standalone contracts, and historical references.
+Archive status does not mean the work was wrong; it means the document no
+longer defines the active project.
+
+In particular:
+
+- old project overviews and AI-bridge-first architecture are under
+  `archive/superseded-architecture/`;
+- former standalone hardware and pin contracts are under
+  `archive/hardware-concepts/`, after consolidation into [`hardware.md`](hardware.md);
+- the original Gate 0–12 sequence is under `archive/early-bringup/`;
+- former toolchain and milestone documents are retained under their matching
+  archive categories.
 
 ## Documentation rule
 
-Put stable project structure in the canonical contracts, current implementation
-work in issues, accepted measurements in `validation/`, and superseded
-directions in `archive/`. Avoid duplicating the project definition in every
-document; link to [`architecture.md`](architecture.md).
+Use this placement rule:
+
+```text
+stable architecture or interface  -> canonical contract
+current implementation work       -> GitHub issue
+accepted physical measurement     -> validation/
+one architectural decision        -> adr/
+public narrative                  -> story/
+superseded direction or history   -> archive/
+```
+
+The goal is not the smallest possible file count. The goal is one authoritative
+place for each current fact and a short, predictable reading path.

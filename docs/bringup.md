@@ -4,16 +4,14 @@
 >
 > This guide describes how to build, flash, observe, and accept a present-day
 > `pi86-rp2350` physical experiment. The original Gate 0–12 development record
-> is preserved in [`bringup/gate_history.md`](bringup/gate_history.md).
+> is preserved in [`archive/early-bringup/gate_history.md`](archive/early-bringup/gate_history.md).
 
 ## Safety and authority
 
 Before connecting or powering the V30 HAT, read:
 
-1. [`hardware_contract.md`](hardware_contract.md) - canonical physical interface;
-2. [`pin_mapping.md`](pin_mapping.md) - signal mapping through the 40-pin header;
-3. [`hardware.md`](hardware.md) - board and voltage notes;
-4. [`pi86_hat_design_review.md`](pi86_hat_design_review.md) - present HAT limitations.
+1. [`hardware.md`](hardware.md) - canonical board, signal mapping, electrical ownership, and populated resources;
+2. [`architecture.md`](architecture.md) - processor/runtime role boundaries.
 
 The Raspberry Pi **physical header position** is the hardware ABI. Raspberry Pi BCM numbers and Waveshare RP2350 GPIO numbers are not interchangeable.
 
@@ -175,5 +173,4 @@ See [`bringup/recovery.md`](bringup/recovery.md) for USB, CDC/HID, flashing, and
 
 ## Historical gates
 
-The original functional path from GPIO mapping through clock/reset, ROM, RAM, byte lanes, I/O, PIC, multi-IRQ, and PIT is retained in [`bringup/gate_history.md`](bringup/gate_history.md). Those gates are engineering history and regression evidence, not the current implementation queue.
-
+The original functional path from GPIO mapping through clock/reset, ROM, RAM, byte lanes, I/O, PIC, multi-IRQ, and PIT is retained in [`archive/early-bringup/gate_history.md`](archive/early-bringup/gate_history.md). Those gates are engineering history and regression evidence, not the current implementation queue.

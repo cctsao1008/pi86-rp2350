@@ -259,9 +259,9 @@ Application success and physical evidence are separate assertions.
 
 ## Related documents
 
-- [`ai_bridge_architecture.md`](ai_bridge_architecture.md) - architectural boundary and transaction flows
 - [`ai_bridge_implementation_plan.md`](archive/completed-plans/ai_bridge_implementation_plan.md) - implementation gates
-- [`dual_core_partitioning.md`](dual_core_partitioning.md) - ownership transfer and core roles
+- [`host_protocol.md`](host_protocol.md) - Host-side operations above this ABI
+- [`host_runtime_architecture.md`](host_runtime_architecture.md) - ownership transfer and runtime roles
 - [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - physical validator workflow
 - [`validation/ai_b2_hid_composite_600khz_validation.md`](validation/ai_b2_hid_composite_600khz_validation.md) - accepted composite HID/CDC evidence
 - [`validation/companion_runtime_1mhz_validation.md`](validation/companion_runtime_1mhz_validation.md) - accepted persistent INT/INTR/INTA heartbeat evidence
