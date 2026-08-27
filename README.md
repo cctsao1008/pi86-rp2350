@@ -232,6 +232,7 @@ SRAM and physically validated `load`, `run`, `stop`, and `restart`; see the
 - [`docs/memory_architecture.md`](docs/memory_architecture.md) — memory and shared-storage ownership
 - [`docs/host_protocol.md`](docs/host_protocol.md) — language-independent Host Protocol
 - [`docs/hardware.md`](docs/hardware.md) — board resources, locked signal mapping, and physical interface contract
+- [`docs/development/codex_physical_development_loop.md`](docs/development/codex_physical_development_loop.md) — AI-written code through physical processor evidence
 - [`docs/validation/`](docs/validation/) — accepted physical evidence
 - [`docs/archive/`](docs/archive/) — superseded plans and former project directions
 - [`docs/README.md`](docs/README.md) — complete documentation map

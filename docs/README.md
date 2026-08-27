@@ -22,6 +22,7 @@ The active documentation set is intentionally small:
 9. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — canonical build instructions
 10. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — Windows physical validation workflow
 11. [`bringup/recovery.md`](bringup/recovery.md) — recovery procedures
+12. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — Codex-to-physical-processor implementation, deployment, and evidence loop
 
 The three roles are:
 
@@ -43,6 +44,7 @@ RP2350     = Companion Resource and Bus Controller
 | Record and mailbox ABI | [`companion_service_abi.md`](companion_service_abi.md) |
 | Board, pins, and electrical contract | [`hardware.md`](hardware.md) |
 | Build and physical validation | [`development/`](development/) and [`bringup.md`](bringup.md) |
+| Codex-assisted physical development loop | [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) |
 
 Avoid redefining the project in another document. Link to the appropriate
 canonical contract instead.
