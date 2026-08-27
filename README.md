@@ -206,6 +206,13 @@ execution path remains the physical integration gate described above.
 See the retained
 [`Intel 8086 interactive heartbeat observation`](docs/validation/intel_8086_interactive_heartbeat_1mhz_observation.md).
 
+The same 1 MHz runtime now exposes a bounded native `calc` service. Python
+parses the expression, but the installed Intel 8086 or NEC V30 executes the
+selected `ADD`, `SUB`, `MUL`, or `DIV` instruction and returns the result
+through the interrupt-driven mailbox. The first physical Intel 8086 run passed
+all four operations and continued with zero heartbeat loss; see the
+[`native calculator validation`](docs/validation/native_calculator_1mhz_validation.md).
+
 ## 📚 Documentation
 
 - [`docs/architecture.md`](docs/architecture.md) — canonical system architecture

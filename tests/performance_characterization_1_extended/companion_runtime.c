@@ -68,6 +68,16 @@
 #define NATIVE_REPLY_WORDS               13u
 #define PROCESSOR_SIGNATURE_INTEL_8086 0x0012u
 #define PROCESSOR_SIGNATURE_NEC_V30    0x000Cu
+#define CALCULATOR_MAGIC               0xCA1Cu
+#define CALCULATOR_SLOT_OFFSET         0x0170u
+#define CALCULATOR_ADD                       1u
+#define CALCULATOR_SUB                       2u
+#define CALCULATOR_MUL                       3u
+#define CALCULATOR_DIV                       4u
+#define CALCULATOR_OPCODE_ADD           0xC801u /* 01 C8: ADD AX,CX */
+#define CALCULATOR_OPCODE_SUB           0xC829u /* 29 C8: SUB AX,CX */
+#define CALCULATOR_OPCODE_MUL           0xE1F7u /* F7 E1: MUL CX */
+#define CALCULATOR_OPCODE_DIV           0xF1F7u /* F7 F1: DIV CX */
 
 typedef struct {
     uint32_t key;
@@ -140,6 +150,7 @@ static uint32_t g_int60_dma_words;
 static uint32_t g_irq_rom_dma_words;
 static uint32_t g_irq_io_dma_words;
 static uint32_t g_processor_boot_id;
+static uint16_t g_calculator_opcode = CALCULATOR_OPCODE_ADD;
 
 static int evidence_printf(const char *format, ...);
 static void service_cdc_control(void);
@@ -201,6 +212,13 @@ typedef struct {
     uint32_t observed_cycles;
     uint32_t cpu_sequence;
     uint32_t command_sequence;
+    bool calculator_requested;
+    bool calculator_valid;
+    uint16_t calculator_operation;
+    uint16_t calculator_lhs;
+    uint16_t calculator_rhs;
+    uint16_t calculator_low;
+    uint16_t calculator_high;
 } live_round_result_t;
 
 static uint32_t memory_key(uint32_t address) {
@@ -227,11 +245,27 @@ static void add_io(exact_sequence_t *s, uint16_t port, uint16_t value) {
     add_pair(s, io_read_key(port), value);
 }
 
+static void add_image_range(exact_sequence_t *s, uint32_t first,
+                            uint32_t end_exclusive);
+
 static uint16_t image_word(uint32_t offset) {
     hard_assert((offset & 1u) == 0u);
     hard_assert(offset + 1u < companion_runtime_rom_size);
+    if (offset == CALCULATOR_SLOT_OFFSET)
+        return g_calculator_opcode;
     return (uint16_t)companion_runtime_rom_data[offset] |
            ((uint16_t)companion_runtime_rom_data[offset + 1u] << 8);
+}
+
+static void compile_irq_rom_sequence(void) {
+    memset(&g_irq_rom, 0, sizeof g_irq_rom);
+    add_memory(&g_irq_rom, IVT20_OFFSET_ADDRESS, IRQ_HANDLER_OFFSET);
+    add_memory(&g_irq_rom, IVT20_SEGMENT_ADDRESS, 0xF000u);
+    add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
+                    companion_runtime_rom_size & ~1u);
+    add_memory(&g_irq_rom, STACK_IP_ADDRESS, IRQ_RETURN_OFFSET);
+    add_memory(&g_irq_rom, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_irq_rom, STACK_FLAGS_ADDRESS, 0xF246u);
 }
 
 static void add_image_range(exact_sequence_t *s, uint32_t first,
@@ -252,7 +286,6 @@ static void compile_sequences(void) {
     memset(&g_boot, 0, sizeof g_boot);
     memset(&g_int60_initial, 0, sizeof g_int60_initial);
     memset(&g_int60, 0, sizeof g_int60);
-    memset(&g_irq_rom, 0, sizeof g_irq_rom);
     memset(&g_irq_io, 0, sizeof g_irq_io);
 
     add_memory(&g_boot, RESET_ROM_BASE, 0x00EAu);
@@ -301,14 +334,7 @@ static void compile_sequences(void) {
      * changes with clock ratio and queue state.  Keeping ROM and I/O on
      * separate SMs makes that interleave irrelevant: each stream advances
      * only on its own qualified current-cycle key. */
-    add_memory(&g_irq_rom, IVT20_OFFSET_ADDRESS, IRQ_HANDLER_OFFSET);
-    add_memory(&g_irq_rom, IVT20_SEGMENT_ADDRESS, 0xF000u);
-    add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
-                    companion_runtime_rom_size & ~1u);
-    /* A maskable interrupt accepted while HLT is active resumes at 0022h. */
-    add_memory(&g_irq_rom, STACK_IP_ADDRESS, IRQ_RETURN_OFFSET);
-    add_memory(&g_irq_rom, STACK_CS_ADDRESS, 0xF000u);
-    add_memory(&g_irq_rom, STACK_FLAGS_ADDRESS, 0xF246u);
+    compile_irq_rom_sequence();
 
     add_io(&g_irq_io, STATUS_PORT, 1u);
     for (uint32_t i = 0u; i < HOST_WORDS; ++i)
@@ -468,6 +494,32 @@ static uint16_t stage_live_payload(const pi86_bridge_message_t *record) {
     return witness;
 }
 
+static bool select_calculator_opcode(const pi86_bridge_message_t *record) {
+    g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    if (record->type != PI86_BRIDGE_MESSAGE_COMMAND ||
+        g_host_words[0] != CALCULATOR_MAGIC)
+        return false;
+
+    switch (g_host_words[1]) {
+        case CALCULATOR_ADD:
+            g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+            break;
+        case CALCULATOR_SUB:
+            g_calculator_opcode = CALCULATOR_OPCODE_SUB;
+            break;
+        case CALCULATOR_MUL:
+            g_calculator_opcode = CALCULATOR_OPCODE_MUL;
+            break;
+        case CALCULATOR_DIV:
+            if (g_host_words[3] == 0u) return false;
+            g_calculator_opcode = CALCULATOR_OPCODE_DIV;
+            break;
+        default:
+            return false;
+    }
+    return true;
+}
+
 static void rearm_exact_stream(const pc1c_sm_t *sm, int dma,
                                const exact_sequence_t *sequence,
                                const uint32_t *words, uint32_t word_count) {
@@ -547,6 +599,7 @@ static void classify_live_round(live_round_result_t *round,
     round->foreground_commit = false;
     round->native_counter_valid = false;
     round->processor_identity_valid = false;
+    round->calculator_valid = false;
     round->processor_signature = 0u;
     round->observed_witness = 0u;
     uint16_t tx_data[NATIVE_REPLY_WORDS] = {0};
@@ -589,6 +642,18 @@ static void classify_live_round(live_round_result_t *round,
                     round->native_counter_valid = true;
                 }
                 round->command_sequence = 0u;
+                if (round->calculator_requested &&
+                    tx_data[2] == CALCULATOR_MAGIC &&
+                    tx_data[3] == g_host_words[1] &&
+                    tx_data[4] == g_host_words[2] &&
+                    tx_data[5] == g_host_words[3]) {
+                    round->calculator_operation = tx_data[3];
+                    round->calculator_lhs = tx_data[4];
+                    round->calculator_rhs = tx_data[5];
+                    round->calculator_low = tx_data[0];
+                    round->calculator_high = tx_data[1];
+                    round->calculator_valid = true;
+                }
             } else if (round->eoi && tx_words >= 1u) {
                 round->foreground_commit = true;
             }
@@ -611,6 +676,14 @@ static bool run_live_round(const pc1c_sm_t *foreground,
                            live_round_result_t *round) {
     memset(round, 0, sizeof *round);
     const uint16_t expected_witness = stage_live_payload(record);
+    g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    round->calculator_requested =
+        record->type == PI86_BRIDGE_MESSAGE_COMMAND &&
+        g_host_words[0] == CALCULATOR_MAGIC;
+    if (round->calculator_requested && !select_calculator_opcode(record))
+        return false;
+    compile_irq_rom_sequence();
+    g_irq_rom_dma_words = flatten_full(&g_irq_rom, g_irq_rom_words);
     memset(&g_irq_io, 0, sizeof g_irq_io);
     add_io(&g_irq_io, STATUS_PORT, 1u);
     for (uint32_t i = 0u; i < HOST_WORDS; ++i)
@@ -659,7 +732,8 @@ static bool run_live_round(const pc1c_sm_t *foreground,
         if (round->witness && round->irq_commit &&
             round->native_counter_valid &&
             round->processor_identity_valid && round->eoi &&
-            round->foreground_commit)
+            round->foreground_commit &&
+            (!round->calculator_requested || round->calculator_valid))
             return true;
         pi86_ai_bridge_usb_task();
     }
@@ -677,8 +751,31 @@ static void send_live_reply(const pi86_bridge_message_t *request,
     g_reply_record.status = passed ? PI86_BRIDGE_STATUS_OK :
         PI86_BRIDGE_STATUS_TIMEOUT;
     g_reply_record.sequence = request->sequence;
-    const char *payload = request->type == PI86_BRIDGE_MESSAGE_COMMAND ?
-        "V30 COMMAND OK" : "V30 HEARTBEAT OK";
+    char payload[33];
+    if (round->calculator_valid) {
+        const char operator = round->calculator_operation == CALCULATOR_ADD ? '+' :
+            round->calculator_operation == CALCULATOR_SUB ? '-' :
+            round->calculator_operation == CALCULATOR_MUL ? '*' : '/';
+        if (round->calculator_operation == CALCULATOR_MUL) {
+            const uint32_t product = (uint32_t)round->calculator_low |
+                ((uint32_t)round->calculator_high << 16);
+            snprintf(payload, sizeof payload, "CALC %u%c%u=%lu",
+                     round->calculator_lhs, operator, round->calculator_rhs,
+                     (unsigned long)product);
+        } else if (round->calculator_operation == CALCULATOR_DIV) {
+            snprintf(payload, sizeof payload, "CALC %u/%u=%u R%u",
+                     round->calculator_lhs, round->calculator_rhs,
+                     round->calculator_low, round->calculator_high);
+        } else {
+            snprintf(payload, sizeof payload, "CALC %u%c%u=%u",
+                     round->calculator_lhs, operator, round->calculator_rhs,
+                     round->calculator_low);
+        }
+    } else {
+        snprintf(payload, sizeof payload, "%s",
+                 request->type == PI86_BRIDGE_MESSAGE_COMMAND ?
+                     "V30 COMMAND OK" : "V30 HEARTBEAT OK");
+    }
     witness.magic[0] = PI86_NATIVE_WITNESS_MAGIC_0;
     witness.magic[1] = PI86_NATIVE_WITNESS_MAGIC_1;
     witness.magic[2] = PI86_NATIVE_WITNESS_MAGIC_2;
@@ -719,6 +816,14 @@ static void send_live_reply(const pi86_bridge_message_t *request,
         round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
             "NEC V30" : "UNKNOWN",
         round->processor_identity_valid ? "PASS" : "FAIL");
+    if (round->calculator_requested) {
+        evidence_printf(
+            "[NATIVE CALCULATOR] op=%u lhs=%u rhs=%u low=%u high=%u result=%s\n",
+            round->calculator_operation, round->calculator_lhs,
+            round->calculator_rhs, round->calculator_low,
+            round->calculator_high,
+            round->calculator_valid ? "PASS" : "FAIL");
+    }
 }
 
 static int evidence_printf(const char *format, ...) {

@@ -8,6 +8,7 @@ from .exchange import *
 from .console import *
 from .console import _read_terminal_command
 from .workload import WorkloadManifest
+from .calculator import calculator_payload
 
 
 _WORKLOAD_STATE_NAMES = {
@@ -601,6 +602,14 @@ def persistent_monitor(
                         request_type = TYPE_COMMAND
                         request_payload = payload
                         is_command = True
+                elif name == "calc":
+                    try:
+                        request_payload = calculator_payload(arguments)
+                    except ValueError as exc:
+                        print_event(f"calc: {exc}")
+                        continue
+                    request_type = TYPE_COMMAND
+                    is_command = True
                 elif name == "ls":
                     if len(arguments) > 1:
                         print_event("Usage: ls [flash:/path|<Host path>]")

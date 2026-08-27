@@ -93,7 +93,14 @@ def validate_live_reply(
             "native witness service type mismatch: "
             f"{witness.service_type} != {request.message_type}"
         )
-    if witness.text != expected_payload:
+    from .calculator import is_calculator_payload
+
+    calculator_reply = (
+        request.message_type == TYPE_COMMAND and
+        is_calculator_payload(request.payload) and
+        witness.text.startswith(b"CALC ")
+    )
+    if witness.text != expected_payload and not calculator_reply:
         raise ValueError(f"unexpected native reply text: {witness.text!r}")
     if expected_processor is not None and witness.processor != expected_processor:
         raise ValueError(

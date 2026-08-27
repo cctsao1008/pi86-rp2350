@@ -81,6 +81,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("restart", "restart", "workload", "reset and restart the workload", "restart"),
     CommandSpec("bootloader", "bootloader", "control", "stop the processor and enter RP2350 UF2 download mode", "bootloader", aliases=("bootsel",)),
     CommandSpec("send", "send <text>", "console", "send stdin/command text to the processor", "console"),
+    CommandSpec("calc", "calc <lhs> <+|-|*|/> <rhs>", "console", "calculate on the physical processor", "console"),
     CommandSpec("console", "console", "console", "enter or describe the interactive console", "console"),
     CommandSpec("stdin", "stdin <file>", "console", "stream a Host file to processor stdin", "console"),
     CommandSpec("stdout", "stdout <file|off>", "console", "capture processor stdout", "console"),

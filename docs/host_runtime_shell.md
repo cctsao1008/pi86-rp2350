@@ -75,6 +75,7 @@ interface.
 | Area | Commands |
 |---|---|
 | Workload | `load`, `run`, `stop`, `restart` |
+| Native service | `calc` |
 | Console | `send`, `console`, `stdin`, `stdout` |
 | Files | `ls`, `cat`, `put`, `get`, `rm`, `mv` |
 | Storage | `df`, `mount`, `unmount`, `sync` |
@@ -132,6 +133,39 @@ framework contracts until their backends are integrated.
 In interactive mode the physical-processor `ALIVE` row remains above the
 editable prompt in all three display modes. `quiet`, `status`, and `verbose`
 change event density only; they do not hide liveness.
+
+### Native calculator service
+
+`calc` is the first small interactive service whose result is computed by the
+installed physical processor rather than by Python or the RP2350:
+
+```text
+8086> calc 12 + 34
+[019] CALC 12+34=46  latency=2.2 ms
+
+8086> calc 300 * 200
+[040] CALC 300*200=60000  latency=2.6 ms
+
+8086> calc 1000 / 33
+[052] CALC 1000/33=30 R10  latency=3.8 ms
+```
+
+The Host parses the expression and transports a seven-word request. The
+RP2350 prepares the matching native instruction in the accepted 1 MHz
+interrupt service, asserts physical `INTR`, and completes the real two-cycle
+`INTA` handshake. The Intel 8086 or NEC V30 loads the operands, executes
+`ADD`, `SUB`, unsigned `MUL`, or unsigned `DIV`, publishes the result through
+the mailbox, issues EOI, executes `IRET`, and returns to `STI`/`HLT` idle.
+
+Operands are unsigned 16-bit values written in decimal or with Python-style
+base prefixes such as `0x1234`. Addition and subtraction use 16-bit wraparound;
+multiplication returns the full 32-bit product; division returns quotient and
+remainder. Division by zero is rejected by the Host and is not sent to the
+physical processor.
+
+This bounded native service is not presented as completion of general
+arbitrary-address `load -> run` execution. It demonstrates the intended shell
+interaction model while reusing the physically accepted companion runtime.
 
 The displayed `cpu_seq` is not a Host loop counter. It is maintained by the
 physical Intel 8086 or NEC V30 inside the native interrupt service routine and

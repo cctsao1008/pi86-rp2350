@@ -25,6 +25,8 @@ org 0
 %define WITNESS_PORT           0x00E8
 %define COMMIT                 0x0001
 %define HOST_WORDS             7
+%define CALCULATOR_MAGIC       0xCA1C
+%define CALCULATOR_SLOT        0x0170
 
 global companion_runtime_entry
 companion_runtime_entry:
@@ -113,12 +115,28 @@ PI86_EVEN_FETCH_TARGET companion_irq_handler
     mov dx, STATUS_PORT
     in ax, dx
 
+    ; The seven mailbox words also form the native calculator ABI:
+    ;
+    ;   CA1Ch, operation, lhs, rhs, reserved, reserved, reserved
+    ;
+    ; RP2350 selects one two-byte 8086 instruction in CALCULATOR_SLOT before
+    ; asserting INTR.  The processor still owns both operands and the actual
+    ; arithmetic.  All four instructions occupy exactly two bytes, so ADD,
+    ; SUB, MUL, and DIV share one immutable fetch layout.
     xor bx, bx
     mov dx, RX_PORT
     in ax, dx
-    mov cx, ax                  ; first word classifies heartbeat vs command
     xor bx, ax
-%rep HOST_WORDS - 1
+    in ax, dx
+    mov di, ax                  ; calculator operation
+    xor bx, ax
+    in ax, dx
+    mov si, ax                  ; unsigned 16-bit lhs
+    xor bx, ax
+    in ax, dx
+    mov cx, ax                  ; unsigned 16-bit rhs
+    xor bx, ax
+%rep HOST_WORDS - 4
     in ax, dx
     xor bx, ax
 %endrep
@@ -127,27 +145,39 @@ PI86_EVEN_FETCH_TARGET companion_irq_handler
     mov ax, bx
     out dx, ax
 
-    ; Native reply proves that the physical V30 consumed the interrupt-owned
-    ; request.  The host-visible 64-byte response is assembled by the service
-    ; core only after this commit is observed on the real bus.
-    mov dx, TX_PORT
-    mov ax, 0x4548              ; HE
-    out dx, ax
-    mov ax, 0x5241              ; AR
-    out dx, ax
-    mov ax, 0x4254              ; TB
-    out dx, ax
-    mov ax, 0x4145              ; EA
-    out dx, ax
-    mov ax, 0x2054              ; T<space>
-    out dx, ax
-    mov ax, 0x4B4F              ; OK
-    out dx, ax
+    ; Execute the selected arithmetic instruction on the physical processor.
+    ; Default ROM bytes are ADD AX,CX (01 C8).  The RP2350 response table may
+    ; substitute SUB AX,CX (29 C8), MUL CX (F7 E1), or DIV CX (F7 F1) at this
+    ; exact aligned word without changing a single subsequent fetch address.
+    mov ax, si
+    xor dx, dx
+    times CALCULATOR_SLOT - ($ - $$) db 0x90
+PI86_EVEN_FETCH_TARGET calculator_instruction
+    add ax, cx
 
-    ; Native processor signature: 0012h = Intel 8086 behavior,
-    ; 000Ch = NEC V20/V30 behavior.
+    ; Publish six processor-produced words.  The passive observer must see
+    ; this exact record before the Host exposes a calculator result:
+    ; result-low, result-high/remainder, magic, operation, lhs, rhs.
+    out TX_PORT, ax
+    mov ax, dx
+    out TX_PORT, ax
+    mov ax, CALCULATOR_MAGIC
+    out TX_PORT, ax
     mov ax, di
-    out dx, ax
+    out TX_PORT, ax
+    mov ax, si
+    out TX_PORT, ax
+    mov ax, cx
+    out TX_PORT, ax
+
+    ; Recreate the native processor signature after DI served as the operation
+    ; register.  0012h is Intel 8086 behavior; 000Ch is NEC V20/V30 behavior.
+    mov ax, 0x0102
+    db 0xD5, 0x10
+    xor ah, ah
+    mov di, ax
+    out TX_PORT, ax
+    mov dx, TX_PORT
 
     ; Count a completed native service immediately before publishing the
     ; counter snapshot and commit. ADD/ADC removes the carry branch entirely,

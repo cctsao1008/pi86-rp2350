@@ -11,6 +11,7 @@ from rp86_runtime.cli import build_parser  # noqa: E402
 from rp86_runtime.console import ConsoleStatus, _apply_input_character  # noqa: E402
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
+from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
 from rp86_runtime.session import _format_runtime_top  # noqa: E402
 from rp86_runtime.shell_commands import (  # noqa: E402
     complete_shell_input,
@@ -21,6 +22,23 @@ from rp86_runtime.workload import WorkloadManifest  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
+    def test_calculator_encodes_syntax_without_host_evaluation(self) -> None:
+        payload = calculator_payload(("0x1234", "*", "3"))
+        self.assertTrue(is_calculator_payload(payload))
+        self.assertEqual(
+            payload,
+            bytes.fromhex("1cca030034120300000000000000"),
+        )
+
+    def test_calculator_rejects_unsafe_native_division(self) -> None:
+        with self.assertRaisesRegex(ValueError, "division by zero"):
+            calculator_payload(("7/0",))
+
+    def test_calculator_is_a_first_class_shell_command(self) -> None:
+        command = parse_command("calc 123 + 456")
+        self.assertEqual(command.spec.name, "calc")
+        self.assertEqual(command.arguments, ("123", "+", "456"))
+
     def test_processor_identity_defaults_to_native_auto_detection(self) -> None:
         args = build_parser().parse_args(["--interactive"])
         self.assertEqual(args.processor, "auto")
