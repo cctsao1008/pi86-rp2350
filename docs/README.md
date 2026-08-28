@@ -57,6 +57,7 @@ consequences. Current defining decisions include:
 
 - [`ADR 0008`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — Host-managed bare-metal runtime
 - [`ADR 0009`](adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md) — Intel 8086 and NEC V30 scope
+- [`ADR 0010`](adr/0010-adopt-continuous-and-paced-clock-engines.md) — CONTINUOUS and PACED execution engines
 
 ## Validation evidence
 
@@ -71,6 +72,7 @@ Useful current evidence includes:
 - [`native_calculator_1mhz_validation.md`](validation/native_calculator_1mhz_validation.md)
 - [`host_loaded_internal_sram_calculator_1mhz_validation.md`](validation/host_loaded_internal_sram_calculator_1mhz_validation.md)
 - [`intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
+- [`paced_internal_sram_general_execution_validation.md`](validation/paced_internal_sram_general_execution_validation.md)
 
 ## Story and retrospective
 

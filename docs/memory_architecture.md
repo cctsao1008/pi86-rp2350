@@ -15,11 +15,11 @@ The RP2350 owns every physical controller and arbitrates access.
 
 | Term | Architectural meaning | Current implementation / validation status |
 |---|---|---|
-| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded calculator execution at `10000h` are physically validated; general image/RAM response remains open |
+| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded 1 MHz execution are validated; PACED general branch/loop/stack/RAM/I/O execution is physically validated |
 | **External PSRAM** | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
-| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract and bounded Host-loaded execution validated; general image/RAM response remains open |
+| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract, bounded CONTINUOUS execution, and standalone general PACED execution are validated |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
 | **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline | retained PIO/DMA implementations physically validated |
 
@@ -46,14 +46,16 @@ that pool with range, ordered-chunk, and CRC32 validation. The measured linker
 map leaves about 224 KiB of main SRAM for firmware, realtime state, and future
 integration growth.
 
-The first physical launch is now accepted: a 16-byte Host-uploaded calculator
+The CONTINUOUS physical launch is accepted: a 16-byte Host-uploaded calculator
 at `10000h` is fetched and executed by the real processor under `run`, `stop`,
-and `restart` control. This remains a bounded two-word fetch per operation; it
-does not yet mean that the general PIO/DMA bus engine can serve every address.
+and `restart` control. Separately, the PACED bus engine now serves general
+Internal-SRAM code, data, and stack one complete clock pulse at a time. Its first
+physical workload validated reset handoff, taken branches, `LOOP`, `PUSH`/`POP`,
+byte/word RAM, and I/O publication across 218 serviced cycles.
 
-The next implementation gate expands that path to general image sizes,
-processor-visible writable RAM, shared-memory behavior, stdio, and
-timeout/restart handling without making External PSRAM a prerequisite.
+The next integration gate places that PACED engine behind the canonical Host
+lifecycle and adds cooperative CONTINUOUS/PACED switching, shared-memory behavior,
+stdio, and timeout/restart handling without making External PSRAM a prerequisite.
 
 ### External PSRAM
 
@@ -187,18 +189,17 @@ not embedded in the block layer and can be added later by the runtime service.
 
 ## 7. Physical timing policy
 
-The current Pi86 HAT keeps V30 `READY` asserted. An active bus cycle cannot wait
-for:
+The current Pi86 HAT keeps processor `READY` asserted. The runtime uses two clock
+policies instead of READY-generated wait states:
 
-- Host software or USB;
-- FAT operations;
-- NOR or SD access;
-- arbitrary PSRAM latency;
-- an unbounded M33 or inter-core lookup.
+- CONTINUOUS uses a measured running clock plus PIO/DMA and prepared response state.
+- PACED issues complete pulses and may pause with `CLK` low between pulses while
+  M33 services the next memory or I/O operation.
 
-Timing-critical state must be prepared for PIO/DMA or served by another measured
-bounded mechanism. Storage and Host activity happen outside the current V30
-cycle.
+The PACED policy has been physically validated with general Internal SRAM. It does
+not stop midway through a pulse and does not let Host software or a filesystem
+callback take ownership of an active electrical phase. Host, FAT, NOR, SD, and
+unbounded PSRAM work remain outside the partially completed bus cycle.
 
 This is a physical implementation constraint, not a requirement to reject
 complex workloads. A workload may crash or time out; the Host reports the
@@ -220,14 +221,14 @@ IDs, raw erase blocks, or SD sectors.
 
 The order of implementation does not change the architecture:
 
-1. expand the accepted bounded Internal-SRAM responder to general images and writable RAM;
-2. add stdio, fault reporting, timeout, and Host restart around that execution path;
-3. expose Internal-SRAM shared memory through RP2350 ownership;
-4. complete remaining `flash:` file operations and processor file services;
-5. detect/test External PSRAM and provide Host read/write;
-6. add PSRAM-backed capacity through a measured staging/cache policy;
-7. mount/unmount and hot-remove `sd:`;
-8. complete fault preservation.
+1. integrate the validated PACED engine into the canonical Host lifecycle;
+2. add cooperative CONTINUOUS/PACED engine switching at an explicit safe point;
+3. add stdio, fault reporting, timeout, and Host restart around general execution;
+4. expose Internal-SRAM shared memory through RP2350 ownership;
+5. complete remaining `flash:` file operations and processor file services;
+6. detect/test External PSRAM and provide Host read/write;
+7. add PSRAM-backed capacity through a measured staging/cache policy;
+8. mount/unmount and hot-remove `sd:` and complete fault preservation.
 
 ## 10. Related documents
 

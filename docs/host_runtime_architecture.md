@@ -373,17 +373,28 @@ active V30 bus cycle.
 ## 12. Physical execution boundary
 
 The physical V30 owns instruction execution, register state, and control flow.
-PIO/DMA and prepared RP2350 state satisfy timing-critical bus behavior. Host
-software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
-transactions do not answer a current V30 bus cycle directly.
+The RP2350 provides two physical execution policies:
 
-Bounded Host-loaded Internal-SRAM execution is physically accepted for the
-calculator image. General binary layouts, arbitrary control flow, and writable
-processor RAM remain a physical implementation gate. After that path is
-validated, External PSRAM may extend it
-through a measured prepared/cache/refill policy. The existing Pi86 HAT holds
-`READY` asserted, so neither backend may depend on an unbounded current-cycle
-software lookup.
+- **CONTINUOUS:** PIO/DMA and prepared state satisfy every deadline while the
+  measured clock runs continuously.
+- **PACED:** M33 issues complete clock pulses and may leave `CLK` low between
+  pulses while it services general Internal-SRAM memory or I/O.
+
+Bounded Host-loaded CONTINUOUS execution is physically accepted for the
+calculator image. Standalone PACED execution is also physically accepted for
+general binary control flow, stack traffic, writable byte/word RAM, and I/O.
+The existing Pi86 HAT holds `READY` asserted; PACED changes the interval between
+complete pulses rather than inserting READY wait states or truncating a pulse.
+
+A cooperative engine change occurs only at an explicit safe point: the workload
+publishes a request through I/O, executes `STI; HLT`, and resumes after RP2350 has
+stopped at `CLK=LOW`, changed engine, prepared state, and delivered the established
+INTR/two-cycle-INTA/ISR/IRET wake path. This switching handshake remains an
+integration item.
+
+Host software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
+transactions do not own a partially completed physical bus phase. External PSRAM
+may extend capacity only through a separately measured policy.
 
 ## 13. Failure and recovery policy
 
@@ -406,16 +417,16 @@ The architecture is fixed; implementation proceeds by connecting backends to
 the stable Host shell:
 
 1. Host shell framework and capability reporting;
-2. bounded Internal-SRAM workload load/run/stop/restart and execution
-   (calculator accepted); then general binary layouts and writable RAM;
-3. native workload stdio;
-4. Internal-SRAM Host/processor shared memory;
-5. External NOR shared FAT volume as `flash:`;
-6. External PSRAM detection, integrity, and Host read/write;
-7. optional PSRAM capacity through measured staging/cache/refill;
-8. SD FAT volume as `sd:` with insert/remove handling;
-9. processor file services;
-10. `top`, trace, timeout, and fault-preservation integration.
+2. bounded CONTINUOUS Internal-SRAM lifecycle (calculator accepted);
+3. general PACED Internal-SRAM execution (standalone engine accepted), followed
+   by Host lifecycle and cooperative CONTINUOUS/PACED switching integration;
+4. native workload stdio;
+5. Internal-SRAM Host/processor shared memory;
+6. External NOR shared FAT volume as `flash:`;
+7. External PSRAM detection, integrity, and Host read/write;
+8. optional PSRAM capacity through a measured policy;
+9. SD FAT volume as `sd:` with insert/remove handling;
+10. processor file services, `top`, trace, timeout, and fault preservation.
 
 This sequence does not introduce new architecture. Each step only implements an
 already-defined service.

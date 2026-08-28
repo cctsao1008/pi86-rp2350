@@ -125,7 +125,7 @@ V30 service request ----+
 
 | Resource | Intended primary role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded calculator execution at `10000h` are physically validated; general image/RAM response remains open |
+| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and 1 MHz bounded execution are validated; general branch/loop/stack/RAM/I/O execution is physically validated with the PACED engine |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is shared `flash:` | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -177,19 +177,36 @@ The V30 never directly controls USB, FAT, NOR Flash, SD, PSRAM, PIO, or DMA.
 
 ## 8. Physical timing boundary
 
-The original Pi86 HAT keeps V30 `READY` asserted. An active bus cycle therefore
-cannot wait for Host software, USB, a filesystem operation, or arbitrary storage
-latency.
+The original Pi86 HAT keeps processor `READY` asserted. The runtime therefore
+controls latency through the processor clock rather than adding READY wait states.
+It has two execution-engine policies:
 
-PIO/DMA and prepared RP2350 state own timing-critical bus behavior. M33 firmware
-prepares and supervises future state; it does not perform an unbounded
-current-cycle lookup.
+| Engine | Clock policy | Intended use |
+|---|---|---|
+| **CONTINUOUS** | continuously running measured clock; PIO/DMA and prepared state meet each bus deadline | high-throughput prepared workloads, heartbeat, interrupts, and bounded services |
+| **PACED** | RP2350 issues complete clock pulses; the clock may remain low between pulses while M33 services memory or I/O | general Internal-SRAM execution, bring-up, inspection, and slow or variable-latency services |
 
 Bounded Host-loaded execution is physically accepted for the calculator image
 at `10000h`, including manifest/CRC validation, lifecycle control, physical
-fetch, interrupt return, and mailbox result. General image sizes and writable
-processor-visible RAM remain a physical implementation gate. External PSRAM is
-a later capacity tier behind a measured prepared, cached, or staged hit path.
+fetch, interrupt return, and mailbox result.
+
+The standalone PACED engine is also physically accepted. It served a flat native
+image from Internal SRAM through reset fetch, taken branches, `LOOP`, `PUSH`/`POP`,
+byte and word RAM operations, and I/O result publication. It completed 218 bus
+cycles with 183 memory reads, 33 memory writes, two I/O writes, and no unmapped,
+lane, or pad faults.
+
+Runtime switching between CONTINUOUS and PACED is a cooperative operation, not a
+mid-cycle clock change. A workload requests a mode through a control I/O port and
+enters `STI; HLT`. The RP2350 completes the current pulse, stops with `CLK` low,
+changes engines, prepares state, and wakes the processor through the established
+INTR/two-cycle-INTA/ISR/IRET path. The independent engines are implemented; this
+switch handshake remains to be integrated and physically validated.
+
+Host software, USB, and filesystem work still do not participate directly in a
+partially completed bus cycle. PACED mode pauses between complete pulses; it does
+not stretch or truncate a pulse. External PSRAM remains an optional later capacity
+tier whose access policy must be measured on hardware.
 
 ## 9. Host Protocol and shell
 

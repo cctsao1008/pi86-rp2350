@@ -1,6 +1,6 @@
 # ADR 0003: Require READY or Deterministic Hits for General Memory
 
-- Status: Accepted; hardware-redesign clause partially superseded by ADR 0006
+- Status: Superseded by ADR 0010; hardware-redesign clause was previously superseded by ADR 0006
 - Date: 2026-08-19
 
 > **Supersession note (2026-08-24):** ADR 0006 retains the current Pi86 HAT as
@@ -9,6 +9,13 @@
 > observable high-Z miss, no-current-cycle-M33, and asynchronous PSRAM/backing
 > policies below remain authoritative. The original decision text is preserved
 > for historical provenance.
+
+> **Supersession note (2026-08-28):** Physical validation demonstrated general
+> Internal-SRAM execution using complete software-paced clock pulses with low-phase
+> pauses. ADR 0010 therefore supersedes this ADR's architectural rejection of
+> clock pacing. The original datasheet analysis remains important: PACED operation
+> on the installed standard processors is an empirical project capability, not a
+> vendor-guaranteed static-clock specification.
 
 ## Context
 

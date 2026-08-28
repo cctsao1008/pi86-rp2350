@@ -139,7 +139,7 @@ content through it, not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded calculator execution at `10000h` are physically validated; general image/RAM response remains open |
+| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; bounded 1 MHz execution and general PACED branch/loop/stack/RAM/I/O execution are physically validated |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -158,13 +158,18 @@ directly owns USB, PSRAM, NOR Flash, SD, FAT, PIO, or DMA controllers.
 
 ## ⏱️ Physical timing boundary
 
-The original Pi86 HAT keeps the processor `READY` input asserted. Timing-critical
-bus behavior therefore remains in PIO/DMA and prepared RP2350 state. Host
-software, USB, filesystem work, and arbitrary storage transactions do not
-answer an active processor bus cycle.
+The original Pi86 HAT keeps the processor `READY` input asserted. The runtime now
+has two clock policies. **CONTINUOUS** keeps the measured clock running while
+PIO/DMA and prepared state meet every deadline. **PACED** issues one complete
+clock pulse at a time and may remain at `CLK=LOW` between pulses while RP2350
+services general Internal-SRAM memory or I/O.
 
-The next memory gate expands this bounded two-word workload fetch into a
-general image and writable-RAM responder backed first by Internal SRAM.
+PACED execution is physically validated through reset fetch, taken branches,
+`LOOP`, `PUSH`/`POP`, byte/word RAM, and native I/O result publication. Runtime
+switching between CONTINUOUS and PACED remains to be integrated. Host software,
+USB, filesystem work, and arbitrary storage transactions still do not take over
+a partially completed electrical bus phase.
+
 External PSRAM then extends capacity through a measured staging/cache policy;
 it is not a prerequisite for the first useful runtime.
 
@@ -204,8 +209,8 @@ INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
 uses the same physical identity mechanism and lets the installed processor
 demonstrate which instruction behavior it actually executed. The upload and
 lifecycle ABI are implemented; bounded Host-loaded calculator execution is
-physically validated, while general image and writable-RAM response remains
-the memory integration gate described above.
+physically validated, and the standalone PACED engine has validated general
+Internal-SRAM code, stack, writable RAM, and I/O response.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
 > runtime—and answered.**

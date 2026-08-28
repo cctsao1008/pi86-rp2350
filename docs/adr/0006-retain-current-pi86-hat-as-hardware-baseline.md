@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-24
 - Supersedes: the future V3.0 hardware-redesign requirement in ADR 0003
+- Amended by: ADR 0010, which accepts a separately validated PACED clock engine
 
 ## Context
 
@@ -45,7 +46,11 @@ follow the deterministic deadline policy retained from ADR 0003:
    other slow work remain outside the active physical cycle.
 
 Clock stopping/stretching on the installed standard D70116C-8 is not promoted
-as a correctness mechanism for misses.
+as a vendor-guaranteed timing mechanism for CONTINUOUS-mode misses. ADR 0010
+adds a separate PACED engine based on physical validation: it issues complete
+pulses and pauses only at `CLK=LOW` between pulses. That capability is accepted
+for this project hardware baseline without claiming operation inside the
+processor vendor's published AC envelope.
 
 A future hardware redesign may be reconsidered only if a demonstrated and
 important architectural limitation cannot be addressed within the existing
