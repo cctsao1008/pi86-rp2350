@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "memory/backing.h"
+#include "memory/shared_mailbox.h"
 #include "runtime/workload_manager.h"
 
 enum {
@@ -99,6 +100,28 @@ int main(void) {
     manifest.stack_segment = 0x0300u;
     manifest.stack_offset = 0u;
     assert(!rp86_workload_begin(&manager, 10u, &manifest));
+
+    /* The fixed Host/processor mailbox is never workload image storage. */
+    uint8_t mailbox_region[0x2000u];
+    rp86_memory_backing_t mailbox_backing;
+    rp86_memory_backing_init_direct(&mailbox_backing, "MAILBOX-TEST",
+                                    0x3E000u, mailbox_region,
+                                    sizeof mailbox_region);
+    rp86_workload_manager_t mailbox_manager;
+    rp86_workload_manager_init(&mailbox_manager, &mailbox_backing);
+    uint8_t overlapping_image[0x20u] = {0x90u};
+    rp86_workload_manifest_t overlapping = {
+        .magic = RP86_WORKLOAD_MAGIC,
+        .version = RP86_WORKLOAD_FORMAT_VERSION,
+        .header_size = sizeof(rp86_workload_manifest_t),
+        .image_size = sizeof overlapping_image,
+        .image_crc32 = crc32_update(0u, overlapping_image,
+                                    sizeof overlapping_image),
+        .load_address = RP86_SHARED_MAILBOX_BASE - 0x10u,
+        .entry_segment = (RP86_SHARED_MAILBOX_BASE - 0x10u) >> 4u,
+        .entry_offset = 0u,
+    };
+    assert(!rp86_workload_begin(&mailbox_manager, 12u, &overlapping));
 
     /* CRC failure is visible as a workload fault. */
     manifest = manifest_for(image, sizeof image);

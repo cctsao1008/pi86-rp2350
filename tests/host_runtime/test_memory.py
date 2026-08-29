@@ -19,10 +19,12 @@ from rp86_runtime.memory import (  # noqa: E402
     memory_read_request,
     memory_write_records,
     parse_memory_read,
+    validate_memory_reply,
 )
 from rp86_runtime.protocol import (  # noqa: E402
     MEMORY_READ,
     Message,
+    STATUS_BAD_STATE,
     TYPE_MEMORY_RESULT,
 )
 
@@ -38,6 +40,17 @@ class HostMemoryTests(unittest.TestCase):
         reply = Message(TYPE_MEMORY_RESULT, 8, request.payload + b"abc")
         self.assertEqual(parse_memory_read(reply, request), b"abc")
         self.assertEqual(request.payload[0], MEMORY_READ)
+
+    def test_running_workload_write_refusal_is_explained(self) -> None:
+        request = memory_write_records(0x10000, b"\x90", 9)[0]
+        reply = Message(
+            TYPE_MEMORY_RESULT,
+            request.sequence,
+            request.payload[:12],
+            status=STATUS_BAD_STATE,
+        )
+        with self.assertRaisesRegex(ValueError, "only the shared mailbox"):
+            validate_memory_reply(reply, request)
 
     def test_mailbox_commit_transfers_owner_last(self) -> None:
         records = mailbox_commit_records(b"hello", 7, 20)

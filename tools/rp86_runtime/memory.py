@@ -9,6 +9,7 @@ from .protocol import (
     MEMORY_READ,
     MEMORY_WRITE,
     Message,
+    STATUS_BAD_STATE,
     STATUS_OK,
     TYPE_MEMORY_REQUEST,
     TYPE_MEMORY_RESULT,
@@ -56,6 +57,14 @@ def validate_memory_reply(reply: Message, request: Message) -> bytes:
     if reply.sequence != request.sequence:
         raise ValueError(
             f"memory reply sequence mismatch: {reply.sequence} != {request.sequence}"
+        )
+    if (
+        reply.status == STATUS_BAD_STATE
+        and request.payload[:1] == bytes([MEMORY_WRITE])
+    ):
+        raise ValueError(
+            "memory write refused while workload is running; "
+            "only the shared mailbox is writable"
         )
     if reply.status != STATUS_OK:
         raise ValueError(f"memory request failed with status {reply.status}")

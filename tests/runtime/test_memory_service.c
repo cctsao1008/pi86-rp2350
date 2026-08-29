@@ -58,5 +58,40 @@ int main(void) {
     assert(reply.length == sizeof read + 3u);
     assert(memcmp(reply.payload + sizeof read, "abc", 3u) == 0);
 
+    /* While a workload is running, raw Host writes are confined to the
+     * mailbox. Reads remain available for observation. */
+    rp86_memory_service_set_write_window(
+        &service, RP86_SHARED_MAILBOX_BASE, RP86_SHARED_MAILBOX_SIZE);
+    request.sequence = 9u;
+    memset(request.payload, 0, sizeof request.payload);
+    memcpy(request.payload, &write, sizeof write);
+    memcpy(request.payload + sizeof write, "xyz", 3u);
+    request.length = sizeof write + 3u;
+    assert(rp86_memory_service_handle(&service, &request, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_STATE);
+    assert(memcmp(storage + 0x1234u, "abc", 3u) == 0);
+
+    request.sequence = 10u;
+    memset(request.payload, 0, sizeof request.payload);
+    memcpy(request.payload, &read, sizeof read);
+    request.length = sizeof read;
+    assert(rp86_memory_service_handle(&service, &request, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_OK);
+    assert(memcmp(reply.payload + sizeof read, "abc", 3u) == 0);
+
+    const request_header_t mailbox_write = {
+        .operation = RP86_MEMORY_WRITE,
+        .address = RP86_SHARED_MAILBOX_BASE + RP86_SHARED_MAILBOX_DATA_OFFSET,
+        .length = 3u,
+    };
+    request.sequence = 11u;
+    memset(request.payload, 0, sizeof request.payload);
+    memcpy(request.payload, &mailbox_write, sizeof mailbox_write);
+    memcpy(request.payload + sizeof mailbox_write, "run", 3u);
+    request.length = sizeof mailbox_write + 3u;
+    assert(rp86_memory_service_handle(&service, &request, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_OK);
+    assert(memcmp(storage + mailbox_write.address, "run", 3u) == 0);
+
     return 0;
 }

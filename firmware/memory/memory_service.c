@@ -12,9 +12,31 @@ typedef struct __attribute__((packed)) {
 
 enum { MEMORY_PAYLOAD_HEADER_SIZE = 12u };
 
+_Static_assert(MEMORY_PAYLOAD_HEADER_SIZE + RP86_MEMORY_DATA_BYTES <=
+                   RP86_HOST_PROTOCOL_PAYLOAD_SIZE,
+               "memory result exceeds Host Protocol payload");
+
+static bool write_range_allowed(const rp86_memory_service_t *service,
+                                uint32_t address, size_t length) {
+    if (address < service->write_base) return false;
+    const size_t offset = (size_t)(address - service->write_base);
+    return offset <= service->write_size &&
+           length <= service->write_size - offset;
+}
+
 void rp86_memory_service_init(rp86_memory_service_t *service,
                               rp86_memory_backing_t *backing) {
     service->backing = backing;
+    service->write_base = backing == NULL ? 0u : backing->processor_base;
+    service->write_size = backing == NULL ? 0u : backing->size;
+}
+
+void rp86_memory_service_set_write_window(rp86_memory_service_t *service,
+                                          uint32_t processor_base,
+                                          size_t size) {
+    if (service == NULL) return;
+    service->write_base = processor_base;
+    service->write_size = size;
 }
 
 bool rp86_memory_service_handle(
@@ -64,6 +86,10 @@ bool rp86_memory_service_handle(
     }
     if (header.operation == RP86_MEMORY_WRITE &&
         request->length == MEMORY_PAYLOAD_HEADER_SIZE + header.length) {
+        if (!write_range_allowed(service, header.address, header.length)) {
+            reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
+            return true;
+        }
         if (!rp86_memory_backing_write(
                 service->backing, header.address,
                 request->payload + MEMORY_PAYLOAD_HEADER_SIZE,

@@ -1212,6 +1212,10 @@ static bool start_general_workload(void) {
                      (uint32_t)g_workload_memory.size,
                      g_reset_handoff, RESET_HANDOFF_BASE,
                      sizeof g_reset_handoff);
+    if (!rp86_shared_mailbox_init(&g_workload_memory)) {
+        rp86_processor_bus_force_safe_state(&g_processor_bus);
+        return false;
+    }
     memset(&g_workload_bus_stats, 0, sizeof g_workload_bus_stats);
     memset(g_workload_trace, 0, sizeof g_workload_trace);
     g_workload_trace_count = 0u;
@@ -1511,6 +1515,15 @@ static bool handle_filesystem_record(const rp86_host_protocol_message_t *request
 
 static bool handle_memory_record(const rp86_host_protocol_message_t *request) {
     rp86_host_protocol_message_t reply;
+    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+        rp86_memory_service_set_write_window(
+            &g_memory_service, RP86_SHARED_MAILBOX_BASE,
+            RP86_SHARED_MAILBOX_SIZE);
+    } else {
+        rp86_memory_service_set_write_window(
+            &g_memory_service, g_workload_memory.processor_base,
+            g_workload_memory.size);
+    }
     if (!rp86_memory_service_handle(&g_memory_service, request, &reply))
         return false;
     const bool sent = rp86_host_protocol_hid_send_record(
