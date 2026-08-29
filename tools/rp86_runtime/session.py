@@ -14,12 +14,12 @@ from .calculator import calculator_payload
 _WORKLOAD_STATE_NAMES = {
     0: "EMPTY",
     1: "RECEIVING",
-    2: "READY",
+    2: "STAGED",
     3: "RUNNING",
     4: "STOPPED",
     5: "EXITED",
-    6: "FAULT",
-    7: "TIMEOUT",
+    6: "FAULTED",
+    7: "TIMED_OUT",
 }
 
 

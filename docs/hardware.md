@@ -41,7 +41,7 @@ The physical board pinout is authoritative for translating Raspberry Pi physical
 
 The canonical build separates three different facts:
 
-1. `PI86_HAS_*` says whether hardware is physically populated or provided;
+1. `RP86_HAS_*` says whether hardware is physically populated or provided;
 2. runtime detection says whether a configured device actually responds; and
 3. the capability table says whether firmware support is implemented.
 
@@ -49,17 +49,17 @@ The Waveshare board defaults are:
 
 | CMake option | Default | Meaning |
 |---|---:|---|
-| `PI86_HAS_EXTERNAL_PSRAM` | `OFF` | optional APS6404L-class device is not yet populated |
-| `PI86_HAS_SDCARD` | `ON` | onboard MicroSD socket is present |
-| `PI86_HAS_DVI` | `ON` | onboard Mini HDMI/DVI connector is present |
-| `PI86_HAS_PIO_USB` | `ON` | onboard GPIO28/29 PIO-USB connector is present |
+| `RP86_HAS_EXTERNAL_PSRAM` | `OFF` | optional APS6404L-class device is not yet populated |
+| `RP86_HAS_SDCARD` | `ON` | onboard MicroSD socket is present |
+| `RP86_HAS_DVI` | `ON` | onboard Mini HDMI/DVI connector is present |
+| `RP86_HAS_PIO_USB` | `ON` | onboard GPIO28/29 PIO-USB connector is present |
 
 A socket or connector being present does not claim its GPIOs and does not
 mean its service is implemented. Until claimed, SD, DVI, and PIO-USB remain
 passive inputs. After the PSRAM device is soldered, configure a build with:
 
 ```bash
-cmake -S . -B build -DPI86_HAS_EXTERNAL_PSRAM=ON
+cmake -S . -B build -DRP86_HAS_EXTERNAL_PSRAM=ON
 ```
 
 The runtime must still report successful PSRAM detection before any Host
@@ -123,7 +123,7 @@ The original HAT is not redesigned or remapped.
 | A18 | 16 | 23 | 23 | processor -> RP2350 |
 | A19 | 18 | 24 | 24 | processor -> RP2350 |
 
-Firmware definitions live in `firmware/v30/v30_pins.h` and must remain
+Firmware definitions live in `firmware/processor/processor_bus_pins.h` and must remain
 consistent with this table. AD0-AD15 are intentionally scattered in RP2350
 GPIO space; realtime code uses snapshots, masks, and lookup-based packing
 instead of slow per-pin operations.
@@ -150,12 +150,12 @@ the incorrect identities are superseded unless explicitly revalidated.
 
 ### Firmware and ownership rules
 
-1. `firmware/v30/v30_pins.h` is the firmware source of processor GPIO constants.
-2. Bus code uses `V30_PIN_*` definitions rather than undocumented literals.
+1. `firmware/processor/processor_bus_pins.h` is the firmware source of processor GPIO constants.
+2. Bus code uses `RP86_PROCESSOR_PIN_*` definitions rather than undocumented literals.
 3. Absolute GPIO references in PIO must name the corresponding signal and
    physical header pin.
 4. Any mapping change requires simultaneous review of this document,
-   `firmware/v30/v30_pins.h`, and affected PIO programs.
+   `firmware/processor/processor_bus_pins.h`, and affected PIO programs.
 5. A new host board must rebuild the translation from physical header pins;
    BCM numbering is not a portable intermediate ABI.
 6. Before diagnosing timing or protocol behavior, prove signal identity,
@@ -165,7 +165,7 @@ AD0-AD15 must be high-Z whenever the physical processor owns the bus. RP2350
 data is prepared before output enable. PIO owns timing-critical data and
 direction transitions; DMA may feed PIO FIFOs but must not write SIO registers.
 PIO output windows must be proven to affect only AD pins. The accepted runtime
-uses a continuous PIO-generated processor clock; M33 software does not step or
+uses a free-running PIO-generated processor clock; M33 software does not step or
 answer current bus cycles.
 
 A bounded validation may finish at `RESET=HIGH`, `CLK=LOW`, AD high-Z. The
@@ -282,7 +282,7 @@ Confirmed from the physical fixture and product documentation:
 - Observed resistor markings include `01B` and `102`; both decode to approximately 1 kOhm.
 - LED polarity/active state should be verified empirically during Gate 1 rather than assumed from photographs.
 
-The fixture is for GPIO validation only. It must be removed before timing-sensitive V30 bus bring-up because its LED/resistor network adds load to the GPIO signals.
+The fixture is for GPIO validation only. It must be removed before timing-sensitive processor-bus bring-up because its LED/resistor network adds load to the GPIO signals.
 
 ## Planned expansion
 

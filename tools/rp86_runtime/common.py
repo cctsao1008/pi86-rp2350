@@ -47,12 +47,7 @@ from .broker import (
 )
 from .workload import control_record, decode_status_payload, workload_from_command
 
-from .evidence import (
-    AI_B2_HID,
-    COMPANION_RUNTIME,
-    explain_output,
-    validate_output,
-)
+from .evidence import RP86_RUNTIME, explain_output, validate_output
 from .protocol import (
     MESSAGE_SIZE,
     Message,
@@ -79,15 +74,15 @@ from .protocol import (
 
 CANONICAL_GREETING = b"HELLO NEC V30"
 CANONICAL_REPLY = b"HELLO OPENAI CODEX"
-BOOTLOADER_REQUEST = b"PI86 BOOTLOADER\n"
-BOOTLOADER_ACK = b"PI86 BOOTLOADER ACK"
-REBOOT_REQUEST = b"PI86 REBOOT\n"
-REBOOT_ACK = b"PI86 REBOOT ACK"
-STATUS_REQUEST = b"PI86 STATUS\n"
-STATUS_BEGIN = b"PI86 STATUS BEGIN"
-STATUS_END = b"PI86 STATUS END"
-HEARTBEAT_REPLY = b"V30 HEARTBEAT OK"
-COMMAND_REPLY = b"V30 COMMAND OK"
+BOOTLOADER_REQUEST = b"RP86 BOOTLOADER\n"
+BOOTLOADER_ACK = b"RP86 BOOTLOADER ACK"
+REBOOT_REQUEST = b"RP86 REBOOT\n"
+REBOOT_ACK = b"RP86 REBOOT ACK"
+STATUS_REQUEST = b"RP86 STATUS\n"
+STATUS_BEGIN = b"RP86 STATUS BEGIN"
+STATUS_END = b"RP86 STATUS END"
+HEARTBEAT_REPLY = b"PROCESSOR HEARTBEAT OK"
+COMMAND_REPLY = b"PROCESSOR COMMAND OK"
 USB_VID = 0xCAFE
 USB_PID = 0x4011
 PROCESSOR_NAMES = {
@@ -95,10 +90,7 @@ PROCESSOR_NAMES = {
     "nec-v30": "NEC V30",
     "intel-8086": "INTEL 8086",
 }
-TERMINAL_MARKERS = tuple(
-    profile.end_marker.encode("ascii")
-    for profile in (AI_B2_HID, COMPANION_RUNTIME)
-)
+TERMINAL_MARKERS = (RP86_RUNTIME.end_marker.encode("ascii"),)
 
 PASS_EXIT = 0
 DEPENDENCY_EXIT = 3

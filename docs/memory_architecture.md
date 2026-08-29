@@ -15,15 +15,15 @@ The RP2350 owns every physical controller and arbitrates access.
 
 | Term | Architectural meaning | Current implementation / validation status |
 |---|---|---|
-| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded 1 MHz execution are validated; PACED general branch/loop/stack/RAM/I/O execution is physically validated |
+| **RP2350 Internal SRAM** | on-chip memory for firmware/realtime state and the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and bounded 1 MHz execution are validated; CLOCK_STEPPED general branch/loop/stack/RAM/I/O execution is physically validated |
 | **External PSRAM** | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
-| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract, bounded CONTINUOUS execution, and standalone general PACED execution are validated |
+| **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract, bounded FREE_RUNNING execution, and standalone general CLOCK_STEPPED execution are validated |
 | **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
-| **Prepared window** | RP2350 state arranged in advance to meet a bounded V30 bus deadline | retained PIO/DMA implementations physically validated |
+| **Prepared window** | RP2350 state arranged in advance to meet a bounded processor-bus deadline | retained PIO/DMA implementations physically validated |
 
-Do not equate a V30 address with one physical device. The RP2350 maps and
+Do not equate a processor address with one physical device. The RP2350 maps and
 materializes the assigned memory.
 
 ## 3. Physical resources
@@ -46,15 +46,15 @@ that pool with range, ordered-chunk, and CRC32 validation. The measured linker
 map leaves about 224 KiB of main SRAM for firmware, realtime state, and future
 integration growth.
 
-The CONTINUOUS physical launch is accepted: a 16-byte Host-uploaded calculator
+The FREE_RUNNING physical launch is accepted: a 16-byte Host-uploaded calculator
 at `10000h` is fetched and executed by the real processor under `run`, `stop`,
-and `restart` control. Separately, the PACED bus engine now serves general
+and `restart` control. Separately, the CLOCK_STEPPED bus controller now serves general
 Internal-SRAM code, data, and stack one complete clock pulse at a time. Its first
 physical workload validated reset handoff, taken branches, `LOOP`, `PUSH`/`POP`,
 byte/word RAM, and I/O publication across 218 serviced cycles.
 
-The next integration gate places that PACED engine behind the canonical Host
-lifecycle and adds cooperative CONTINUOUS/PACED switching, shared-memory behavior,
+The next integration gate places that CLOCK_STEPPED controller behind the canonical Host
+lifecycle and adds cooperative FREE_RUNNING/CLOCK_STEPPED switching, shared-memory behavior,
 stdio, and timeout/restart handling without making External PSRAM a prerequisite.
 
 ### External PSRAM
@@ -67,7 +67,7 @@ External PSRAM is an optional capacity tier for:
 - cache/refill backing outside the current processor bus cycle;
 - restart snapshots when required.
 
-The Host addresses assigned V30-visible memory through RP2350 operations. It does
+The Host addresses assigned processor-visible memory through RP2350 operations. It does
 not receive raw access to the PSRAM controller, allocator metadata, or
 firmware-private regions.
 
@@ -118,10 +118,10 @@ The RP2350 is the sole owner of:
 - PSRAM allocation and physical access;
 - NOR and SD controllers;
 - FAT metadata and synchronization;
-- PIO/DMA and bus-engine state;
+- PIO/DMA and bus-controller state;
 - firmware-private Internal SRAM.
 
-| Resource | Host | V30 workload |
+| Resource | Host | processor workload |
 |---|---|---|
 | Firmware/reserved NOR | controlled update only | no access |
 | V30 code memory | R/W while stopped | R/X while running |
@@ -134,7 +134,7 @@ The RP2350 is the sole owner of:
 The permission model is not a Unix ACL system. It only protects runtime
 ownership and prevents Host or V30 code from corrupting RP2350-private state.
 
-## 5. V30-visible memory
+## 5. processor-visible memory
 
 The NEC V30 exposes a 20-bit physical address space:
 
@@ -160,7 +160,7 @@ fixed PC layout.
 
 ### Shared volatile memory
 
-The RP2350 allocates a region, returns a stable V30 address and Host handle, and
+The RP2350 allocates a region, returns a stable processor address and Host handle, and
 defines publication/ownership boundaries. The Host and V30 may exchange data
 without receiving the PSRAM controller itself.
 
@@ -192,11 +192,11 @@ not embedded in the block layer and can be added later by the runtime service.
 The current Pi86 HAT keeps processor `READY` asserted. The runtime uses two clock
 policies instead of READY-generated wait states:
 
-- CONTINUOUS uses a measured running clock plus PIO/DMA and prepared response state.
-- PACED issues complete pulses and may pause with `CLK` low between pulses while
+- FREE_RUNNING uses a measured running clock plus PIO/DMA and prepared response state.
+- CLOCK_STEPPED issues complete pulses and may pause with `CLK` low between pulses while
   M33 services the next memory or I/O operation.
 
-The PACED policy has been physically validated with general Internal SRAM. It does
+The CLOCK_STEPPED policy has been physically validated with general Internal SRAM. It does
 not stop midway through a pulse and does not let Host software or a filesystem
 callback take ownership of an active electrical phase. Host, FAT, NOR, SD, and
 unbounded PSRAM work remain outside the partially completed bus cycle.
@@ -221,8 +221,8 @@ IDs, raw erase blocks, or SD sectors.
 
 The order of implementation does not change the architecture:
 
-1. integrate the validated PACED engine into the canonical Host lifecycle;
-2. add cooperative CONTINUOUS/PACED engine switching at an explicit safe point;
+1. integrate the validated CLOCK_STEPPED controller into the canonical Host lifecycle;
+2. add cooperative FREE_RUNNING/CLOCK_STEPPED controller switching at an explicit safe point;
 3. add stdio, fault reporting, timeout, and Host restart around general execution;
 4. expose Internal-SRAM shared memory through RP2350 ownership;
 5. complete remaining `flash:` file operations and processor file services;
@@ -235,5 +235,5 @@ The order of implementation does not change the architecture:
 - [`architecture.md`](architecture.md) — canonical role and runtime model
 - [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime contract
 - [`host_protocol.md`](host_protocol.md) — Host operations
-- [`adr/0003-require-ready-or-deterministic-hits-for-general-memory.md`](adr/0003-require-ready-or-deterministic-hits-for-general-memory.md) — fixed-`READY` constraint
+- [`adr/0003-define-physical-timing-boundary.md`](adr/0003-define-physical-timing-boundary.md) — fixed-`READY` constraint
 - [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision

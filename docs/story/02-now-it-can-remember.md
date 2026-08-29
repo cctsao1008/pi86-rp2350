@@ -6,7 +6,6 @@
 >
 > Milestone: bounded same-run word and byte-lane RAM coherence at 0.300 MHz
 >
-> Engineering evidence: [PC1-C0C1-B2-C Multi-Slot / Byte-Lane RAM validation](../validation/pc1c0c1b2c_multi_slot_ram_validation.md)
 
 The first time the physical NEC V30 woke up, it said:
 

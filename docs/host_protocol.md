@@ -34,7 +34,7 @@ The host protocol follows these rules:
 - runtime operations are language-independent;
 - HID is the initial command/response transport, not the definition of the operations themselves;
 - CDC is an observation stream, not a second control protocol;
-- host latency never enters a current V30 bus cycle;
+- host latency never enters a current processor bus cycle;
 - a host disconnect is not by itself a runtime-integrity fault;
 - malformed or unsupported Host requests must not silently change runtime state;
 - bulk transfer mechanisms may evolve without changing machine-operation semantics.
@@ -121,9 +121,9 @@ MEM_WRITE
 MEM_MAP_GET
 ```
 
-Host memory operations address assigned V30-visible memory through RP2350
+Host memory operations address assigned processor-visible memory through RP2350
 ownership. They do not grant the Host raw ownership of RP2350 SRAM, PSRAM
-metadata, or bus-engine state.
+metadata, or bus-controller state.
 
 Memory-map semantics and physical backing are defined in [`memory_architecture.md`](memory_architecture.md).
 

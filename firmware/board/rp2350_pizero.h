@@ -48,7 +48,7 @@
  * not always equal to the Raspberry Pi BCM GPIO number for that position.
  *
  * Pi86 HAT signal definitions must therefore translate through the physical
- * 40-pin header position. See firmware/v30/v30_pins.h and docs/pin_mapping.md.
+ * 40-pin header position. See firmware/processor/processor_bus_pins.h and docs/pin_mapping.md.
  *
  * The official Pico SDK waveshare_rp2350_pizero board definition selects:
  * - RP2350B (48-GPIO package)

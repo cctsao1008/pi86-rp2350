@@ -6,7 +6,6 @@
 >
 > Milestone: native reset-vector and internal-SRAM ROM execution at 0.300 MHz
 >
-> Engineering evidence: [PC1-C0C0-H Native BIOS HELLO RP2350 validation](../validation/pc1c0c_native_bios_hello_validation.md)
 
 For a long time, the NEC V30 on my desk was completely silent.
 

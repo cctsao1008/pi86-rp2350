@@ -26,7 +26,7 @@ static bool direct_fill(void *context, size_t offset,
     return true;
 }
 
-void pi86_memory_backing_init_direct(pi86_memory_backing_t *backing,
+void rp86_memory_backing_init_direct(rp86_memory_backing_t *backing,
                                      const char *name,
                                      uint32_t processor_base,
                                      uint8_t *storage,
@@ -43,7 +43,7 @@ void pi86_memory_backing_init_direct(pi86_memory_backing_t *backing,
     backing->fill = direct_fill;
 }
 
-bool pi86_memory_backing_range_valid(const pi86_memory_backing_t *backing,
+bool rp86_memory_backing_range_valid(const rp86_memory_backing_t *backing,
                                      uint32_t processor_address,
                                      size_t length) {
     if (backing == NULL || !backing->available ||
@@ -53,42 +53,42 @@ bool pi86_memory_backing_range_valid(const pi86_memory_backing_t *backing,
     return offset <= backing->size && length <= backing->size - offset;
 }
 
-bool pi86_memory_backing_read(const pi86_memory_backing_t *backing,
+bool rp86_memory_backing_read(const rp86_memory_backing_t *backing,
                               uint32_t processor_address,
                               void *destination, size_t length) {
-    if (!pi86_memory_backing_range_valid(backing, processor_address, length) ||
+    if (!rp86_memory_backing_range_valid(backing, processor_address, length) ||
         backing->read == NULL || (length != 0u && destination == NULL))
         return false;
     const size_t offset = (size_t)(processor_address - backing->processor_base);
     return backing->read(backing->context, offset, destination, length);
 }
 
-bool pi86_memory_backing_write(pi86_memory_backing_t *backing,
+bool rp86_memory_backing_write(rp86_memory_backing_t *backing,
                                uint32_t processor_address,
                                const void *source, size_t length) {
-    if (!pi86_memory_backing_range_valid(backing, processor_address, length) ||
+    if (!rp86_memory_backing_range_valid(backing, processor_address, length) ||
         backing->write == NULL || (length != 0u && source == NULL))
         return false;
     const size_t offset = (size_t)(processor_address - backing->processor_base);
     return backing->write(backing->context, offset, source, length);
 }
 
-bool pi86_memory_backing_fill(pi86_memory_backing_t *backing,
+bool rp86_memory_backing_fill(rp86_memory_backing_t *backing,
                               uint32_t processor_address,
                               uint8_t value, size_t length) {
-    if (!pi86_memory_backing_range_valid(backing, processor_address, length) ||
+    if (!rp86_memory_backing_range_valid(backing, processor_address, length) ||
         backing->fill == NULL)
         return false;
     const size_t offset = (size_t)(processor_address - backing->processor_base);
     return backing->fill(backing->context, offset, value, length);
 }
 
-void pi86_memory_backing_publish(pi86_memory_backing_t *backing) {
+void rp86_memory_backing_publish(rp86_memory_backing_t *backing) {
     if (backing != NULL && backing->available && backing->publish != NULL)
         backing->publish(backing->context);
 }
 
-void pi86_memory_backing_invalidate(pi86_memory_backing_t *backing) {
+void rp86_memory_backing_invalidate(rp86_memory_backing_t *backing) {
     if (backing != NULL && backing->available && backing->invalidate != NULL)
         backing->invalidate(backing->context);
 }

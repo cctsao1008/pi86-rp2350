@@ -6,7 +6,7 @@
 #include "storage/flash_disk.h"
 #include "storage/flash_layout.h"
 
-#define PI86_UPLOAD_TEMP_PATH "flash:/PI86UPLD.TMP"
+#define RP86_UPLOAD_TEMP_PATH "flash:/PI86UPLD.TMP"
 
 static uint16_t load_u16(const uint8_t *data) {
     return (uint16_t)data[0] | ((uint16_t)data[1] << 8);
@@ -41,18 +41,18 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data,
 
 static uint16_t status_from_fatfs(FRESULT result) {
     switch (result) {
-    case FR_OK: return PI86_BRIDGE_STATUS_OK;
+    case FR_OK: return RP86_HOST_PROTOCOL_STATUS_OK;
     case FR_NO_FILE:
-    case FR_NO_PATH: return PI86_BRIDGE_STATUS_NOT_FOUND;
+    case FR_NO_PATH: return RP86_HOST_PROTOCOL_STATUS_NOT_FOUND;
     case FR_INVALID_NAME:
-    case FR_INVALID_PARAMETER: return PI86_BRIDGE_STATUS_INVALID_PATH;
+    case FR_INVALID_PARAMETER: return RP86_HOST_PROTOCOL_STATUS_INVALID_PATH;
     case FR_DENIED:
-    case FR_EXIST: return PI86_BRIDGE_STATUS_NO_SPACE;
+    case FR_EXIST: return RP86_HOST_PROTOCOL_STATUS_NO_SPACE;
     case FR_NOT_READY:
     case FR_INVALID_DRIVE:
     case FR_NOT_ENABLED:
-    case FR_NO_FILESYSTEM: return PI86_BRIDGE_STATUS_SERVICE_UNAVAILABLE;
-    default: return PI86_BRIDGE_STATUS_IO_ERROR;
+    case FR_NO_FILESYSTEM: return RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE;
+    default: return RP86_HOST_PROTOCOL_STATUS_IO_ERROR;
     }
 }
 
@@ -76,32 +76,32 @@ static bool valid_flash_path(const uint8_t *source, uint8_t length,
             if ((unsigned char)*cursor < 0x20u) return false;
         segment = end;
     }
-    return strcmp(destination, PI86_UPLOAD_TEMP_PATH) != 0;
+    return strcmp(destination, RP86_UPLOAD_TEMP_PATH) != 0;
 }
 
-static void prepare_reply(const pi86_bridge_message_t *request,
-                          pi86_bridge_message_t *reply, uint8_t operation) {
+static void prepare_reply(const rp86_host_protocol_message_t *request,
+                          rp86_host_protocol_message_t *reply, uint8_t operation) {
     memset(reply, 0, sizeof *reply);
-    reply->version = PI86_BRIDGE_PROTOCOL_VERSION;
-    reply->type = PI86_BRIDGE_MESSAGE_FILESYSTEM_RESULT;
+    reply->version = RP86_HOST_PROTOCOL_VERSION;
+    reply->type = RP86_HOST_PROTOCOL_MESSAGE_FILESYSTEM_RESULT;
     reply->sequence = request->sequence;
-    reply->status = PI86_BRIDGE_STATUS_OK;
+    reply->status = RP86_HOST_PROTOCOL_STATUS_OK;
     reply->payload[0] = operation;
 }
 
-static void abort_upload(pi86_flash_service_t *service) {
+static void abort_upload(rp86_flash_service_t *service) {
     if (service->upload_open) (void)f_close(&service->upload);
     service->upload_open = false;
     service->transfer_id = 0u;
     service->expected_size = 0u;
     service->received_size = 0u;
     service->running_crc32 = 0xffffffffu;
-    (void)f_unlink(PI86_UPLOAD_TEMP_PATH);
+    (void)f_unlink(RP86_UPLOAD_TEMP_PATH);
 }
 
-static bool handle_list(pi86_flash_service_t *service,
-                        const pi86_bridge_message_t *request,
-                        pi86_bridge_message_t *reply) {
+static bool handle_list(rp86_flash_service_t *service,
+                        const rp86_host_protocol_message_t *request,
+                        rp86_host_protocol_message_t *reply) {
     (void)service;
     if (request->length < 4u) return false;
     const uint8_t path_length = request->payload[1];
@@ -109,7 +109,7 @@ static bool handle_list(pi86_flash_service_t *service,
     char path[49];
     if (!valid_flash_path(request->payload + 4u, path_length,
                           path, sizeof path)) {
-        reply->status = PI86_BRIDGE_STATUS_INVALID_PATH;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_INVALID_PATH;
         return true;
     }
 
@@ -137,19 +137,19 @@ static bool handle_list(pi86_flash_service_t *service,
         return true;
     }
 
-    reply->length = PI86_BRIDGE_PAYLOAD_SIZE;
+    reply->length = RP86_HOST_PROTOCOL_PAYLOAD_SIZE;
     if (info.fname[0] == '\0') {
-        reply->payload[1] = PI86_FILESYSTEM_FLAG_EOF;
+        reply->payload[1] = RP86_FILESYSTEM_FLAG_EOF;
         return true;
     }
 
     size_t name_length = strlen(info.fname);
-    if (name_length > PI86_FILESYSTEM_LIST_NAME_BYTES) {
-        name_length = PI86_FILESYSTEM_LIST_NAME_BYTES;
-        reply->payload[1] |= PI86_FILESYSTEM_FLAG_TRUNCATED;
+    if (name_length > RP86_FILESYSTEM_LIST_NAME_BYTES) {
+        name_length = RP86_FILESYSTEM_LIST_NAME_BYTES;
+        reply->payload[1] |= RP86_FILESYSTEM_FLAG_TRUNCATED;
     }
     if ((info.fattrib & AM_DIR) != 0u)
-        reply->payload[1] |= PI86_FILESYSTEM_FLAG_DIRECTORY;
+        reply->payload[1] |= RP86_FILESYSTEM_FLAG_DIRECTORY;
     reply->payload[2] = info.fattrib;
     reply->payload[3] = (uint8_t)name_length;
     store_u16(reply->payload + 4u, (uint16_t)(wanted + 1u));
@@ -158,16 +158,16 @@ static bool handle_list(pi86_flash_service_t *service,
     return true;
 }
 
-static bool handle_df(pi86_flash_service_t *service,
-                      const pi86_bridge_message_t *request,
-                      pi86_bridge_message_t *reply) {
+static bool handle_df(rp86_flash_service_t *service,
+                      const rp86_host_protocol_message_t *request,
+                      rp86_host_protocol_message_t *reply) {
     if (request->length < 2u) return false;
     const uint8_t path_length = request->payload[1];
     if (request->length != (uint16_t)(2u + path_length)) return false;
     char path[51];
     if (!valid_flash_path(request->payload + 2u, path_length,
                           path, sizeof path)) {
-        reply->status = PI86_BRIDGE_STATUS_INVALID_PATH;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_INVALID_PATH;
         return true;
     }
     DWORD free_clusters = 0u;
@@ -179,9 +179,9 @@ static bool handle_df(pi86_flash_service_t *service,
     }
     const uint32_t total_kib = (uint32_t)(((uint64_t)
         (filesystem->n_fatent - 2u) * filesystem->csize *
-        PI86_FLASH_SECTOR_BYTES) / 1024u);
+        RP86_FLASH_SECTOR_BYTES) / 1024u);
     const uint32_t free_kib = (uint32_t)(((uint64_t)free_clusters *
-        filesystem->csize * PI86_FLASH_SECTOR_BYTES) / 1024u);
+        filesystem->csize * RP86_FLASH_SECTOR_BYTES) / 1024u);
     service->volume->free_kib = free_kib;
     size_t label_length = strlen(service->volume->label);
     if (label_length > 32u) label_length = 32u;
@@ -190,22 +190,22 @@ static bool handle_df(pi86_flash_service_t *service,
     store_u32(reply->payload + 4u, total_kib);
     store_u32(reply->payload + 8u, free_kib);
     store_u32(reply->payload + 12u,
-              filesystem->csize * PI86_FLASH_SECTOR_BYTES);
-    store_u32(reply->payload + 16u, PI86_FLASH_ERASE_BYTES);
+              filesystem->csize * RP86_FLASH_SECTOR_BYTES);
+    store_u32(reply->payload + 16u, RP86_FLASH_ERASE_BYTES);
     memcpy(reply->payload + 20u, service->volume->label, label_length);
-    reply->length = PI86_BRIDGE_PAYLOAD_SIZE;
+    reply->length = RP86_HOST_PROTOCOL_PAYLOAD_SIZE;
     return true;
 }
 
-static bool handle_read(const pi86_bridge_message_t *request,
-                        pi86_bridge_message_t *reply) {
+static bool handle_read(const rp86_host_protocol_message_t *request,
+                        rp86_host_protocol_message_t *reply) {
     if (request->length < 8u) return false;
     const uint8_t path_length = request->payload[1];
     if (request->length != (uint16_t)(8u + path_length)) return false;
-    char path[PI86_FILESYSTEM_READ_PATH_BYTES + 1u];
+    char path[RP86_FILESYSTEM_READ_PATH_BYTES + 1u];
     if (!valid_flash_path(request->payload + 8u, path_length,
                           path, sizeof path)) {
-        reply->status = PI86_BRIDGE_STATUS_INVALID_PATH;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_INVALID_PATH;
         return true;
     }
     FIL file;
@@ -221,7 +221,7 @@ static bool handle_read(const pi86_bridge_message_t *request,
     UINT transferred = 0u;
     if (result == FR_OK)
         result = f_read(&file, reply->payload + 12u,
-                        PI86_FILESYSTEM_READ_DATA_BYTES, &transferred);
+                        RP86_FILESYSTEM_READ_DATA_BYTES, &transferred);
     const FRESULT close_result = f_close(&file);
     if (result == FR_OK) result = close_result;
     if (result != FR_OK) {
@@ -229,7 +229,7 @@ static bool handle_read(const pi86_bridge_message_t *request,
         return true;
     }
     if (offset + transferred >= size)
-        reply->payload[1] |= PI86_FILESYSTEM_FLAG_EOF;
+        reply->payload[1] |= RP86_FILESYSTEM_FLAG_EOF;
     store_u16(reply->payload + 2u, (uint16_t)transferred);
     store_u32(reply->payload + 4u, offset);
     store_u32(reply->payload + 8u, size);
@@ -237,20 +237,20 @@ static bool handle_read(const pi86_bridge_message_t *request,
     return true;
 }
 
-static bool handle_write_begin(pi86_flash_service_t *service,
-                               const pi86_bridge_message_t *request,
-                               pi86_bridge_message_t *reply) {
+static bool handle_write_begin(rp86_flash_service_t *service,
+                               const rp86_host_protocol_message_t *request,
+                               rp86_host_protocol_message_t *reply) {
     if (request->length < 16u) return false;
     const uint8_t path_length = request->payload[1];
     if (request->length != (uint16_t)(16u + path_length)) return false;
-    char path[PI86_FILESYSTEM_WRITE_PATH_BYTES + 1u];
+    char path[RP86_FILESYSTEM_WRITE_PATH_BYTES + 1u];
     if (!valid_flash_path(request->payload + 16u, path_length,
                           path, sizeof path)) {
-        reply->status = PI86_BRIDGE_STATUS_INVALID_PATH;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_INVALID_PATH;
         return true;
     }
     abort_upload(service);
-    FRESULT result = f_open(&service->upload, PI86_UPLOAD_TEMP_PATH,
+    FRESULT result = f_open(&service->upload, RP86_UPLOAD_TEMP_PATH,
                             FA_CREATE_ALWAYS | FA_WRITE);
     if (result != FR_OK) {
         reply->status = status_from_fatfs(result);
@@ -268,19 +268,19 @@ static bool handle_write_begin(pi86_flash_service_t *service,
     return true;
 }
 
-static bool handle_write_data(pi86_flash_service_t *service,
-                              const pi86_bridge_message_t *request,
-                              pi86_bridge_message_t *reply) {
+static bool handle_write_data(rp86_flash_service_t *service,
+                              const rp86_host_protocol_message_t *request,
+                              rp86_host_protocol_message_t *reply) {
     if (request->length < 12u) return false;
     const uint16_t data_length = load_u16(request->payload + 2u);
-    if (data_length > PI86_FILESYSTEM_WRITE_DATA_BYTES ||
+    if (data_length > RP86_FILESYSTEM_WRITE_DATA_BYTES ||
         request->length != (uint16_t)(12u + data_length)) return false;
     const uint32_t transfer = load_u32(request->payload + 4u);
     const uint32_t offset = load_u32(request->payload + 8u);
     if (!service->upload_open || transfer != service->transfer_id ||
         offset != service->received_size ||
         offset + data_length > service->expected_size) {
-        reply->status = PI86_BRIDGE_STATUS_BAD_STATE;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
         return true;
     }
     UINT transferred = 0u;
@@ -288,7 +288,7 @@ static bool handle_write_data(pi86_flash_service_t *service,
                                    request->payload + 12u,
                                    data_length, &transferred);
     if (result != FR_OK || transferred != data_length) {
-        reply->status = result == FR_OK ? PI86_BRIDGE_STATUS_NO_SPACE :
+        reply->status = result == FR_OK ? RP86_HOST_PROTOCOL_STATUS_NO_SPACE :
                                          status_from_fatfs(result);
         abort_upload(service);
         return true;
@@ -303,19 +303,19 @@ static bool handle_write_data(pi86_flash_service_t *service,
     return true;
 }
 
-static bool handle_write_commit(pi86_flash_service_t *service,
-                                const pi86_bridge_message_t *request,
-                                pi86_bridge_message_t *reply) {
+static bool handle_write_commit(rp86_flash_service_t *service,
+                                const rp86_host_protocol_message_t *request,
+                                rp86_host_protocol_message_t *reply) {
     if (request->length != 8u) return false;
     const uint32_t transfer = load_u32(request->payload + 4u);
     const uint32_t crc = service->running_crc32 ^ 0xffffffffu;
     if (!service->upload_open || transfer != service->transfer_id ||
         service->received_size != service->expected_size) {
-        reply->status = PI86_BRIDGE_STATUS_BAD_STATE;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
         return true;
     }
     if (crc != service->expected_crc32) {
-        reply->status = PI86_BRIDGE_STATUS_BAD_CRC;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_CRC;
         abort_upload(service);
         return true;
     }
@@ -323,7 +323,7 @@ static bool handle_write_commit(pi86_flash_service_t *service,
     const FRESULT close_result = f_close(&service->upload);
     service->upload_open = false;
     if (result == FR_OK) result = close_result;
-    if (result == FR_OK && !pi86_flash_disk_flush()) result = FR_DISK_ERR;
+    if (result == FR_OK && !rp86_flash_disk_flush()) result = FR_DISK_ERR;
     if (result == FR_OK) {
         const FRESULT unlink_result = f_unlink(service->target_path);
         if (unlink_result != FR_OK && unlink_result != FR_NO_FILE &&
@@ -331,11 +331,11 @@ static bool handle_write_commit(pi86_flash_service_t *service,
             result = unlink_result;
     }
     if (result == FR_OK)
-        result = f_rename(PI86_UPLOAD_TEMP_PATH, service->target_path);
-    if (result == FR_OK && !pi86_flash_disk_flush()) result = FR_DISK_ERR;
+        result = f_rename(RP86_UPLOAD_TEMP_PATH, service->target_path);
+    if (result == FR_OK && !rp86_flash_disk_flush()) result = FR_DISK_ERR;
     if (result != FR_OK) {
         reply->status = status_from_fatfs(result);
-        (void)f_unlink(PI86_UPLOAD_TEMP_PATH);
+        (void)f_unlink(RP86_UPLOAD_TEMP_PATH);
         return true;
     }
     store_u32(reply->payload + 4u, transfer);
@@ -346,52 +346,52 @@ static bool handle_write_commit(pi86_flash_service_t *service,
     return true;
 }
 
-void pi86_flash_service_init(pi86_flash_service_t *service,
-                             pi86_flash_volume_t *volume, bool available) {
+void rp86_flash_service_init(rp86_flash_service_t *service,
+                             rp86_flash_volume_t *volume, bool available) {
     memset(service, 0, sizeof *service);
     service->volume = volume;
     service->available = available;
     service->running_crc32 = 0xffffffffu;
-    if (available) (void)f_unlink(PI86_UPLOAD_TEMP_PATH);
+    if (available) (void)f_unlink(RP86_UPLOAD_TEMP_PATH);
 }
 
-bool pi86_flash_service_handle(pi86_flash_service_t *service,
-                               const pi86_bridge_message_t *request,
-                               pi86_bridge_message_t *reply) {
-    if (request->version != PI86_BRIDGE_PROTOCOL_VERSION ||
-        request->type != PI86_BRIDGE_MESSAGE_FILESYSTEM_REQUEST ||
-        request->status != PI86_BRIDGE_STATUS_OK || request->length == 0u)
+bool rp86_flash_service_handle(rp86_flash_service_t *service,
+                               const rp86_host_protocol_message_t *request,
+                               rp86_host_protocol_message_t *reply) {
+    if (request->version != RP86_HOST_PROTOCOL_VERSION ||
+        request->type != RP86_HOST_PROTOCOL_MESSAGE_FILESYSTEM_REQUEST ||
+        request->status != RP86_HOST_PROTOCOL_STATUS_OK || request->length == 0u)
         return false;
     const uint8_t operation = request->payload[0];
     prepare_reply(request, reply, operation);
     if (!service->available) {
-        reply->status = PI86_BRIDGE_STATUS_SERVICE_UNAVAILABLE;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE;
         return true;
     }
     bool valid = false;
     switch (operation) {
-    case PI86_FILESYSTEM_LIST:
+    case RP86_FILESYSTEM_LIST:
         valid = handle_list(service, request, reply);
         break;
-    case PI86_FILESYSTEM_DF:
+    case RP86_FILESYSTEM_DF:
         valid = handle_df(service, request, reply);
         break;
-    case PI86_FILESYSTEM_READ:
+    case RP86_FILESYSTEM_READ:
         valid = handle_read(request, reply);
         break;
-    case PI86_FILESYSTEM_WRITE_BEGIN:
+    case RP86_FILESYSTEM_WRITE_BEGIN:
         valid = handle_write_begin(service, request, reply);
         break;
-    case PI86_FILESYSTEM_WRITE_DATA:
+    case RP86_FILESYSTEM_WRITE_DATA:
         valid = handle_write_data(service, request, reply);
         break;
-    case PI86_FILESYSTEM_WRITE_COMMIT:
+    case RP86_FILESYSTEM_WRITE_COMMIT:
         valid = handle_write_commit(service, request, reply);
         break;
     default:
-        reply->status = PI86_BRIDGE_STATUS_SERVICE_UNAVAILABLE;
+        reply->status = RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE;
         return true;
     }
-    if (!valid) reply->status = PI86_BRIDGE_STATUS_BAD_LENGTH;
+    if (!valid) reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
     return true;
 }

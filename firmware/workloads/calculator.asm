@@ -3,7 +3,7 @@ org 0
 
 ; Canonical Internal-SRAM native calculator workload.
 ;
-; The persistent companion runtime enters one of four four-byte far-call
+; The persistent RP86 processor runtime enters one of four four-byte far-call
 ; targets with AX=lhs, CX=rhs and DX=0.  Each target performs the arithmetic
 ; on the physical 8086-class processor and returns with RETF.  The RP2350
 ; supplies bytes from the Host-staged Internal SRAM backing; it does not

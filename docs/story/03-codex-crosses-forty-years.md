@@ -6,7 +6,6 @@
 >
 > Milestone: Codex-initiated, bidirectional 64-byte HID mailbox exchange at 0.600 MHz
 >
-> Engineering evidence: [AI-B3 Codex-Initiated Physical Greeting validation](../validation/ai_b3_codex_initiated_greeting_validation.md)
 
 The NEC V30 does not know what Codex is.
 

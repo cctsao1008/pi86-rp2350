@@ -15,7 +15,40 @@ between them.
 
 This is not CPU emulation and it is not a conventional PC architecture.
 
-## 2. Three fixed roles
+## 2. Canonical terminology
+
+Names describe hardware and software roles, not the order in which features were
+discovered. New source, tests, build targets, protocol documentation, and active
+architecture documents use the following vocabulary:
+
+| Legacy or ambiguous term | Canonical term | Rule |
+|---|---|---|
+| `pi86_` / `PI86_` implementation namespace | `rp86_` / `RP86_` | `Pi86 HAT` remains the proper name of the unmodified hardware baseline |
+| V30 bus, `v30_bus` | processor bus, `rp86_processor_bus` | `V30` is used only for NEC-specific behavior or evidence |
+| AI Bridge | Host Protocol | ChatGPT, Codex, Python, C, Rust, and Web clients are protocol users, not architectural layers |
+| V30 image / V30 ROM helper | processor image | A flat image may execute on either an Intel 8086 or NEC V30; ROM is used only when storage semantics are actually read-only |
+| `CONTINUOUS` | `FREE_RUNNING` | Execution Clock Mode in which the clock runs without software-issued per-pulse permission |
+| `PACED` | `CLOCK_STEPPED` | Execution Clock Mode in which the RP2350 issues complete clock pulses |
+| clock engine | clock mode / clock controller | *Mode* names policy; *controller* names the implementation that supplies clock pulses |
+| workload `READY` | workload `STAGED` | Avoids collision with the physical processor `READY` input |
+| workload `FAULT` / `TIMEOUT` | `FAULTED` / `TIMED_OUT` | Completed state names use unambiguous past-tense terms |
+| heartbeat (architecture) | processor liveness monitoring | `heartbeat` remains a valid CLI and message compatibility term |
+
+Historical validation output, published articles, photographs, and Git history retain
+the names that were true when they were produced. Compatibility entry points may also
+retain an old filename, but must identify themselves as wrappers around the canonical
+RP86 Host runtime. Wire values and workload-state numbers are stable across this naming
+migration.
+
+The project keeps three state domains separate:
+
+| Domain | Examples | Meaning |
+|---|---|---|
+| Runtime State | `IDLE`, `LOADING`, `STAGED`, `RUNNING`, `STOPPED`, `FAULTED` | Host/RP2350 lifecycle |
+| Workload State | `EMPTY`, `RECEIVING`, `STAGED`, `RUNNING`, `EXITED`, `FAULTED`, `TIMED_OUT` | One native image lifecycle |
+| Execution Clock Mode | `FREE_RUNNING`, `CLOCK_STEPPED` | How complete processor clock pulses are supplied |
+
+## 3. Three fixed roles
 
 ```text
 Host
@@ -51,15 +84,15 @@ machine.
 
 The RP2350 is the sole low-level owner of:
 
-- the multiplexed V30 bus, clock, reset, and interrupt signaling;
+- the multiplexed processor bus, clock, reset, and interrupt signaling;
 - PIO and DMA state;
 - Internal SRAM allocation used by the runtime;
 - External PSRAM access and allocation;
 - External NOR Flash, SD Card, and filesystem metadata;
 - mailbox, stdio, trace, and Host transport state.
 
-It validates and serializes Host and V30 requests. It is not an x86 CPU and it
-does not execute the V30 workload.
+It validates and serializes Host and processor requests. It is not an x86 CPU and it
+does not execute the processor workload.
 
 ### Intel 8086 / NEC V30 — Bare-Metal Remote Physical Processor
 
@@ -75,7 +108,7 @@ The term *remote processor* means a processor loaded and supervised by another
 computer. It does not imply that the 8086 or V30 is emulated or connected through a
 network.
 
-## 3. Runtime model
+## 4. Runtime model
 
 ```text
 Load -> Run -> Communicate -> Observe
@@ -92,7 +125,7 @@ required by its workload.
 BIOS, DOS, ELKS, boot sectors, PC memory maps, and 825x-compatible services are
 optional programs or experiments. They are not architectural prerequisites.
 
-## 4. Workload and launch
+## 5. Workload and launch
 
 The initial transfer form is a flat native 8086-class binary plus explicit launch
 metadata:
@@ -106,10 +139,10 @@ segments       initial DS and ES when required
 ```
 
 ELF may be retained by development tools for symbols and relocation, while the
-physical transfer uses a flat image. The RP2350 loads assigned V30-visible
+physical transfer uses a flat image. The RP2350 loads assigned processor-visible
 memory and provides a minimal reset handoff at `FFFF0h`; a BIOS is not required.
 
-## 5. Resource and ownership model
+## 6. Resource and ownership model
 
 > **Host and V30 share content, but they do not share low-level ownership.**
 
@@ -120,12 +153,12 @@ Host request -----------+
                  /      |      \
              PSRAM   FAT volumes  bus/runtime state
                         ^
-V30 service request ----+
+processor service request ----+
 ```
 
 | Resource | Intended primary role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and 1 MHz bounded execution are validated; general branch/loop/stack/RAM/I/O execution is physically validated with the PACED engine |
+| RP2350 Internal SRAM | firmware/realtime state plus the first workload-execution, CPU-visible RAM, and shared-memory tier | 256 KiB processor range (`00000h-3FFFFh`) is reserved; Host HID staging and 1 MHz bounded execution are validated; general branch/loop/stack/RAM/I/O execution is physically validated with the CLOCK_STEPPED controller |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is shared `flash:` | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -142,73 +175,73 @@ sd:/datasets/input.dat
 sd:/traces/run001.log
 ```
 
-## 6. Runtime states
+## 7. Runtime states
 
 ```text
-EMPTY -> LOADED -> RUNNING -> EXITED
+EMPTY -> STAGED -> RUNNING -> EXITED
                     |  |
-                    |  `-> FAULT / TIMEOUT
+                    |  `-> FAULTED / TIMED_OUT
                     |              |
                     `--------------+-> STOPPED -> RESTART or LOAD
 ```
 
 - **EMPTY:** no selected workload; storage and Host control remain available.
-- **LOADED/STOPPED:** Host may prepare memory and launch state.
-- **RUNNING:** V30 owns workload execution; Host observes and uses approved
+- **STAGED/STOPPED:** Host may prepare memory and launch state.
+- **RUNNING:** processor owns workload execution; Host observes and uses approved
   mailbox/shared regions.
 - **EXITED:** normal workload completion with retained results.
-- **FAULT/TIMEOUT:** abnormal workload result with retained evidence and Host
+- **FAULTED/TIMED_OUT:** abnormal workload result with retained evidence and Host
   control still alive.
 
 A crash is a valid workload outcome. It is not rejected in advance. The Host
 reports it and the user may inspect or restart the V30.
 
-## 7. V30 runtime services
+## 8. Processor runtime services
 
 The baseline service surface is deliberately small:
 
 - stdin/read and stdout/write;
 - file open/read/write/seek/close;
 - workload exit/result;
-- heartbeat/status response;
+- liveness/status response;
 - optional shared-memory notification.
 
-The V30 never directly controls USB, FAT, NOR Flash, SD, PSRAM, PIO, or DMA.
+The processor never directly controls USB, FAT, NOR Flash, SD, PSRAM, PIO, or DMA.
 
-## 8. Physical timing boundary
+## 9. Physical timing boundary
 
 The original Pi86 HAT keeps processor `READY` asserted. The runtime therefore
 controls latency through the processor clock rather than adding READY wait states.
-It has two execution-engine policies:
+It has two Execution Clock Modes:
 
-| Engine | Clock policy | Intended use |
+| Mode | Clock policy | Intended use |
 |---|---|---|
-| **CONTINUOUS** | continuously running measured clock; PIO/DMA and prepared state meet each bus deadline | high-throughput prepared workloads, heartbeat, interrupts, and bounded services |
-| **PACED** | RP2350 issues complete clock pulses; the clock may remain low between pulses while M33 services memory or I/O | general Internal-SRAM execution, bring-up, inspection, and slow or variable-latency services |
+| **FREE_RUNNING** | continuously running measured clock; PIO/DMA and prepared state meet each bus deadline | high-throughput prepared workloads, liveness monitoring, interrupts, and bounded services |
+| **CLOCK_STEPPED** | RP2350 issues complete clock pulses; the clock may remain low between pulses while M33 services memory or I/O | general Internal-SRAM execution, bring-up, inspection, and slow or variable-latency services |
 
 Bounded Host-loaded execution is physically accepted for the calculator image
 at `10000h`, including manifest/CRC validation, lifecycle control, physical
 fetch, interrupt return, and mailbox result.
 
-The standalone PACED engine is also physically accepted. It served a flat native
+The standalone CLOCK_STEPPED controller is also physically accepted. It served a flat native
 image from Internal SRAM through reset fetch, taken branches, `LOOP`, `PUSH`/`POP`,
 byte and word RAM operations, and I/O result publication. It completed 218 bus
 cycles with 183 memory reads, 33 memory writes, two I/O writes, and no unmapped,
 lane, or pad faults.
 
-Runtime switching between CONTINUOUS and PACED is a cooperative operation, not a
+Runtime switching between FREE_RUNNING and CLOCK_STEPPED is a cooperative operation, not a
 mid-cycle clock change. A workload requests a mode through a control I/O port and
 enters `STI; HLT`. The RP2350 completes the current pulse, stops with `CLK` low,
-changes engines, prepares state, and wakes the processor through the established
+switches clock modes, prepares state, and wakes the processor through the established
 INTR/two-cycle-INTA/ISR/IRET path. The independent engines are implemented; this
 switch handshake remains to be integrated and physically validated.
 
 Host software, USB, and filesystem work still do not participate directly in a
-partially completed bus cycle. PACED mode pauses between complete pulses; it does
+partially completed bus cycle. CLOCK_STEPPED mode pauses between complete pulses; it does
 not stretch or truncate a pulse. External PSRAM remains an optional later capacity
 tier whose access policy must be measured on hardware.
 
-## 9. Host Protocol and shell
+## 10. Host Protocol and shell
 
 The Host Protocol contains typed operations, sequence-bound completion, explicit
 errors, capability reporting, and chunked/bulk transfer where needed. The shell
@@ -227,7 +260,7 @@ ping  timeout  quiet  verbose  quit
 
 An unimplemented backend reports `NOT AVAILABLE`; it never fabricates success.
 
-## 10. Failure boundary
+## 11. Failure boundary
 
 The platform guarantees resource ownership and electrical safety, not workload
 success. On a workload fault or timeout it should:
@@ -240,7 +273,7 @@ success. On a workload fault or timeout it should:
 If the runtime itself loses bus ownership or corrupts critical PIO/DMA state,
 the RP2350 enters an electrical safe state and retains diagnostics.
 
-## 11. Project boundary
+## 12. Project boundary
 
 The project remains intentionally narrower than a PC clone or V30 operating
 system. It builds the modern runtime needed to load, communicate with, observe,
@@ -255,7 +288,7 @@ Or operationally:
 
 > **Load. Run. Talk. Watch. Restart.**
 
-## 12. Detailed contracts
+## 13. Detailed contracts
 
 - [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime, permission, and implementation contract
 - [`host_runtime_shell.md`](host_runtime_shell.md) — shell command surface

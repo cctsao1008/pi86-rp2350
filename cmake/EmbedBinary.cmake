@@ -49,5 +49,5 @@ file(WRITE "${OUTPUT_C}"
 )
 
 message(STATUS
-    "V30 ROM ${SYMBOL}: ${binary_size} bytes, SHA-256 ${binary_sha256}"
+    "Processor image ${SYMBOL}: ${binary_size} bytes, SHA-256 ${binary_sha256}"
 )

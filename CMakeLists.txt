@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.13)
 # The repository-pinned Pico SDK submodule is the canonical SDK dependency.
 # An explicit -DPICO_SDK_PATH=... may still be used for deliberate local
 # experiments, but no environment variable is required for normal builds.
-set(PI86_PICO_SDK_DEFAULT_PATH "${CMAKE_CURRENT_LIST_DIR}/third_party/pico-sdk")
+set(RP86_PICO_SDK_DEFAULT_PATH "${CMAKE_CURRENT_LIST_DIR}/third_party/pico-sdk")
 
 if(NOT DEFINED PICO_SDK_PATH OR PICO_SDK_PATH STREQUAL "")
     set(PICO_SDK_PATH
-        "${PI86_PICO_SDK_DEFAULT_PATH}"
+        "${RP86_PICO_SDK_DEFAULT_PATH}"
         CACHE PATH
         "Path to the Raspberry Pi Pico SDK"
     )
@@ -33,44 +33,28 @@ message(STATUS "pi86-rp2350 board:    ${PICO_BOARD}")
 
 include("${PICO_SDK_PATH}/external/pico_sdk_import.cmake")
 
-project(pi86_rp2350 C CXX ASM)
+project(rp86_rp2350 C CXX ASM)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
 # Physical population/configuration flags. These describe hardware presence,
 # not firmware capability or successful runtime detection.
-option(PI86_HAS_EXTERNAL_PSRAM
+option(RP86_HAS_EXTERNAL_PSRAM
        "APS6404L-class PSRAM is populated on GPIO47/QMI CS1" OFF)
-option(PI86_HAS_SDCARD
+option(RP86_HAS_SDCARD
        "The onboard MicroSD socket is present" ON)
-option(PI86_HAS_DVI
+option(RP86_HAS_DVI
        "The onboard Mini HDMI/DVI connector is present" ON)
-option(PI86_HAS_PIO_USB
+option(RP86_HAS_PIO_USB
        "The onboard GPIO28/29 PIO-USB connector is present" ON)
 
-message(STATUS "pi86 external PSRAM: ${PI86_HAS_EXTERNAL_PSRAM}")
-message(STATUS "pi86 MicroSD:       ${PI86_HAS_SDCARD}")
-message(STATUS "pi86 Mini HDMI/DVI: ${PI86_HAS_DVI}")
-message(STATUS "pi86 PIO-USB:       ${PI86_HAS_PIO_USB}")
+message(STATUS "RP86 external PSRAM: ${RP86_HAS_EXTERNAL_PSRAM}")
+message(STATUS "RP86 MicroSD:       ${RP86_HAS_SDCARD}")
+message(STATUS "RP86 Mini HDMI/DVI: ${RP86_HAS_DVI}")
+message(STATUS "RP86 PIO-USB:       ${RP86_HAS_PIO_USB}")
 
 pico_sdk_init()
 
 add_subdirectory(firmware)
-add_subdirectory(tests/gpio_test)
-add_subdirectory(tests/gate2_preflight)
-add_subdirectory(tests/gate3_reset)
-add_subdirectory(tests/gate4_memread)
-add_subdirectory(tests/paced_runtime)
-add_subdirectory(tests/gate7_byte_lanes)
-add_subdirectory(tests/gate8_io)
-add_subdirectory(tests/gate9_interrupt)
-add_subdirectory(tests/gate9r_pic)
-add_subdirectory(tests/gate10_8259a)
-add_subdirectory(tests/gate11_pic_priority)
-add_subdirectory(tests/gate11_irq_priority)
-add_subdirectory(tests/gate12_pit_core)
-add_subdirectory(tests/gate12_pit_irq0)
-add_subdirectory(tests/performance_characterization_1)
-add_subdirectory(tests/performance_characterization_1_sweep)
-add_subdirectory(tests/performance_characterization_1_extended)
+add_subdirectory(tests/clock_stepped_runtime)

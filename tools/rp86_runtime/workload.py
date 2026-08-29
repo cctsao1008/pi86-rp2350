@@ -21,7 +21,7 @@ from .protocol import (
 
 MAGIC = 0x57363850  # "P86W" in little endian
 FORMAT_VERSION = 1
-V30_ADDRESS_SPACE_SIZE = 0x100000
+PROCESSOR_ADDRESS_SPACE_SIZE = 0x100000
 
 FLAG_PERSISTENT = 1 << 0
 FLAG_STDIO = 1 << 1
@@ -50,8 +50,8 @@ def _linear(segment: int, offset: int) -> int:
     if not 0 <= segment <= 0xFFFF or not 0 <= offset <= 0xFFFF:
         raise ValueError("segment and offset must be 16-bit values")
     address = (segment << 4) + offset
-    if address >= V30_ADDRESS_SPACE_SIZE:
-        raise ValueError("segment:offset is outside the V30 address space")
+    if address >= PROCESSOR_ADDRESS_SPACE_SIZE:
+        raise ValueError("segment:offset is outside the 20-bit processor address space")
     return address
 
 
@@ -100,20 +100,20 @@ class WorkloadManifest:
             raise ValueError("workload image is empty")
         if not 0 <= self.image_crc32 <= 0xFFFFFFFF:
             raise ValueError("image CRC is not a 32-bit value")
-        if not 0 <= self.load_address < V30_ADDRESS_SPACE_SIZE:
-            raise ValueError("load address is outside the V30 address space")
+        if not 0 <= self.load_address < PROCESSOR_ADDRESS_SPACE_SIZE:
+            raise ValueError("load address is outside the 20-bit processor address space")
         image_end = self.load_address + self.image_size
-        if image_end > V30_ADDRESS_SPACE_SIZE:
-            raise ValueError("workload image crosses the V30 address-space limit")
+        if image_end > PROCESSOR_ADDRESS_SPACE_SIZE:
+            raise ValueError("workload image crosses the 20-bit processor address-space limit")
         entry = _linear(self.entry_segment, self.entry_offset)
         if not self.load_address <= entry < image_end:
             raise ValueError("entry point is outside the workload image")
         _linear(self.stack_segment, self.stack_offset)
         if self.shared_size:
-            if not 0 <= self.shared_base < V30_ADDRESS_SPACE_SIZE:
-                raise ValueError("shared-memory base is outside the V30 address space")
-            if self.shared_base + self.shared_size > V30_ADDRESS_SPACE_SIZE:
-                raise ValueError("shared-memory range crosses the V30 address-space limit")
+            if not 0 <= self.shared_base < PROCESSOR_ADDRESS_SPACE_SIZE:
+                raise ValueError("shared-memory base is outside the 20-bit processor address space")
+            if self.shared_base + self.shared_size > PROCESSOR_ADDRESS_SPACE_SIZE:
+                raise ValueError("shared-memory range crosses the 20-bit processor address-space limit")
             if not self.flags & FLAG_SHARED_MEMORY:
                 raise ValueError("shared-memory range requires FLAG_SHARED_MEMORY")
         elif self.shared_base or self.flags & FLAG_SHARED_MEMORY:

@@ -3,14 +3,14 @@
 - Date: 2026-08-26
 - Hardware: Waveshare RP2350-PiZero and original Pi86 V20/V30 HAT
 - Physical processor: Intel `P8086-2`, declared by the Host
-- Canonical target: `pi86_rp2350`
+- Canonical target: `rp86_rp2350`
 - Processor clock: 1.000 MHz
 - Result: **PASS**
 
 ## What changed
 
-The accepted companion runtime is no longer a separate characterization-only
-UF2. The canonical `pi86_rp2350` target now contains one composite USB device
+The accepted RP86 processor runtime is no longer a separate characterization-only
+UF2. The canonical `rp86_rp2350` target now contains one composite USB device
 with:
 
 - CDC status and Host-directed UF2 control;
@@ -27,15 +27,12 @@ DVI/PIO-USB services remain explicitly unimplemented.
 ## Build identity
 
 ```text
-Target     = pi86_rp2350
+Target     = rp86_rp2350
 UF2 size   = 85 KB
 UF2 SHA256 = fb1e89ce5fdd7cdc323f8ff63fa71896a8233740c7dda72c8d1913d9e96a50f2
 ROM size   = 401 bytes
 ROM SHA256 = d2afcfe8e75c3b2688fda37a2a674824c7b22b15b30a65a809cef96f17a315ee
 ```
-
-The retained `companion_runtime_1mhz` target was built from the same source and
-ROM during the same build.
 
 ## Physical sequence
 
@@ -47,14 +44,14 @@ ROM during the same build.
 4. A CDC status request returned `IDLE`, `1.000 MHz`, and
    `WAITING FOR HID RECORD` without releasing processor RESET.
 5. The Host sent the initial HID record with `--processor intel-8086`. The
-   physical Intel 8086 entered the native companion runtime and the interactive
+   physical Intel 8086 entered the native RP86 processor runtime and the interactive
    heartbeat became alive.
 6. The final image's startup session completed 17 sequence-numbered exchanges
    with zero loss.
 7. A later attach session completed 39 more exchanges with zero loss;
    `send HELLO` returned `8086 COMMAND OK`.
 8. A concurrent CDC status request returned `RUNNING` and
-   `COMPANION RUNTIME` while the processor remained active.
+   `RP86 PROCESSOR RUNTIME` while the processor remained active.
 9. The active runtime accepted a CDC bootloader request, stopped the physical
    interface safely, and entered the RP2350 ROM bootloader. The same canonical
    UF2 was then restored.

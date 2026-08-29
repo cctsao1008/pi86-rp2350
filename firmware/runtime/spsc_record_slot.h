@@ -5,54 +5,54 @@
  * releases the slot only after copying that immutable record. A full slot is
  * never overwritten: the producer records a drop and returns false.
  */
-#ifndef PI86_RUNTIME_SPSC_RECORD_SLOT_H
-#define PI86_RUNTIME_SPSC_RECORD_SLOT_H
+#ifndef RP86_RUNTIME_SPSC_RECORD_SLOT_H
+#define RP86_RUNTIME_SPSC_RECORD_SLOT_H
 
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
-#include "ai_bridge/bridge_protocol.h"
+#include "host_protocol/host_protocol.h"
 
-#ifndef PI86_SPSC_RECORD_BARRIER
+#ifndef RP86_SPSC_RECORD_BARRIER
 #include "hardware/sync.h"
-#define PI86_SPSC_RECORD_BARRIER() __dmb()
+#define RP86_SPSC_RECORD_BARRIER() __dmb()
 #endif
 
 typedef struct {
-    uint8_t record[PI86_BRIDGE_MESSAGE_SIZE];
+    uint8_t record[RP86_HOST_PROTOCOL_MESSAGE_SIZE];
     volatile bool ready;
     volatile uint32_t producer_drops;
-} pi86_spsc_record_slot_t;
+} rp86_spsc_record_slot_t;
 
-static inline bool pi86_spsc_record_try_publish(
-    pi86_spsc_record_slot_t *slot,
-    const uint8_t record[PI86_BRIDGE_MESSAGE_SIZE]) {
+static inline bool rp86_spsc_record_try_publish(
+    rp86_spsc_record_slot_t *slot,
+    const uint8_t record[RP86_HOST_PROTOCOL_MESSAGE_SIZE]) {
     if (slot->ready) {
         slot->producer_drops++;
         return false;
     }
 
-    memcpy(slot->record, record, PI86_BRIDGE_MESSAGE_SIZE);
-    PI86_SPSC_RECORD_BARRIER();
+    memcpy(slot->record, record, RP86_HOST_PROTOCOL_MESSAGE_SIZE);
+    RP86_SPSC_RECORD_BARRIER();
     slot->ready = true;
     return true;
 }
 
-static inline bool pi86_spsc_record_try_take(
-    pi86_spsc_record_slot_t *slot,
-    uint8_t record[PI86_BRIDGE_MESSAGE_SIZE]) {
+static inline bool rp86_spsc_record_try_take(
+    rp86_spsc_record_slot_t *slot,
+    uint8_t record[RP86_HOST_PROTOCOL_MESSAGE_SIZE]) {
     if (!slot->ready) return false;
 
-    PI86_SPSC_RECORD_BARRIER();
-    memcpy(record, slot->record, PI86_BRIDGE_MESSAGE_SIZE);
-    PI86_SPSC_RECORD_BARRIER();
+    RP86_SPSC_RECORD_BARRIER();
+    memcpy(record, slot->record, RP86_HOST_PROTOCOL_MESSAGE_SIZE);
+    RP86_SPSC_RECORD_BARRIER();
     slot->ready = false;
     return true;
 }
 
-static inline uint32_t pi86_spsc_record_drops(
-    const pi86_spsc_record_slot_t *slot) {
+static inline uint32_t rp86_spsc_record_drops(
+    const rp86_spsc_record_slot_t *slot) {
     return slot->producer_drops;
 }
 

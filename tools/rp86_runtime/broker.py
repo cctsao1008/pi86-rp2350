@@ -45,17 +45,15 @@ BROKER_TRANSITIONS = {
 
 
 def broker_registry_dir() -> Path:
-    configured = os.environ.get("RP86_BROKER_DIR") or os.environ.get("PI86_BROKER_DIR")
+    configured = os.environ.get("RP86_BROKER_DIR")
     if configured:
         return Path(configured).expanduser()
     return Path(tempfile.gettempdir()) / "rp86-brokers"
 
 
 def broker_registry_dirs() -> tuple[Path, ...]:
-    """Return the canonical registry plus the former pi86 compatibility path."""
-    primary = broker_registry_dir()
-    legacy = Path(tempfile.gettempdir()) / "pi86-rp2350-brokers"
-    return (primary,) if primary == legacy else (primary, legacy)
+    """Return the single canonical RP86 broker registry."""
+    return (broker_registry_dir(),)
 
 
 @dataclass(frozen=True)

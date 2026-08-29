@@ -4,7 +4,7 @@
 - Hardware: Waveshare RP2350-PiZero and original Pi86 V20/V30 HAT
 - Physical processor: Intel `P8086-2`
 - Configured processor clock: 1.000 MHz
-- Runtime target: `companion_runtime_1mhz`
+- Runtime target: `rp86_rp2350`
 - Host mode: interactive heartbeat with `--attach`
 - Follow-up identity validation: 2026-08-27, Host commit `f13434b`
 - Result: **PASS — native Intel 8086 identity and interactive heartbeat**
@@ -12,7 +12,7 @@
 ## Observed conclusion
 
 With power removed, the NEC V30 was replaced by an Intel `P8086-2`. After the
-assembly was powered again, the existing persistent companion runtime completed
+assembly was powered again, the existing persistent RP86 processor runtime completed
 55 sequence-numbered heartbeat exchanges with zero loss. The same session then
 completed one interactive command exchange.
 

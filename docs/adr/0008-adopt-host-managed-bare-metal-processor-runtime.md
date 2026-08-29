@@ -23,7 +23,7 @@ physical interface required to execute it.
 
 The canonical project definition is:
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for a real NEC V30.**
+> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 
 The architecture class is:
 
@@ -35,7 +35,7 @@ The three roles are fixed:
 ```text
 Host      = Runtime Controller
 RP2350    = Companion Resource and Bus Controller
-NEC V30   = Bare-Metal Remote Physical Processor
+8086 or V30 = Bare-Metal Remote Physical Processor
 ```
 
 The operating model is:
@@ -52,13 +52,13 @@ mandatory architecture layer.
 
 ### RP2350
 
-The RP2350 owns the V30 bus and all low-level shared resources. It arbitrates
+The RP2350 owns the processor bus and all low-level shared resources. It arbitrates
 PSRAM, NOR, SD, FAT, mailbox, interrupt, clock, reset, PIO, and DMA. Host and
 V30 share content through RP2350 services rather than sharing controllers.
 
 ### NEC V30
 
-The physical V30 executes native bare-metal code and owns architectural CPU
+The physical processor executes native bare-metal code and owns architectural CPU
 state. It may complete, fault, hang, or time out. The Host observes the outcome
 and may restart it.
 
@@ -79,7 +79,7 @@ and may restart it.
 
 BIOS, DOS, ELKS, PC memory maps, and 825x-compatible peripherals are optional
 workloads or experiments. They are not the primary roadmap, do not define the
-runtime, and are not required for native V30 execution.
+runtime, and are not required for native processor execution.
 
 AI is also optional. ChatGPT/Codex and other agents are Host clients using the
 same protocol as conventional software.
@@ -102,7 +102,7 @@ staging/cache mechanism is validated.
   and restart work.
 - Former BIOS-first, PC-machine, machine-profile, and replacement-board plans
   are archived rather than treated as active architecture.
-- Validation and story documents retain their original evidence and wording.
+- Current validation records retain their original physical evidence.
 - A workload crash is reported and recoverable; it is not rejected merely
   because success cannot be guaranteed.
 
@@ -114,7 +114,8 @@ This ADR supersedes the active architectural role of:
 - ADR 0005, Host Bridge/Companion Service as the project-level terminology;
 - ADR 0007, the Host-Constructed V30 Machine Model.
 
-Their historical context is preserved under `docs/archive/`.
+Git history preserves those superseded decisions without keeping obsolete
+architecture in the current source tree.
 
 ## Related documents
 

@@ -6,7 +6,6 @@
 >
 > Milestone: persistent native `STI`/`HLT` runtime with physical INTR/INTA at 1.000 MHz
 >
-> Engineering evidence: [Persistent Companion Runtime 1.000 MHz validation](../validation/companion_runtime_1mhz_validation.md)
 >
 > Evidence note: the repository validation record is authoritative for its
 > retained startup, 118-round, and 82-round reattach artifacts. The published

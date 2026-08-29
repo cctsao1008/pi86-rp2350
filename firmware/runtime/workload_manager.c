@@ -12,19 +12,19 @@ static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
     return ~crc;
 }
 
-static bool manifest_valid(const pi86_workload_manifest_t *manifest,
-                           const pi86_memory_backing_t *backing) {
-    if (manifest == NULL || manifest->magic != PI86_WORKLOAD_MAGIC ||
-        manifest->version != PI86_WORKLOAD_FORMAT_VERSION ||
+static bool manifest_valid(const rp86_workload_manifest_t *manifest,
+                           const rp86_memory_backing_t *backing) {
+    if (manifest == NULL || manifest->magic != RP86_WORKLOAD_MAGIC ||
+        manifest->version != RP86_WORKLOAD_FORMAT_VERSION ||
         manifest->header_size != sizeof *manifest ||
         manifest->image_size == 0u || backing == NULL || !backing->available)
         return false;
 
     const uint32_t image_end = manifest->load_address + manifest->image_size;
-    if (manifest->load_address >= PI86_V30_ADDRESS_SPACE_SIZE ||
+    if (manifest->load_address >= RP86_PROCESSOR_ADDRESS_SPACE_SIZE ||
         image_end < manifest->load_address ||
-        image_end > PI86_V30_ADDRESS_SPACE_SIZE ||
-        !pi86_memory_backing_range_valid(backing, manifest->load_address,
+        image_end > RP86_PROCESSOR_ADDRESS_SPACE_SIZE ||
+        !rp86_memory_backing_range_valid(backing, manifest->load_address,
                                          manifest->image_size))
         return false;
 
@@ -39,142 +39,142 @@ static bool manifest_valid(const pi86_workload_manifest_t *manifest,
     if (manifest->stack_segment != 0u || manifest->stack_offset != 0u) {
         const uint32_t stack = ((uint32_t)manifest->stack_segment << 4u) +
                                manifest->stack_offset;
-        if (stack >= PI86_V30_ADDRESS_SPACE_SIZE ||
-            !pi86_memory_backing_range_valid(backing, stack, 2u))
+        if (stack >= RP86_PROCESSOR_ADDRESS_SPACE_SIZE ||
+            !rp86_memory_backing_range_valid(backing, stack, 2u))
             return false;
     }
 
-    const uint32_t known_flags = PI86_WORKLOAD_FLAG_PERSISTENT |
-                                 PI86_WORKLOAD_FLAG_STDIO |
-                                 PI86_WORKLOAD_FLAG_SHARED_MEMORY;
+    const uint32_t known_flags = RP86_WORKLOAD_FLAG_PERSISTENT |
+                                 RP86_WORKLOAD_FLAG_STDIO |
+                                 RP86_WORKLOAD_FLAG_SHARED_MEMORY;
     if ((manifest->flags & ~known_flags) != 0u) return false;
     if ((manifest->shared_size == 0u) !=
-        ((manifest->flags & PI86_WORKLOAD_FLAG_SHARED_MEMORY) == 0u))
+        ((manifest->flags & RP86_WORKLOAD_FLAG_SHARED_MEMORY) == 0u))
         return false;
     if (manifest->shared_size != 0u) {
         const uint32_t shared_end = manifest->shared_base + manifest->shared_size;
         if (shared_end < manifest->shared_base ||
-            shared_end > PI86_V30_ADDRESS_SPACE_SIZE ||
-            !pi86_memory_backing_range_valid(backing, manifest->shared_base,
+            shared_end > RP86_PROCESSOR_ADDRESS_SPACE_SIZE ||
+            !rp86_memory_backing_range_valid(backing, manifest->shared_base,
                                              manifest->shared_size))
             return false;
     }
     return true;
 }
 
-void pi86_workload_manager_init(pi86_workload_manager_t *manager,
-                                pi86_memory_backing_t *backing) {
+void rp86_workload_manager_init(rp86_workload_manager_t *manager,
+                                rp86_memory_backing_t *backing) {
     memset(manager, 0, sizeof *manager);
     manager->backing = backing;
-    manager->state = PI86_WORKLOAD_STATE_EMPTY;
+    manager->state = RP86_WORKLOAD_STATE_EMPTY;
 }
 
-bool pi86_workload_begin(pi86_workload_manager_t *manager,
+bool rp86_workload_begin(rp86_workload_manager_t *manager,
                          uint32_t transfer_id,
-                         const pi86_workload_manifest_t *manifest) {
+                         const rp86_workload_manifest_t *manifest) {
     if (manager == NULL || manager->backing == NULL ||
         !manager->backing->available ||
         !manifest_valid(manifest, manager->backing) ||
-        manager->state == PI86_WORKLOAD_STATE_RUNNING)
+        manager->state == RP86_WORKLOAD_STATE_RUNNING)
         return false;
 
     manager->manifest = *manifest;
     manager->transfer_id = transfer_id;
     manager->received = 0u;
     manager->running_crc32 = 0u;
-    manager->state = PI86_WORKLOAD_STATE_RECEIVING;
+    manager->state = RP86_WORKLOAD_STATE_RECEIVING;
     return true;
 }
 
-bool pi86_workload_write(pi86_workload_manager_t *manager,
+bool rp86_workload_write(rp86_workload_manager_t *manager,
                          uint32_t transfer_id, uint32_t offset,
                          const uint8_t *data, size_t length) {
-    if (manager == NULL || manager->state != PI86_WORKLOAD_STATE_RECEIVING ||
+    if (manager == NULL || manager->state != RP86_WORKLOAD_STATE_RECEIVING ||
         transfer_id != manager->transfer_id || offset != manager->received ||
         length == 0u || data == NULL ||
         length > manager->manifest.image_size - manager->received)
         return false;
 
     const uint32_t address = manager->manifest.load_address + offset;
-    if (!pi86_memory_backing_write(manager->backing, address, data, length))
+    if (!rp86_memory_backing_write(manager->backing, address, data, length))
         return false;
     manager->running_crc32 = crc32_update(manager->running_crc32, data, length);
     manager->received += (uint32_t)length;
     return true;
 }
 
-bool pi86_workload_commit(pi86_workload_manager_t *manager,
+bool rp86_workload_commit(rp86_workload_manager_t *manager,
                           uint32_t transfer_id, uint32_t expected_crc32) {
-    if (manager == NULL || manager->state != PI86_WORKLOAD_STATE_RECEIVING ||
+    if (manager == NULL || manager->state != RP86_WORKLOAD_STATE_RECEIVING ||
         transfer_id != manager->transfer_id ||
         manager->received != manager->manifest.image_size ||
         expected_crc32 != manager->manifest.image_crc32 ||
         manager->running_crc32 != expected_crc32) {
-        if (manager != NULL) manager->state = PI86_WORKLOAD_STATE_FAULT;
+        if (manager != NULL) manager->state = RP86_WORKLOAD_STATE_FAULTED;
         return false;
     }
 
-    pi86_memory_backing_publish(manager->backing);
+    rp86_memory_backing_publish(manager->backing);
     manager->workload_id++;
     if (manager->workload_id == 0u) manager->workload_id = 1u;
-    manager->state = PI86_WORKLOAD_STATE_READY;
+    manager->state = RP86_WORKLOAD_STATE_STAGED;
     return true;
 }
 
-static bool workload_id_matches(const pi86_workload_manager_t *manager,
+static bool workload_id_matches(const rp86_workload_manager_t *manager,
                                 uint32_t workload_id) {
     return manager != NULL && manager->workload_id != 0u &&
         (workload_id == 0u || workload_id == manager->workload_id);
 }
 
-bool pi86_workload_run(pi86_workload_manager_t *manager,
+bool rp86_workload_run(rp86_workload_manager_t *manager,
                        uint32_t workload_id) {
     if (!workload_id_matches(manager, workload_id) ||
-        (manager->state != PI86_WORKLOAD_STATE_READY &&
-         manager->state != PI86_WORKLOAD_STATE_STOPPED))
+        (manager->state != RP86_WORKLOAD_STATE_STAGED &&
+         manager->state != RP86_WORKLOAD_STATE_STOPPED))
         return false;
-    manager->state = PI86_WORKLOAD_STATE_RUNNING;
+    manager->state = RP86_WORKLOAD_STATE_RUNNING;
     return true;
 }
 
-bool pi86_workload_stop(pi86_workload_manager_t *manager,
+bool rp86_workload_stop(rp86_workload_manager_t *manager,
                         uint32_t workload_id) {
     if (!workload_id_matches(manager, workload_id) ||
-        manager->state != PI86_WORKLOAD_STATE_RUNNING)
+        manager->state != RP86_WORKLOAD_STATE_RUNNING)
         return false;
-    manager->state = PI86_WORKLOAD_STATE_STOPPED;
+    manager->state = RP86_WORKLOAD_STATE_STOPPED;
     return true;
 }
 
-bool pi86_workload_restart(pi86_workload_manager_t *manager,
+bool rp86_workload_restart(rp86_workload_manager_t *manager,
                            uint32_t workload_id) {
     if (!workload_id_matches(manager, workload_id) ||
-        (manager->state != PI86_WORKLOAD_STATE_READY &&
-         manager->state != PI86_WORKLOAD_STATE_RUNNING &&
-         manager->state != PI86_WORKLOAD_STATE_STOPPED))
+        (manager->state != RP86_WORKLOAD_STATE_STAGED &&
+         manager->state != RP86_WORKLOAD_STATE_RUNNING &&
+         manager->state != RP86_WORKLOAD_STATE_STOPPED))
         return false;
-    manager->state = PI86_WORKLOAD_STATE_RUNNING;
+    manager->state = RP86_WORKLOAD_STATE_RUNNING;
     return true;
 }
 
-void pi86_workload_discard(pi86_workload_manager_t *manager) {
+void rp86_workload_discard(rp86_workload_manager_t *manager) {
     if (manager == NULL) return;
     manager->transfer_id = 0u;
     manager->received = 0u;
     manager->running_crc32 = 0u;
-    manager->state = PI86_WORKLOAD_STATE_EMPTY;
+    manager->state = RP86_WORKLOAD_STATE_EMPTY;
 }
 
-const char *pi86_workload_state_name(pi86_workload_state_t state) {
+const char *rp86_workload_state_name(rp86_workload_state_t state) {
     switch (state) {
-        case PI86_WORKLOAD_STATE_EMPTY: return "EMPTY";
-        case PI86_WORKLOAD_STATE_RECEIVING: return "RECEIVING";
-        case PI86_WORKLOAD_STATE_READY: return "READY";
-        case PI86_WORKLOAD_STATE_RUNNING: return "RUNNING";
-        case PI86_WORKLOAD_STATE_STOPPED: return "STOPPED";
-        case PI86_WORKLOAD_STATE_EXITED: return "EXITED";
-        case PI86_WORKLOAD_STATE_FAULT: return "FAULT";
-        case PI86_WORKLOAD_STATE_TIMEOUT: return "TIMEOUT";
+        case RP86_WORKLOAD_STATE_EMPTY: return "EMPTY";
+        case RP86_WORKLOAD_STATE_RECEIVING: return "RECEIVING";
+        case RP86_WORKLOAD_STATE_STAGED: return "STAGED";
+        case RP86_WORKLOAD_STATE_RUNNING: return "RUNNING";
+        case RP86_WORKLOAD_STATE_STOPPED: return "STOPPED";
+        case RP86_WORKLOAD_STATE_EXITED: return "EXITED";
+        case RP86_WORKLOAD_STATE_FAULTED: return "FAULTED";
+        case RP86_WORKLOAD_STATE_TIMED_OUT: return "TIMED_OUT";
         default: return "UNKNOWN";
     }
 }

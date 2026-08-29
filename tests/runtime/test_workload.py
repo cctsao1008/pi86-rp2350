@@ -4,16 +4,16 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools" / "ai_bridge"))
+sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "runtime"))
 
-from protocol import (  # noqa: E402
+from rp86_runtime.protocol import (  # noqa: E402
     Message,
     TYPE_WORKLOAD_BEGIN,
     TYPE_WORKLOAD_COMMIT,
     TYPE_WORKLOAD_DATA,
 )
-from workload import (  # noqa: E402
+from rp86_runtime.workload import (  # noqa: E402
     DATA_BYTES,
     FLAG_SHARED_MEMORY,
     FLAG_STDIO,

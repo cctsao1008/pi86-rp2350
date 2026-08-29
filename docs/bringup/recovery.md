@@ -29,7 +29,7 @@ USB composition can change between targets. A CDC-only image and a CDC+HID compo
 2. Run:
 
    ```powershell
-   py tools\ai_bridge\physical_validator.py --list-ports
+   py tools/rp86_validate.py --list-ports
    ```
 
 3. Do not assume the previous COM number.
@@ -90,7 +90,7 @@ Do not weaken the profile to accept the greeting. Identify and fix the first fai
 Windows may allocate a new COM number when interface descriptors or USB identity change.
 
 ```powershell
-py tools\ai_bridge\physical_validator.py --list-ports
+py tools/rp86_validate.py --list-ports
 ```
 
 Match the USB identity rather than choosing the lowest or most familiar COM number. Bluetooth serial ports are unrelated.

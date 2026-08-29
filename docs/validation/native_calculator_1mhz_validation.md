@@ -14,7 +14,7 @@ general arbitrary-address Internal-SRAM workload launch is complete.
 ## Physical configuration
 
 - Processor: Intel `P8086-2`, automatically identified by native `AAD 16`
-- Processor clock: 1.000 MHz companion runtime
+- Processor clock: 1.000 MHz
 - Host transport: 64-byte USB HID records
 - Evidence transport: receive-only USB CDC
 - Runtime path: Host -> RP2350 prepared state -> PIO/DMA -> physical bus

@@ -1,95 +1,1486 @@
+/*
+ * Persistent RP86 physical-processor runtime.
+ *
+ * This source implements the canonical 1.000 MHz runtime
+ * (performance target). PIO1 owns every current-cycle read response and both
+ * INTA cycles. Core0 owns policy only: immutable record publication, INTR
+ * assertion, timeout/retry bookkeeping, and USB service between bus cycles.
+ */
+
 #include <stdbool.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
 
-#include "pico/stdio_usb.h"
-#include "pico/stdlib.h"
+#include "pico/bootrom.h"
+#include "hardware/watchdog.h"
+#include "tusb.h"
 
-#include "runtime/runtime.h"
+#ifndef RP86_PROCESSOR_HZ
+#define RP86_PROCESSOR_HZ 600000u
+#endif
+#define RP86_PREPARED_SEQUENCE_MAX 512u
+#define main rp86_prepared_bus_controller_validation_entry
+#include "runtime/prepared_bus_controller.c"
+#undef main
 
-enum {
-    HOST_COMMAND_CAPACITY = 48,
+#include "host_protocol/usb_transport.h"
+#include "processor_runtime_image.h"
+#include "memory/internal_sram_backing.h"
+#include "processor_service.pio.h"
+#include "runtime/workload_manager.h"
+#include "storage/flash_layout.h"
+#include "storage/flash_service.h"
+#include "storage/flash_volume.h"
+
+#define COMPANION_VECTOR             0x20u
+#define INT60_VECTOR                 0x60u
+#define INT60_HANDLER_OFFSET       0x0100u
+#define IRQ_HANDLER_OFFSET         0x0140u
+#define INITIAL_INT60_RETURN       0x0020u
+#define IRQ_RETURN_OFFSET          0x0022u
+#define CYCLIC_INT60_RETURN        0x0024u
+#define IVT20_OFFSET_ADDRESS       0x0080u
+#define IVT20_SEGMENT_ADDRESS      0x0082u
+#define IVT60_OFFSET_ADDRESS       0x0180u
+#define IVT60_SEGMENT_ADDRESS      0x0182u
+#define CALCULATOR_STACK_IP_ADDRESS 0x7FF6u
+#define CALCULATOR_STACK_CS_ADDRESS 0x7FF8u
+#define STACK_IP_ADDRESS           0x7FFAu
+#define STACK_CS_ADDRESS           0x7FFCu
+#define STACK_FLAGS_ADDRESS        0x7FFEu
+#define STATUS_PORT                0x00E0u
+#define TX_PORT                    0x00E2u
+#define RX_PORT                    0x00E4u
+#define CONTROL_PORT               0x00E6u
+#define WITNESS_PORT               0x00E8u
+#define PIC_COMMAND_PORT           0x0020u
+#define HOST_WORDS                       7u
+#define HEARTBEAT_ACCEPT_COUNT           8u
+#define IRQ_PERIOD_US                50000u
+#define IRQ_TIMEOUT_US               10000u
+#define LIVE_ROUND_TIMEOUT_US         50000u
+#define HOST_TIMEOUT_US            5000000u
+#define MAX_PAIRS                       96u
+#define STREAM_WORDS (MAX_PAIRS * 2u)
+#define NATIVE_TEXT_WORDS                 6u
+#define NATIVE_PROCESSOR_WORDS            1u
+#define NATIVE_COUNTER_COPIES              3u
+#define NATIVE_REPLY_WORDS               13u
+#define PROCESSOR_SIGNATURE_INTEL_8086 0x0012u
+#define PROCESSOR_SIGNATURE_NEC_V30    0x000Cu
+#define CALCULATOR_MAGIC               0xCA1Cu
+#define CALCULATOR_SLOT_OFFSET         0x0170u
+#define CALCULATOR_RETURN_OFFSET       0x0176u
+#define CALCULATOR_WORKLOAD_SIZE             16u
+#define CALCULATOR_ENTRY_STRIDE               4u
+#define CALCULATOR_ADD                       1u
+#define CALCULATOR_SUB                       2u
+#define CALCULATOR_MUL                       3u
+#define CALCULATOR_DIV                       4u
+#define CALCULATOR_OPCODE_ADD           0xC801u /* 01 C8: ADD AX,CX */
+#define CALCULATOR_OPCODE_SUB           0xC829u /* 29 C8: SUB AX,CX */
+#define CALCULATOR_OPCODE_MUL           0xE1F7u /* F7 E1: MUL CX */
+#define CALCULATOR_OPCODE_DIV           0xF1F7u /* F7 F1: DIV CX */
+
+typedef struct {
+    uint32_t key;
+    uint32_t response;
+} exact_pair_t;
+
+typedef struct {
+    exact_pair_t pair[MAX_PAIRS];
+    uint32_t count;
+} exact_sequence_t;
+
+typedef struct {
+    bool host_record_ok;
+    bool reset_ok;
+    bool pre_release_clean;
+    bool first_inta_seen;
+    bool second_inta_complete;
+    bool int60_commit_seen;
+    bool irq_commit_seen;
+    bool eoi_seen;
+    bool heartbeat_active;
+    bool non_ad_isolation;
+    bool observer_complete;
+    bool processor_identity_valid;
+    uint16_t processor_signature;
+    uint32_t host_sequence;
+    uint32_t irq_assertions;
+    uint32_t irq_accepts;
+    uint32_t irq_completions;
+    uint32_t int60_commits;
+    uint32_t irq_commits;
+    uint32_t eoi_writes;
+    uint32_t complete_cycles;
+    uint32_t first_mismatch_cycle;
+    uint32_t observer_words;
+    uint32_t foreground_dma_remain;
+    uint32_t irq_rom_dma_remain;
+    uint32_t irq_io_dma_remain;
+    uint32_t foreground_fifo;
+    uint32_t irq_rom_fifo;
+    uint32_t irq_io_fifo;
+    uint32_t foreground_pc;
+    uint32_t irq_rom_pc;
+    uint32_t irq_io_pc;
+    uint32_t inta_pc;
+} companion_result_t;
+
+static exact_sequence_t g_boot;
+static exact_sequence_t g_int60_initial;
+static exact_sequence_t g_int60;
+static exact_sequence_t g_irq_rom;
+static exact_sequence_t g_irq_io;
+static uint32_t g_foreground_initial_words[STREAM_WORDS];
+static uint32_t g_int60_words[STREAM_WORDS];
+static uint32_t g_irq_rom_words[STREAM_WORDS];
+static uint32_t g_irq_io_words[STREAM_WORDS];
+static uint16_t g_host_words[HOST_WORDS];
+static rp86_host_protocol_message_t g_host_record;
+static rp86_host_protocol_message_t g_reply_record;
+static rp86_flash_volume_t g_flash_volume;
+static rp86_flash_service_t g_flash_service;
+static bool g_flash_volume_ready;
+static rp86_memory_backing_t g_workload_memory;
+static rp86_workload_manager_t g_workload_manager;
+static int g_foreground_dma = -1;
+static int g_irq_rom_dma = -1;
+static int g_irq_io_dma = -1;
+static int g_observer_dma = -1;
+static uint32_t g_int60_dma_words;
+static uint32_t g_irq_rom_dma_words;
+static uint32_t g_irq_io_dma_words;
+static uint32_t g_processor_boot_id;
+static uint16_t g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+static uint32_t g_calculator_entry_linear;
+static const uint8_t g_calculator_workload_contract[CALCULATOR_WORKLOAD_SIZE] = {
+    0x01u, 0xC8u, 0xCBu, 0x90u,
+    0x29u, 0xC8u, 0xCBu, 0x90u,
+    0xF7u, 0xE1u, 0xCBu, 0x90u,
+    0xF7u, 0xF1u, 0xCBu, 0x90u,
 };
 
-/*
- * Canonical firmware currently exposes CDC, while the structured HID command
- * plane is still being integrated.  Keep this early control path deliberately
- * tiny: one exact, newline-terminated command can request UF2 mode.  Arbitrary
- * CDC text can never release RESET or claim the processor bus.
- */
-static void service_host_cdc(pi86_runtime_t *runtime) {
-    static char command[HOST_COMMAND_CAPACITY];
-    static size_t length;
-    static bool overflowed;
+static int evidence_printf(const char *format, ...);
+static void service_cdc_control(void);
+static bool handle_runtime_control(const rp86_host_protocol_message_t *record);
+static bool handle_filesystem_record(const rp86_host_protocol_message_t *record);
+static bool handle_workload_record(const rp86_host_protocol_message_t *record);
 
-    int value;
-    while ((value = getchar_timeout_us(0u)) != PICO_ERROR_TIMEOUT) {
-        const char ch = (char)value;
-        if (ch == '\r' || ch == '\n') {
-            if (overflowed) {
-                length = 0u;
-                overflowed = false;
-                printf("PI86 COMMAND ERROR\n");
-                fflush(stdout);
-                continue;
+#ifndef RP86_CANONICAL_RUNTIME
+#define RP86_CANONICAL_RUNTIME 0
+#endif
+#ifndef RP86_HAS_EXTERNAL_PSRAM
+#define RP86_HAS_EXTERNAL_PSRAM 0
+#endif
+#ifndef RP86_HAS_SDCARD
+#define RP86_HAS_SDCARD 1
+#endif
+#ifndef RP86_HAS_DVI
+#define RP86_HAS_DVI 1
+#endif
+#ifndef RP86_HAS_PIO_USB
+#define RP86_HAS_PIO_USB 1
+#endif
+
+static bool g_bus_active;
+static rp86_pio_sm_t *g_runtime_clock;
+
+static bool take_non_control_record(rp86_host_protocol_message_t *record) {
+    if (!rp86_host_protocol_hid_take_record((uint8_t *)record)) return false;
+    if (record->version == RP86_HOST_PROTOCOL_VERSION &&
+        record->type == RP86_HOST_PROTOCOL_MESSAGE_RUNTIME_CONTROL) {
+        handle_runtime_control(record);
+        return false;
+    }
+    if (record->version == RP86_HOST_PROTOCOL_VERSION &&
+        record->type == RP86_HOST_PROTOCOL_MESSAGE_FILESYSTEM_REQUEST) {
+        handle_filesystem_record(record);
+        return false;
+    }
+    if (record->version == RP86_HOST_PROTOCOL_VERSION &&
+        record->type >= RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_BEGIN &&
+        record->type <= RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_CONTROL) {
+        handle_workload_record(record);
+        return false;
+    }
+    return true;
+}
+
+typedef struct {
+    bool inta1;
+    bool inta2;
+    bool witness;
+    bool irq_commit;
+    bool eoi;
+    bool foreground_commit;
+    bool native_counter_valid;
+    bool processor_identity_valid;
+    uint16_t observed_witness;
+    uint16_t processor_signature;
+    uint32_t observed_cycles;
+    uint32_t cpu_sequence;
+    uint32_t command_sequence;
+    bool calculator_requested;
+    bool calculator_valid;
+    uint16_t calculator_operation;
+    uint16_t calculator_lhs;
+    uint16_t calculator_rhs;
+    uint16_t calculator_low;
+    uint16_t calculator_high;
+} live_round_result_t;
+
+static uint32_t memory_key(uint32_t address) {
+    return QUALIFIED_T1_CONTROL_BITS | encode_gpio_address(address);
+}
+
+static uint32_t io_read_key(uint16_t port) {
+    return (1u << RP86_PROCESSOR_PIN_ASTB) | (1u << RP86_PROCESSOR_PIN_INTAK) |
+           encode_gpio_address(port);
+}
+
+static void add_pair(exact_sequence_t *s, uint32_t key, uint16_t value) {
+    hard_assert(s->count < MAX_PAIRS);
+    s->pair[s->count++] =
+        (exact_pair_t){key, encoded_drive_command(value)};
+}
+
+static void add_memory(exact_sequence_t *s, uint32_t address,
+                       uint16_t value) {
+    add_pair(s, memory_key(address), value);
+}
+
+static void add_io(exact_sequence_t *s, uint16_t port, uint16_t value) {
+    add_pair(s, io_read_key(port), value);
+}
+
+static void add_image_range(exact_sequence_t *s, uint32_t first,
+                            uint32_t end_exclusive);
+
+static uint16_t image_word(uint32_t offset) {
+    hard_assert((offset & 1u) == 0u);
+    hard_assert(offset + 1u < processor_runtime_image_size);
+    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+        if (offset == CALCULATOR_SLOT_OFFSET)
+            return 0x9A90u;
+        if (offset == CALCULATOR_SLOT_OFFSET + 2u)
+            return (uint16_t)(g_calculator_entry_linear & 0x000Fu);
+        if (offset == CALCULATOR_SLOT_OFFSET + 4u)
+            return (uint16_t)(g_calculator_entry_linear >> 4u);
+    } else if (offset == CALCULATOR_SLOT_OFFSET) {
+        return g_calculator_opcode;
+    }
+    return (uint16_t)processor_runtime_image_data[offset] |
+           ((uint16_t)processor_runtime_image_data[offset + 1u] << 8);
+}
+
+static bool calculator_workload_valid(void) {
+    const rp86_workload_manifest_t *manifest = &g_workload_manager.manifest;
+    if ((g_workload_manager.state != RP86_WORKLOAD_STATE_STAGED &&
+         g_workload_manager.state != RP86_WORKLOAD_STATE_STOPPED &&
+         g_workload_manager.state != RP86_WORKLOAD_STATE_RUNNING) ||
+        manifest->image_size != CALCULATOR_WORKLOAD_SIZE ||
+        (((uint32_t)manifest->entry_segment << 4u) +
+         manifest->entry_offset) != manifest->load_address)
+        return false;
+
+    uint8_t image[CALCULATOR_WORKLOAD_SIZE];
+    return rp86_memory_backing_read(&g_workload_memory,
+                                    manifest->load_address,
+                                    image, sizeof image) &&
+           memcmp(image, g_calculator_workload_contract, sizeof image) == 0;
+}
+
+static uint16_t calculator_workload_word(uint32_t address) {
+    uint8_t bytes[2];
+    hard_assert(rp86_memory_backing_read(&g_workload_memory, address,
+                                         bytes, sizeof bytes));
+    return (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u);
+}
+
+static void compile_irq_rom_sequence(void) {
+    memset(&g_irq_rom, 0, sizeof g_irq_rom);
+    add_memory(&g_irq_rom, IVT20_OFFSET_ADDRESS, IRQ_HANDLER_OFFSET);
+    add_memory(&g_irq_rom, IVT20_SEGMENT_ADDRESS, 0xF000u);
+    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+        add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
+                        CALCULATOR_RETURN_OFFSET);
+        add_memory(&g_irq_rom, g_calculator_entry_linear,
+                   calculator_workload_word(g_calculator_entry_linear));
+        add_memory(&g_irq_rom, g_calculator_entry_linear + 2u,
+                   calculator_workload_word(g_calculator_entry_linear + 2u));
+        /* The nested far call pushes F000:0176 below the interrupt frame.
+         * RETF consumes these two words before ROM fetching resumes. */
+        add_memory(&g_irq_rom, CALCULATOR_STACK_IP_ADDRESS, CALCULATOR_RETURN_OFFSET);
+        add_memory(&g_irq_rom, CALCULATOR_STACK_CS_ADDRESS, 0xF000u);
+        add_image_range(&g_irq_rom, CALCULATOR_RETURN_OFFSET,
+                        processor_runtime_image_size & ~1u);
+    } else {
+        add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
+                        processor_runtime_image_size & ~1u);
+    }
+    add_memory(&g_irq_rom, STACK_IP_ADDRESS, IRQ_RETURN_OFFSET);
+    add_memory(&g_irq_rom, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_irq_rom, STACK_FLAGS_ADDRESS, 0xF246u);
+}
+
+static void add_image_range(exact_sequence_t *s, uint32_t first,
+                            uint32_t end_exclusive) {
+    for (uint32_t offset = first; offset < end_exclusive; offset += 2u)
+        add_memory(s, PROCESSOR_IMAGE_BASE + offset, image_word(offset));
+}
+
+static void compile_sequences(void) {
+    /* The exact-word responder has no odd-address instruction keys. Keep the
+     * C-side stack/IRET contract locked to the assembly alignment contract. */
+    hard_assert((INITIAL_INT60_RETURN & 1u) == 0u);
+    hard_assert((IRQ_RETURN_OFFSET & 1u) == 0u);
+    hard_assert((CYCLIC_INT60_RETURN & 1u) == 0u);
+    hard_assert((INT60_HANDLER_OFFSET & 1u) == 0u);
+    hard_assert((IRQ_HANDLER_OFFSET & 1u) == 0u);
+
+    memset(&g_boot, 0, sizeof g_boot);
+    memset(&g_int60_initial, 0, sizeof g_int60_initial);
+    memset(&g_int60, 0, sizeof g_int60);
+    memset(&g_irq_io, 0, sizeof g_irq_io);
+
+    add_memory(&g_boot, RESET_ROM_BASE, 0x00EAu);
+    add_memory(&g_boot, RESET_ROM_BASE + 2u, 0x0000u);
+    add_memory(&g_boot, RESET_ROM_BASE + 4u, 0x90F0u);
+    /* The reset path prefetches through the first INT 60h. Unsupported
+     * speculative reads remain high-Z and do not advance another SM. */
+    /* The first INT 60h is decoded after the aligned F0022 fetch.  Do not put
+     * speculative F0024+ keys ahead of the IVT60 keys in the shared SM0
+     * stream, or the exact matcher would wait on a fetch that never occurs. */
+    add_image_range(&g_boot, 0x0000u, CYCLIC_INT60_RETURN);
+    /* The boot INT60 and cyclic post-IRQ INT60 use the same handler but have
+     * different return IPs.  Keeping separate initial/cyclic descriptors
+     * guarantees that every IRET target is an aligned ROM fetch. */
+    add_memory(&g_int60_initial, IVT60_OFFSET_ADDRESS,
+               INT60_HANDLER_OFFSET);
+    add_memory(&g_int60_initial, IVT60_SEGMENT_ADDRESS, 0xF000u);
+    add_image_range(&g_int60_initial, INT60_HANDLER_OFFSET, 0x0114u);
+    add_memory(&g_int60_initial, STACK_IP_ADDRESS, INITIAL_INT60_RETURN);
+    add_memory(&g_int60_initial, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_int60_initial, STACK_FLAGS_ADDRESS, 0xF246u);
+    add_image_range(&g_int60_initial, INITIAL_INT60_RETURN,
+                    CYCLIC_INT60_RETURN);
+
+    /* An accepted physical interrupt flushes the V30 prefetch queue.  The
+     * aligned INT60 word at 0022h was already prefetched before HLT, but must
+     * be fetched again after IRQ IRET.  Every cyclic foreground block begins
+     * with that deterministic post-IRQ refetch, then serves the IVT/handler. */
+    add_memory(&g_int60, PROCESSOR_IMAGE_BASE + IRQ_RETURN_OFFSET,
+               image_word(IRQ_RETURN_OFFSET));
+    add_memory(&g_int60, IVT60_OFFSET_ADDRESS, INT60_HANDLER_OFFSET);
+    add_memory(&g_int60, IVT60_SEGMENT_ADDRESS, 0xF000u);
+    add_image_range(&g_int60, INT60_HANDLER_OFFSET, 0x0114u);
+    add_memory(&g_int60, STACK_IP_ADDRESS, CYCLIC_INT60_RETURN);
+    add_memory(&g_int60, STACK_CS_ADDRESS, 0xF000u);
+    add_memory(&g_int60, STACK_FLAGS_ADDRESS, 0xF246u);
+    /* IRET -> 0024 JMP -> 0020 NOP/HLT.  The aligned 0022 INT60 word is
+     * prefetched before HLT and becomes executable only after the next IRQ. */
+    add_image_range(&g_int60, CYCLIC_INT60_RETURN,
+                    CYCLIC_INT60_RETURN + 2u);
+    add_image_range(&g_int60, INITIAL_INT60_RETURN,
+                    CYCLIC_INT60_RETURN);
+
+    /* Physical IRQ20 uses two independent exact streams.  V30 instruction
+     * prefetch may interleave handler ROM reads with IN E0h/E4h in a way that
+     * changes with clock ratio and queue state.  Keeping ROM and I/O on
+     * separate SMs makes that interleave irrelevant: each stream advances
+     * only on its own qualified current-cycle key. */
+    compile_irq_rom_sequence();
+
+    add_io(&g_irq_io, STATUS_PORT, 1u);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i)
+        add_io(&g_irq_io, RX_PORT, g_host_words[i]);
+
+    hard_assert(g_boot.count > 4u);
+    hard_assert(g_int60_initial.count > 4u);
+    hard_assert(g_int60.count > 4u);
+    hard_assert(g_irq_rom.count > 4u);
+    hard_assert(g_irq_io.count == HOST_WORDS + 1u);
+}
+
+static uint32_t flatten_full(const exact_sequence_t *s,
+                             uint32_t words[STREAM_WORDS]) {
+    uint32_t n = 0u;
+    for (uint32_t i = 0u; i < s->count; ++i) {
+        words[n++] = s->pair[i].key;
+        words[n++] = s->pair[i].response;
+    }
+    return n;
+}
+
+static uint32_t flatten_append(const exact_sequence_t *s,
+                               uint32_t words[STREAM_WORDS], uint32_t n) {
+    hard_assert(n + s->count * 2u <= STREAM_WORDS);
+    for (uint32_t i = 0u; i < s->count; ++i) {
+        words[n++] = s->pair[i].key;
+        words[n++] = s->pair[i].response;
+    }
+    return n;
+}
+
+static void exact_sm_init(rp86_pio_sm_t *s, uint sm, uint offset) {
+    s->pio = pio1;
+    s->sm = sm;
+    s->offset = offset;
+    pio_sm_claim(s->pio, s->sm);
+    pio_sm_config c =
+        rp86_processor_service_responder_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, 0u);
+    sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    hard_assert(pio_sm_init(s->pio, s->sm, offset, &c) == PICO_OK);
+    pio_sm_set_enabled(s->pio, s->sm, false);
+}
+
+static void inta_sm_init(rp86_pio_sm_t *s, uint sm, uint offset) {
+    s->pio = pio1;
+    s->sm = sm;
+    s->offset = offset;
+    pio_sm_claim(s->pio, s->sm);
+    pio_sm_config c =
+        rp86_interrupt_acknowledge_responder_program_get_default_config(offset);
+    sm_config_set_out_pins(&c, OUT_BASE, OUT_COUNT);
+    sm_config_set_out_shift(&c, true, false, 32u);
+    hard_assert(pio_sm_init(s->pio, s->sm, offset, &c) == PICO_OK);
+    pio_sm_set_enabled(s->pio, s->sm, false);
+}
+
+static void prime_exact(const rp86_pio_sm_t *s, const exact_sequence_t *sequence) {
+    (void)sequence;
+    arm_sm((rp86_pio_sm_t *)s);
+    pio_sm_exec(s->pio, s->sm, pio_encode_jmp(
+        rp86_processor_service_responder_initial_offset(s->offset)));
+    pio_sm_exec(s->pio, s->sm, pio_encode_mov(pio_pindirs, pio_null));
+}
+
+static int start_words_dma(const rp86_pio_sm_t *s, const uint32_t *words,
+                           uint32_t count) {
+    return start_pio_tx_dma(s, words, count);
+}
+
+static void runtime_clock_init(rp86_pio_sm_t *clock) {
+    /* PIO1 is deliberately full: three exact response SMs plus INTA. PIO2 is
+     * the independent processor clock and bus-phase domain. */
+    clock->pio = pio2;
+    clock->sm = pio_claim_unused_sm(clock->pio, true);
+    clock->offset = pio_add_program(
+        clock->pio, &rp86_free_running_clock_program);
+}
+
+static void __isr companion_dma_irq0(void) {
+    /* The initial foreground transfer is RESET+INT60.  Every reload is the
+     * cyclic INT60-only stream, so SM0 never waits on a reset key again. */
+    if (g_foreground_dma >= 0 &&
+        dma_channel_get_irq0_status((uint)g_foreground_dma)) {
+        dma_channel_acknowledge_irq0((uint)g_foreground_dma);
+        dma_channel_set_read_addr((uint)g_foreground_dma,
+                                  g_int60_words, false);
+        dma_channel_set_trans_count((uint)g_foreground_dma,
+                                    g_int60_dma_words, true);
+    }
+    if (g_irq_rom_dma >= 0 &&
+        dma_channel_get_irq0_status((uint)g_irq_rom_dma)) {
+        dma_channel_acknowledge_irq0((uint)g_irq_rom_dma);
+        dma_channel_set_read_addr((uint)g_irq_rom_dma,
+                                  g_irq_rom_words, false);
+        dma_channel_set_trans_count((uint)g_irq_rom_dma,
+                                    g_irq_rom_dma_words, true);
+    }
+    if (g_irq_io_dma >= 0 &&
+        dma_channel_get_irq0_status((uint)g_irq_io_dma)) {
+        dma_channel_acknowledge_irq0((uint)g_irq_io_dma);
+        dma_channel_set_read_addr((uint)g_irq_io_dma,
+                                  g_irq_io_words, false);
+        dma_channel_set_trans_count((uint)g_irq_io_dma,
+                                    g_irq_io_dma_words, true);
+    }
+}
+
+static bool receive_host_record(companion_result_t *r) {
+#if RP86_CANONICAL_RUNTIME
+    while (!take_non_control_record(&g_host_record)) {
+        rp86_host_protocol_usb_task();
+        service_cdc_control();
+    }
+#else
+    const uint64_t deadline = time_us_64() + HOST_TIMEOUT_US;
+    while (!rp86_host_protocol_hid_take_record((uint8_t *)&g_host_record) &&
+           time_us_64() <= deadline)
+        rp86_host_protocol_usb_task();
+#endif
+    r->host_record_ok =
+        g_host_record.version == RP86_HOST_PROTOCOL_VERSION &&
+        g_host_record.status == RP86_HOST_PROTOCOL_STATUS_OK &&
+        g_host_record.length <= sizeof g_host_record.payload;
+    if (!r->host_record_ok) return false;
+    r->host_sequence = g_host_record.sequence;
+    uint8_t bytes[HOST_WORDS * 2u] = {0};
+    memcpy(bytes, g_host_record.payload, g_host_record.length);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i)
+        g_host_words[i] = (uint16_t)bytes[i * 2u] |
+            ((uint16_t)bytes[i * 2u + 1u] << 8);
+    return true;
+}
+
+static bool take_live_record(rp86_host_protocol_message_t *record) {
+    if (!take_non_control_record(record)) return false;
+    return record->version == RP86_HOST_PROTOCOL_VERSION &&
+           record->status == RP86_HOST_PROTOCOL_STATUS_OK &&
+           record->length <= sizeof record->payload &&
+           (record->type == RP86_HOST_PROTOCOL_MESSAGE_HEARTBEAT ||
+            record->type == RP86_HOST_PROTOCOL_MESSAGE_COMMAND);
+}
+
+static uint16_t stage_live_payload(const rp86_host_protocol_message_t *record) {
+    uint8_t bytes[HOST_WORDS * 2u] = {0};
+    uint16_t witness = 0u;
+    uint16_t length = record->length;
+    if (length > sizeof bytes) length = sizeof bytes;
+    memcpy(bytes, record->payload, length);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i) {
+        g_host_words[i] = (uint16_t)bytes[i * 2u] |
+            ((uint16_t)bytes[i * 2u + 1u] << 8);
+        witness ^= g_host_words[i];
+    }
+    return witness;
+}
+
+static bool select_calculator_opcode(const rp86_host_protocol_message_t *record) {
+    g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
+    if (record->type != RP86_HOST_PROTOCOL_MESSAGE_COMMAND ||
+        g_host_words[0] != CALCULATOR_MAGIC)
+        return false;
+
+    uint32_t operation_offset;
+    switch (g_host_words[1]) {
+        case CALCULATOR_ADD:
+            g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+            operation_offset = 0u;
+            break;
+        case CALCULATOR_SUB:
+            g_calculator_opcode = CALCULATOR_OPCODE_SUB;
+            operation_offset = CALCULATOR_ENTRY_STRIDE;
+            break;
+        case CALCULATOR_MUL:
+            g_calculator_opcode = CALCULATOR_OPCODE_MUL;
+            operation_offset = CALCULATOR_ENTRY_STRIDE * 2u;
+            break;
+        case CALCULATOR_DIV:
+            if (g_host_words[3] == 0u) return false;
+            g_calculator_opcode = CALCULATOR_OPCODE_DIV;
+            operation_offset = CALCULATOR_ENTRY_STRIDE * 3u;
+            break;
+        default:
+            return false;
+    }
+    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+        if (!calculator_workload_valid()) return false;
+        g_calculator_entry_linear += operation_offset;
+    }
+    return true;
+}
+
+static void rearm_exact_stream(const rp86_pio_sm_t *sm, int dma,
+                               const exact_sequence_t *sequence,
+                               const uint32_t *words, uint32_t word_count) {
+    dma_channel_set_irq0_enabled((uint)dma, false);
+    dma_channel_abort((uint)dma);
+    dma_channel_acknowledge_irq0((uint)dma);
+    prime_exact(sm, sequence);
+    dma_channel_set_read_addr((uint)dma, words, false);
+    dma_channel_set_trans_count((uint)dma, word_count, true);
+    hard_assert(wait_fifo_primed(sm, 4u));
+    dma_channel_set_irq0_enabled((uint)dma, true);
+    pio_sm_set_enabled(sm->pio, sm->sm, true);
+}
+
+static void rearm_live_observer(const rp86_pio_sm_t *observer,
+                                int observer_dma) {
+    pio_sm_set_enabled(observer->pio, observer->sm, false);
+    dma_channel_abort((uint)observer_dma);
+    memset(g_observer_dma_words, 0, sizeof g_observer_dma_words);
+    arm_sm((rp86_pio_sm_t *)observer);
+    dma_channel_set_write_addr((uint)observer_dma,
+                               g_observer_dma_words, false);
+    dma_channel_set_trans_count((uint)observer_dma,
+                                OBSERVER_WORDS, true);
+    pio_sm_set_enabled(observer->pio, observer->sm, true);
+}
+
+static bool raw_io_write(uint32_t raw) {
+    return !sample_bit(raw, RP86_PROCESSOR_PIN_IOM) &&
+           sample_bit(raw, RP86_PROCESSOR_PIN_BUFRW) &&
+           sample_bit(raw, RP86_PROCESSOR_PIN_INTAK);
+}
+
+static bool raw_io_read(uint32_t raw) {
+    return !sample_bit(raw, RP86_PROCESSOR_PIN_IOM) &&
+           !sample_bit(raw, RP86_PROCESSOR_PIN_BUFRW) &&
+           sample_bit(raw, RP86_PROCESSOR_PIN_INTAK);
+}
+
+static void classify_trace_words(companion_result_t *r, uint32_t word_count) {
+    r->complete_cycles = word_count / 2u;
+    uint32_t tx_words_since_commit = 0u;
+    for (uint32_t i = 0u; i < r->complete_cycles; ++i) {
+        const uint32_t address_raw = g_observer_dma_words[i * 2u];
+        const uint32_t data_raw = g_observer_dma_words[i * 2u + 1u];
+        if (!raw_io_write(address_raw)) continue;
+        const uint32_t address = decode_address(address_raw);
+        const uint16_t data = decode_ad(data_raw);
+        if (address == TX_PORT)
+            ++tx_words_since_commit;
+        if (address == CONTROL_PORT && data == 1u) {
+            if (tx_words_since_commit >= 6u) {
+                r->irq_commit_seen = true;
+                ++r->irq_commits;
+            } else {
+                r->int60_commit_seen = true;
+                ++r->int60_commits;
             }
-            if (length == 0u) continue;
-            command[length] = '\0';
-            const bool print_status =
-                strcmp(command, "PI86 STATUS") == 0 ||
-                strcmp(command, "status") == 0;
-            const bool enter_bootloader =
-                strcmp(command, "PI86 BOOTLOADER") == 0 ||
-                strcmp(command, "bootloader") == 0 ||
-                strcmp(command, "bootsel") == 0;
-            length = 0u;
-            if (print_status) {
-                printf("PI86 STATUS BEGIN\n");
-                pi86_runtime_print_status(runtime);
-                printf("PI86 STATUS END\n");
-                fflush(stdout);
-                continue;
-            }
-            if (enter_bootloader) {
-                printf("PI86 BOOTLOADER ACK\n");
-                fflush(stdout);
-                pi86_runtime_enter_bootloader(runtime);
-                return;
-            }
-            printf("PI86 COMMAND ERROR\n");
-            fflush(stdout);
-            continue;
+            tx_words_since_commit = 0u;
         }
-
-        if (length + 1u < sizeof command) {
-            command[length++] = ch;
-        } else {
-            /* Discard an overlong line instead of matching a truncated token. */
-            length = 0u;
-            overflowed = true;
+        if (address == PIC_COMMAND_PORT && (data & 0xFFu) == 0x20u) {
+            r->eoi_seen = true;
+            ++r->eoi_writes;
         }
     }
 }
 
-int main(void) {
-    stdio_init_all();
-    pi86_runtime_t runtime;
-    pi86_runtime_init(&runtime);
-
-    bool was_connected = false;
-
-    while (true) {
-        const bool connected = stdio_usb_connected();
-
-        if (connected && !was_connected) {
-            pi86_runtime_print_identity();
-            pi86_runtime_print_status(&runtime);
-            fflush(stdout);
+static void classify_live_round(live_round_result_t *round,
+                                uint32_t word_count,
+                                uint16_t expected_witness) {
+    /* Re-derive the whole result from the completed DMA prefix on every poll.
+     * Keeping a prior EOI flag while rescanning from cycle zero could otherwise
+     * misclassify an earlier commit as the post-IRET foreground commit. */
+    round->witness = false;
+    round->irq_commit = false;
+    round->eoi = false;
+    round->foreground_commit = false;
+    round->native_counter_valid = false;
+    round->processor_identity_valid = false;
+    round->calculator_valid = false;
+    round->processor_signature = 0u;
+    round->observed_witness = 0u;
+    uint16_t tx_data[NATIVE_REPLY_WORDS] = {0};
+    uint32_t tx_words = 0u;
+    const uint32_t cycles = word_count / 2u;
+    round->observed_cycles = cycles;
+    for (uint32_t i = 0u; i < cycles; ++i) {
+        const uint32_t address_raw = g_observer_dma_words[i * 2u];
+        const uint32_t data_raw = g_observer_dma_words[i * 2u + 1u];
+        if (!raw_io_write(address_raw)) continue;
+        const uint32_t address = decode_address(address_raw);
+        const uint16_t data = decode_ad(data_raw);
+        if (address == WITNESS_PORT) {
+            round->observed_witness = data;
+            round->witness = data == expected_witness;
+        } else if (address == TX_PORT) {
+            if (tx_words < NATIVE_REPLY_WORDS)
+                tx_data[tx_words] = data;
+            ++tx_words;
+        } else if (address == CONTROL_PORT && data == 1u) {
+            if (tx_words >= NATIVE_REPLY_WORDS) {
+                round->irq_commit = true;
+                round->processor_signature = tx_data[NATIVE_TEXT_WORDS];
+                round->processor_identity_valid =
+                    round->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ||
+                    round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30;
+                uint32_t counters[NATIVE_COUNTER_COPIES];
+                for (uint32_t copy = 0u; copy < NATIVE_COUNTER_COPIES; ++copy) {
+                    const uint32_t word = NATIVE_TEXT_WORDS +
+                        NATIVE_PROCESSOR_WORDS + copy * 2u;
+                    counters[copy] = (uint32_t)tx_data[word] |
+                        ((uint32_t)tx_data[word + 1u] << 16);
+                }
+                if (counters[0] == counters[1] ||
+                    counters[0] == counters[2]) {
+                    round->cpu_sequence = counters[0];
+                    round->native_counter_valid = true;
+                } else if (counters[1] == counters[2]) {
+                    round->cpu_sequence = counters[1];
+                    round->native_counter_valid = true;
+                }
+                round->command_sequence = 0u;
+                if (round->calculator_requested &&
+                    tx_data[2] == CALCULATOR_MAGIC &&
+                    tx_data[3] == g_host_words[1] &&
+                    tx_data[4] == g_host_words[2] &&
+                    tx_data[5] == g_host_words[3]) {
+                    round->calculator_operation = tx_data[3];
+                    round->calculator_lhs = tx_data[4];
+                    round->calculator_rhs = tx_data[5];
+                    round->calculator_low = tx_data[0];
+                    round->calculator_high = tx_data[1];
+                    round->calculator_valid = true;
+                }
+            } else if (round->eoi && tx_words >= 1u) {
+                round->foreground_commit = true;
+            }
+            tx_words = 0u;
+            memset(tx_data, 0, sizeof tx_data);
+        } else if (address == PIC_COMMAND_PORT &&
+                   (data & 0xFFu) == 0x20u) {
+            round->eoi = true;
         }
+    }
+}
 
-        if (connected) service_host_cdc(&runtime);
+static bool run_live_round(const rp86_pio_sm_t *foreground,
+                           const rp86_pio_sm_t *irq_rom,
+                           const rp86_pio_sm_t *irq_io,
+                           const rp86_pio_sm_t *inta,
+                           const rp86_pio_sm_t *observer,
+                           int observer_dma,
+                           const rp86_host_protocol_message_t *record,
+                           live_round_result_t *round) {
+    memset(round, 0, sizeof *round);
+    const uint16_t expected_witness = stage_live_payload(record);
+    g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    /* A RUNNING workload owns the dispatch target for every IRQ round,
+     * including background heartbeat records.  Calculator commands may add
+     * an operation offset below, but a non-command round must never inherit
+     * the zero-initialized reset value as a far-call segment. */
+    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
+    round->calculator_requested =
+        record->type == RP86_HOST_PROTOCOL_MESSAGE_COMMAND &&
+        g_host_words[0] == CALCULATOR_MAGIC;
+    if (round->calculator_requested && !select_calculator_opcode(record))
+        return false;
+    compile_irq_rom_sequence();
+    g_irq_rom_dma_words = flatten_full(&g_irq_rom, g_irq_rom_words);
+    memset(&g_irq_io, 0, sizeof g_irq_io);
+    add_io(&g_irq_io, STATUS_PORT, 1u);
+    for (uint32_t i = 0u; i < HOST_WORDS; ++i)
+        add_io(&g_irq_io, RX_PORT, g_host_words[i]);
+    g_irq_io_dma_words = flatten_full(&g_irq_io, g_irq_io_words);
 
-        was_connected = connected;
-        sleep_ms(10);
+    /* The processor is parked in HLT here. Reset all three exact streams to
+     * one common cycle boundary before asserting the next physical INTR.
+     * This prevents a completed bring-up burst from leaving one matcher on a
+     * stale ROM/prefetch key while another has already advanced. */
+    rearm_exact_stream(foreground, g_foreground_dma, &g_int60,
+                       g_int60_words, g_int60_dma_words);
+    rearm_exact_stream(irq_rom, g_irq_rom_dma, &g_irq_rom,
+                       g_irq_rom_words, g_irq_rom_dma_words);
+    rearm_exact_stream(irq_io, g_irq_io_dma, &g_irq_io,
+                       g_irq_io_words, g_irq_io_dma_words);
+    rearm_live_observer(observer, observer_dma);
+
+    pio_interrupt_clear(pio1, 4u);
+    pio_interrupt_clear(pio1, 5u);
+    gpio_put(RP86_PROCESSOR_PIN_INTR, true);
+    const uint64_t deadline = time_us_64() + LIVE_ROUND_TIMEOUT_US;
+    while (!pio_interrupt_get(pio1, 4u) && time_us_64() <= deadline)
+        rp86_host_protocol_usb_task();
+    if (pio_interrupt_get(pio1, 4u)) {
+        pio_interrupt_clear(pio1, 4u);
+        gpio_put(RP86_PROCESSOR_PIN_INTR, false);
+        round->inta1 = true;
+    } else {
+        gpio_put(RP86_PROCESSOR_PIN_INTR, false);
+        return false;
+    }
+
+    while (!pio_interrupt_get(pio1, 5u) && time_us_64() <= deadline)
+        rp86_host_protocol_usb_task();
+    if (!pio_interrupt_get(pio1, 5u)) return false;
+    pio_interrupt_clear(pio1, 5u);
+    round->inta2 = true;
+    pio_sm_put_blocking(pio1, inta->sm,
+                        encode_gpio_word(COMPANION_VECTOR));
+
+    while (time_us_64() <= deadline) {
+        const uint32_t words = OBSERVER_WORDS - dma_remaining(observer_dma);
+        __dmb();
+        classify_live_round(round, words, expected_witness);
+        if (round->witness && round->irq_commit &&
+            round->native_counter_valid &&
+            round->processor_identity_valid && round->eoi &&
+            round->foreground_commit &&
+            (!round->calculator_requested || round->calculator_valid))
+            return true;
+        rp86_host_protocol_usb_task();
+    }
+    return false;
+}
+
+static void send_live_reply(const rp86_host_protocol_message_t *request,
+                            const live_round_result_t *round,
+                            bool passed) {
+    rp86_native_service_witness_t witness = {0};
+    memset(&g_reply_record, 0, sizeof g_reply_record);
+    g_reply_record.version = RP86_HOST_PROTOCOL_VERSION;
+    g_reply_record.type = request->type == RP86_HOST_PROTOCOL_MESSAGE_COMMAND ?
+        RP86_HOST_PROTOCOL_MESSAGE_RESULT : RP86_HOST_PROTOCOL_MESSAGE_HEARTBEAT;
+    g_reply_record.status = passed ? RP86_HOST_PROTOCOL_STATUS_OK :
+        RP86_HOST_PROTOCOL_STATUS_TIMEOUT;
+    g_reply_record.sequence = request->sequence;
+    char payload[33];
+    if (round->calculator_valid) {
+        const char operator = round->calculator_operation == CALCULATOR_ADD ? '+' :
+            round->calculator_operation == CALCULATOR_SUB ? '-' :
+            round->calculator_operation == CALCULATOR_MUL ? '*' : '/';
+        if (round->calculator_operation == CALCULATOR_MUL) {
+            const uint32_t product = (uint32_t)round->calculator_low |
+                ((uint32_t)round->calculator_high << 16);
+            snprintf(payload, sizeof payload, "CALC %u%c%u=%lu",
+                     round->calculator_lhs, operator, round->calculator_rhs,
+                     (unsigned long)product);
+        } else if (round->calculator_operation == CALCULATOR_DIV) {
+            snprintf(payload, sizeof payload, "CALC %u/%u=%u R%u",
+                     round->calculator_lhs, round->calculator_rhs,
+                     round->calculator_low, round->calculator_high);
+        } else {
+            snprintf(payload, sizeof payload, "CALC %u%c%u=%u",
+                     round->calculator_lhs, operator, round->calculator_rhs,
+                     round->calculator_low);
+        }
+    } else {
+        snprintf(payload, sizeof payload, "%s",
+                 request->type == RP86_HOST_PROTOCOL_MESSAGE_COMMAND ?
+                     "PROCESSOR COMMAND OK" : "PROCESSOR HEARTBEAT OK");
+    }
+    witness.magic[0] = RP86_NATIVE_WITNESS_MAGIC_0;
+    witness.magic[1] = RP86_NATIVE_WITNESS_MAGIC_1;
+    witness.magic[2] = RP86_NATIVE_WITNESS_MAGIC_2;
+    witness.magic[3] = RP86_NATIVE_WITNESS_MAGIC_3;
+    witness.version = RP86_NATIVE_WITNESS_VERSION;
+    witness.service_type = request->type;
+    witness.flags = round->processor_signature ==
+            PROCESSOR_SIGNATURE_INTEL_8086 ?
+        RP86_NATIVE_WITNESS_PROCESSOR_INTEL_8086 :
+        round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
+        RP86_NATIVE_WITNESS_PROCESSOR_NEC_V30 : 0u;
+    witness.boot_id = g_processor_boot_id;
+    witness.cpu_sequence = round->cpu_sequence;
+    witness.command_sequence = round->command_sequence;
+    const uint16_t text_length = (uint16_t)strlen(payload);
+    memcpy(g_reply_record.payload, &witness, sizeof witness);
+    memcpy(g_reply_record.payload + sizeof witness, payload, text_length);
+    g_reply_record.length = (uint16_t)(sizeof witness + text_length);
+    (void)rp86_host_protocol_hid_send_record(
+        (const uint8_t *)&g_reply_record, HOST_TIMEOUT_US);
+    evidence_printf(
+        "[LIVE CPU ROUND] request=%lu type=%u boot=%lu cpu_seq=%lu command_seq=%lu INTA=%s witness=%04X %s commit=%s EOI=%s idle=%s result=%s\n",
+        (unsigned long)request->sequence, request->type,
+        (unsigned long)g_processor_boot_id,
+        (unsigned long)round->cpu_sequence,
+        (unsigned long)round->command_sequence,
+        round->inta1 && round->inta2 ? "PASS" : "FAIL",
+        round->observed_witness, round->witness ? "PASS" : "FAIL",
+        round->irq_commit ? "PASS" : "FAIL",
+        round->eoi ? "PASS" : "FAIL",
+        round->foreground_commit ? "PASS" : "FAIL",
+        passed ? "PASS" : "FAIL");
+    evidence_printf(
+        "[NATIVE PROCESSOR ID] signature=%04X identity=%s result=%s\n",
+        round->processor_signature,
+        round->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ?
+            "INTEL 8086" :
+        round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
+            "NEC V30" : "UNKNOWN",
+        round->processor_identity_valid ? "PASS" : "FAIL");
+    if (round->calculator_requested) {
+        evidence_printf(
+            "[NATIVE CALCULATOR] op=%u lhs=%u rhs=%u low=%u high=%u result=%s\n",
+            round->calculator_operation, round->calculator_lhs,
+            round->calculator_rhs, round->calculator_low,
+            round->calculator_high,
+            round->calculator_valid ? "PASS" : "FAIL");
+    }
+}
+
+static int evidence_printf(const char *format, ...) {
+    char line[256];
+    va_list args;
+    va_start(args, format);
+    const int length = vsnprintf(line, sizeof line, format, args);
+    va_end(args);
+    if (length < 0 || (size_t)length >= sizeof line) return -1;
+    return rp86_host_protocol_cdc_write(line, (uint32_t)length,
+                                    HOST_TIMEOUT_US) ? length : -1;
+}
+
+static void print_canonical_status(void) {
+    evidence_printf("\n[RUNTIME STATUS]\n");
+    evidence_printf("State                      = %s\n",
+                    g_bus_active ? "RUNNING" : "IDLE");
+    evidence_printf("Clock                      = %.3f MHz\n",
+                    (double)RP86_PROCESSOR_HZ / 1000000.0);
+    evidence_printf("Processor                  = HOST DECLARED: INTEL 8086 OR NEC V30\n");
+    evidence_printf("External PSRAM configured  = %s\n",
+                    RP86_HAS_EXTERNAL_PSRAM ? "YES" : "NO");
+#if RP86_HAS_EXTERNAL_PSRAM
+    evidence_printf("External PSRAM probe       = CANONICAL STARTUP\n");
+#else
+    evidence_printf("External PSRAM probe       = SKIPPED\n");
+#endif
+    evidence_printf("Workload memory            = %s\n",
+                    g_workload_memory.name);
+    evidence_printf("Processor memory range     = %05lX-%05lX (%lu KiB)\n",
+                    (unsigned long)g_workload_memory.processor_base,
+                    (unsigned long)(g_workload_memory.processor_base +
+                                    g_workload_memory.size - 1u),
+                    (unsigned long)(g_workload_memory.size / 1024u));
+    evidence_printf("External PSRAM role        = OPTIONAL CAPACITY TIER\n");
+    evidence_printf("Onboard NOR flash          = W25Q128JV / 16 MiB\n");
+    evidence_printf("Firmware reserved          = 0x000000-0x3FFFFF / 4 MiB\n");
+    evidence_printf("flash:/ partition          = 0x400000-0xFFFFFF / 12 MiB\n");
+    if (g_flash_volume_ready) {
+        evidence_printf("flash:/ filesystem         = %s / %s\n",
+                        rp86_flash_filesystem_name(
+                            g_flash_volume.filesystem_type),
+                        g_flash_volume.label);
+        evidence_printf("flash:/ free               = %lu KiB\n",
+                        (unsigned long)g_flash_volume.free_kib);
+        evidence_printf("flash:/ boot state         = %s\n",
+                        g_flash_volume.formatted_on_boot ?
+                            "FORMATTED" : "EXISTING");
+        evidence_printf("flash:/ media self-test    = %s\n",
+                        g_flash_volume.self_test_passed ? "PASS" : "FAIL");
+    } else {
+        evidence_printf("flash:/ filesystem         = FAULT\n");
+        evidence_printf("flash:/ FatFs result       = %u\n",
+                        (unsigned)g_flash_volume.result);
+    }
+    evidence_printf("Staged Host workload       = %s",
+                    rp86_workload_state_name(g_workload_manager.state));
+    if (g_workload_manager.state != RP86_WORKLOAD_STATE_EMPTY)
+        evidence_printf(" (%lu bytes / id %lu)",
+                        (unsigned long)g_workload_manager.manifest.image_size,
+                        (unsigned long)g_workload_manager.workload_id);
+    evidence_printf("\n");
+    evidence_printf("Active physical workload   = %s\n",
+                    !g_bus_active ? "WAITING FOR HID RECORD" :
+                    g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING ?
+                        "INTERNAL SRAM CALCULATOR" :
+                        "RP86 PROCESSOR RUNTIME");
+    evidence_printf("Onboard GPIO safe state    = PASS\n");
+    evidence_printf("MicroSD hardware           = %s\n",
+                    RP86_HAS_SDCARD ? "PRESENT" : "ABSENT");
+    evidence_printf("MicroSD GPIO30/31/40-43    = PASSIVE / NOT CLAIMED\n");
+    evidence_printf("Mini HDMI/DVI hardware     = %s\n",
+                    RP86_HAS_DVI ? "PRESENT" : "ABSENT");
+    evidence_printf("Mini HDMI GPIO32-39/44-46  = PASSIVE / NOT CLAIMED\n");
+    evidence_printf("PIO-USB hardware           = %s\n",
+                    RP86_HAS_PIO_USB ? "PRESENT" : "ABSENT");
+    evidence_printf("PIO-USB GPIO28/29          = PASSIVE / NOT CLAIMED\n");
+    evidence_printf("DVI / PIO-USB concurrency  = MUTUALLY EXCLUSIVE\n");
+
+    evidence_printf("\n[CAPABILITY FRAMEWORK]\n");
+    evidence_printf("Host CDC diagnostics        = AVAILABLE\n");
+    evidence_printf("Host 64-byte HID records    = AVAILABLE\n");
+    evidence_printf("physical 8086-class PIO/DMA bus = AVAILABLE\n");
+    evidence_printf("physical INTR / two-cycle INTA = AVAILABLE\n");
+    evidence_printf("persistent processor heartbeat = AVAILABLE\n");
+    evidence_printf("native workload staging     = AVAILABLE / INTERNAL SRAM\n");
+    evidence_printf("workload run / stop / restart = AVAILABLE / CALCULATOR\n");
+    evidence_printf("processor stdin / stdout    = COMMAND MAILBOX AVAILABLE\n");
+    evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
+    evidence_printf("flash: FAT volume           = %s\n",
+                    g_flash_volume_ready ? "AVAILABLE" : "FAULT");
+    evidence_printf("Host flash file service    = %s\n",
+                    g_flash_volume_ready ? "LS / DF / CAT / PUT" : "FAULT");
+    evidence_printf("sd: FAT volume              = NOT IMPLEMENTED\n");
+    evidence_printf("retained physical bus trace = AVAILABLE\n");
+    evidence_printf("timeout / fault / restart   = HEARTBEAT DETECTION ONLY\n");
+    evidence_printf("Host-directed UF2 boot      = AVAILABLE\n");
+    evidence_printf("Mini HDMI / DVI output      = NOT IMPLEMENTED\n");
+    evidence_printf("PIO-USB host / device       = NOT IMPLEMENTED\n");
+    evidence_printf("\nOne canonical CDC+HID runtime.\n");
+}
+
+static void park_physical_processor(void) {
+    gpio_put(RP86_PROCESSOR_PIN_INTR, false);
+    gpio_put(RP86_PROCESSOR_PIN_RESET, true);
+    g_bus_active = false;
+    irq_set_enabled(DMA_IRQ_0, false);
+    pio_set_sm_mask_enabled(pio1, 0x0fu, false);
+    pio_set_sm_mask_enabled(pio0, 0x0fu, false);
+    if (g_runtime_clock != NULL)
+        pio_sm_set_enabled(g_runtime_clock->pio, g_runtime_clock->sm, false);
+    const int channels[] = {
+        g_foreground_dma, g_irq_rom_dma, g_irq_io_dma, g_observer_dma,
+    };
+    for (uint32_t i = 0u; i < count_of(channels); ++i) {
+        if (channels[i] >= 0) dma_channel_abort((uint)channels[i]);
+    }
+    route_ad_to_sio_high_z();
+    gpio_set_function(RP86_PROCESSOR_PIN_CLK, GPIO_FUNC_SIO);
+    gpio_put(RP86_PROCESSOR_PIN_CLK, false);
+    gpio_set_dir(RP86_PROCESSOR_PIN_CLK, GPIO_OUT);
+}
+
+static bool send_runtime_control_ack(
+    const rp86_host_protocol_message_t *request, uint8_t operation) {
+    rp86_host_protocol_message_t reply = {0};
+    reply.version = RP86_HOST_PROTOCOL_VERSION;
+    reply.type = RP86_HOST_PROTOCOL_MESSAGE_RUNTIME_STATUS;
+    reply.sequence = request->sequence;
+    reply.length = 1u;
+    reply.status = RP86_HOST_PROTOCOL_STATUS_OK;
+    reply.payload[0] = operation;
+    return rp86_host_protocol_hid_send_record(
+        (const uint8_t *)&reply, 100000u);
+}
+
+static bool send_workload_reply(const rp86_host_protocol_message_t *request,
+                                rp86_host_protocol_status_t status,
+                                bool status_reply) {
+    rp86_host_protocol_message_t reply = {0};
+    const rp86_workload_status_payload_t payload = {
+        .workload_id = g_workload_manager.workload_id,
+        .state = (uint32_t)g_workload_manager.state,
+        .detail = g_workload_manager.received,
+    };
+    reply.version = RP86_HOST_PROTOCOL_VERSION;
+    reply.type = status_reply ? RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_STATUS :
+                                RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_RESULT;
+    reply.sequence = request->sequence;
+    reply.length = sizeof payload;
+    reply.status = status;
+    memcpy(reply.payload, &payload, sizeof payload);
+    return rp86_host_protocol_hid_send_record(
+        (const uint8_t *)&reply, HOST_TIMEOUT_US);
+}
+
+static bool handle_workload_record(const rp86_host_protocol_message_t *request) {
+    rp86_host_protocol_status_t status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
+    bool status_reply = false;
+
+    if (request->status != RP86_HOST_PROTOCOL_STATUS_OK) {
+        status = RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+    } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_BEGIN &&
+               request->length == sizeof(rp86_workload_begin_payload_t)) {
+        rp86_workload_begin_payload_t begin;
+        memcpy(&begin, request->payload, sizeof begin);
+        status = rp86_workload_begin(&g_workload_manager,
+                                     begin.transfer_id,
+                                     &begin.manifest) ?
+            RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+    } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_DATA &&
+               request->length > sizeof(uint32_t) * 2u) {
+        uint32_t transfer_id;
+        uint32_t offset;
+        memcpy(&transfer_id, request->payload, sizeof transfer_id);
+        memcpy(&offset, request->payload + sizeof transfer_id, sizeof offset);
+        const uint8_t *data = request->payload + sizeof(uint32_t) * 2u;
+        const size_t length = request->length - sizeof(uint32_t) * 2u;
+        status = rp86_workload_write(&g_workload_manager, transfer_id,
+                                     offset, data, length) ?
+            RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_SEQUENCE;
+    } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_COMMIT &&
+               request->length == sizeof(rp86_workload_commit_payload_t)) {
+        rp86_workload_commit_payload_t commit;
+        memcpy(&commit, request->payload, sizeof commit);
+        status = rp86_workload_commit(&g_workload_manager,
+                                      commit.transfer_id,
+                                      commit.image_crc32) ?
+            RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_CRC;
+    } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_CONTROL &&
+               request->length == sizeof(rp86_workload_control_payload_t)) {
+        rp86_workload_control_payload_t control;
+        memcpy(&control, request->payload, sizeof control);
+        status_reply = true;
+        if (control.operation == RP86_WORKLOAD_CONTROL_STATUS &&
+            (control.workload_id == 0u ||
+             control.workload_id == g_workload_manager.workload_id)) {
+            status = RP86_HOST_PROTOCOL_STATUS_OK;
+        } else if (control.operation == RP86_WORKLOAD_CONTROL_RUN) {
+            status = calculator_workload_valid() &&
+                     rp86_workload_run(&g_workload_manager,
+                                       control.workload_id) ?
+                RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+        } else if (control.operation == RP86_WORKLOAD_CONTROL_STOP) {
+            status = rp86_workload_stop(&g_workload_manager,
+                                        control.workload_id) ?
+                RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
+        } else if (control.operation == RP86_WORKLOAD_CONTROL_RESTART) {
+            status = calculator_workload_valid() &&
+                     rp86_workload_restart(&g_workload_manager,
+                                           control.workload_id) ?
+                RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+        } else {
+            status = RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+        }
+    }
+
+    const bool sent = send_workload_reply(request, status, status_reply);
+    evidence_printf(
+        "WORKLOAD op=%u seq=%lu state=%s received=%lu status=%u %s\n",
+        request->type, (unsigned long)request->sequence,
+        rp86_workload_state_name(g_workload_manager.state),
+        (unsigned long)g_workload_manager.received,
+        (unsigned)status, sent ? "REPLIED" : "REPLY TIMEOUT");
+    return sent;
+}
+
+static bool handle_filesystem_record(const rp86_host_protocol_message_t *request) {
+    rp86_host_protocol_message_t reply = {0};
+    if (!rp86_flash_service_handle(&g_flash_service, request, &reply))
+        return false;
+    const bool sent = rp86_host_protocol_hid_send_record(
+        (const uint8_t *)&reply, HOST_TIMEOUT_US);
+    evidence_printf("RP-FLASH op=%u seq=%lu status=%u %s\n",
+                    request->length == 0u ? 0u : request->payload[0],
+                    (unsigned long)request->sequence,
+                    (unsigned)reply.status,
+                    sent ? "REPLIED" : "REPLY TIMEOUT");
+    return sent;
+}
+
+static void wait_for_usb_ack_flush(void) {
+    const uint64_t deadline = time_us_64() + 100000u;
+    while (time_us_64() < deadline) {
+        rp86_host_protocol_usb_task();
+        sleep_us(100u);
+    }
+}
+
+static void enter_canonical_bootloader(void) {
+    park_physical_processor();
+    evidence_printf("RP86 BOOTLOADER ACK\n");
+    evidence_printf("RP86 BOOTLOADER ENTERING\n");
+    sleep_ms(250u);
+    reset_usb_boot(0u, 0u);
+}
+
+static void reboot_canonical_runtime(void) {
+    park_physical_processor();
+    evidence_printf("RP86 REBOOT ACK\n");
+    evidence_printf("RP86 REBOOT ENTERING\n");
+    sleep_ms(100u);
+    watchdog_reboot(0u, 0u, 0u);
+    while (true) tight_loop_contents();
+}
+
+static bool handle_runtime_control(const rp86_host_protocol_message_t *record) {
+    if (record->status != RP86_HOST_PROTOCOL_STATUS_OK || record->length != 1u)
+        return false;
+    const uint8_t operation = record->payload[0];
+    if (operation != RP86_RUNTIME_CONTROL_ENTER_BOOTLOADER &&
+        operation != RP86_RUNTIME_CONTROL_REBOOT)
+        return false;
+    park_physical_processor();
+    if (!send_runtime_control_ack(record, operation)) return false;
+    wait_for_usb_ack_flush();
+    if (operation == RP86_RUNTIME_CONTROL_ENTER_BOOTLOADER)
+        reset_usb_boot(0u, 0u);
+    watchdog_reboot(0u, 0u, 0u);
+    while (true) tight_loop_contents();
+}
+
+static void service_cdc_control(void) {
+#if RP86_CANONICAL_RUNTIME
+    enum { COMMAND_CAPACITY = 48 };
+    static char command[COMMAND_CAPACITY];
+    static size_t length;
+    static bool overflowed;
+
+    while (tud_cdc_available()) {
+        char ch;
+        if (tud_cdc_read(&ch, 1u) != 1u) break;
+        if (ch == '\r' || ch == '\n') {
+            if (overflowed) {
+                length = 0u;
+                overflowed = false;
+                evidence_printf("RP86 COMMAND ERROR\n");
+                continue;
+            }
+            if (length == 0u) continue;
+            command[length] = '\0';
+            length = 0u;
+            if (strcmp(command, "RP86 STATUS") == 0 ||
+                strcmp(command, "status") == 0) {
+                evidence_printf("RP86 STATUS BEGIN\n");
+                print_canonical_status();
+                evidence_printf("RP86 STATUS END\n");
+            } else if (strcmp(command, "RP86 BOOTLOADER") == 0 ||
+                       strcmp(command, "bootloader") == 0 ||
+                       strcmp(command, "bootsel") == 0) {
+                enter_canonical_bootloader();
+            } else if (strcmp(command, "RP86 REBOOT") == 0 ||
+                       strcmp(command, "reboot") == 0) {
+                reboot_canonical_runtime();
+            } else {
+                evidence_printf("RP86 COMMAND ERROR\n");
+            }
+            continue;
+        }
+        if (length + 1u < sizeof command) command[length++] = ch;
+        else {
+            length = 0u;
+            overflowed = true;
+        }
+    }
+#endif
+}
+
+static void print_companion_result(const companion_result_t *r) {
+    evidence_printf("\n[PERSISTENT RP86 RUNTIME]\n");
+    evidence_printf("Clock                      = %.3f MHz\n",
+                    (double)RP86_PROCESSOR_HZ / 1000000.0);
+    evidence_printf("RESET clock qualification = %s\n",
+                    r->reset_ok ? "PASS" : "FAIL");
+    evidence_printf("Software INT 60h commit    = %s\n",
+                    r->int60_commit_seen ? "PASS" : "FAIL");
+    evidence_printf("Physical INTR assertions   = %lu\n",
+                    (unsigned long)r->irq_assertions);
+    evidence_printf("INTA #1 accepts            = %lu %s\n",
+                    (unsigned long)r->irq_accepts,
+                    r->first_inta_seen ? "PASS" : "FAIL");
+    evidence_printf("INTA #2 completions        = %lu %s\n",
+                    (unsigned long)r->irq_completions,
+                    r->second_inta_complete ? "PASS" : "FAIL");
+    evidence_printf("IRQ mailbox commit         = %s\n",
+                    r->irq_commit_seen ? "PASS" : "FAIL");
+    evidence_printf("Native EOI                 = %s\n",
+                    r->eoi_seen ? "PASS" : "FAIL");
+    evidence_printf("Heartbeat active           = %s\n",
+                    r->heartbeat_active ? "PASS" : "FAIL");
+    evidence_printf("Native processor identity  = %s (AAD16=%04X) %s\n",
+        r->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ?
+            "INTEL 8086" :
+        r->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
+            "NEC V30" : "UNKNOWN",
+        r->processor_signature,
+        r->processor_identity_valid ? "PASS" : "FAIL");
+    evidence_printf("IRQ mailbox commits        = %lu\n",
+                    (unsigned long)r->irq_commits);
+    evidence_printf("Native EOI writes          = %lu\n",
+                    (unsigned long)r->eoi_writes);
+    evidence_printf("PIO1 non-AD isolation      = %s\n",
+                    r->non_ad_isolation ? "PASS" : "FAIL");
+    evidence_printf("Observer complete cycles   = %lu\n",
+                    (unsigned long)r->complete_cycles);
+    evidence_printf("DMA remain foreground/ROM/I/O = %lu/%lu/%lu\n",
+                    (unsigned long)r->foreground_dma_remain,
+                    (unsigned long)r->irq_rom_dma_remain,
+                    (unsigned long)r->irq_io_dma_remain);
+    evidence_printf("TX FIFO foreground/ROM/I/O = %lu/%lu/%lu\n",
+                    (unsigned long)r->foreground_fifo,
+                    (unsigned long)r->irq_rom_fifo,
+                    (unsigned long)r->irq_io_fifo);
+    evidence_printf("SM PC foreground/ROM/I/O/INTA = %lu/%lu/%lu/%lu\n",
+                    (unsigned long)r->foreground_pc,
+                    (unsigned long)r->irq_rom_pc,
+                    (unsigned long)r->irq_io_pc,
+                    (unsigned long)r->inta_pc);
+    evidence_printf("PIO1 allocation            = SM0 RESET+INT60, SM1 IRQ ROM, SM2 IRQ I/O, SM3 INTA\n");
+    evidence_printf("PIO instruction words      = %u + %u = %u/32\n",
+        rp86_processor_service_responder_program.length,
+        rp86_interrupt_acknowledge_responder_program.length,
+        rp86_processor_service_responder_program.length +
+            rp86_interrupt_acknowledge_responder_program.length);
+    evidence_printf("Current-cycle M33          = NONE\n");
+    evidence_printf("Processor runtime state    = STI/HLT idle; IRQ heartbeat remains armed\n");
+    evidence_printf("RP86 RUNTIME RESULT   = %s\n",
+        r->host_record_ok && r->pre_release_clean &&
+        r->int60_commit_seen && r->first_inta_seen &&
+        r->second_inta_complete && r->irq_commit_seen &&
+        r->eoi_seen && r->heartbeat_active &&
+        r->processor_identity_valid ? "PASS" : "FAIL");
+
+    evidence_printf("\n[PASSIVE ADDRESS / R2-DATA TRACE]\n");
+    /* Persistent-runtime failures often occur only after the first complete
+     * IRQ/IRET round trip.  Retain the entire bounded observer window so a
+     * second-entry fault cannot be hidden behind a successful first 80 cycles. */
+    const uint32_t depth = r->complete_cycles;
+    for (uint32_t i = 0u; i < depth; ++i) {
+        const uint32_t address_raw = g_observer_dma_words[i * 2u];
+        const uint32_t data_raw = g_observer_dma_words[i * 2u + 1u];
+        const char *type = is_memory_read(address_raw) ? "MEMR" :
+            is_memory_write(address_raw) ? "MEMW" :
+            raw_io_write(address_raw) ? "IOW" :
+            raw_io_read(address_raw) ? "IOR" : "OTHER";
+        evidence_printf("%02lu addr=%05lX type=%s data=%04X addr_raw=%08lX data_raw=%08lX\n",
+            (unsigned long)i,
+            (unsigned long)decode_address(address_raw), type,
+            decode_ad(data_raw), (unsigned long)address_raw,
+            (unsigned long)data_raw);
+    }
+    evidence_printf("Physical processor remains active in STI/HLT; RESET is not asserted.\n");
+}
+
+int main(void) {
+    prepare_header_high_z();
+    init_control_outputs();
+    route_ad_to_sio_high_z();
+    rp86_internal_sram_backing_init(&g_workload_memory);
+    rp86_workload_manager_init(&g_workload_manager, &g_workload_memory);
+    g_flash_volume_ready = rp86_flash_volume_init(&g_flash_volume);
+    rp86_flash_service_init(&g_flash_service, &g_flash_volume,
+                            g_flash_volume_ready);
+    rp86_host_protocol_usb_init();
+    stdio_init_all();
+    while (!stdio_usb_connected()) {
+        rp86_host_protocol_usb_task();
+        sleep_ms(1);
+    }
+
+    static companion_result_t result;
+    if (!receive_host_record(&result)) {
+        print_companion_result(&result);
+        while (true) {
+            rp86_host_protocol_usb_task();
+            service_cdc_control();
+        }
+    }
+    compile_sequences();
+
+    hard_assert(rp86_processor_service_responder_program.length +
+                rp86_interrupt_acknowledge_responder_program.length <= 32u);
+    const uint exact_offset = pio_add_program(
+        pio1, &rp86_processor_service_responder_program);
+    const uint inta_offset = pio_add_program(
+        pio1, &rp86_interrupt_acknowledge_responder_program);
+    rp86_pio_sm_t foreground, irq_rom, irq_io, inta, clock, observer;
+    exact_sm_init(&foreground, 0u, exact_offset);
+    exact_sm_init(&irq_rom, 1u, exact_offset);
+    exact_sm_init(&irq_io, 2u, exact_offset);
+    inta_sm_init(&inta, 3u, inta_offset);
+    runtime_clock_init(&clock);
+    g_runtime_clock = &clock;
+    clock_prepare(&clock);
+    observer_init(&observer);
+
+    prime_exact(&foreground, &g_boot);
+    prime_exact(&irq_rom, &g_irq_rom);
+    prime_exact(&irq_io, &g_irq_io);
+    arm_sm(&inta);
+    pio_sm_exec(pio1, inta.sm, pio_encode_mov(pio_pindirs, pio_null));
+    pio_sm_put_blocking(pio1, inta.sm,
+                        encode_gpio_word(COMPANION_VECTOR));
+
+    uint32_t foreground_initial_words = flatten_append(
+        &g_boot, g_foreground_initial_words, 0u);
+    foreground_initial_words = flatten_append(
+        &g_int60_initial, g_foreground_initial_words,
+        foreground_initial_words);
+    g_int60_dma_words = flatten_full(&g_int60, g_int60_words);
+    g_irq_rom_dma_words = flatten_full(&g_irq_rom, g_irq_rom_words);
+    g_irq_io_dma_words = flatten_full(&g_irq_io, g_irq_io_words);
+    g_foreground_dma = start_words_dma(
+        &foreground, g_foreground_initial_words, foreground_initial_words);
+    g_irq_rom_dma = start_words_dma(
+        &irq_rom, g_irq_rom_words, g_irq_rom_dma_words);
+    g_irq_io_dma = start_words_dma(
+        &irq_io, g_irq_io_words, g_irq_io_dma_words);
+    dma_channel_set_irq0_enabled((uint)g_foreground_dma, true);
+    dma_channel_set_irq0_enabled((uint)g_irq_rom_dma, true);
+    dma_channel_set_irq0_enabled((uint)g_irq_io_dma, true);
+    irq_set_exclusive_handler(DMA_IRQ_0, companion_dma_irq0);
+    irq_set_priority(DMA_IRQ_0, 0x40u);
+    irq_set_enabled(DMA_IRQ_0, true);
+    const int observer_dma = start_observer_dma(&observer);
+    g_observer_dma = observer_dma;
+
+    route_ad_to_responder(&foreground);
+    result.non_ad_isolation = responder_non_ad_pins_isolated(&foreground);
+    result.pre_release_clean = result.non_ad_isolation &&
+        pio1->dbg_padoe == 0u && !gpio_get(RP86_PROCESSOR_PIN_CLK) &&
+        (sio_hw->gpio_oe & RP86_PROCESSOR_AD_BUS_MASK) == 0u;
+
+    gpio_put(RP86_PROCESSOR_PIN_RESET, true);
+    clock_start(&clock);
+    const bool reset_ok = wait_reset_clocks(RESET_CLOCKS);
+    result.reset_ok = reset_ok;
+    clock_stop_low(&clock);
+    clock_prepare(&clock);
+    result.pre_release_clean = result.pre_release_clean && reset_ok;
+
+    pio_enable_sm_mask_in_sync(pio1, 0x0Fu);
+    pio_sm_set_enabled(pio0, observer.sm, true);
+    ++g_processor_boot_id;
+    if (g_processor_boot_id == 0u)
+        ++g_processor_boot_id;
+    gpio_put(RP86_PROCESSOR_PIN_RESET, false);
+    pio_sm_set_enabled(clock.pio, clock.sm, true);
+    g_bus_active = true;
+
+    busy_wait_ms(20u);
+    for (uint32_t heartbeat = 0u;
+         heartbeat < HEARTBEAT_ACCEPT_COUNT; ++heartbeat) {
+        gpio_put(RP86_PROCESSOR_PIN_INTR, true);
+        ++result.irq_assertions;
+        const uint64_t deadline = time_us_64() + IRQ_TIMEOUT_US;
+        while (!pio_interrupt_get(pio1, 4u) && time_us_64() <= deadline)
+            rp86_host_protocol_usb_task();
+        if (pio_interrupt_get(pio1, 4u)) {
+            pio_interrupt_clear(pio1, 4u);
+            gpio_put(RP86_PROCESSOR_PIN_INTR, false);
+            result.first_inta_seen = true;
+            ++result.irq_accepts;
+        }
+        while (!pio_interrupt_get(pio1, 5u) && time_us_64() <= deadline)
+            rp86_host_protocol_usb_task();
+        if (pio_interrupt_get(pio1, 5u)) {
+            pio_interrupt_clear(pio1, 5u);
+            result.second_inta_complete = true;
+            ++result.irq_completions;
+            pio_sm_put_blocking(pio1, inta.sm,
+                                encode_gpio_word(COMPANION_VECTOR));
+        }
+        busy_wait_us_32(IRQ_PERIOD_US);
+    }
+
+    const uint32_t observer_words = OBSERVER_WORDS -
+        dma_remaining(observer_dma);
+    result.observer_words = observer_words;
+    result.observer_complete = observer_words >= 2u;
+    classify_trace_words(&result, observer_words);
+    live_round_result_t initial_round = {0};
+    classify_live_round(&initial_round, observer_words,
+                        stage_live_payload(&g_host_record));
+    initial_round.inta1 = result.first_inta_seen;
+    initial_round.inta2 = result.second_inta_complete;
+    result.processor_signature = initial_round.processor_signature;
+    result.processor_identity_valid = initial_round.processor_identity_valid;
+    result.heartbeat_active = result.irq_completions >= 2u &&
+        result.irq_commits >= 2u && result.eoi_writes >= 2u &&
+        initial_round.witness && initial_round.irq_commit &&
+        initial_round.native_counter_valid &&
+        initial_round.processor_identity_valid && initial_round.eoi &&
+        initial_round.foreground_commit;
+    result.foreground_dma_remain = dma_remaining(g_foreground_dma);
+    result.irq_rom_dma_remain = dma_remaining(g_irq_rom_dma);
+    result.irq_io_dma_remain = dma_remaining(g_irq_io_dma);
+    result.foreground_fifo = pio_sm_get_tx_fifo_level(pio1, foreground.sm);
+    result.irq_rom_fifo = pio_sm_get_tx_fifo_level(pio1, irq_rom.sm);
+    result.irq_io_fifo = pio_sm_get_tx_fifo_level(pio1, irq_io.sm);
+    result.foreground_pc = pio_sm_get_pc(pio1, foreground.sm);
+    result.irq_rom_pc = pio_sm_get_pc(pio1, irq_rom.sm);
+    result.irq_io_pc = pio_sm_get_pc(pio1, irq_io.sm);
+    result.inta_pc = pio_sm_get_pc(pio1, inta.sm);
+
+    send_live_reply(&g_host_record, &initial_round,
+                    result.heartbeat_active);
+    print_companion_result(&result);
+
+    /* Persistent service condition: one complete host record owns one V30
+     * interrupt.  The reply is not published until passive PIO0 evidence has
+     * observed the native witness, six-word IRQ commit, EOI, and the following
+     * INT60 commit that proves IRET returned to the idle loop. */
+    while (true) {
+        rp86_host_protocol_usb_task();
+        service_cdc_control();
+        rp86_host_protocol_message_t request;
+        if (take_live_record(&request)) {
+            live_round_result_t round;
+            const bool passed = run_live_round(
+                &foreground, &irq_rom, &irq_io, &inta,
+                &observer, observer_dma, &request, &round);
+            send_live_reply(&request, &round, passed);
+        }
+        tight_loop_contents();
     }
 }

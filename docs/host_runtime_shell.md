@@ -17,8 +17,8 @@ The shell is the reference interface to the
 protocol and it is not required to be implemented in Python forever.
 
 `RPBridge` is the narrower transport layer beneath RP86: composite CDC/HID,
-the 64-byte ABI, and the local multi-client broker. `v30bridge.py` is retained
-only as a backward-compatible command name.
+the 64-byte ABI, and the local multi-client broker. `tools/rp86.py` is the only
+command-line entry point.
 
 The shell shape is defined before every backend is complete so later PSRAM,
 NOR Flash, SD Card, trace, and debugger work can attach to a stable interface.
@@ -41,7 +41,7 @@ Host shell
 
 Both the Host and physical processor are clients of RP2350-owned memory and storage services.
 Neither client directly owns a Flash controller, SD controller, filesystem
-metadata, PSRAM allocator, or bus-engine state.
+metadata, PSRAM allocator, or bus-controller state.
 
 ## Storage roles
 
@@ -212,7 +212,7 @@ The Host constructs flat native workload manifests, divides images into fixed
 transactions. Canonical firmware accepts begin/data/commit/status records,
 validates address, chunk order, and CRC32, stages the calculator in the 256 KiB
 Internal-SRAM processor range, and physically dispatches its four entry points.
-Composite CDC+HID, the accepted 1 MHz bus engine, physical INTR/two-cycle INTA,
+Composite CDC+HID, the accepted 1 MHz bus controller, physical INTR/two-cycle INTA,
 persistent heartbeat, command mailbox, status, trace, and Host-directed UF2
 entry remain integrated. External PSRAM is a later optional capacity backend
 behind the same workload contract.
@@ -273,7 +273,7 @@ Broker termination disconnects clients. This initial contract deliberately
 does not migrate hardware ownership to another process automatically; a new
 script may become owner after the previous broker releases CDC/HID.
 
-The Host requires one complete `PI86 STATUS BEGIN` / `PI86 STATUS END` block,
+The Host requires one complete `RP86 STATUS BEGIN` / `RP86 STATUS END` block,
 so USB startup text cannot be mistaken for the response to a new request. This
 operation only observes RP2350 state. Before the first HID record it reports
 `IDLE` and leaves the processor in RESET. After startup it reports `RUNNING`
@@ -297,7 +297,7 @@ disconnect after that acknowledgement is a successful transition, not a
 transport failure.
 
 HID is the primary control path and does not depend on a healthy CDC stream.
-For compatibility and recovery, the Host falls back to the exact CDC tokens
-`PI86 REBOOT` and `PI86 BOOTLOADER` and requires their ACKs. The raw CDC console
+For recovery, the Host falls back to the exact CDC tokens `RP86 REBOOT` and
+`RP86 BOOTLOADER` and requires their ACKs. The raw CDC console
 also accepts `reboot`, `bootloader`, or `bootsel`. No early control command can
 release processor RESET or claim the bus.

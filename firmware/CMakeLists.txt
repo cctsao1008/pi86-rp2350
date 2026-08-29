@@ -1,25 +1,22 @@
-include("${PROJECT_SOURCE_DIR}/cmake/V30Rom.cmake")
+include("${PROJECT_SOURCE_DIR}/cmake/ProcessorImage.cmake")
 
 # The accepted 1 MHz companion image is now the canonical physical runtime.
-# Keep its ROM symbol/header stable so the same source also remains usable by
+# Keep its embedded-image symbol/header stable so the same source also remains usable by
 # the retained characterization targets.
-pi86_add_v30_rom(companion_runtime_rom
-    SOURCE "${CMAKE_CURRENT_LIST_DIR}/v30/bios/companion_runtime_test.asm"
-    SYMBOL companion_runtime_rom
+rp86_add_processor_image(processor_runtime_image
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/processor/runtime.asm"
+    SYMBOL processor_runtime_image
     DEPENDS
-        "${CMAKE_CURRENT_LIST_DIR}/v30/bios/include/platform.inc"
+        "${CMAKE_CURRENT_LIST_DIR}/processor/include/platform.inc"
 )
 
 # A standalone flat image loaded by the Host into the Internal SRAM backing.
-pi86_add_v30_rom(calculator_workload
+rp86_add_processor_image(calculator_workload
     SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/calculator.asm"
     SYMBOL calculator_workload
 )
 
-set(PI86_EXTENDED_DIR
-    "${PROJECT_SOURCE_DIR}/tests/performance_characterization_1_extended")
-
-add_executable(pi86_rp2350
+add_executable(rp86_rp2350
     board/rp2350_pizero_resources.c
     memory/backing.c
     memory/internal_sram_backing.c
@@ -31,19 +28,19 @@ add_executable(pi86_rp2350
     storage/flash_volume.c
     ${PROJECT_SOURCE_DIR}/third_party/fatfs/source/ff.c
     ${PROJECT_SOURCE_DIR}/third_party/fatfs/source/ffunicode.c
-    ${PI86_EXTENDED_DIR}/companion_runtime.c
-    ${PI86_EXTENDED_DIR}/ai_bridge_usb.c
-    ${PI86_EXTENDED_DIR}/ai_bridge_usb_descriptors.c
+    main.c
+    host_protocol/usb_transport.c
+    host_protocol/usb_descriptors.c
 )
 
-target_include_directories(pi86_rp2350 PRIVATE
+target_include_directories(rp86_rp2350 PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
-    ${PI86_EXTENDED_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/host_protocol
     ${PROJECT_SOURCE_DIR}/third_party/fatfs/source
 )
 
-target_link_libraries(pi86_rp2350
-    companion_runtime_rom
+target_link_libraries(rp86_rp2350
+    processor_runtime_image
     pico_stdlib
     pico_bootrom
     pico_flash
@@ -57,72 +54,72 @@ target_link_libraries(pi86_rp2350
     hardware_watchdog
     tinyusb_device
 )
-add_dependencies(pi86_rp2350 calculator_workload_image)
+add_dependencies(rp86_rp2350 calculator_workload_image)
 
-target_compile_definitions(pi86_rp2350 PRIVATE
-    PI86_HAS_EXTERNAL_PSRAM=$<BOOL:${PI86_HAS_EXTERNAL_PSRAM}>
-    PI86_HAS_SDCARD=$<BOOL:${PI86_HAS_SDCARD}>
-    PI86_HAS_DVI=$<BOOL:${PI86_HAS_DVI}>
-    PI86_HAS_PIO_USB=$<BOOL:${PI86_HAS_PIO_USB}>
+target_compile_definitions(rp86_rp2350 PRIVATE
+    RP86_HAS_EXTERNAL_PSRAM=$<BOOL:${RP86_HAS_EXTERNAL_PSRAM}>
+    RP86_HAS_SDCARD=$<BOOL:${RP86_HAS_SDCARD}>
+    RP86_HAS_DVI=$<BOOL:${RP86_HAS_DVI}>
+    RP86_HAS_PIO_USB=$<BOOL:${RP86_HAS_PIO_USB}>
     PICO_FLASH_ASSUME_CORE1_SAFE=1
-    PC1C_ROM_HEADER="companion_runtime_rom.h"
-    PC1C_ROM_DATA=companion_runtime_rom_data
-    PC1C_ROM_SIZE=companion_runtime_rom_size
-    PC1C_ROM_SHA256=companion_runtime_rom_sha256
-    COMPANION_V30_HZ=1000000
-    PI86_CANONICAL_RUNTIME=1
-    AI_BRIDGE_HID_TRANSPORT=1
+    RP86_PROCESSOR_IMAGE_HEADER="processor_runtime_image.h"
+    RP86_PROCESSOR_IMAGE_DATA=processor_runtime_image_data
+    RP86_PROCESSOR_IMAGE_SIZE=processor_runtime_image_size
+    RP86_PROCESSOR_IMAGE_SHA256=processor_runtime_image_sha256
+    RP86_PROCESSOR_HZ=1000000
+    RP86_CANONICAL_RUNTIME=1
+    RP86_HOST_PROTOCOL_HID_TRANSPORT=1
     PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0
 )
 
 # The optional APS6404L-class footprint uses QMI CS1/GPIO47. Only configure
 # the SDK PSRAM probe when the build declares that the device is populated.
-if(PI86_HAS_EXTERNAL_PSRAM)
-    target_compile_definitions(pi86_rp2350 PRIVATE
+if(RP86_HAS_EXTERNAL_PSRAM)
+    target_compile_definitions(rp86_rp2350 PRIVATE
         PICO_PSRAM_CS_PIN=47
         PICO_AUTO_DETECT_PSRAM_SIZE=1
     )
-    target_link_libraries(pi86_rp2350
+    target_link_libraries(rp86_rp2350
         hardware_psram
         hardware_xip_cache
     )
 endif()
 
-pico_enable_stdio_usb(pi86_rp2350 1)
-pico_enable_stdio_uart(pi86_rp2350 0)
+pico_enable_stdio_usb(rp86_rp2350 1)
+pico_enable_stdio_uart(rp86_rp2350 0)
 
-pico_generate_pio_header(pi86_rp2350
-    ${PROJECT_SOURCE_DIR}/tests/performance_characterization_1/perf_continuous_clock.pio
+pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
 )
-pico_generate_pio_header(pi86_rp2350
-    ${PI86_EXTENDED_DIR}/pc1c_pio_rom_sequencer.pio
+pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/prepared_bus_responder.pio
 )
-pico_generate_pio_header(pi86_rp2350
-    ${PI86_EXTENDED_DIR}/pc1c_companion_runtime.pio
+pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/processor_service.pio
 )
-pico_generate_pio_header(pi86_rp2350
-    ${PI86_EXTENDED_DIR}/pc1b_first_cycle_phase_capture.pio
+pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/bus_phase_capture.pio
 )
-pico_generate_pio_header(pi86_rp2350
-    ${PI86_EXTENDED_DIR}/pc1c_sram_rom_execution_observer.pio
+pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/bus_observer.pio
 )
 
-pico_add_extra_outputs(pi86_rp2350)
+pico_add_extra_outputs(rp86_rp2350)
 
 # The final 12 MiB belongs to flash:/, so no canonical firmware may grow past
 # the first 4 MiB of the 16 MiB W25Q128JV.
-add_custom_command(TARGET pi86_rp2350 POST_BUILD
+add_custom_command(TARGET rp86_rp2350 POST_BUILD
     COMMAND ${CMAKE_COMMAND}
-        -DPI86_FIRMWARE_BIN=$<TARGET_FILE_DIR:pi86_rp2350>/pi86_rp2350.bin
-        -DPI86_FIRMWARE_LIMIT=4194304
+        -DRP86_FIRMWARE_BIN=$<TARGET_FILE_DIR:rp86_rp2350>/rp86_rp2350.bin
+        -DRP86_FIRMWARE_LIMIT=4194304
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFirmwareSize.cmake
     VERBATIM
 )
 
 # First canonical native workload. It is built as a standalone flat binary
 # for Host upload; it is not linked into the RP2350 firmware or presented as a
-# fixed ROM dependency.
-pi86_add_v30_rom(hello
+# fixed image dependency.
+rp86_add_processor_image(hello
     SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/hello.asm"
     SYMBOL hello_workload
 )

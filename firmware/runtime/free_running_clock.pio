@@ -1,0 +1,8 @@
+.program rp86_free_running_clock
+.wrap_target
+    ; Free-running 50% duty-cycle V30 clock for performance characterization.
+    ; The state-machine clock runs at 2x the requested V30 clock because one
+    ; SET instruction emits each half-cycle.
+    set pins, 1
+    set pins, 0
+.wrap

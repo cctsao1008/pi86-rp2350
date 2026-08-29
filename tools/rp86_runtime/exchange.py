@@ -70,42 +70,24 @@ def physical_exchange(
     output_dir.mkdir(parents=True, exist_ok=True)
     timestamp = started.strftime("%Y%m%d_%H%M%S%z")
     text = captured.decode("utf-8", errors="replace")
-    profile = COMPANION_RUNTIME if "[PERSISTENT COMPANION RUNTIME]" in text else AI_B2_HID
+    profile = RP86_RUNTIME
     raw_path = output_dir / f"{profile.filename_prefix}_{timestamp}.log"
     raw_path.write_bytes(captured)
     cdc_report = validate_output(text, profile)
     story = list(explain_output(text, cdc_report))
 
     cdc_sequence = None
-    sequence_match = re.search(
-        r"(?m)^Windows HID 64-byte record\s+PASS \(sequence ([0-9]+)\)\s*$",
-        text,
-    ) if profile is AI_B2_HID else None
-    if sequence_match is not None:
-        cdc_sequence = int(sequence_match.group(1))
-        if cdc_sequence != sequence:
-            transport_errors.append(
-                f"CDC/HID request sequence mismatch: {cdc_sequence} != {sequence}"
-            )
 
     reply: Message | None = None
     if hid_reply_raw is None:
         transport_errors.append("no complete 64-byte HID reply was received")
     else:
         try:
-            if profile is COMPANION_RUNTIME:
-                # The persistent runtime now returns the same processor-owned
-                # witness used by every later heartbeat.  Do not compare the
-                # complete payload with the legacy bare text string.
-                reply = validate_live_reply(
-                    hid_reply_raw,
-                    request,
-                    None if processor == "auto" else processor,
-                )
-            else:
-                reply = validate_reply(
-                    hid_reply_raw, sequence, TYPE_TEXT, CANONICAL_REPLY
-                )
+            reply = validate_live_reply(
+                hid_reply_raw,
+                request,
+                None if processor == "auto" else processor,
+            )
         except ValueError as exc:
             transport_errors.append(str(exc))
 
@@ -116,9 +98,8 @@ def physical_exchange(
     if reply is not None:
         reply_text = reply.payload
         native_witness: NativeServiceWitness | None = None
-        if profile is COMPANION_RUNTIME:
-            native_witness = NativeServiceWitness.decode(reply.payload)
-            reply_text = native_witness.text
+        native_witness = NativeServiceWitness.decode(reply.payload)
+        reply_text = native_witness.text
         reply_json = {
             "transport": "USB HID",
             "bytes": MESSAGE_SIZE,
@@ -136,13 +117,9 @@ def physical_exchange(
                 "processor": native_witness.processor,
                 "identity_source": "physical AAD 16 discriminator",
             }
-    detected_processor = (
-        native_witness.processor
-        if reply is not None and profile is COMPANION_RUNTIME
-        else processor
-    )
+    detected_processor = native_witness.processor if reply is not None else processor
     result: dict[str, Any] = {
-        "schema": "pi86-rp2350.ai-bridge.exchange/v1",
+        "schema": "rp86.host-protocol.exchange/v1",
         "profile": profile.name,
         "processor": detected_processor,
         "processor_name": PROCESSOR_NAMES[detected_processor],
@@ -169,9 +146,9 @@ def physical_exchange(
         },
         "bus_safety": {
             "passed": "bus safety" in cdc_report.passed_checks
-            and "terminal electrical state" in cdc_report.passed_checks,
-            "terminal_state": "RESET=HIGH, CLK=LOW, AD=high-Z"
-            if "terminal electrical state" in cdc_report.passed_checks
+            and "persistent electrical state" in cdc_report.passed_checks,
+            "terminal_state": "STI/HLT active; AD high-Z between cycles"
+            if "persistent electrical state" in cdc_report.passed_checks
             else "unproven",
         },
         "errors": transport_errors,
@@ -214,4 +191,4 @@ def print_human_result(result: dict[str, Any]) -> None:
     print(f"Codex JSON result = {result['result_json']}")
     for error in result["errors"]:
         print(f"ERROR            = {error}")
-    print(f"AI BRIDGE RESULT = {'PASS' if result['passed'] else 'FAIL'}")
+    print(f"HOST PROTOCOL RESULT = {'PASS' if result['passed'] else 'FAIL'}")

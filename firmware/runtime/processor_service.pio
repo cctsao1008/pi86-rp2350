@@ -1,0 +1,81 @@
+; Persistent Companion Service response plane.
+;
+; PIO1 allocation:
+;   SM0  boot exact response stream
+;   SM1  INT 60h / STI-HLT foreground stream
+;   SM2  physical companion-IRQ transaction stream
+;   SM3  physical two-cycle INTA vector responder
+;
+; SM0..2 share rp86_processor_service_responder. Their DMA streams contain exact
+; key / response-descriptor pairs. This intentionally retains the accepted
+; processor-service responder contract: OUT PINS consumes 28 GPIO bits, OUT X
+; consumes the explicit drive-valid bit, and only then may PINDIRS change.
+; Unrelated cycles
+; retain the current key and never consume a descriptor.
+;
+; SM3 consumes one encoded vector bitmap before each interrupt. It never owns
+; AD during INTA #1, drives the low-byte vector only during INTA #2, releases
+; AD when INTAK deasserts, and publishes absolute PIO IRQ4/IRQ5 witnesses for
+; request acceptance and acknowledge completion. Core0 deasserts physical
+; INTR after IRQ4; neither M33 nor DMA writes SIO during an acknowledge cycle.
+;
+; Both programs occupy one PIO1 instruction memory. Only the scattered AD
+; GPIOs may select the PIO1 mux.
+
+.pio_version rp2350
+.program rp86_processor_service_responder
+
+no_match:
+    wait 0 gpio 9              ; retain key until unsupported cycle ends
+    jmp next_cycle
+
+initial:
+    pull block                 ; first exact early-T1 raw key
+    mov y, osr
+
+.wrap_target
+next_cycle:
+    wait 0 gpio 9              ; accepted clean cycle boundary
+    wait 1 gpio 9              ; ASTB rise
+    nop [7]                    ; synchronized early-T1 settling contract
+    mov x, pins
+    jmp x!=y no_match
+
+    pull block                 ; paired GPIO bitmap + bit-28 drive-valid
+    wait 0 gpio 9              ; qualified address-to-data turnaround
+    out pins, 28
+    out x, 1
+    jmp !x release
+    mov pindirs, ~null
+
+    set x, 1                   ; accepted H2 release boundary
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+
+release:
+    mov pindirs, null
+    pull block                 ; next exact key; unrelated cycles retain it
+    mov y, osr
+.wrap
+
+% c-sdk {
+static inline uint rp86_processor_service_responder_initial_offset(uint offset) {
+    return offset + 2u;
+}
+%}
+
+.program rp86_interrupt_acknowledge_responder
+.wrap_target
+    pull block                 ; one encoded low-byte vector per interrupt
+    wait 0 gpio 1              ; INTA #1 asserted: do not drive AD
+    irq 4                      ; Core0 may now deassert physical INTR
+    wait 1 gpio 1              ; INTA #1 complete
+    wait 0 gpio 1              ; INTA #2 asserted
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 1              ; hold vector until INTA #2 completes
+    mov pindirs, null
+    irq 5                      ; acknowledge pair complete
+.wrap

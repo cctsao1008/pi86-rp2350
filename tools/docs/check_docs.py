@@ -166,7 +166,7 @@ def policy_issues(root: Path, path: Path) -> list[Issue]:
         for number, line in enumerate(text.splitlines(), 1):
             lowered = line.casefold()
             mentions_agent = re.search(r"\b(ai|codex|chatgpt|model)\b", lowered)
-            mentions_cycle = re.search(r"\b(current[- ]cycle|active bus cycle|v30 bus cycle)\b", lowered)
+            mentions_cycle = re.search(r"\b(current[- ]cycle|active bus cycle|processor bus cycle|v30 bus cycle)\b", lowered)
             if not (mentions_agent and mentions_cycle):
                 continue
             negated = re.search(r"\b(not|never|no|outside|must not|cannot|isn't|doesn't)\b", lowered)

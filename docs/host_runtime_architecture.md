@@ -50,7 +50,7 @@ RP2350
 +-- External NOR FAT filesystem owner
 +-- SD FAT filesystem owner
 +-- clock, reset, interrupt, trace, and restart control
-`-- PIO/DMA physical V30 bus engine
+`-- PIO/DMA physical processor bus controller
              |
              v
 Physical Intel 8086 / NEC V30
@@ -79,7 +79,7 @@ The core architecture is not:
 - a complete operating system running on the V30;
 - a recreation of fixed 825x-era peripherals;
 - a multi-process, multi-user, or virtual-memory environment;
-- a system in which the Host answers individual V30 bus cycles.
+- a system in which the Host answers individual processor bus cycles.
 
 BIOS, DOS, ELKS, and compatibility services may be loaded as experiments or
 workloads. They do not define the platform and must not become prerequisites for
@@ -118,7 +118,7 @@ External PSRAM is an optional capacity tier. Its assigned content may include:
 - cache/refill backing;
 - snapshots and restart state when required.
 
-The Host addresses the V30-visible address space through the RP2350. It does not
+The Host addresses the processor-visible address space through the RP2350. It does not
 receive raw ownership of the PSRAM controller or RP2350-private metadata.
 
 ### 4.3 External NOR Flash
@@ -188,23 +188,23 @@ The RP2350 is the sole owner of:
 - External NOR and SD controllers;
 - FAT metadata and synchronization;
 - clock, reset, interrupt, PIO, and DMA state;
-- bus-engine and firmware-private memory.
+- bus-controller and firmware-private memory.
 
-Host and V30 requests are serialized and checked by the RP2350. Neither client
+Host and processor requests are serialized and checked by the RP2350. Neither client
 directly mounts a raw device or changes filesystem metadata, PSRAM allocation,
-or bus-engine state.
+or bus-controller state.
 
 ## 6. Roles and permissions
 
 The permission model has three principals only. It does not reproduce Unix
 users, groups, or general ACLs.
 
-| Resource | RP2350 | Host | V30 workload |
+| Resource | RP2350 | Host | processor workload |
 |---|---|---|---|
 | Firmware/reserved Flash | owner R/W | controlled firmware update | no access |
-| Bus engine and metadata | owner R/W | status only | no access |
-| V30 code memory | owner R/W | R/W while stopped | R/X while running |
-| V30 data/stack/heap | owner R/W | R/W while stopped; observe while running | R/W |
+| Bus controller and metadata | owner R/W | status only | no access |
+| Processor code memory | owner R/W | R/W while stopped | R/X while running |
+| Processor data/stack/heap | owner R/W | R/W while stopped; observe while running | R/W |
 | Shared memory | owner/arbitrator | R/W through protocol | R/W through assigned region |
 | `flash:` FAT volume | filesystem owner | R/W through protocol | service-mediated access |
 | `sd:` FAT volume | filesystem owner | R/W through protocol | service-mediated access |
@@ -222,9 +222,9 @@ Host mutation commands are separate later integrations.
 The RP2350 maintains one explicit runtime state:
 
 ```text
-EMPTY -> LOADED -> RUNNING -> EXITED
+EMPTY -> STAGED -> RUNNING -> EXITED
                     |  |
-                    |  `-> FAULT / TIMEOUT
+                    |  `-> FAULTED / TIMED_OUT
                     |              |
                     `--------------+-> STOPPED -> RESTART or LOAD
 ```
@@ -235,12 +235,12 @@ No workload is selected. Files, storage, status, and loading remain available.
 
 ### LOADED / STOPPED
 
-The V30 is not executing the workload. The Host may load or modify V30-visible
+The processor is not executing the workload. The Host may load or modify processor-visible
 memory, inspect state, manage files, and configure the launch context.
 
 ### RUNNING
 
-The V30 owns its code, data, stack, and heap. The Host normally observes rather
+The processor owns its code, data, stack, and heap. The Host normally observes rather
 than changing ordinary workload memory. Mailbox, stdio, approved shared memory,
 file services, trace, stop, and restart remain available.
 
@@ -249,7 +249,7 @@ file services, trace, stop, and restart remain available.
 The workload reported normal completion. Results, memory, and trace remain
 available to the Host.
 
-### FAULT / TIMEOUT
+### FAULTED / TIMED_OUT
 
 A workload may crash, loop forever, produce invalid activity, or stop replying.
 This is a valid workload outcome, not a platform design failure. The Host shell
@@ -276,14 +276,14 @@ load hello.bin --address 0x10000 --entry 1000:0000
 run
 ```
 
-The RP2350 loads the image into V30-visible memory, prepares a minimal Reset
+The RP2350 loads the image into processor-visible memory, prepares a minimal Reset
 Handoff at `FFFF0h`, establishes the launch context, releases RESET, and observes
 execution. A traditional BIOS is not required.
 
 ROM images remain possible for special fixed tests. DOS COM/MZ loaders are not
 part of the initial native-workload contract.
 
-## 9. V30 runtime services
+## 9. Processor runtime services
 
 The V30 receives a small service ABI rather than an operating system. The
 minimum useful services are:
@@ -292,11 +292,11 @@ minimum useful services are:
 - stdout/write;
 - file open/read/write/seek/close;
 - workload exit/result;
-- heartbeat or status response;
+- processor liveness or status response;
 - optional shared-memory notification.
 
 Services are exposed through RP2350-managed mailbox and interrupt mechanisms.
-The V30 never directly owns USB, FAT, NOR Flash, SD, or PSRAM controllers.
+The processor never directly owns USB, FAT, NOR Flash, SD, or PSRAM controllers.
 
 ## 10. RP86 Host Runtime Shell
 
@@ -313,7 +313,7 @@ claim a hardware operation succeeded.
 | Storage | `df`, `mount`, `unmount`, `sync` |
 | Memory | `mem read`, `mem write`, `mem load`, `mem save` |
 | Observation | `status`, `top`, `info`, `trace`, `regs` |
-| Supervision | `ping`, `timeout`, heartbeat, restart |
+| Supervision | `ping`, `timeout`, liveness monitoring, restart |
 | Shell | `help`, `quiet`, `verbose`, `quit` |
 
 Example session:
@@ -341,7 +341,7 @@ V30 reset; workload restarted
 ```
 
 `top` describes the single physical V30 environment, not an operating-system
-process list. It reports liveness, clock, workload, runtime, heartbeat latency
+process list. It reports liveness, clock, workload, runtime and liveness latency
 and loss, memory use, volume state, I/O counters, interrupt activity, bus errors,
 watchdog state, and restart count.
 
@@ -360,7 +360,7 @@ The protocol must support:
 - capability negotiation;
 - sequence-bound requests and replies;
 - workload metadata and chunked transfer;
-- V30-visible memory read/write;
+- processor-visible memory read/write;
 - filesystem and storage operations;
 - stdio and mailbox records;
 - status, trace, timeout, stop, and restart;
@@ -368,27 +368,27 @@ The protocol must support:
 
 Large payloads may use a bulk transport while control and status retain the same
 logical operations. USB or Host latency must not become a dependency of an
-active V30 bus cycle.
+active processor bus cycle.
 
 ## 12. Physical execution boundary
 
-The physical V30 owns instruction execution, register state, and control flow.
+The physical processor owns instruction execution, register state, and control flow.
 The RP2350 provides two physical execution policies:
 
-- **CONTINUOUS:** PIO/DMA and prepared state satisfy every deadline while the
+- **FREE_RUNNING:** PIO/DMA and prepared state satisfy every deadline while the
   measured clock runs continuously.
-- **PACED:** M33 issues complete clock pulses and may leave `CLK` low between
+- **CLOCK_STEPPED:** M33 issues complete clock pulses and may leave `CLK` low between
   pulses while it services general Internal-SRAM memory or I/O.
 
-Bounded Host-loaded CONTINUOUS execution is physically accepted for the
-calculator image. Standalone PACED execution is also physically accepted for
+Bounded Host-loaded FREE_RUNNING execution is physically accepted for the
+calculator image. Standalone CLOCK_STEPPED execution is also physically accepted for
 general binary control flow, stack traffic, writable byte/word RAM, and I/O.
-The existing Pi86 HAT holds `READY` asserted; PACED changes the interval between
+The existing Pi86 HAT holds `READY` asserted; CLOCK_STEPPED changes the interval between
 complete pulses rather than inserting READY wait states or truncating a pulse.
 
-A cooperative engine change occurs only at an explicit safe point: the workload
+A cooperative clock-mode change occurs only at an explicit safe point: the workload
 publishes a request through I/O, executes `STI; HLT`, and resumes after RP2350 has
-stopped at `CLK=LOW`, changed engine, prepared state, and delivered the established
+stopped at `CLK=LOW`, switched clock mode, prepared state, and delivered the established
 INTR/two-cycle-INTA/ISR/IRET wake path. This switching handshake remains an
 integration item.
 
@@ -417,9 +417,9 @@ The architecture is fixed; implementation proceeds by connecting backends to
 the stable Host shell:
 
 1. Host shell framework and capability reporting;
-2. bounded CONTINUOUS Internal-SRAM lifecycle (calculator accepted);
-3. general PACED Internal-SRAM execution (standalone engine accepted), followed
-   by Host lifecycle and cooperative CONTINUOUS/PACED switching integration;
+2. bounded FREE_RUNNING Internal-SRAM lifecycle (calculator accepted);
+3. general CLOCK_STEPPED Internal-SRAM execution (standalone controller accepted), followed
+   by Host lifecycle and cooperative FREE_RUNNING/CLOCK_STEPPED switching integration;
 4. native workload stdio;
 5. Internal-SRAM Host/processor shared memory;
 6. External NOR shared FAT volume as `flash:`;

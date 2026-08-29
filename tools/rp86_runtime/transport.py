@@ -9,7 +9,7 @@ def _serial_module():
     except ImportError as exc:
         raise RuntimeError(
             "pyserial is required; run: py -m pip install -r "
-            r"tools\ai_bridge\requirements.txt"
+            r"tools/rp86_runtime/requirements.txt"
         ) from exc
     return serial
 
@@ -179,7 +179,7 @@ def _hid_module():
     except ImportError as exc:
         raise RuntimeError(
             "hidapi is required; run: py -m pip install -r "
-            r"tools\ai_bridge\requirements.txt"
+            r"tools/rp86_runtime/requirements.txt"
         ) from exc
     return hid
 
@@ -345,7 +345,7 @@ def cdc_serial_for_port(
 
 
 def default_output_dir() -> Path:
-    configured = os.environ.get("PI86_VALIDATION_LOG_DIR")
+    configured = os.environ.get("RP86_VALIDATION_LOG_DIR")
     if configured:
         return Path(configured).expanduser()
     documents = Path.home() / "Documents"

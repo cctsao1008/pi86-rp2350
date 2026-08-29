@@ -50,7 +50,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--attach", action="store_true",
-        help="attach to an already-running companion runtime without RESET evidence",
+        help="attach to an already-running RP86 processor runtime without RESET evidence",
     )
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--heartbeat-timeout", type=float, default=2.0)
@@ -70,7 +70,7 @@ def main() -> int:
         response = Message.decode(simulate_v30(request.encode()))
         if args.json:
             print(json.dumps({
-                "schema": "rp86.ai-bridge-simulation/v1",
+                "schema": "rp86.host-protocol-simulation/v1",
                 "request": request.payload.decode("ascii"),
                 "reply": response.payload.decode("ascii"),
                 "sequence": response.sequence,

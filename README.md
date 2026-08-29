@@ -124,9 +124,7 @@ tools. Higher-level clients—including ChatGPT, Codex, and other agents—may u
 those implementations without becoming part of the physical-processor runtime
 architecture.
 
-The canonical entry point is `tools/rp86.py`. The former
-`tools/ai_bridge/v30bridge.py` remains as a compatibility wrapper for existing
-validation commands and saved workflows.
+The single Host runtime entry point is `tools/rp86.py`.
 
 The Host may disappear without becoming part of a current processor bus cycle.
 A workload can crash or stop responding; the runtime reports it, preserves
@@ -139,7 +137,7 @@ content through it, not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; bounded 1 MHz execution and general PACED branch/loop/stack/RAM/I/O execution are physically validated |
+| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; bounded 1 MHz execution and general CLOCK_STEPPED branch/loop/stack/RAM/I/O execution are physically validated |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -159,14 +157,14 @@ directly owns USB, PSRAM, NOR Flash, SD, FAT, PIO, or DMA controllers.
 ## ⏱️ Physical timing boundary
 
 The original Pi86 HAT keeps the processor `READY` input asserted. The runtime now
-has two clock policies. **CONTINUOUS** keeps the measured clock running while
-PIO/DMA and prepared state meet every deadline. **PACED** issues one complete
+has two clock policies. **FREE_RUNNING** keeps the measured clock running while
+PIO/DMA and prepared state meet every deadline. **CLOCK_STEPPED** issues one complete
 clock pulse at a time and may remain at `CLK=LOW` between pulses while RP2350
 services general Internal-SRAM memory or I/O.
 
-PACED execution is physically validated through reset fetch, taken branches,
+CLOCK_STEPPED execution is physically validated through reset fetch, taken branches,
 `LOOP`, `PUSH`/`POP`, byte/word RAM, and native I/O result publication. Runtime
-switching between CONTINUOUS and PACED remains to be integrated. Host software,
+switching between FREE_RUNNING and CLOCK_STEPPED remains to be integrated. Host software,
 USB, filesystem work, and arbitrary storage transactions still do not take over
 a partially completed electrical bus phase.
 
@@ -209,7 +207,7 @@ INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
 uses the same physical identity mechanism and lets the installed processor
 demonstrate which instruction behavior it actually executed. The upload and
 lifecycle ABI are implemented; bounded Host-loaded calculator execution is
-physically validated, and the standalone PACED engine has validated general
+physically validated, and the standalone CLOCK_STEPPED clock controller has validated general
 Internal-SRAM code, stack, writable RAM, and I/O response.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
@@ -239,7 +237,6 @@ SRAM and physically validated `load`, `run`, `stop`, and `restart`; see the
 - [`docs/hardware.md`](docs/hardware.md) — board resources, locked signal mapping, and physical interface contract
 - [`docs/development/codex_physical_development_loop.md`](docs/development/codex_physical_development_loop.md) — AI-written code through physical processor evidence
 - [`docs/validation/`](docs/validation/) — accepted physical evidence
-- [`docs/archive/`](docs/archive/) — superseded plans and former project directions
 - [`docs/README.md`](docs/README.md) — complete documentation map
 
 The current architecture decisions are

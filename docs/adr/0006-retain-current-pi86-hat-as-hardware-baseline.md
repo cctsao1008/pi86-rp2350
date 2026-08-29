@@ -3,7 +3,7 @@
 - Status: Accepted
 - Date: 2026-08-24
 - Supersedes: the future V3.0 hardware-redesign requirement in ADR 0003
-- Amended by: ADR 0010, which accepts a separately validated PACED clock engine
+- Amended by: ADR 0010, which accepts a separately validated CLOCK_STEPPED clock controller
 
 ## Context
 
@@ -46,8 +46,8 @@ follow the deterministic deadline policy retained from ADR 0003:
    other slow work remain outside the active physical cycle.
 
 Clock stopping/stretching on the installed standard D70116C-8 is not promoted
-as a vendor-guaranteed timing mechanism for CONTINUOUS-mode misses. ADR 0010
-adds a separate PACED engine based on physical validation: it issues complete
+as a vendor-guaranteed timing mechanism for FREE_RUNNING-mode misses. ADR 0010
+adds a separate CLOCK_STEPPED clock controller based on physical validation: it issues complete
 pulses and pauses only at `CLK=LOW` between pulses. That capability is accepted
 for this project hardware baseline without claiming operation inside the
 processor vendor's published AC envelope.
@@ -102,6 +102,5 @@ Costs and limitations:
 - Issue #46 — general address-indexed SRAM ROM service
 - Issue #51 — canonical firmware/runtime consolidation
 - Issue #48 — HAT redesign, closed as not planned
-- [`../archive/hardware-concepts/pi86_hat_design_review.md`](../archive/hardware-concepts/pi86_hat_design_review.md)
 - [`../architecture.md`](../architecture.md)
-- [`0003-require-ready-or-deterministic-hits-for-general-memory.md`](0003-require-ready-or-deterministic-hits-for-general-memory.md)
+- [`0003-define-physical-timing-boundary.md`](0003-define-physical-timing-boundary.md)

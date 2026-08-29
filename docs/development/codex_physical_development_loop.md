@@ -81,13 +81,13 @@ The canonical WSL build assembles the workload and builds the RP2350 firmware:
 
 ```bash
 cd ~/github/pi86-rp2350
-cmake --build build --target pi86_rp2350 -j2
+cmake --build build --target rp86_rp2350 -j2
 ```
 
 The relevant output artifacts are:
 
 ```text
-build/firmware/pi86_rp2350.uf2
+build/firmware/rp86_rp2350.uf2
 build/firmware/generated/calculator_workload/calculator_workload.bin
 ```
 

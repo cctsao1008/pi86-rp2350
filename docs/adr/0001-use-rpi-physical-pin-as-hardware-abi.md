@@ -29,7 +29,7 @@ V30 signal
 
 WiringPi and BCM numbers are allowed only as reference metadata when interpreting original Pi86 sources. They are not portable hardware identifiers.
 
-Firmware must centralize V30 pin definitions in `firmware/v30/v30_pins.h`. Documentation must identify both the physical header position and the target RP2350 GPIO. Undocumented raw GPIO literals in V30 bus code are prohibited.
+Firmware must centralize processor-bus pin definitions in `firmware/processor/processor_bus_pins.h`. Documentation must identify both the physical header position and the target RP2350 GPIO. Undocumented raw GPIO literals in processor-bus code are prohibited.
 
 ## Consequences
 
@@ -56,7 +56,7 @@ Before accepting any pin-map change:
 3. Read the target-board official pinout or schematic for that physical pin.
 4. Record the target MCU GPIO.
 5. Update the consolidated `docs/hardware.md` contract.
-6. Update `firmware/v30/v30_pins.h` and any absolute PIO pin references.
+6. Update `firmware/processor/processor_bus_pins.h` and any absolute PIO pin references.
 7. Search PIO and test sources for additional absolute GPIO references.
 8. Re-run the minimum affected bring-up gate.
 

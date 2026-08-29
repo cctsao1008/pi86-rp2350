@@ -1,4 +1,4 @@
-"""Provider-neutral 64-byte pi86-rp2350 AI Bridge protocol."""
+"""Provider-neutral 64-byte RP86 Host Protocol."""
 
 from __future__ import annotations
 

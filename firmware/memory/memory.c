@@ -4,7 +4,7 @@ static bool range_contains(uint32_t base, uint32_t size, uint32_t address) {
     return size != 0u && address >= base && (address - base) < size;
 }
 
-void pi86_memory_init(pi86_memory_t *memory,
+void rp86_memory_init(rp86_memory_t *memory,
                       uint8_t *ram,
                       uint32_t ram_base,
                       uint32_t ram_size,
@@ -19,7 +19,7 @@ void pi86_memory_init(pi86_memory_t *memory,
     memory->rom_size = rom_size;
 }
 
-bool pi86_memory_read8(const pi86_memory_t *memory,
+bool rp86_memory_read8(const rp86_memory_t *memory,
                        uint32_t address,
                        uint8_t *value) {
     if (range_contains(memory->ram_base, memory->ram_size, address)) {
@@ -35,7 +35,7 @@ bool pi86_memory_read8(const pi86_memory_t *memory,
     return false;
 }
 
-bool pi86_memory_write8(pi86_memory_t *memory,
+bool rp86_memory_write8(rp86_memory_t *memory,
                         uint32_t address,
                         uint8_t value) {
     if (!range_contains(memory->ram_base, memory->ram_size, address)) return false;
@@ -43,18 +43,18 @@ bool pi86_memory_write8(pi86_memory_t *memory,
     return true;
 }
 
-bool pi86_memory_read16(const pi86_memory_t *memory,
+bool rp86_memory_read16(const rp86_memory_t *memory,
                         uint32_t address,
                         uint16_t *value) {
     uint8_t lo = 0u;
     uint8_t hi = 0u;
-    if (!pi86_memory_read8(memory, address, &lo)) return false;
-    if (!pi86_memory_read8(memory, address + 1u, &hi)) return false;
+    if (!rp86_memory_read8(memory, address, &lo)) return false;
+    if (!rp86_memory_read8(memory, address + 1u, &hi)) return false;
     *value = (uint16_t)lo | ((uint16_t)hi << 8);
     return true;
 }
 
-bool pi86_memory_write16(pi86_memory_t *memory,
+bool rp86_memory_write16(rp86_memory_t *memory,
                          uint32_t address,
                          uint16_t value) {
     if (!range_contains(memory->ram_base, memory->ram_size, address)) return false;

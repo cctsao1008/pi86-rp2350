@@ -1,8 +1,8 @@
 # Companion Service ABI
 
 - Status: **Canonical for protocol version 1**
-- Applies to: Host Bridge, RP2350 service/realtime handoff, AI-B1/B2/B3 mailbox validation
-- Source definitions: `firmware/ai_bridge/bridge_protocol.h`, `tools/ai_bridge/protocol.py`
+- Applies to: Host Protocol, RP2350 service/realtime handoff, and retained mailbox validation evidence
+- Source definitions: `firmware/host_protocol/host_protocol.h`, `tools/rp86_runtime/protocol.py`
 
 ## Purpose
 
@@ -220,7 +220,7 @@ Heartbeat is a liveness class, not a successful-result class. It has lower
 priority than fault, result, and command acknowledgement traffic, may be
 coalesced or dropped under explicit backpressure policy, and carries a dropped
 count or equivalent diagnostic witness. A full heartbeat queue must not block
-the realtime producer or a current V30 bus response.
+the realtime producer or a current processor bus response.
 
 Persistent operation does not replace the validation terminal state. Bounded
 validation targets continue to end at `RESET=HIGH`, `CLK=LOW`, and AD high-Z.
@@ -259,11 +259,7 @@ Application success and physical evidence are separate assertions.
 
 ## Related documents
 
-- [`ai_bridge_implementation_plan.md`](archive/completed-plans/ai_bridge_implementation_plan.md) - implementation gates
 - [`host_protocol.md`](host_protocol.md) - Host-side operations above this ABI
 - [`host_runtime_architecture.md`](host_runtime_architecture.md) - ownership transfer and runtime roles
 - [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - physical validator workflow
-- [`validation/ai_b2_hid_composite_600khz_validation.md`](validation/ai_b2_hid_composite_600khz_validation.md) - accepted composite HID/CDC evidence
-- [`validation/companion_runtime_1mhz_validation.md`](validation/companion_runtime_1mhz_validation.md) - accepted persistent INT/INTR/INTA heartbeat evidence
 - [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current project terminology
-- [`archive/superseded-architecture/adr-0005-adopt-host-bridge-and-companion-service-terminology.md`](archive/superseded-architecture/adr-0005-adopt-host-bridge-and-companion-service-terminology.md) - historical terminology decision

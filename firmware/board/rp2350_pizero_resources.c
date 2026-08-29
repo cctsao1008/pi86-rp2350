@@ -43,7 +43,7 @@ static void make_passive(const uint8_t *pins, size_t count) {
     }
 }
 
-void pi86_board_resources_safe_init(pi86_board_resources_t *resources) {
+void rp86_board_resources_safe_init(rp86_board_resources_t *resources) {
     memset(resources, 0, sizeof *resources);
     make_passive(microsd_pins, sizeof microsd_pins / sizeof microsd_pins[0]);
     make_passive(dvi_pins, sizeof dvi_pins / sizeof dvi_pins[0]);
@@ -52,12 +52,12 @@ void pi86_board_resources_safe_init(pi86_board_resources_t *resources) {
     resources->safe_state_initialized = true;
 }
 
-bool pi86_board_resources_can_claim_dvi(
-    const pi86_board_resources_t *resources) {
+bool rp86_board_resources_can_claim_dvi(
+    const rp86_board_resources_t *resources) {
     return resources->safe_state_initialized && !resources->pio_usb_claimed;
 }
 
-bool pi86_board_resources_can_claim_pio_usb(
-    const pi86_board_resources_t *resources) {
+bool rp86_board_resources_can_claim_pio_usb(
+    const rp86_board_resources_t *resources) {
     return resources->safe_state_initialized && !resources->dvi_claimed;
 }

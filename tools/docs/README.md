@@ -18,7 +18,7 @@ The checker validates:
 - fenced code-block balance;
 - duplicate headings within one file;
 - required identity/result/scope language in validation records;
-- the architectural rule that AI or host software must not enter the current V30 bus cycle.
+- the architectural rule that AI or host software must not enter the current processor bus cycle.
 
 Historical policy exceptions are explicit in `docs/document_policy_exceptions.txt`. Structural failures such as broken links cannot be waived.
 

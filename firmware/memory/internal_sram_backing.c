@@ -12,13 +12,13 @@
  * can prove that no byte is read and discard the whole pool. The reservation
  * is part of the runtime memory contract, so the init-time volatile access
  * below keeps it visible in the linker map before that integration. */
-static alignas(32) uint8_t processor_memory[PI86_INTERNAL_SRAM_PROCESSOR_SIZE]
+static alignas(32) uint8_t processor_memory[RP86_INTERNAL_SRAM_PROCESSOR_SIZE]
     __attribute__((used));
 
-void pi86_internal_sram_backing_init(pi86_memory_backing_t *backing) {
+void rp86_internal_sram_backing_init(rp86_memory_backing_t *backing) {
     *(volatile uint8_t *)processor_memory = 0u;
-    pi86_memory_backing_init_direct(backing, "INTERNAL SRAM",
-                                    PI86_INTERNAL_SRAM_PROCESSOR_BASE,
+    rp86_memory_backing_init_direct(backing, "INTERNAL SRAM",
+                                    RP86_INTERNAL_SRAM_PROCESSOR_BASE,
                                     processor_memory,
                                     sizeof processor_memory);
 }
