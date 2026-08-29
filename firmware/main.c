@@ -93,6 +93,7 @@
 #define WORKLOAD_CONTROL_IDLE_PREPARE    0x0001u
 #define CLOCK_STEPPED_PIO_HZ            2000000u
 #define EXECUTION_CLOCK_SWITCH_US        100000u
+#define GENERAL_BUS_STARVATION_TIMEOUT_US 100000u
 #define RESET_HANDOFF_BASE              0xFFFF0u
 #define RESET_HANDOFF_SIZE                   16u
 
@@ -171,6 +172,7 @@ static char g_diagnostic_line[96];
 static uint32_t g_diagnostic_length;
 static bool g_workload_idle_armed;
 static bool g_processor_idle;
+static uint64_t g_bus_starvation_started_us;
 typedef struct {
     uint32_t address;
     uint16_t data;
@@ -937,21 +939,37 @@ static int evidence_printf(const char *format, ...) {
                                     HOST_TIMEOUT_US) ? length : -1;
 }
 
+static rp86_workload_clock_mode_t physical_workload_clock_mode(void) {
+    switch (rp86_processor_bus_execution_clock_mode(&g_processor_bus)) {
+        case RP86_EXECUTION_CLOCK_FREE_RUNNING:
+            return RP86_WORKLOAD_CLOCK_FREE_RUNNING;
+        case RP86_EXECUTION_CLOCK_CLOCK_STEPPED:
+            return RP86_WORKLOAD_CLOCK_STEPPED;
+        case RP86_EXECUTION_CLOCK_STOPPED:
+        default:
+            return RP86_WORKLOAD_CLOCK_STOPPED;
+    }
+}
+
 static void print_canonical_status(void) {
     evidence_printf("\n[RUNTIME STATUS]\n");
     evidence_printf("State                      = %s\n",
                     g_bus_active ? "RUNNING" : "IDLE");
+    const rp86_workload_clock_mode_t physical_clock =
+        physical_workload_clock_mode();
     evidence_printf("Execution clock mode       = %s\n",
-                    g_workload_clock_mode == RP86_WORKLOAD_CLOCK_FREE_RUNNING ?
+                    physical_clock == RP86_WORKLOAD_CLOCK_FREE_RUNNING ?
                         "FREE_RUNNING" :
-                    g_workload_clock_mode == RP86_WORKLOAD_CLOCK_STEPPED ?
+                    physical_clock == RP86_WORKLOAD_CLOCK_STEPPED ?
                         "CLOCK_STEPPED" :
-                    g_workload_clock_mode == RP86_WORKLOAD_CLOCK_STOPPED ?
+                    physical_clock == RP86_WORKLOAD_CLOCK_STOPPED ?
                         "STOPPED" : "AUTO");
     evidence_printf("Free-running clock         = %.3f MHz\n",
                     (double)RP86_PROCESSOR_HZ / 1000000.0);
     evidence_printf("Clock-stepped cycles       = %lu\n",
                     (unsigned long)g_workload_bus_stats.cycles);
+    evidence_printf("Processor idle             = %s\n",
+                    g_processor_idle ? "YES / HLT" : "NO");
     evidence_printf("Processor                  = HOST DECLARED: INTEL 8086 OR NEC V30\n");
     evidence_printf("External PSRAM configured  = %s\n",
                     RP86_HAS_EXTERNAL_PSRAM ? "YES" : "NO");
@@ -1029,7 +1047,7 @@ static void print_canonical_status(void) {
                     g_flash_volume_ready ? "LS / DF / CAT / PUT" : "FAULT");
     evidence_printf("sd: FAT volume              = NOT IMPLEMENTED\n");
     evidence_printf("retained physical bus trace = AVAILABLE\n");
-    evidence_printf("timeout / fault / restart   = HEARTBEAT DETECTION ONLY\n");
+    evidence_printf("timeout / fault / restart   = GENERAL BUS SUPERVISION AVAILABLE\n");
     evidence_printf("Host-directed UF2 boot      = AVAILABLE\n");
     evidence_printf("Mini HDMI / DVI output      = NOT IMPLEMENTED\n");
     evidence_printf("PIO-USB host / device       = NOT IMPLEMENTED\n");
@@ -1057,12 +1075,15 @@ static void park_physical_processor(void) {
     gpio_set_dir(RP86_PROCESSOR_PIN_CLK, GPIO_OUT);
 }
 
-static void disable_prepared_runtime(void) {
+static bool disable_prepared_runtime(void) {
     gpio_put(RP86_PROCESSOR_PIN_INTR, false);
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
-    hard_assert(rp86_processor_bus_set_execution_clock_mode(
-        &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
-        EXECUTION_CLOCK_SWITCH_US));
+    if (!rp86_processor_bus_set_execution_clock_mode(
+            &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
+            EXECUTION_CLOCK_SWITCH_US)) {
+        rp86_processor_bus_force_safe_state(&g_processor_bus);
+        return false;
+    }
     g_bus_active = false;
     irq_set_enabled(DMA_IRQ_0, false);
     pio_set_sm_mask_enabled(pio1, 0x0fu, false);
@@ -1075,6 +1096,7 @@ static void disable_prepared_runtime(void) {
     }
     route_ad_to_sio_high_z();
     g_prepared_runtime_available = false;
+    return true;
 }
 
 static bool build_reset_handoff(void) {
@@ -1118,14 +1140,6 @@ static bool general_io_read(void *context, uint16_t port,
         *value = 1u;
         return true;
     }
-    /* In minimum mode, 8086 HLT emits one ALE without a qualifying RD/WR/INTA
-     * strobe. The fixed HAT does not route RD, WR, or DEN, so the visible
-     * subset resembles an I/O read at port zero. A workload explicitly arms
-     * this one indication before HLT; no ordinary unmapped I/O is relaxed. */
-    if (port == 0u && g_workload_idle_armed) {
-        g_processor_idle = true;
-        g_workload_idle_armed = false;
-    }
     return false;
 }
 
@@ -1149,14 +1163,10 @@ static bool general_io_write(void *context, uint16_t port,
         return true;
     }
     if (port == EXECUTION_CLOCK_PORT) {
-        if (lane_value == EXECUTION_CLOCK_REQUEST_FREE) {
-            const bool changed = rp86_processor_bus_set_execution_clock_mode(
-                &g_processor_bus, RP86_EXECUTION_CLOCK_FREE_RUNNING,
-                EXECUTION_CLOCK_SWITCH_US);
-            if (changed)
-                g_workload_clock_mode = RP86_WORKLOAD_CLOCK_FREE_RUNNING;
-            return changed;
-        }
+        /* A general workload is serviced only by the CLOCK_STEPPED controller.
+         * FREE_RUNNING is therefore unsupported after the prepared responder
+         * has been retired; returning false produces a retained bus fault. */
+        if (lane_value == EXECUTION_CLOCK_REQUEST_FREE) return false;
         if (lane_value == EXECUTION_CLOCK_REQUEST_STEPPED)
             return g_workload_clock_mode == RP86_WORKLOAD_CLOCK_STEPPED;
     }
@@ -1173,14 +1183,20 @@ static bool start_general_workload(void) {
     if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u)
         return false;
     if (!build_reset_handoff()) return false;
-    if (g_prepared_runtime_available) disable_prepared_runtime();
+    if (g_prepared_runtime_available) {
+        if (!disable_prepared_runtime()) return false;
+    }
     else {
         rp86_processor_bus_hold_reset(true);
-        hard_assert(rp86_processor_bus_set_execution_clock_mode(
-            &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
-            EXECUTION_CLOCK_SWITCH_US));
+        if (!rp86_processor_bus_set_execution_clock_mode(
+                &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
+                EXECUTION_CLOCK_SWITCH_US)) {
+            rp86_processor_bus_force_safe_state(&g_processor_bus);
+            return false;
+        }
         route_ad_to_sio_high_z();
     }
+    rp86_processor_bus_clear_fault(&g_processor_bus);
     rp86_memory_init(&g_processor_memory,
                      (uint8_t *)g_workload_memory.context,
                      g_workload_memory.processor_base,
@@ -1193,11 +1209,19 @@ static bool start_general_workload(void) {
     g_diagnostic_length = 0u;
     g_workload_idle_armed = false;
     g_processor_idle = false;
+    g_bus_starvation_started_us = 0u;
     g_workload_clock_mode = RP86_WORKLOAD_CLOCK_STEPPED;
     g_general_workload_active = true;
+    g_bus_active = true;
     ++g_processor_boot_id;
     if (g_processor_boot_id == 0u) ++g_processor_boot_id;
-    rp86_processor_bus_reset_sequence(&g_processor_bus, RESET_CLOCKS);
+    if (!rp86_processor_bus_reset_sequence(&g_processor_bus, RESET_CLOCKS)) {
+        g_general_workload_active = false;
+        g_bus_active = false;
+        g_workload_clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
+        rp86_processor_bus_force_safe_state(&g_processor_bus);
+        return false;
+    }
     evidence_printf(
         "[WORKLOAD START] id=%lu entry=%04X:%04X clock=CLOCK_STEPPED\n",
         (unsigned long)g_workload_manager.workload_id,
@@ -1210,9 +1234,38 @@ static void stop_general_workload(void) {
     rp86_processor_bus_safe_halt(&g_processor_bus, RESET_CLOCKS);
     flush_diagnostic_line();
     g_general_workload_active = false;
+    g_bus_active = false;
+    g_workload_idle_armed = false;
+    g_processor_idle = false;
+    g_bus_starvation_started_us = 0u;
     g_workload_clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
     evidence_printf("[WORKLOAD STOP] cycles=%lu\n",
                     (unsigned long)g_workload_bus_stats.cycles);
+}
+
+static void retain_workload_cycle(void) {
+    workload_trace_entry_t *entry =
+        &g_workload_trace[g_workload_trace_count % WORKLOAD_TRACE_DEPTH];
+    entry->address = g_workload_bus_stats.last_address;
+    entry->data = g_workload_bus_stats.last_data;
+    entry->type = (uint8_t)g_workload_bus_stats.last_type;
+    entry->lanes = (uint8_t)g_workload_bus_stats.last_lanes;
+    ++g_workload_trace_count;
+}
+
+static void print_retained_workload_trace(void) {
+    const uint32_t retained = g_workload_trace_count < 24u ?
+        g_workload_trace_count : 24u;
+    for (uint32_t i = retained; i != 0u; --i) {
+        const uint32_t sequence = g_workload_trace_count - i;
+        const workload_trace_entry_t *entry =
+            &g_workload_trace[sequence % WORKLOAD_TRACE_DEPTH];
+        evidence_printf("  trace[%lu] %s %05lX lanes=%u data=%04X\n",
+            (unsigned long)sequence,
+            rp86_clock_stepped_cycle_name(
+                (rp86_processor_bus_cycle_type_t)entry->type),
+            (unsigned long)entry->address, entry->lanes, entry->data);
+    }
 }
 
 static void service_general_workload(void) {
@@ -1228,49 +1281,70 @@ static void service_general_workload(void) {
     const bool completed = rp86_clock_stepped_service_cycle(
         &g_processor_bus, &g_processor_memory, &io, 32u,
         &g_workload_bus_stats);
-    if (completed || g_workload_bus_stats.unmapped ||
-        g_workload_bus_stats.invalid_lane || g_workload_bus_stats.pad_mismatch) {
-        workload_trace_entry_t *entry =
-            &g_workload_trace[g_workload_trace_count % WORKLOAD_TRACE_DEPTH];
-        entry->address = g_workload_bus_stats.last_address;
-        entry->data = g_workload_bus_stats.last_data;
-        entry->type = (uint8_t)g_workload_bus_stats.last_type;
-        entry->lanes = (uint8_t)g_workload_bus_stats.last_lanes;
-        ++g_workload_trace_count;
+    if (completed) {
+        g_bus_starvation_started_us = 0u;
+        retain_workload_cycle();
+        return;
     }
-    if (!completed && (g_workload_bus_stats.unmapped ||
-                       g_workload_bus_stats.invalid_lane ||
-                       g_workload_bus_stats.pad_mismatch)) {
-        if (g_processor_idle && g_workload_bus_stats.unmapped &&
-            !g_workload_bus_stats.invalid_lane &&
-            !g_workload_bus_stats.pad_mismatch) {
-            g_workload_bus_stats.unmapped = false;
-            evidence_printf("[WORKLOAD IDLE] native HLT indication accepted\n");
+
+    /* IDLE_PREPARE is a single-use promise that the workload executes HLT
+     * immediately after its final instruction fetch.  The fixed HAT lacks
+     * RD/WR/DEN, so HLT may appear as no ALE, invalid lanes, or an unmapped
+     * floating-bus cycle.  Accept that first non-serviceable indication while
+     * still refusing pad failures and physical INTA/clock failures. */
+    if (g_workload_idle_armed && !g_workload_bus_stats.pad_mismatch &&
+        !g_workload_bus_stats.clock_failure &&
+        !g_workload_bus_stats.interrupt_ack &&
+        (g_workload_bus_stats.no_cycle || g_workload_bus_stats.unmapped ||
+         g_workload_bus_stats.invalid_lane)) {
+        g_workload_idle_armed = false;
+        g_processor_idle = true;
+        g_bus_starvation_started_us = 0u;
+        g_workload_bus_stats.unmapped = false;
+        g_workload_bus_stats.invalid_lane = false;
+        g_workload_bus_stats.no_cycle = false;
+        evidence_printf("[WORKLOAD IDLE] armed native HLT indication accepted\n");
+        return;
+    }
+
+    const bool immediate_fault = g_workload_bus_stats.unmapped ||
+        g_workload_bus_stats.invalid_lane ||
+        g_workload_bus_stats.pad_mismatch ||
+        g_workload_bus_stats.clock_failure ||
+        g_workload_bus_stats.interrupt_ack;
+    if (g_workload_bus_stats.no_cycle && !immediate_fault) {
+        const uint64_t now = time_us_64();
+        if (g_bus_starvation_started_us == 0u)
+            g_bus_starvation_started_us = now;
+        if (now - g_bus_starvation_started_us <
+            GENERAL_BUS_STARVATION_TIMEOUT_US)
             return;
-        }
         evidence_printf(
-            "[WORKLOAD FAULT] cycle=%lu address=%05lX type=%s unmapped=%u lane=%u pad=%u\n",
-            (unsigned long)g_workload_bus_stats.cycles,
-            (unsigned long)g_workload_bus_stats.last_address,
-            rp86_clock_stepped_cycle_name(g_workload_bus_stats.last_type),
-            g_workload_bus_stats.unmapped,
-            g_workload_bus_stats.invalid_lane,
-            g_workload_bus_stats.pad_mismatch);
-        const uint32_t retained = g_workload_trace_count < 24u ?
-            g_workload_trace_count : 24u;
-        for (uint32_t i = retained; i != 0u; --i) {
-            const uint32_t sequence = g_workload_trace_count - i;
-            const workload_trace_entry_t *entry =
-                &g_workload_trace[sequence % WORKLOAD_TRACE_DEPTH];
-            evidence_printf("  trace[%lu] %s %05lX lanes=%u data=%04X\n",
-                (unsigned long)sequence,
-                rp86_clock_stepped_cycle_name(
-                    (rp86_processor_bus_cycle_type_t)entry->type),
-                (unsigned long)entry->address, entry->lanes, entry->data);
-        }
+            "[WORKLOAD TIMEOUT] no ALE for %lu us after cycle=%lu\n",
+            (unsigned long)GENERAL_BUS_STARVATION_TIMEOUT_US,
+            (unsigned long)g_workload_bus_stats.cycles);
+        print_retained_workload_trace();
         stop_general_workload();
-        g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
+        g_workload_manager.state = RP86_WORKLOAD_STATE_TIMED_OUT;
+        return;
     }
+
+    g_bus_starvation_started_us = 0u;
+    if (!immediate_fault) return;
+    if (!g_workload_bus_stats.no_cycle) retain_workload_cycle();
+    evidence_printf(
+        "[WORKLOAD FAULT] cycle=%lu address=%05lX type=%s unmapped=%u lane=%u pad=%u clock=%u inta=%u\n",
+        (unsigned long)g_workload_bus_stats.cycles,
+        (unsigned long)g_workload_bus_stats.last_address,
+        rp86_clock_stepped_cycle_name(g_workload_bus_stats.last_type),
+        g_workload_bus_stats.unmapped,
+        g_workload_bus_stats.invalid_lane,
+        g_workload_bus_stats.pad_mismatch,
+        g_workload_bus_stats.clock_failure,
+        g_workload_bus_stats.interrupt_ack);
+    print_retained_workload_trace();
+    stop_general_workload();
+    g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
 }
 
 static bool send_runtime_control_ack(
@@ -1294,8 +1368,9 @@ static bool send_workload_reply(const rp86_host_protocol_message_t *request,
         .workload_id = g_workload_manager.workload_id,
         .state = (uint32_t)g_workload_manager.state,
         .detail = g_workload_manager.received,
-        .clock_mode = (uint32_t)g_workload_clock_mode,
+        .clock_mode = (uint32_t)physical_workload_clock_mode(),
         .processor_cycles = g_workload_bus_stats.cycles,
+        .processor_flags = g_processor_idle ? RP86_WORKLOAD_PROCESSOR_IDLE : 0u,
     };
     reply.version = RP86_HOST_PROTOCOL_VERSION;
     reply.type = status_reply ? RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_STATUS :
@@ -1337,9 +1412,13 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
                request->length == sizeof(rp86_workload_commit_payload_t)) {
         rp86_workload_commit_payload_t commit;
         memcpy(&commit, request->payload, sizeof commit);
+        const bool was_receiving =
+            g_workload_manager.state == RP86_WORKLOAD_STATE_RECEIVING;
         const bool committed = rp86_workload_commit(
             &g_workload_manager, commit.transfer_id, commit.image_crc32);
         if (committed) {
+            memset(&g_workload_bus_stats, 0, sizeof g_workload_bus_stats);
+            g_processor_idle = false;
             const uint32_t flags = g_workload_manager.manifest.flags;
             g_workload_clock_mode =
                 (flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u ?
@@ -1348,7 +1427,8 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
                     RP86_WORKLOAD_CLOCK_STEPPED : RP86_WORKLOAD_CLOCK_AUTO;
         }
         status = committed ? RP86_HOST_PROTOCOL_STATUS_OK :
-                             RP86_HOST_PROTOCOL_STATUS_BAD_CRC;
+                 was_receiving ? RP86_HOST_PROTOCOL_STATUS_BAD_CRC :
+                                 RP86_HOST_PROTOCOL_STATUS_BAD_SEQUENCE;
     } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_CONTROL &&
                request->length == sizeof(rp86_workload_control_payload_t)) {
         rp86_workload_control_payload_t control;
@@ -1372,18 +1452,17 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
             status = started ? RP86_HOST_PROTOCOL_STATUS_OK :
                                RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_STOP) {
-            if (g_general_workload_active) stop_general_workload();
             const bool stopped = rp86_workload_stop(
                 &g_workload_manager, control.workload_id);
-            if (stopped) g_workload_clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
+            if (stopped && g_general_workload_active) stop_general_workload();
             status = stopped ? RP86_HOST_PROTOCOL_STATUS_OK :
                                RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_RESTART) {
             const bool calculator = g_prepared_runtime_available &&
                                     calculator_workload_valid();
-            if (g_general_workload_active) stop_general_workload();
             const bool state_ok = rp86_workload_restart(
                 &g_workload_manager, control.workload_id);
+            if (state_ok && g_general_workload_active) stop_general_workload();
             const bool started = !state_ok ? false : calculator ? true :
                                  start_general_workload();
             if (started && calculator)

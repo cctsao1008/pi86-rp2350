@@ -50,7 +50,10 @@ static bool complete_read(rp86_processor_bus_t *bus, const rp86_processor_bus_cy
     rp86_processor_bus_drive_data(driven, cycle->lanes);
     uint16_t rb1 = 0u;
     uint16_t rb2 = 0u;
-    rp86_processor_bus_complete_read(bus, &rb1, &rb2);
+    if (!rp86_processor_bus_complete_read(bus, &rb1, &rb2)) {
+        stats->clock_failure = true;
+        return false;
+    }
     if (!readback_matches(cycle->lanes, driven, rb1) ||
         !readback_matches(cycle->lanes, driven, rb2)) {
         stats->pad_mismatch = true;
@@ -66,9 +69,20 @@ bool rp86_clock_stepped_service_cycle(rp86_processor_bus_t *bus,
                               rp86_clock_stepped_stats_t *stats) {
     if (bus == NULL || memory == NULL || stats == NULL) return false;
 
+    stats->unmapped = false;
+    stats->invalid_lane = false;
+    stats->pad_mismatch = false;
+    stats->no_cycle = false;
+    stats->clock_failure = false;
+    stats->interrupt_ack = false;
+
     rp86_processor_bus_cycle_t cycle;
     memset(&cycle, 0, sizeof cycle);
-    if (!rp86_processor_bus_wait_cycle(bus, max_idle_steps, &cycle)) return false;
+    if (!rp86_processor_bus_wait_cycle(bus, max_idle_steps, &cycle)) {
+        stats->clock_failure = rp86_processor_bus_faulted(bus);
+        stats->no_cycle = !stats->clock_failure;
+        return false;
+    }
 
     if (!stats->first_cycle_seen) {
         stats->first_cycle_seen = true;
@@ -79,6 +93,10 @@ bool rp86_clock_stepped_service_cycle(rp86_processor_bus_t *bus,
     stats->last_lanes = cycle.lanes;
     stats->last_data_valid = false;
 
+    if (cycle.type == RP86_PROCESSOR_BUS_CYCLE_INTERRUPT_ACK) {
+        stats->interrupt_ack = true;
+        return false;
+    }
     if (cycle.lanes == RP86_PROCESSOR_BUS_LANES_NONE) {
         stats->invalid_lane = true;
         return false;
@@ -96,7 +114,10 @@ bool rp86_clock_stepped_service_cycle(rp86_processor_bus_t *bus,
         ++stats->memory_reads;
     } else if (cycle.type == RP86_PROCESSOR_BUS_CYCLE_MEM_WRITE) {
         uint16_t d0 = 0u;
-        rp86_processor_bus_complete_write(bus, &cycle, &d0, NULL, NULL);
+        if (!rp86_processor_bus_complete_write(bus, &cycle, &d0, NULL, NULL)) {
+            stats->clock_failure = true;
+            return false;
+        }
         stats->last_data = d0;
         stats->last_data_valid = true;
         if (!lane_write(memory, &cycle, d0)) {
@@ -118,7 +139,10 @@ bool rp86_clock_stepped_service_cycle(rp86_processor_bus_t *bus,
         ++stats->io_reads;
     } else if (cycle.type == RP86_PROCESSOR_BUS_CYCLE_IO_WRITE) {
         uint16_t d0 = 0u;
-        rp86_processor_bus_complete_write(bus, &cycle, &d0, NULL, NULL);
+        if (!rp86_processor_bus_complete_write(bus, &cycle, &d0, NULL, NULL)) {
+            stats->clock_failure = true;
+            return false;
+        }
         stats->last_data = d0;
         stats->last_data_valid = true;
         if (io == NULL || io->write == NULL ||

@@ -54,6 +54,10 @@ int main(void) {
                                sizeof image - 2u));
     assert(rp86_workload_commit(&manager, 7u, manifest.image_crc32));
     assert(manager.state == RP86_WORKLOAD_STATE_STAGED);
+    const uint32_t first_workload_id = manager.workload_id;
+    assert(!rp86_workload_commit(&manager, 7u, manifest.image_crc32));
+    assert(manager.state == RP86_WORKLOAD_STATE_STAGED);
+    assert(manager.workload_id == first_workload_id);
 
     /* load_address, not upload offset zero, selects the physical location. */
     assert(storage[0] == 0xa5u);
@@ -62,6 +66,8 @@ int main(void) {
     /* Lifecycle controls are sequence-bound and never invent execution. */
     assert(!rp86_workload_run(&manager, manager.workload_id + 1u));
     assert(rp86_workload_run(&manager, manager.workload_id));
+    assert(manager.state == RP86_WORKLOAD_STATE_RUNNING);
+    assert(!rp86_workload_commit(&manager, 7u, manifest.image_crc32));
     assert(manager.state == RP86_WORKLOAD_STATE_RUNNING);
     assert(!rp86_workload_run(&manager, manager.workload_id));
     assert(rp86_workload_stop(&manager, 0u));
@@ -73,6 +79,9 @@ int main(void) {
 
     /* A manifest outside the selected backing must fail before receiving. */
     rp86_workload_discard(&manager);
+    assert(manager.workload_id == 0u);
+    assert(manager.manifest.magic == 0u);
+    assert(!rp86_workload_run(&manager, first_workload_id));
     manifest.load_address = TEST_BASE + TEST_SIZE - 2u;
     manifest.entry_segment = manifest.load_address >> 4u;
     manifest.entry_offset = manifest.load_address & 0x0fu;

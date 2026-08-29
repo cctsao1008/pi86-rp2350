@@ -33,6 +33,9 @@ typedef struct {
     bool unmapped;
     bool invalid_lane;
     bool pad_mismatch;
+    bool no_cycle;
+    bool clock_failure;
+    bool interrupt_ack;
 } rp86_clock_stepped_stats_t;
 
 /*

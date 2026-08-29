@@ -213,16 +213,21 @@ load <bin> [--address N] [--entry CS:IP] [--stack SS:SP]
 
 `auto` preserves the prepared calculator path and otherwise selects the safe
 general policy. An arbitrary image cannot request FREE_RUNNING unless the
-firmware has a prepared current-cycle response profile for it. CLOCK_STEPPED
+firmware has a prepared current-cycle response profile for it. A general
+workload request to switch into FREE_RUNNING is reported as a workload fault;
+the processor is never released against an undriven bus. CLOCK_STEPPED
 does not mean a fixed wall-clock frequency: every pulse is complete and RP2350
 may leave CLK low while servicing memory, I/O, USB, or Host control.
 
 The canonical `hello.bin` writes its identity through port `E9h`, publishes
 `IDLE_PREPARE` through the runtime control port, and executes HLT. This explicit
-handshake is necessary because the fixed minimum-mode HAT does not route the
-8086 `RD`, `WR`, or `DEN` qualifiers needed to distinguish the HLT ALE pulse
-from every possible I/O indication. `status`, `stop`, and `restart` remain
-available while the processor is idle.
+single-use promise is necessary because the fixed minimum-mode HAT does not
+route the 8086 `RD`, `WR`, or `DEN` qualifiers. After the remaining valid
+instruction fetch, the first non-serviceable indication is accepted as idle,
+whether the floating HLT signature appears as no ALE, invalid lanes, or an
+unmapped cycle. Without `IDLE_PREPARE`, sustained absence of ALE transitions to
+`TIMED_OUT`. `status` reports the actual physical clock and processor-idle flag;
+`stop` and `restart` remain available while the processor is idle.
 
 The displayed `cpu_seq` is not a Host loop counter. It is maintained by the
 physical Intel 8086 or NEC V30 inside the native interrupt service routine and

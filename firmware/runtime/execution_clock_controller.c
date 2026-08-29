@@ -11,6 +11,24 @@
 
 #define FREE_RUNNING_PIO_CYCLES_PER_PROCESSOR_CYCLE 10u
 #define SAFE_STOP_TOKEN 1u
+#define CLOCK_STEP_TIMEOUT_US 100000u
+
+static bool pio_rate_has_valid_divider(uint32_t clk_sys_hz,
+                                       uint64_t requested_pio_hz) {
+    return requested_pio_hz != 0u && requested_pio_hz <= clk_sys_hz &&
+           requested_pio_hz * 65536u > clk_sys_hz;
+}
+
+bool rp86_execution_clock_parameters_valid(uint32_t clk_sys_hz,
+                                           uint32_t free_running_hz,
+                                           uint32_t clock_stepped_pio_hz) {
+    const uint64_t free_running_pio_hz =
+        (uint64_t)FREE_RUNNING_PIO_CYCLES_PER_PROCESSOR_CYCLE *
+        free_running_hz;
+    return clk_sys_hz != 0u &&
+           pio_rate_has_valid_divider(clk_sys_hz, free_running_pio_hz) &&
+           pio_rate_has_valid_divider(clk_sys_hz, clock_stepped_pio_hz);
+}
 
 static void force_clock_low(void) {
     gpio_init(RP86_PROCESSOR_PIN_CLK);
@@ -74,8 +92,12 @@ static bool prepare_free_running(rp86_execution_clock_t *clock) {
 
 static bool stop_free_running_low(rp86_execution_clock_t *clock,
                                   uint32_t timeout_us) {
-    pio_sm_put_blocking(clock->pio, clock->sm, SAFE_STOP_TOKEN);
     const uint64_t deadline = time_us_64() + timeout_us;
+    while (pio_sm_is_tx_fifo_full(clock->pio, clock->sm)) {
+        if (time_us_64() > deadline) return false;
+        tight_loop_contents();
+    }
+    pio_sm_put(clock->pio, clock->sm, SAFE_STOP_TOKEN);
     while (pio_sm_is_rx_fifo_empty(clock->pio, clock->sm)) {
         if (time_us_64() > deadline) return false;
         tight_loop_contents();
@@ -90,8 +112,10 @@ static bool stop_free_running_low(rp86_execution_clock_t *clock,
 bool rp86_execution_clock_init(rp86_execution_clock_t *clock, PIO pio,
                                uint32_t free_running_hz,
                                uint32_t clock_stepped_pio_hz) {
-    if (clock == NULL || free_running_hz == 0u ||
-        clock_stepped_pio_hz == 0u)
+    if (clock == NULL ||
+        !rp86_execution_clock_parameters_valid(clock_get_hz(clk_sys),
+                                               free_running_hz,
+                                               clock_stepped_pio_hz))
         return false;
     clock->pio = pio;
     clock->sm = pio_claim_unused_sm(pio, true);
@@ -127,8 +151,17 @@ bool rp86_execution_clock_step(rp86_execution_clock_t *clock) {
     if (clock == NULL ||
         clock->mode != RP86_EXECUTION_CLOCK_CLOCK_STEPPED)
         return false;
-    pio_sm_put_blocking(clock->pio, clock->sm, 1u);
-    (void)pio_sm_get_blocking(clock->pio, clock->sm);
+    const uint64_t deadline = time_us_64() + CLOCK_STEP_TIMEOUT_US;
+    while (pio_sm_is_tx_fifo_full(clock->pio, clock->sm)) {
+        if (time_us_64() > deadline) return false;
+        tight_loop_contents();
+    }
+    pio_sm_put(clock->pio, clock->sm, 1u);
+    while (pio_sm_is_rx_fifo_empty(clock->pio, clock->sm)) {
+        if (time_us_64() > deadline) return false;
+        tight_loop_contents();
+    }
+    (void)pio_sm_get(clock->pio, clock->sm);
     return !gpio_get(RP86_PROCESSOR_PIN_CLK);
 }
 

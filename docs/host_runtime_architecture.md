@@ -387,12 +387,21 @@ RAM, I/O, status, safe stop, restart, and cooperative HLT idle.
 The existing Pi86 HAT holds `READY` asserted; CLOCK_STEPPED changes the interval between
 complete pulses rather than inserting READY wait states or truncating a pulse.
 
-A cooperative clock-mode change occurs only at an explicit safe point. The workload
-publishes a request through I/O; RP2350 commits that complete I/O cycle at `CLK=LOW`
-and switches policy before the native interrupt handler returns. The processor may
-then enter `STI; HLT` and remains wakeable through the established
-INTR/two-cycle-INTA/ISR/IRET path. This transition and canonical Host lifecycle
-selection are physically accepted.
+A cooperative clock-mode change occurs only at an explicit safe point and only
+for a prepared workload whose PIO/DMA response profile remains active in the
+destination mode. The workload publishes a request through I/O; RP2350 commits
+that complete I/O cycle at `CLK=LOW` and switches policy before the native
+interrupt handler returns. A general Internal-SRAM workload cannot enter
+FREE_RUNNING because no current-cycle responder would remain active; that
+request becomes a retained fault. The prepared transition and canonical Host
+lifecycle selection are physically accepted.
+
+General HLT uses a single-use `IDLE_PREPARE` promise immediately before HLT.
+The first following non-serviceable bus indication is accepted as processor
+idle despite the fixed HAT's missing `RD`, `WR`, and `DEN` qualifiers. Without
+that promise, consecutive ALE starvation is bounded and reported as
+`TIMED_OUT`. Status separately reports workload state, actual physical clock
+mode, serviced cycles, and the processor-idle flag.
 
 Host software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
 transactions do not own a partially completed physical bus phase. External PSRAM
@@ -420,8 +429,8 @@ the stable Host shell:
 
 1. Host shell framework and capability reporting;
 2. bounded FREE_RUNNING Internal-SRAM lifecycle (calculator accepted);
-3. general CLOCK_STEPPED Internal-SRAM execution, Host lifecycle, cooperative
-   FREE_RUNNING/CLOCK_STEPPED transition, and HLT-idle handshake (accepted);
+3. general CLOCK_STEPPED Internal-SRAM execution, Host lifecycle, bounded
+   starvation supervision, and HLT-idle handshake (accepted);
 4. expand native workload stdio beyond the diagnostic/control ports;
 5. Internal-SRAM Host/processor shared memory;
 6. External NOR shared FAT volume as `flash:`;

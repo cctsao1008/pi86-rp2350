@@ -7,7 +7,12 @@ from .transport import _open_hid, _serial_module
 from .exchange import *
 from .console import *
 from .console import _read_terminal_command
-from .workload import CLOCK_MODE_NAMES, WorkloadManifest
+from .workload import (
+    CLOCK_MODES,
+    CLOCK_MODE_NAMES,
+    PROCESSOR_FLAG_IDLE,
+    WorkloadManifest,
+)
 from .calculator import calculator_payload
 
 
@@ -27,6 +32,14 @@ def _workload_state_name(state: int) -> str:
     return _WORKLOAD_STATE_NAMES.get(state, f"UNKNOWN({state})")
 
 
+def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
+    if processor_flags & PROCESSOR_FLAG_IDLE:
+        return "IDLE / HLT"
+    if clock_mode == CLOCK_MODES["stopped"]:
+        return "STOPPED / RESET"
+    return "ACTIVE"
+
+
 def _format_runtime_top(
     *,
     processor_name: str,
@@ -40,6 +53,7 @@ def _format_runtime_top(
     manifest: WorkloadManifest | None,
     workload_clock_mode: int = 0,
     workload_cycles: int = 0,
+    workload_processor_flags: int = 0,
 ) -> str:
     """Present CPU-visible resources without exposing protocol state numbers."""
     state_name = _workload_state_name(workload_state)
@@ -67,6 +81,7 @@ def _format_runtime_top(
         f"  Workload   {workload_text}",
         f"  Clock mode {clock_name}",
         f"  CPU cycles {workload_cycles}",
+        f"  Processor {_processor_execution_state(workload_clock_mode, workload_processor_flags)}",
     ]
     if manifest is not None:
         lines.append(
@@ -125,6 +140,7 @@ def persistent_monitor(
     staged_workload_detail = 0
     staged_workload_clock_mode = 0
     staged_workload_cycles = 0
+    staged_workload_processor_flags = 0
     staged_workload_manifest: WorkloadManifest | None = None
     prepared_heartbeat_available = True
     next_due = time.monotonic()
@@ -336,6 +352,7 @@ def persistent_monitor(
         nonlocal current_sequence, next_due
         nonlocal staged_workload_id, staged_workload_state, staged_workload_detail
         nonlocal staged_workload_clock_mode, staged_workload_cycles
+        nonlocal staged_workload_processor_flags
         nonlocal prepared_heartbeat_available
         for index, request in enumerate(records, 1):
             reply, latency_ms, error = exchange(request)
@@ -350,7 +367,10 @@ def persistent_monitor(
             try:
                 (staged_workload_id, staged_workload_state,
                  staged_workload_detail, staged_workload_clock_mode,
-                 staged_workload_cycles) = decode_status_payload(reply.payload)
+                 staged_workload_cycles,
+                 staged_workload_processor_flags) = decode_status_payload(
+                     reply.payload
+                 )
                 if (
                     staged_workload_state == 3
                     and staged_workload_clock_mode == 2
@@ -371,7 +391,8 @@ def persistent_monitor(
             f"  workload_id={staged_workload_id} state={state_name} "
             f"detail={staged_workload_detail} "
             f"clock={CLOCK_MODE_NAMES.get(staged_workload_clock_mode, staged_workload_clock_mode)} "
-            f"cycles={staged_workload_cycles}"
+            f"cycles={staged_workload_cycles} "
+            f"processor={_processor_execution_state(staged_workload_clock_mode, staged_workload_processor_flags)}"
         )
         return True
 
@@ -556,6 +577,7 @@ def persistent_monitor(
                                 workload_detail=staged_workload_detail,
                                 workload_clock_mode=staged_workload_clock_mode,
                                 workload_cycles=staged_workload_cycles,
+                                workload_processor_flags=staged_workload_processor_flags,
                                 manifest=staged_workload_manifest,
                             )
                         )

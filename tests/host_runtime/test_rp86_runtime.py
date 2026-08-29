@@ -12,7 +12,10 @@ from rp86_runtime.console import ConsoleStatus, _apply_input_character  # noqa: 
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
-from rp86_runtime.session import _format_runtime_top  # noqa: E402
+from rp86_runtime.session import (  # noqa: E402
+    _format_runtime_top,
+    _processor_execution_state,
+)
 from rp86_runtime.shell_commands import (  # noqa: E402
     complete_shell_input,
     host_list_path,
@@ -120,6 +123,7 @@ class Rp86RuntimeTests(unittest.TestCase):
             workload_detail=len(image),
             workload_clock_mode=2,
             workload_cycles=123,
+            workload_processor_flags=1,
             manifest=manifest,
         )
         self.assertIn("Workload   STAGED id=1 size=157 bytes", output)
@@ -128,8 +132,14 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertIn("PSRAM      NOT AVAILABLE (optional expansion)", output)
         self.assertIn("Clock mode CLOCK-STEPPED", output)
         self.assertIn("CPU cycles 123", output)
+        self.assertIn("Processor IDLE / HLT", output)
         self.assertNotIn("state=2", output)
         self.assertNotIn("detail=157", output)
+
+    def test_processor_execution_state_distinguishes_hlt_and_reset(self) -> None:
+        self.assertEqual(_processor_execution_state(2, 1), "IDLE / HLT")
+        self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
+        self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
 
 
 if __name__ == "__main__":

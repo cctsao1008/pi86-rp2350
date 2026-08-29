@@ -48,6 +48,7 @@ typedef struct {
 
 typedef struct {
     rp86_execution_clock_t execution_clock;
+    bool faulted;
 } rp86_processor_bus_t;
 
 void rp86_processor_bus_prepare_header_high_z(void);
@@ -57,12 +58,15 @@ bool rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio,
 void rp86_processor_bus_hold_reset(bool asserted);
 void rp86_processor_bus_set_intr(bool asserted);
 uint32_t rp86_processor_bus_step(rp86_processor_bus_t *bus);
-void rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks);
+bool rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks);
 bool rp86_processor_bus_set_execution_clock_mode(
     rp86_processor_bus_t *bus, rp86_execution_clock_mode_t mode,
     uint32_t timeout_us);
 rp86_execution_clock_mode_t rp86_processor_bus_execution_clock_mode(
     const rp86_processor_bus_t *bus);
+bool rp86_processor_bus_faulted(const rp86_processor_bus_t *bus);
+void rp86_processor_bus_clear_fault(rp86_processor_bus_t *bus);
+void rp86_processor_bus_force_safe_state(rp86_processor_bus_t *bus);
 
 
 bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
@@ -75,7 +79,7 @@ void rp86_processor_bus_release_ad(void);
 void rp86_processor_bus_drive_data(uint16_t value, rp86_processor_bus_lanes_t lanes);
 
 /* Advance two pi86 data clocks while the host is driving a read response. */
-void rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
+bool rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
                            uint16_t *readback1,
                            uint16_t *readback2);
 
@@ -83,7 +87,7 @@ void rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
  * Capture CPU write data using the same phase proven by Gate 6:
  * control_sample, then two subsequent processor CLK steps.
  */
-void rp86_processor_bus_complete_write(rp86_processor_bus_t *bus,
+bool rp86_processor_bus_complete_write(rp86_processor_bus_t *bus,
                             const rp86_processor_bus_cycle_t *cycle,
                             uint16_t *sample0,
                             uint16_t *sample1,

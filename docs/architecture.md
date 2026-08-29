@@ -230,19 +230,24 @@ Internal-SRAM tier. `status` reports the actual clock mode and serviced cycle
 count; `stop` asserts RESET only after CLK is parked low; `restart` reconstructs
 the handoff and begins a new physical execution epoch.
 
-Runtime switching between FREE_RUNNING and CLOCK_STEPPED is a cooperative operation, not a
-mid-cycle clock change. A workload requests a mode through a control I/O port. RP2350
-commits that complete I/O write cycle, reaches `CLK=LOW`, and changes clock policy;
-the interrupt handler then returns under the selected mode and may enter `STI; HLT`.
-Both clock controllers, the request/commit transition, and canonical
+Runtime switching between FREE_RUNNING and CLOCK_STEPPED is a cooperative
+operation, not a mid-cycle clock change. It is available only to a prepared
+workload whose PIO/DMA response profile remains active under both modes. A
+general Internal-SRAM workload has only the CLOCK_STEPPED responder; a request
+to enter FREE_RUNNING is therefore rejected as a retained workload fault rather
+than allowing the processor to execute against an undriven bus. Both clock
+controllers, the prepared request/commit transition, and canonical
 CLOCK_STEPPED lifecycle control have been physically validated.
 
 The fixed HAT does not route the 8086 minimum-mode `RD`, `WR`, or `DEN`
 qualifiers. Intel specifies that software HLT emits one ALE without a
 qualifying bus-control signal; the visible subset alone can therefore resemble
-an I/O-read indication. A native workload writes `IDLE_PREPARE` to the runtime
-control port immediately before HLT. RP2350 accepts exactly that next HLT
-indication as idle; it does not silently broaden the unmapped-I/O policy.
+an I/O-read indication, invalid byte lanes, or no usable cycle. A native
+workload writes `IDLE_PREPARE` to the runtime control port immediately before
+HLT. This creates a single-use promise: after the remaining valid instruction
+fetch, the first non-serviceable indication is accepted as idle. Without that
+promise, lack of ALE reaches a bounded `TIMED_OUT` state; ordinary unmapped I/O
+remains a retained fault.
 
 Host software, USB, and filesystem work still do not participate directly in a
 partially completed bus cycle. CLOCK_STEPPED mode pauses between complete pulses; it does

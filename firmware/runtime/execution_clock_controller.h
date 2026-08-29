@@ -30,6 +30,10 @@ bool rp86_execution_clock_init(rp86_execution_clock_t *clock, PIO pio,
                                uint32_t free_running_hz,
                                uint32_t clock_stepped_pio_hz);
 
+bool rp86_execution_clock_parameters_valid(uint32_t clk_sys_hz,
+                                           uint32_t free_running_hz,
+                                           uint32_t clock_stepped_pio_hz);
+
 /* CLOCK_STEPPED -> FREE_RUNNING is legal only while the stepped controller is
  * parked at CLK=LOW. FREE_RUNNING -> CLOCK_STEPPED requests a PIO stop token;
  * the state machine acknowledges only after completing a low half-cycle. */

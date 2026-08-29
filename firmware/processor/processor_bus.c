@@ -111,14 +111,30 @@ void rp86_processor_bus_release_ad(void) {
 bool rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio,
                              uint32_t free_running_hz,
                              uint32_t clock_stepped_pio_hz) {
+    if (bus == NULL) return false;
     init_data_luts();
+    bus->faulted = false;
     return rp86_execution_clock_init(&bus->execution_clock, pio,
                                      free_running_hz,
                                      clock_stepped_pio_hz);
 }
 
+void rp86_processor_bus_force_safe_state(rp86_processor_bus_t *bus) {
+    rp86_processor_bus_release_ad();
+    rp86_processor_bus_hold_reset(true);
+    if (bus != NULL)
+        rp86_execution_clock_stop_low(&bus->execution_clock, 100000u);
+    gpio_init(RP86_PROCESSOR_PIN_CLK);
+    gpio_disable_pulls(RP86_PROCESSOR_PIN_CLK);
+    gpio_put(RP86_PROCESSOR_PIN_CLK, false);
+    gpio_set_dir(RP86_PROCESSOR_PIN_CLK, GPIO_OUT);
+}
+
 uint32_t rp86_processor_bus_step(rp86_processor_bus_t *bus) {
-    hard_assert(rp86_execution_clock_step(&bus->execution_clock));
+    if (bus == NULL || !rp86_execution_clock_step(&bus->execution_clock)) {
+        if (bus != NULL) bus->faulted = true;
+        rp86_processor_bus_force_safe_state(bus);
+    }
     return sio_hw->gpio_in;
 }
 
@@ -135,11 +151,25 @@ rp86_execution_clock_mode_t rp86_processor_bus_execution_clock_mode(
         bus->execution_clock.mode;
 }
 
-void rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks) {
+bool rp86_processor_bus_faulted(const rp86_processor_bus_t *bus) {
+    return bus == NULL || bus->faulted;
+}
+
+void rp86_processor_bus_clear_fault(rp86_processor_bus_t *bus) {
+    if (bus != NULL) bus->faulted = false;
+}
+
+bool rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks) {
+    if (bus == NULL) return false;
+    rp86_processor_bus_clear_fault(bus);
     rp86_processor_bus_release_ad();
     rp86_processor_bus_hold_reset(true);
-    for (uint i = 0; i < reset_clocks; ++i) (void)rp86_processor_bus_step(bus);
+    for (uint i = 0; i < reset_clocks; ++i) {
+        (void)rp86_processor_bus_step(bus);
+        if (rp86_processor_bus_faulted(bus)) return false;
+    }
     rp86_processor_bus_hold_reset(false);
+    return true;
 }
 
 bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
@@ -150,6 +180,7 @@ bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
 
     for (; idle_steps < max_idle_steps; ++idle_steps) {
         t1 = rp86_processor_bus_step(bus);
+        if (rp86_processor_bus_faulted(bus)) return false;
         if (sample_bit(t1, RP86_PROCESSOR_PIN_ALE)) break;
     }
 
@@ -163,6 +194,7 @@ bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
     cycle->lanes = decode_lanes(cycle->a0, cycle->bhe_n);
 
     cycle->control_sample = rp86_processor_bus_step(bus);
+    if (rp86_processor_bus_faulted(bus)) return false;
     cycle->iom = (uint8_t)sample_bit(cycle->control_sample, RP86_PROCESSOR_PIN_IOM);
     cycle->dtr = (uint8_t)sample_bit(cycle->control_sample, RP86_PROCESSOR_PIN_DTR);
     cycle->inta_n = (uint8_t)sample_bit(cycle->control_sample, RP86_PROCESSOR_PIN_INTA);
@@ -198,17 +230,20 @@ void rp86_processor_bus_drive_data(uint16_t value, rp86_processor_bus_lanes_t la
     sio_hw->gpio_oe_set = oe_mask;
 }
 
-void rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
+bool rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
                            uint16_t *readback1,
                            uint16_t *readback2) {
     const uint32_t sample1 = rp86_processor_bus_step(bus);
+    if (rp86_processor_bus_faulted(bus)) return false;
     const uint32_t sample2 = rp86_processor_bus_step(bus);
+    if (rp86_processor_bus_faulted(bus)) return false;
     if (readback1 != NULL) *readback1 = rp86_processor_bus_decode_ad(sample1);
     if (readback2 != NULL) *readback2 = rp86_processor_bus_decode_ad(sample2);
     rp86_processor_bus_release_ad();
+    return true;
 }
 
-void rp86_processor_bus_complete_write(rp86_processor_bus_t *bus,
+bool rp86_processor_bus_complete_write(rp86_processor_bus_t *bus,
                             const rp86_processor_bus_cycle_t *cycle,
                             uint16_t *sample0,
                             uint16_t *sample1,
@@ -217,23 +252,30 @@ void rp86_processor_bus_complete_write(rp86_processor_bus_t *bus,
 
     const uint16_t d0 = rp86_processor_bus_decode_ad(cycle->control_sample);
     const uint16_t d1 = rp86_processor_bus_decode_ad(rp86_processor_bus_step(bus));
+    if (rp86_processor_bus_faulted(bus)) return false;
     const uint16_t d2 = rp86_processor_bus_decode_ad(rp86_processor_bus_step(bus));
+    if (rp86_processor_bus_faulted(bus)) return false;
 
     if (sample0 != NULL) *sample0 = d0;
     if (sample1 != NULL) *sample1 = d1;
     if (sample2 != NULL) *sample2 = d2;
+    return true;
 }
 
 void rp86_processor_bus_safe_halt(rp86_processor_bus_t *bus, uint reset_clocks) {
     rp86_processor_bus_release_ad();
-    hard_assert(rp86_processor_bus_set_execution_clock_mode(
-        bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED, 100000u));
+    if (!rp86_processor_bus_set_execution_clock_mode(
+            bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED, 100000u)) {
+        if (bus != NULL) bus->faulted = true;
+        rp86_processor_bus_force_safe_state(bus);
+        return;
+    }
+    rp86_processor_bus_clear_fault(bus);
     rp86_processor_bus_hold_reset(true);
-    for (uint i = 0; i < reset_clocks; ++i) (void)rp86_processor_bus_step(bus);
+    for (uint i = 0; i < reset_clocks; ++i) {
+        (void)rp86_processor_bus_step(bus);
+        if (rp86_processor_bus_faulted(bus)) break;
+    }
 
-    rp86_execution_clock_stop_low(&bus->execution_clock, 100000u);
-    gpio_init(RP86_PROCESSOR_PIN_CLK);
-    gpio_disable_pulls(RP86_PROCESSOR_PIN_CLK);
-    gpio_put(RP86_PROCESSOR_PIN_CLK, false);
-    gpio_set_dir(RP86_PROCESSOR_PIN_CLK, GPIO_OUT);
+    rp86_processor_bus_force_safe_state(bus);
 }

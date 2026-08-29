@@ -35,7 +35,10 @@ _DATA_PREFIX = struct.Struct("<II")
 _COMMIT = struct.Struct("<II")
 _CONTROL = struct.Struct("<B3xI")
 _STATUS_V1 = struct.Struct("<III")
-_STATUS = struct.Struct("<IIIII")
+_STATUS_V2 = struct.Struct("<IIIII")
+_STATUS = struct.Struct("<IIIIII")
+
+PROCESSOR_FLAG_IDLE = 1 << 0
 
 CLOCK_MODES = {
     "auto": 0,
@@ -320,11 +323,13 @@ def control_record(operation: str, *, workload_id: int, sequence: int) -> Messag
     )
 
 
-def decode_status_payload(payload: bytes) -> tuple[int, int, int, int, int]:
-    """Decode current status while accepting the earlier 12-byte firmware."""
+def decode_status_payload(payload: bytes) -> tuple[int, int, int, int, int, int]:
+    """Decode status while accepting the earlier 12- and 20-byte firmware."""
     if len(payload) == _STATUS_V1.size:
         workload_id, state, detail = _STATUS_V1.unpack(payload)
-        return workload_id, state, detail, CLOCK_MODES["auto"], 0
+        return workload_id, state, detail, CLOCK_MODES["auto"], 0, 0
+    if len(payload) == _STATUS_V2.size:
+        return (*_STATUS_V2.unpack(payload), 0)
     if len(payload) != _STATUS.size:
         raise ValueError("workload status payload has the wrong size")
     return _STATUS.unpack(payload)

@@ -110,12 +110,14 @@ bool rp86_workload_write(rp86_workload_manager_t *manager,
 
 bool rp86_workload_commit(rp86_workload_manager_t *manager,
                           uint32_t transfer_id, uint32_t expected_crc32) {
-    if (manager == NULL || manager->state != RP86_WORKLOAD_STATE_RECEIVING ||
-        transfer_id != manager->transfer_id ||
+    if (manager == NULL || manager->state != RP86_WORKLOAD_STATE_RECEIVING)
+        return false;
+
+    if (transfer_id != manager->transfer_id ||
         manager->received != manager->manifest.image_size ||
         expected_crc32 != manager->manifest.image_crc32 ||
         manager->running_crc32 != expected_crc32) {
-        if (manager != NULL) manager->state = RP86_WORKLOAD_STATE_FAULTED;
+        manager->state = RP86_WORKLOAD_STATE_FAULTED;
         return false;
     }
 
@@ -164,7 +166,9 @@ bool rp86_workload_restart(rp86_workload_manager_t *manager,
 
 void rp86_workload_discard(rp86_workload_manager_t *manager) {
     if (manager == NULL) return;
+    memset(&manager->manifest, 0, sizeof manager->manifest);
     manager->transfer_id = 0u;
+    manager->workload_id = 0u;
     manager->received = 0u;
     manager->running_crc32 = 0u;
     manager->state = RP86_WORKLOAD_STATE_EMPTY;
