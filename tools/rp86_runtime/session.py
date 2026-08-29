@@ -40,6 +40,11 @@ def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
     return "ACTIVE"
 
 
+def _prepared_heartbeat_is_available(clock_mode: int) -> bool:
+    """Only a running prepared responder can answer native heartbeats."""
+    return clock_mode in (CLOCK_MODES["auto"], CLOCK_MODES["free-running"])
+
+
 def _format_runtime_top(
     *,
     processor_name: str,
@@ -371,11 +376,9 @@ def persistent_monitor(
                  staged_workload_processor_flags) = decode_status_payload(
                      reply.payload
                  )
-                if (
-                    staged_workload_state == 3
-                    and staged_workload_clock_mode == 2
-                ):
-                    prepared_heartbeat_available = False
+                prepared_heartbeat_available = _prepared_heartbeat_is_available(
+                    staged_workload_clock_mode
+                )
             except ValueError as exc:
                 print_event(f"{description}: invalid status payload: {exc}")
                 return False
@@ -496,6 +499,16 @@ def persistent_monitor(
         print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
         console.render(current_cpu_sequence, stats, connected, command_buffer, command_cursor)
+
+    # A previous Host session may have left a general workload RUNNING,
+    # IDLE/HLT, FAULTED, or STOPPED/RESET. Probe the RP2350-owned lifecycle
+    # before sending any prepared-runtime heartbeat. A status record is always
+    # safe and tells this new session whether the native ISR responder exists.
+    startup_status = control_record(
+        "status", workload_id=0, sequence=current_sequence
+    )
+    if not perform_workload_transaction([startup_status], "attached runtime"):
+        prepared_heartbeat_available = False
 
     posix_terminal_state = None
     if interactive and os.name != "nt" and sys.stdin.isatty():

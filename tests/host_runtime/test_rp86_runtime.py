@@ -14,6 +14,7 @@ from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
 from rp86_runtime.session import (  # noqa: E402
     _format_runtime_top,
+    _prepared_heartbeat_is_available,
     _processor_execution_state,
 )
 from rp86_runtime.shell_commands import (  # noqa: E402
@@ -140,6 +141,12 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(_processor_execution_state(2, 1), "IDLE / HLT")
         self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
         self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
+
+    def test_heartbeat_requires_the_prepared_free_running_responder(self) -> None:
+        self.assertTrue(_prepared_heartbeat_is_available(0))
+        self.assertTrue(_prepared_heartbeat_is_available(1))
+        self.assertFalse(_prepared_heartbeat_is_available(2))
+        self.assertFalse(_prepared_heartbeat_is_available(3))
 
 
 if __name__ == "__main__":
