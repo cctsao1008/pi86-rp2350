@@ -1,0 +1,23 @@
+.program rp86_free_running_clock_control
+.wrap_target
+continue:
+    ; Ten PIO cycles form one complete processor clock at a 50% duty cycle.
+    ; The divider therefore runs this SM at 10x the requested processor clock.
+    set pins, 1 [4]
+    set pins, 0 [1]
+
+    ; With an empty TX FIFO, PULL NOBLOCK copies X (normally zero) into OSR.
+    ; A Host stop token supplies bit zero as one. The SM examines that token
+    ; only after the low half-cycle is complete.
+    pull noblock
+    out x, 1
+    jmp !x continue
+
+    ; Return an acknowledgement through this SM's RX FIFO, then block on an
+    ; empty TX FIFO. CLK is already low and cannot restart before firmware
+    ; disables/reinitializes the state machine.
+    set y, 1
+    mov isr, y
+    push block
+    pull block
+.wrap

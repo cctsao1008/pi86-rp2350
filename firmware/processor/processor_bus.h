@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #include "hardware/pio.h"
+#include "runtime/execution_clock_controller.h"
 
 /*
  * Reusable 8086-class processor-bus primitives.
@@ -46,17 +47,23 @@ typedef struct {
 } rp86_processor_bus_cycle_t;
 
 typedef struct {
-    PIO pio;
-    uint sm;
-    uint program_offset;
+    rp86_execution_clock_t execution_clock;
 } rp86_processor_bus_t;
 
 void rp86_processor_bus_prepare_header_high_z(void);
-void rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio, uint32_t step_pio_clock_hz);
+bool rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio,
+                             uint32_t free_running_hz,
+                             uint32_t clock_stepped_pio_hz);
 void rp86_processor_bus_hold_reset(bool asserted);
 void rp86_processor_bus_set_intr(bool asserted);
 uint32_t rp86_processor_bus_step(rp86_processor_bus_t *bus);
 void rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks);
+bool rp86_processor_bus_set_execution_clock_mode(
+    rp86_processor_bus_t *bus, rp86_execution_clock_mode_t mode,
+    uint32_t timeout_us);
+rp86_execution_clock_mode_t rp86_processor_bus_execution_clock_mode(
+    const rp86_processor_bus_t *bus);
+
 
 bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
                         uint max_idle_steps,

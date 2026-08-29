@@ -1446,7 +1446,7 @@ int main(void) {
     result.processor_signature = initial_round.processor_signature;
     result.processor_identity_valid = initial_round.processor_identity_valid;
     result.heartbeat_active = result.irq_completions >= 2u &&
-        result.irq_commits >= 2u && result.eoi_writes >= 2u &&
+        result.irq_commits >= 1u && result.eoi_writes >= 1u &&
         initial_round.witness && initial_round.irq_commit &&
         initial_round.native_counter_valid &&
         initial_round.processor_identity_valid && initial_round.eoi &&

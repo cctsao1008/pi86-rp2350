@@ -78,6 +78,6 @@ python3 -m unittest discover -s tests/runtime -p 'test_*.py'
 python3 tools/docs/check_docs.py
 ```
 
-`clock_stepped_native_runtime` remains the dedicated physical validation target
-for the CLOCK_STEPPED processor-bus path. It is not the canonical Host runtime
-UF2.
+`execution_clock_runtime` is the dedicated physical validation target for the
+CLOCK_STEPPED/FREE_RUNNING controller transition. It is not the canonical Host
+runtime UF2.

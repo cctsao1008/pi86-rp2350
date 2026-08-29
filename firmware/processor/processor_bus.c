@@ -2,13 +2,11 @@
 
 #include <stddef.h>
 
-#include "hardware/clocks.h"
 #include "hardware/structs/sio.h"
 #include "pico/stdlib.h"
 
 #include "board/rp2350_pizero.h"
 #include "processor/processor_bus_pins.h"
-#include "clock_stepped_clock.pio.h"
 
 static const uint8_t ad_gpio[16] = {
     RP86_PROCESSOR_PIN_AD0, RP86_PROCESSOR_PIN_AD1, RP86_PROCESSOR_PIN_AD2, RP86_PROCESSOR_PIN_AD3,
@@ -110,30 +108,31 @@ void rp86_processor_bus_release_ad(void) {
     sio_hw->gpio_oe_clr = RP86_PROCESSOR_AD_BUS_MASK;
 }
 
-void rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio, uint32_t step_pio_clock_hz) {
+bool rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio,
+                             uint32_t free_running_hz,
+                             uint32_t clock_stepped_pio_hz) {
     init_data_luts();
-
-    bus->pio = pio;
-    bus->sm = pio_claim_unused_sm(pio, true);
-    bus->program_offset = pio_add_program(pio, &rp86_clock_stepped_clock_program);
-
-    pio_sm_config c = rp86_clock_stepped_clock_program_get_default_config(bus->program_offset);
-    sm_config_set_set_pins(&c, RP86_PROCESSOR_PIN_CLK, 1);
-    sm_config_set_clkdiv(
-        &c,
-        (float)clock_get_hz(clk_sys) / (float)step_pio_clock_hz);
-
-    pio_gpio_init(pio, RP86_PROCESSOR_PIN_CLK);
-    pio_sm_set_consecutive_pindirs(pio, bus->sm, RP86_PROCESSOR_PIN_CLK, 1, true);
-    pio_sm_init(pio, bus->sm, bus->program_offset, &c);
-    pio_sm_clear_fifos(pio, bus->sm);
-    pio_sm_set_enabled(pio, bus->sm, true);
+    return rp86_execution_clock_init(&bus->execution_clock, pio,
+                                     free_running_hz,
+                                     clock_stepped_pio_hz);
 }
 
 uint32_t rp86_processor_bus_step(rp86_processor_bus_t *bus) {
-    pio_sm_put_blocking(bus->pio, bus->sm, 1u);
-    (void)pio_sm_get_blocking(bus->pio, bus->sm);
+    hard_assert(rp86_execution_clock_step(&bus->execution_clock));
     return sio_hw->gpio_in;
+}
+
+bool rp86_processor_bus_set_execution_clock_mode(
+    rp86_processor_bus_t *bus, rp86_execution_clock_mode_t mode,
+    uint32_t timeout_us) {
+    return bus != NULL && rp86_execution_clock_set_mode(
+        &bus->execution_clock, mode, timeout_us);
+}
+
+rp86_execution_clock_mode_t rp86_processor_bus_execution_clock_mode(
+    const rp86_processor_bus_t *bus) {
+    return bus == NULL ? RP86_EXECUTION_CLOCK_STOPPED :
+        bus->execution_clock.mode;
 }
 
 void rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks) {
@@ -227,10 +226,12 @@ void rp86_processor_bus_complete_write(rp86_processor_bus_t *bus,
 
 void rp86_processor_bus_safe_halt(rp86_processor_bus_t *bus, uint reset_clocks) {
     rp86_processor_bus_release_ad();
+    hard_assert(rp86_processor_bus_set_execution_clock_mode(
+        bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED, 100000u));
     rp86_processor_bus_hold_reset(true);
     for (uint i = 0; i < reset_clocks; ++i) (void)rp86_processor_bus_step(bus);
 
-    pio_sm_set_enabled(bus->pio, bus->sm, false);
+    rp86_execution_clock_stop_low(&bus->execution_clock, 100000u);
     gpio_init(RP86_PROCESSOR_PIN_CLK);
     gpio_disable_pulls(RP86_PROCESSOR_PIN_CLK);
     gpio_put(RP86_PROCESSOR_PIN_CLK, false);

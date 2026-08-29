@@ -386,11 +386,12 @@ general binary control flow, stack traffic, writable byte/word RAM, and I/O.
 The existing Pi86 HAT holds `READY` asserted; CLOCK_STEPPED changes the interval between
 complete pulses rather than inserting READY wait states or truncating a pulse.
 
-A cooperative clock-mode change occurs only at an explicit safe point: the workload
-publishes a request through I/O, executes `STI; HLT`, and resumes after RP2350 has
-stopped at `CLK=LOW`, switched clock mode, prepared state, and delivered the established
-INTR/two-cycle-INTA/ISR/IRET wake path. This switching handshake remains an
-integration item.
+A cooperative clock-mode change occurs only at an explicit safe point. The workload
+publishes a request through I/O; RP2350 commits that complete I/O cycle at `CLK=LOW`
+and switches policy before the native interrupt handler returns. The processor may
+then enter `STI; HLT` and remains wakeable through the established
+INTR/two-cycle-INTA/ISR/IRET path. This transition is physically accepted; canonical
+Host lifecycle selection remains an integration item.
 
 Host software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
 transactions do not own a partially completed physical bus phase. External PSRAM
@@ -418,8 +419,9 @@ the stable Host shell:
 
 1. Host shell framework and capability reporting;
 2. bounded FREE_RUNNING Internal-SRAM lifecycle (calculator accepted);
-3. general CLOCK_STEPPED Internal-SRAM execution (standalone controller accepted), followed
-   by Host lifecycle and cooperative FREE_RUNNING/CLOCK_STEPPED switching integration;
+3. general CLOCK_STEPPED Internal-SRAM execution and cooperative
+   FREE_RUNNING/CLOCK_STEPPED transition (physically accepted), followed by Host
+   lifecycle integration;
 4. native workload stdio;
 5. Internal-SRAM Host/processor shared memory;
 6. External NOR shared FAT volume as `flash:`;

@@ -230,11 +230,12 @@ cycles with 183 memory reads, 33 memory writes, two I/O writes, and no unmapped,
 lane, or pad faults.
 
 Runtime switching between FREE_RUNNING and CLOCK_STEPPED is a cooperative operation, not a
-mid-cycle clock change. A workload requests a mode through a control I/O port and
-enters `STI; HLT`. The RP2350 completes the current pulse, stops with `CLK` low,
-switches clock modes, prepares state, and wakes the processor through the established
-INTR/two-cycle-INTA/ISR/IRET path. The independent engines are implemented; this
-switch handshake remains to be integrated and physically validated.
+mid-cycle clock change. A workload requests a mode through a control I/O port. RP2350
+commits that complete I/O write cycle, reaches `CLK=LOW`, and changes clock policy;
+the interrupt handler then returns under the selected mode and may enter `STI; HLT`.
+Both clock controllers and this request/commit transition have been physically
+validated. Exposing mode selection through the canonical Host lifecycle remains an
+integration item.
 
 Host software, USB, and filesystem work still do not participate directly in a
 partially completed bus cycle. CLOCK_STEPPED mode pauses between complete pulses; it does

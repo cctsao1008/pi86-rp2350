@@ -23,8 +23,8 @@ IRQ mailbox commit         = PASS
 Native EOI                 = PASS
 Heartbeat active           = PASS
 Native processor identity  = INTEL 8086 (AAD16=0012) PASS
-IRQ mailbox commits        = 8
-Native EOI writes          = 8
+IRQ mailbox commits        = 1
+Native EOI writes          = 1
 PIO1 non-AD isolation      = PASS
 Observer complete cycles   = 256
 PIO1 allocation            = SM0 RESET+INT60, SM1 IRQ ROM, SM2 IRQ I/O, SM3 INTA

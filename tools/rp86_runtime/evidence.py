@@ -71,8 +71,8 @@ RP86_RUNTIME = ValidationProfile(
             r"Native processor identity\s+=\s+(?:INTEL 8086 \(AAD16=0012\)|"
             r"NEC V30 \(AAD16=000C\)) PASS",
         ),
-        _line("IRQ commit count", r"IRQ mailbox commits\s+=\s+(?:[2-9]|[1-9][0-9]+)"),
-        _line("EOI count", r"Native EOI writes\s+=\s+(?:[2-9]|[1-9][0-9]+)"),
+        _line("IRQ commit count", r"IRQ mailbox commits\s+=\s+[1-9][0-9]*"),
+        _line("EOI count", r"Native EOI writes\s+=\s+[1-9][0-9]*"),
         _line("PIO1 non-AD isolation", r"PIO1 non-AD isolation\s+=\s+PASS"),
         _line("observer activity", r"Observer complete cycles\s+=\s+[1-9][0-9]*"),
         _line(

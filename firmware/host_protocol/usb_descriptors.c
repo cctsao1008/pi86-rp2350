@@ -96,7 +96,7 @@ const uint16_t *tud_descriptor_string_cb(uint8_t index, uint16_t language_id) {
     } else if (index == STRID_CDC) {
         text = "Physical validation CDC";
     } else if (index == STRID_HID) {
-        text = "64-byte V30 Host Protocol";
+        text = "64-byte RP86 Host Protocol";
     } else {
         return NULL;
     }

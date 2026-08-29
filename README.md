@@ -163,10 +163,12 @@ clock pulse at a time and may remain at `CLK=LOW` between pulses while RP2350
 services general Internal-SRAM memory or I/O.
 
 CLOCK_STEPPED execution is physically validated through reset fetch, taken branches,
-`LOOP`, `PUSH`/`POP`, byte/word RAM, and native I/O result publication. Runtime
-switching between FREE_RUNNING and CLOCK_STEPPED remains to be integrated. Host software,
-USB, filesystem work, and arbitrary storage transactions still do not take over
-a partially completed electrical bus phase.
+`LOOP`, `PUSH`/`POP`, byte/word RAM, and native I/O result publication. Cooperative
+switching is also physically validated: a native `INT 60h` handler publishes a
+mode request through I/O, RP2350 commits that complete bus cycle at `CLK=LOW`,
+then changes between CLOCK_STEPPED and FREE_RUNNING without truncating a pulse.
+Host software, USB, filesystem work, and arbitrary storage transactions still do
+not take over a partially completed electrical bus phase.
 
 External PSRAM then extends capacity through a measured staging/cache policy;
 it is not a prerequisite for the first useful runtime.

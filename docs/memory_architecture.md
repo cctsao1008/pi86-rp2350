@@ -53,9 +53,10 @@ Internal-SRAM code, data, and stack one complete clock pulse at a time. Its firs
 physical workload validated reset handoff, taken branches, `LOOP`, `PUSH`/`POP`,
 byte/word RAM, and I/O publication across 218 serviced cycles.
 
-The next integration gate places that CLOCK_STEPPED controller behind the canonical Host
-lifecycle and adds cooperative FREE_RUNNING/CLOCK_STEPPED switching, shared-memory behavior,
-stdio, and timeout/restart handling without making External PSRAM a prerequisite.
+The next integration gate places the validated clock controllers and cooperative
+FREE_RUNNING/CLOCK_STEPPED transition behind the canonical Host lifecycle, then adds
+shared-memory behavior, stdio, and timeout/restart handling without making External
+PSRAM a prerequisite.
 
 ### External PSRAM
 
@@ -221,14 +222,13 @@ IDs, raw erase blocks, or SD sectors.
 
 The order of implementation does not change the architecture:
 
-1. integrate the validated CLOCK_STEPPED controller into the canonical Host lifecycle;
-2. add cooperative FREE_RUNNING/CLOCK_STEPPED controller switching at an explicit safe point;
-3. add stdio, fault reporting, timeout, and Host restart around general execution;
-4. expose Internal-SRAM shared memory through RP2350 ownership;
-5. complete remaining `flash:` file operations and processor file services;
-6. detect/test External PSRAM and provide Host read/write;
-7. add PSRAM-backed capacity through a measured staging/cache policy;
-8. mount/unmount and hot-remove `sd:` and complete fault preservation.
+1. expose the validated clock controllers, initial mode, and cooperative transition through the canonical Host lifecycle;
+2. add stdio, fault reporting, timeout, and Host restart around general execution;
+3. expose Internal-SRAM shared memory through RP2350 ownership;
+4. complete remaining `flash:` file operations and processor file services;
+5. detect/test External PSRAM and provide Host read/write;
+6. add PSRAM-backed capacity through a measured staging/cache policy;
+7. mount/unmount and hot-remove `sd:` and complete fault preservation.
 
 ## 10. Related documents
 

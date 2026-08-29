@@ -41,6 +41,7 @@ RP2350     = Companion Resource and Bus Controller
 - [`host_loaded_internal_sram_calculator_1mhz_validation.md`](validation/host_loaded_internal_sram_calculator_1mhz_validation.md)
 - [`intel_8086_interactive_heartbeat_1mhz_observation.md`](validation/intel_8086_interactive_heartbeat_1mhz_observation.md)
 - [`clock_stepped_internal_sram_general_execution_validation.md`](validation/clock_stepped_internal_sram_general_execution_validation.md)
+- [`execution_clock_mode_transition_validation.md`](validation/execution_clock_mode_transition_validation.md)
 
 [`story/`](story/) contains the four public articles. They are narrative, not
 competing architecture specifications.

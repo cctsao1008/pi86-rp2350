@@ -33,14 +33,15 @@ CLOCK_STEPPED never changes mode in the middle of a pulse or active electrical p
 software, USB, filesystems, and storage controllers do not directly own such a
 phase.
 
-A running workload may request a clock-mode change through a control I/O port, then
-execute `STI; HLT`. RP2350 completes the current pulse, reaches `CLK=LOW`, changes
-clock mode, prepares the destination state, and wakes the processor through the
-existing INTR/two-cycle-INTA/ISR/IRET path. Launch metadata may select the initial
-clock mode.
+A running workload may request a clock-mode change through a control I/O port.
+RP2350 commits that complete I/O write cycle, reaches `CLK=LOW`, changes clock mode,
+and lets the native interrupt handler return under the selected policy. The
+foreground may then execute `STI; HLT` and remains wakeable through the existing
+INTR/two-cycle-INTA/ISR/IRET path. Launch metadata may select the initial clock mode.
 
-The independent clock controllers are implemented. The cooperative switch handshake remains
-to be integrated and physically validated.
+The independent clock controllers and cooperative request/commit handshake are
+implemented and physically validated. Canonical Host lifecycle selection remains
+to be integrated.
 
 ## Evidence boundary
 
@@ -71,5 +72,6 @@ Costs:
 - [`../architecture.md`](../architecture.md)
 - [`../memory_architecture.md`](../memory_architecture.md)
 - [`../validation/clock_stepped_internal_sram_general_execution_validation.md`](../validation/clock_stepped_internal_sram_general_execution_validation.md)
+- [`../validation/execution_clock_mode_transition_validation.md`](../validation/execution_clock_mode_transition_validation.md)
 - [`0003-define-physical-timing-boundary.md`](0003-define-physical-timing-boundary.md)
 - [`0006-retain-current-pi86-hat-as-hardware-baseline.md`](0006-retain-current-pi86-hat-as-hardware-baseline.md)

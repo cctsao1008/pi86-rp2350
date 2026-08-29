@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-28
 **Result:** PASS
-**Target:** `clock_stepped_native_runtime`
+**Recorded artifact:** `clock_stepped_native_runtime.uf2` (the predecessor of the current `execution_clock_runtime` validation target)
 **Hardware:** RP2350 PiZero2Lab plus the unmodified Pi86 HAT and an installed 8086-class physical processor
 
 ## Purpose
@@ -34,11 +34,14 @@ The workload deliberately exercises:
 - a native arithmetic result, sum `1..10 = 55`;
 - word I/O publication of result `0037h` and exit code `600Dh`.
 
-Sources:
+Current source lineage:
 
 - `firmware/workloads/clock_stepped_general.asm`
-- `firmware/runtime/paced_bus_engine.c`
-- `tests/paced_runtime/clock_stepped_native_runtime.c`
+- `firmware/runtime/clock_stepped_bus_controller.c`
+- `tests/execution_clock_runtime/execution_clock_runtime.c`
+
+The original standalone harness and its exact artifact name remain recoverable
+from Git history; they are not retained as parallel current implementations.
 
 ## Memory and clock policy
 
@@ -67,9 +70,9 @@ SHA-256 4c7a1d012b7dd61884f933648d83e35594f2a1ae8ff4c7044a9291f2f90597d7
 
 ## Physical procedure
 
-1. Build target `clock_stepped_native_runtime` from the canonical repository.
+1. Build the dedicated CLOCK_STEPPED physical-validation target from the canonical repository.
 2. Request RP2350 UF2 bootloader mode.
-3. Copy `clock_stepped_native_runtime.uf2` to the verified RP2350 boot volume.
+3. Copy its UF2 to the verified RP2350 boot volume.
 4. Open the re-enumerated Pico USB CDC port with DTR asserted.
 5. The firmware holds the processor in reset until CDC is attached.
 6. The RP2350 performs the reset sequence, services bus cycles, captures the two
@@ -118,9 +121,9 @@ PIO/DMA runtime.
 
 ## What this does not yet prove
 
-This test does not claim:
+This test by itself does not claim:
 
-- runtime switching between FREE_RUNNING and CLOCK_STEPPED;
+- runtime switching between FREE_RUNNING and CLOCK_STEPPED (subsequently accepted in [`execution_clock_mode_transition_validation.md`](execution_clock_mode_transition_validation.md));
 - Host-shell load/run/restart integration for the CLOCK_STEPPED controller;
 - CLOCK_STEPPED interrupt or two-cycle INTA handling;
 - processor stdio or filesystem services;
@@ -131,9 +134,9 @@ Processor identity remains a separate native AAD-16 validation. The operator's
 installed processor may be recorded with the session, but this workload itself
 only depends on the common 8086-class instruction set.
 
-## Next integration step
+## Subsequent integration step
 
-The two engines will meet at an explicit safe-point handshake:
+The two clock controllers meet at an explicit safe-point handshake:
 
 ```text
 workload OUT engine-request

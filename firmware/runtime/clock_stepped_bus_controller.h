@@ -36,7 +36,7 @@ typedef struct {
  * Service one complete clock-stepped physical processor bus cycle.
  *
  * The caller advances no processor clock while memory or I/O policy is being
- * evaluated.  rp86_processor_bus owns the established established Pi86 HAT phase cadence and this
+ * evaluated. rp86_processor_bus owns the established Pi86 HAT phase cadence and this
  * layer owns byte-lane-aware access to the supplied backends.
  */
 bool rp86_clock_stepped_service_cycle(rp86_processor_bus_t *bus,
