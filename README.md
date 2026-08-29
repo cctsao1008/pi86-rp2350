@@ -137,7 +137,7 @@ content through it, not raw controllers or filesystem metadata.
 
 | Resource | Intended runtime role | Implementation / validation status |
 |---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; bounded 1 MHz execution and general CLOCK_STEPPED branch/loop/stack/RAM/I/O execution are physically validated |
+| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; bounded execution, Host `mem` access, and the `3F000h` shared mailbox are physically validated |
 | External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
 | External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
@@ -232,6 +232,11 @@ SRAM and physically validated `load`, `run`, `stop`, and `restart`; see the
 [`Host-loaded Internal-SRAM calculator validation`](docs/validation/host_loaded_internal_sram_calculator_1mhz_validation.md).
 General lifecycle and HLT-idle evidence is retained in the
 [`canonical CLOCK_STEPPED workload validation`](docs/validation/canonical_clock_stepped_workload_lifecycle_validation.md).
+
+Host `mem` access and an ownership-transfer mailbox at `3F000h` are physically
+validated end to end: the Host publishes text, a real Intel 8086 uppercases it,
+and the Host retrieves the result. See the
+[`Internal SRAM shared-mailbox validation`](docs/validation/internal_sram_shared_mailbox_validation.md).
 
 
 ## 📚 Documentation

@@ -2,6 +2,8 @@
 
 #include <string.h>
 
+#include "memory/shared_mailbox.h"
+
 static uint32_t crc32_update(uint32_t crc, const uint8_t *data, size_t length) {
     crc = ~crc;
     for (size_t i = 0; i < length; ++i) {
@@ -27,6 +29,10 @@ static bool manifest_valid(const rp86_workload_manifest_t *manifest,
         !rp86_memory_backing_range_valid(backing, manifest->load_address,
                                          manifest->image_size))
         return false;
+    if (manifest->load_address <
+            RP86_SHARED_MAILBOX_BASE + RP86_SHARED_MAILBOX_SIZE &&
+        image_end > RP86_SHARED_MAILBOX_BASE)
+        return false;
 
     const uint32_t entry = ((uint32_t)manifest->entry_segment << 4u) +
                            manifest->entry_offset;
@@ -40,6 +46,7 @@ static bool manifest_valid(const rp86_workload_manifest_t *manifest,
         const uint32_t stack = ((uint32_t)manifest->stack_segment << 4u) +
                                manifest->stack_offset;
         if (stack >= RP86_PROCESSOR_ADDRESS_SPACE_SIZE ||
+            stack >= RP86_SHARED_MAILBOX_BASE ||
             !rp86_memory_backing_range_valid(backing, stack, 2u))
             return false;
     }

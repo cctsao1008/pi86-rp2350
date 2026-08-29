@@ -20,7 +20,7 @@ The RP2350 owns every physical controller and arbitrates access.
 | **External NOR Flash** | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` FAT volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
 | **SD Card** | intended optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
 | **Processor-visible memory** | the 20-bit physical address space presented to the installed Intel 8086 or NEC V30 | Internal-SRAM upload/backing contract, bounded FREE_RUNNING execution, and standalone general CLOCK_STEPPED execution are validated |
-| **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and V30 through RP2350 ownership | protocol and ownership model defined; general service not implemented |
+| **Shared memory** | an explicitly assigned PSRAM/Internal-SRAM region accessible to Host and processor through RP2350 ownership | Host read/write/load/save and the fixed `3F000h-3FFFFh` ownership-transfer mailbox are implemented and physically validated with Intel 8086 |
 | **Prepared window** | RP2350 state arranged in advance to meet a bounded processor-bus deadline | retained PIO/DMA implementations physically validated |
 
 Do not equate a processor address with one physical device. The RP2350 maps and
@@ -56,8 +56,9 @@ byte/word RAM, and I/O publication across 218 serviced cycles.
 The validated clock controller is now behind the canonical Host lifecycle.
 General images execute from this backing through a generated `FFFF0h` reset
 handoff, and `status`, safe `stop`, and `restart` are physically accepted. The
-next memory step is the shared Internal-SRAM mailbox, followed by broader stdio
-and timeout/fault inspection without making External PSRAM a prerequisite.
+upper 4 KiB (`3F000h-3FFFFh`) is now the canonical shared mailbox. Host HID
+memory transfers, physical-processor polling, ownership transfer, and result
+retrieval are physically validated without making External PSRAM a prerequisite.
 
 ### External PSRAM
 
@@ -162,9 +163,18 @@ fixed PC layout.
 
 ### Shared volatile memory
 
-The RP2350 allocates a region, returns a stable processor address and Host handle, and
-defines publication/ownership boundaries. The Host and V30 may exchange data
-without receiving the PSRAM controller itself.
+The first shared region is fixed and intentionally small:
+
+```text
+3F000h-3F01Fh  32-byte R86M control header
+3F020h-3FFFFh  4064-byte request/result data area
+```
+
+The header carries `owner`, `status`, `generation`, request length, and response
+length. The current owner writes metadata and data first, then changes the
+16-bit `owner` field as the final commit. The Host and processor therefore never
+modify the payload concurrently. This is a polling ABI; interrupts may be added
+later without changing its ownership rule.
 
 While the V30 is running, ordinary code/data memory belongs to the workload.
 Host writes are limited to approved shared regions or explicit stopped-state
@@ -225,9 +235,9 @@ The order of implementation does not change the architecture:
 
 1. expose the validated clock controllers, initial mode, and cooperative transition through the canonical Host lifecycle;
 2. add stdio, fault reporting, timeout, and Host restart around general execution;
-3. expose Internal-SRAM shared memory through RP2350 ownership;
-4. complete remaining `flash:` file operations and processor file services;
-5. detect/test External PSRAM and provide Host read/write;
+3. complete remaining `flash:` file operations and processor file services;
+4. add bounded stdin/stdout queues over the validated shared-memory ownership rule;
+5. detect/test External PSRAM and provide the same Host read/write contract;
 6. add PSRAM-backed capacity through a measured staging/cache policy;
 7. mount/unmount and hot-remove `sd:` and complete fault preservation.
 

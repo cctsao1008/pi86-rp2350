@@ -46,6 +46,19 @@ from .broker import (
     select_broker,
 )
 from .workload import control_record, decode_status_payload, workload_from_command
+from .memory import (
+    format_memory_dump,
+    memory_read_request,
+    memory_write_records,
+    parse_memory_read,
+    validate_memory_reply,
+)
+from .mailbox import (
+    MAILBOX_BASE,
+    MAILBOX_DATA_SIZE,
+    MailboxHeader,
+    mailbox_commit_records,
+)
 
 from .evidence import RP86_RUNTIME, explain_output, validate_output
 from .protocol import (
@@ -58,6 +71,8 @@ from .protocol import (
     TYPE_HELLO,
     TYPE_FILESYSTEM_REQUEST,
     TYPE_FILESYSTEM_RESULT,
+    TYPE_MEMORY_REQUEST,
+    TYPE_MEMORY_RESULT,
     TYPE_RESULT,
     TYPE_RUNTIME_CONTROL,
     TYPE_RUNTIME_STATUS,

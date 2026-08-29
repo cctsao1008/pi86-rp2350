@@ -20,8 +20,10 @@ add_executable(rp86_rp2350
     board/rp2350_pizero_resources.c
     memory/backing.c
     memory/internal_sram_backing.c
+    memory/memory_service.c
     memory/memory.c
     memory/psram_backing.c
+    memory/shared_mailbox.c
     processor/processor_bus.c
     runtime/clock_stepped_bus_controller.c
     runtime/execution_clock_controller.c
@@ -138,4 +140,10 @@ rp86_add_processor_image(hello
 rp86_add_processor_image(runtime_lifecycle
     SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/runtime_lifecycle.asm"
     SYMBOL runtime_lifecycle_workload
+)
+
+# Polling Host/processor ownership-transfer mailbox demonstration.
+rp86_add_processor_image(shared_mailbox
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/shared_mailbox.asm"
+    SYMBOL shared_mailbox_workload
 )

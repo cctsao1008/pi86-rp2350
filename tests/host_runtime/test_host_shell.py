@@ -25,6 +25,7 @@ class HostShellTests(unittest.TestCase):
             "load", "run", "stop", "restart", "bootloader", "send", "console", "ls",
             "put", "get", "df", "mount", "unmount", "sync", "mem", "top",
             "trace", "selftest", "timeout", "status", "quit",
+            "mailbox",
         ):
             self.assertEqual(parse_command(name).spec.name, name)
 

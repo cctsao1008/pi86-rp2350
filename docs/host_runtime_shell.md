@@ -270,6 +270,41 @@ prints `HELLO INTEL 8086` or `HELLO NEC V30`. Remaining shell commands are
 stable framework contracts whose backends are enabled as their capabilities
 are integrated.
 
+### Internal SRAM and shared mailbox
+
+The Host can inspect or change the processor-visible 256 KiB Internal SRAM:
+
+```text
+mem read <address> [length]
+mem write <address> <byte>...
+mem load <Host file> <address>
+mem save <address> <length> <Host file>
+```
+
+Addresses are physical processor addresses in the current `00000h-3FFFFh`
+backing. Transfers use sequence-bound 40-byte HID chunks. For example:
+
+```text
+8086> mem write 0x20000 DE AD BE EF
+mem write: PASS  4 bytes at 0x20000
+8086> mem read 0x20000 4
+20000  DE AD BE EF                                      |....|
+```
+
+`mailbox <text>` uses the reserved `3F000h-3FFFFh` ownership-transfer mailbox.
+The example `shared_mailbox.bin` polls for a Host request, uppercases it on the
+physical processor, and returns ownership and the result:
+
+```text
+8086> load build/firmware/generated/shared_mailbox/shared_mailbox.bin --clock clock-stepped
+8086> run
+8086> mailbox Hello from Host to real 8086
+mailbox: PASS generation=1 processor=HELLO FROM HOST TO REAL 8086
+```
+
+The final 16-bit `owner` write is the publication point. Polling is deliberate
+for this first ABI; no interrupt controller or operating system is required.
+
 ## Reading canonical runtime status
 
 The canonical composite CDC+HID firmware exposes its control and observation

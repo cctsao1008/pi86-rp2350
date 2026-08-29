@@ -132,6 +132,17 @@ def validate_device_reply(
             )
         return reply
 
+    if request.message_type == TYPE_MEMORY_REQUEST:
+        reply = Message.decode(normalize_hid_input(record))
+        if reply.message_type != TYPE_MEMORY_RESULT:
+            raise ValueError(f"unexpected memory reply type: {reply.message_type}")
+        if reply.sequence != request.sequence:
+            raise ValueError(
+                f"memory reply sequence mismatch: {reply.sequence} != "
+                f"{request.sequence}"
+            )
+        return reply
+
     if request.message_type not in (
         TYPE_WORKLOAD_BEGIN,
         TYPE_WORKLOAD_DATA,

@@ -28,6 +28,8 @@
 #include "processor_runtime_image.h"
 #include "memory/memory.h"
 #include "memory/internal_sram_backing.h"
+#include "memory/memory_service.h"
+#include "memory/shared_mailbox.h"
 #include "processor/processor_bus.h"
 #include "processor_service.pio.h"
 #include "runtime/clock_stepped_bus_controller.h"
@@ -159,6 +161,7 @@ static rp86_flash_volume_t g_flash_volume;
 static rp86_flash_service_t g_flash_service;
 static bool g_flash_volume_ready;
 static rp86_memory_backing_t g_workload_memory;
+static rp86_memory_service_t g_memory_service;
 static rp86_workload_manager_t g_workload_manager;
 static rp86_processor_bus_t g_processor_bus;
 static rp86_memory_t g_processor_memory;
@@ -203,6 +206,7 @@ static int evidence_printf(const char *format, ...);
 static void service_cdc_control(void);
 static bool handle_runtime_control(const rp86_host_protocol_message_t *record);
 static bool handle_filesystem_record(const rp86_host_protocol_message_t *record);
+static bool handle_memory_record(const rp86_host_protocol_message_t *record);
 static bool handle_workload_record(const rp86_host_protocol_message_t *record);
 static bool start_general_workload(void);
 static void stop_general_workload(void);
@@ -236,6 +240,11 @@ static bool take_non_control_record(rp86_host_protocol_message_t *record) {
     if (record->version == RP86_HOST_PROTOCOL_VERSION &&
         record->type == RP86_HOST_PROTOCOL_MESSAGE_FILESYSTEM_REQUEST) {
         handle_filesystem_record(record);
+        return false;
+    }
+    if (record->version == RP86_HOST_PROTOCOL_VERSION &&
+        record->type == RP86_HOST_PROTOCOL_MESSAGE_MEMORY_REQUEST) {
+        handle_memory_record(record);
         return false;
     }
     if (record->version == RP86_HOST_PROTOCOL_VERSION &&
@@ -1040,7 +1049,7 @@ static void print_canonical_status(void) {
     evidence_printf("native workload staging     = AVAILABLE / INTERNAL SRAM\n");
     evidence_printf("workload run / stop / restart = AVAILABLE / INTERNAL SRAM\n");
     evidence_printf("processor stdin / stdout    = COMMAND MAILBOX AVAILABLE\n");
-    evidence_printf("Host / processor shared memory = NOT IMPLEMENTED\n");
+    evidence_printf("Host / processor shared memory = AVAILABLE / INTERNAL SRAM MAILBOX\n");
     evidence_printf("flash: FAT volume           = %s\n",
                     g_flash_volume_ready ? "AVAILABLE" : "FAULT");
     evidence_printf("Host flash file service    = %s\n",
@@ -1500,6 +1509,27 @@ static bool handle_filesystem_record(const rp86_host_protocol_message_t *request
     return sent;
 }
 
+static bool handle_memory_record(const rp86_host_protocol_message_t *request) {
+    rp86_host_protocol_message_t reply;
+    if (!rp86_memory_service_handle(&g_memory_service, request, &reply))
+        return false;
+    const bool sent = rp86_host_protocol_hid_send_record(
+        (const uint8_t *)&reply, HOST_TIMEOUT_US);
+    uint32_t address = 0u;
+    uint32_t length = 0u;
+    if (request->length >= 12u) {
+        memcpy(&address, request->payload + 4u, sizeof address);
+        memcpy(&length, request->payload + 8u, sizeof length);
+    }
+    evidence_printf("MEMORY op=%u address=%05lX length=%lu seq=%lu status=%u %s\n",
+                    request->length < 12u ? 0u : request->payload[0],
+                    (unsigned long)address, (unsigned long)length,
+                    (unsigned long)request->sequence,
+                    (unsigned)reply.status,
+                    sent ? "REPLIED" : "REPLY TIMEOUT");
+    return sent;
+}
+
 static void wait_for_usb_ack_flush(void) {
     const uint64_t deadline = time_us_64() + 100000u;
     while (time_us_64() < deadline) {
@@ -1678,6 +1708,8 @@ int main(void) {
     init_control_outputs();
     route_ad_to_sio_high_z();
     rp86_internal_sram_backing_init(&g_workload_memory);
+    hard_assert(rp86_shared_mailbox_init(&g_workload_memory));
+    rp86_memory_service_init(&g_memory_service, &g_workload_memory);
     rp86_workload_manager_init(&g_workload_manager, &g_workload_memory);
     g_flash_volume_ready = rp86_flash_volume_init(&g_flash_volume);
     rp86_flash_service_init(&g_flash_service, &g_flash_volume,

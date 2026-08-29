@@ -413,6 +413,51 @@ def persistent_monitor(
             return None, str(exc)
         return reply, None
 
+    def perform_memory_request(
+        request: Message,
+    ) -> tuple[Message | None, str | None]:
+        nonlocal current_sequence, next_due
+        reply, _latency_ms, error = exchange(request)
+        current_sequence = (request.sequence + 1) & 0xFFFFFFFF or 1
+        next_due = time.monotonic() + interval
+        if reply is None:
+            return None, error or "memory exchange failed"
+        try:
+            validate_memory_reply(reply, request)
+        except ValueError as exc:
+            return None, str(exc)
+        return reply, None
+
+    def read_memory(address: int, length: int) -> tuple[bytes | None, str | None]:
+        content = bytearray()
+        while len(content) < length:
+            chunk_length = min(40, length - len(content))
+            try:
+                request = memory_read_request(
+                    address + len(content), chunk_length, current_sequence
+                )
+            except ValueError as exc:
+                return None, str(exc)
+            reply, error = perform_memory_request(request)
+            if reply is None:
+                return None, error
+            try:
+                content.extend(parse_memory_read(reply, request))
+            except ValueError as exc:
+                return None, str(exc)
+        return bytes(content), None
+
+    def write_memory(address: int, data: bytes) -> str | None:
+        try:
+            records = memory_write_records(address, data, current_sequence)
+        except ValueError as exc:
+            return str(exc)
+        for request in records:
+            reply, error = perform_memory_request(request)
+            if reply is None:
+                return error
+        return None
+
     def read_device_directory(
         path: str,
     ) -> tuple[list[Any] | None, str | None]:
@@ -593,7 +638,8 @@ def persistent_monitor(
                         "  heartbeat  AVAILABLE\n"
                         "  console    bounded 14-byte command exchange\n"
                         "  workload   INTERNAL SRAM GENERAL EXECUTION AVAILABLE\n"
-                        "  memory     NOT AVAILABLE\n"
+                        "  memory     INTERNAL SRAM read / write / load / save\n"
+                        "  mailbox    HOST / PHYSICAL PROCESSOR SHARED\n"
                         "  filesystem RP-FLASH ls / df / cat / put\n"
                         "  storage    flash: FAT16 AVAILABLE\n"
                         "  sd         NOT AVAILABLE\n"
@@ -790,6 +836,148 @@ def persistent_monitor(
                             f"put: PASS  {host_path} -> {arguments[1]}  "
                             f"({len(content)} bytes, {len(records)} records)"
                         )
+                    continue
+                elif name == "mem":
+                    if not arguments or arguments[0] not in (
+                        "read", "write", "load", "save"
+                    ):
+                        print_event(
+                            "Usage:\n"
+                            "  mem read <address> [length]\n"
+                            "  mem write <address> <byte>...\n"
+                            "  mem load <Host file> <address>\n"
+                            "  mem save <address> <length> <Host file>"
+                        )
+                        continue
+                    operation = arguments[0]
+                    try:
+                        if operation == "read" and len(arguments) in (2, 3):
+                            address = int(arguments[1], 0)
+                            length = int(arguments[2], 0) if len(arguments) == 3 else 16
+                            if length <= 0:
+                                raise ValueError("length must be positive")
+                            content, error = read_memory(address, length)
+                            print_event(
+                                f"mem read: {error}" if content is None else
+                                format_memory_dump(address, content)
+                            )
+                        elif operation == "write" and len(arguments) >= 3:
+                            address = int(arguments[1], 0)
+                            values = []
+                            for token in arguments[2:]:
+                                base = 16 if re.fullmatch(r"[0-9A-Fa-f]{2}", token) else 0
+                                value = int(token, base)
+                                if not 0 <= value <= 0xFF:
+                                    raise ValueError(f"byte out of range: {token}")
+                                values.append(value)
+                            data = bytes(values)
+                            error = write_memory(address, data)
+                            print_event(
+                                f"mem write: {error}" if error else
+                                f"mem write: PASS  {len(data)} bytes at 0x{address:05X}"
+                            )
+                        elif operation == "load" and len(arguments) == 3:
+                            source = host_list_path(arguments[1], host_cwd)
+                            address = int(arguments[2], 0)
+                            data = source.read_bytes()
+                            error = write_memory(address, data)
+                            print_event(
+                                f"mem load: {error}" if error else
+                                f"mem load: PASS  {source} -> 0x{address:05X} "
+                                f"({len(data)} bytes)"
+                            )
+                        elif operation == "save" and len(arguments) == 4:
+                            address = int(arguments[1], 0)
+                            length = int(arguments[2], 0)
+                            destination = host_list_path(arguments[3], host_cwd)
+                            content, error = read_memory(address, length)
+                            if content is None:
+                                print_event(f"mem save: {error}")
+                            else:
+                                destination.write_bytes(content)
+                                print_event(
+                                    f"mem save: PASS  0x{address:05X}+{length} -> "
+                                    f"{destination}"
+                                )
+                        else:
+                            raise ValueError("arguments do not match the selected operation")
+                    except (OSError, ValueError) as exc:
+                        print_event(f"mem {operation}: {exc}")
+                    continue
+                elif name == "mailbox":
+                    if not arguments:
+                        print_event("Usage: mailbox <text>")
+                        continue
+                    request_data = " ".join(arguments).encode("utf-8")
+                    if len(request_data) > MAILBOX_DATA_SIZE:
+                        print_event(
+                            f"mailbox: request exceeds {MAILBOX_DATA_SIZE} bytes"
+                        )
+                        continue
+                    raw_header, error = read_memory(MAILBOX_BASE, 32)
+                    if raw_header is None:
+                        print_event(f"mailbox: {error}")
+                        continue
+                    try:
+                        header = MailboxHeader.decode(raw_header)
+                    except ValueError as exc:
+                        print_event(f"mailbox: {exc}")
+                        continue
+                    if header.owner != 1:
+                        print_event(
+                            f"mailbox: busy (owner={header.owner}, "
+                            f"generation={header.generation})"
+                        )
+                        continue
+                    generation = (header.generation + 1) & 0xFFFFFFFF or 1
+                    try:
+                        records = mailbox_commit_records(
+                            request_data, generation, current_sequence
+                        )
+                    except ValueError as exc:
+                        print_event(f"mailbox: {exc}")
+                        continue
+                    failed = None
+                    for record in records:
+                        reply, failed = perform_memory_request(record)
+                        if reply is None:
+                            break
+                    if failed is not None:
+                        print_event(f"mailbox: {failed}")
+                        continue
+                    deadline = time.monotonic() + timeout
+                    result_header = None
+                    while time.monotonic() < deadline:
+                        raw_header, failed = read_memory(MAILBOX_BASE, 32)
+                        if raw_header is None:
+                            break
+                        try:
+                            candidate = MailboxHeader.decode(raw_header)
+                        except ValueError as exc:
+                            failed = str(exc)
+                            break
+                        if candidate.owner == 1 and candidate.generation == generation:
+                            result_header = candidate
+                            break
+                        time.sleep(0.01)
+                    if result_header is None:
+                        print_event(f"mailbox: {failed or 'processor response timeout'}")
+                        continue
+                    if result_header.status != 3:
+                        print_event(
+                            f"mailbox: processor returned status={result_header.status}"
+                        )
+                        continue
+                    result, failed = read_memory(
+                        MAILBOX_BASE + 32, result_header.response_length
+                    )
+                    if result is None:
+                        print_event(f"mailbox: {failed}")
+                        continue
+                    print_event(
+                        f"mailbox: PASS generation={generation} "
+                        f"processor={result.decode('utf-8', errors='replace')}"
+                    )
                     continue
                 else:
                     print_event(unavailable_message(shell_command))
