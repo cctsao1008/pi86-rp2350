@@ -26,13 +26,24 @@ PROCESSOR_ADDRESS_SPACE_SIZE = 0x100000
 FLAG_PERSISTENT = 1 << 0
 FLAG_STDIO = 1 << 1
 FLAG_SHARED_MEMORY = 1 << 2
+FLAG_CLOCK_FREE_RUNNING = 1 << 3
+FLAG_CLOCK_STEPPED = 1 << 4
 
 _MANIFEST = struct.Struct("<IHHIIIHHHHIII")
 _BEGIN_PREFIX = struct.Struct("<I")
 _DATA_PREFIX = struct.Struct("<II")
 _COMMIT = struct.Struct("<II")
 _CONTROL = struct.Struct("<B3xI")
-_STATUS = struct.Struct("<III")
+_STATUS_V1 = struct.Struct("<III")
+_STATUS = struct.Struct("<IIIII")
+
+CLOCK_MODES = {
+    "auto": 0,
+    "free-running": 1,
+    "clock-stepped": 2,
+    "stopped": 3,
+}
+CLOCK_MODE_NAMES = {value: name.upper() for name, value in CLOCK_MODES.items()}
 
 MANIFEST_SIZE = _MANIFEST.size
 HOST_PAYLOAD_SIZE = 52
@@ -118,8 +129,14 @@ class WorkloadManifest:
                 raise ValueError("shared-memory range requires FLAG_SHARED_MEMORY")
         elif self.shared_base or self.flags & FLAG_SHARED_MEMORY:
             raise ValueError("shared-memory flag, base, and size are inconsistent")
-        if self.flags & ~(FLAG_PERSISTENT | FLAG_STDIO | FLAG_SHARED_MEMORY):
+        known_flags = (
+            FLAG_PERSISTENT | FLAG_STDIO | FLAG_SHARED_MEMORY |
+            FLAG_CLOCK_FREE_RUNNING | FLAG_CLOCK_STEPPED
+        )
+        if self.flags & ~known_flags:
             raise ValueError("workload uses unknown flags")
+        if self.flags & FLAG_CLOCK_FREE_RUNNING and self.flags & FLAG_CLOCK_STEPPED:
+            raise ValueError("workload requests two execution clock modes")
         return self
 
     def encode(self) -> bytes:
@@ -230,24 +247,34 @@ def workload_from_command(
 ) -> tuple[WorkloadManifest, bytes, list[Message]]:
     """Create an upload transaction from one ``load`` shell command."""
     if not arguments:
-        raise ValueError("usage: load <bin> [--address N] [--entry CS:IP] [--stack SS:SP]")
+        raise ValueError(
+            "usage: load <bin> [--address N] [--entry CS:IP] "
+            "[--stack SS:SP] [--clock auto|free-running|clock-stepped]"
+        )
 
     source = Path(arguments[0])
     load_address = 0x10000
     entry: tuple[int, int] | None = None
     stack = (0, 0)
+    clock = "auto"
     index = 1
     while index < len(arguments):
         option = arguments[index]
-        if option not in ("--address", "--entry", "--stack") or index + 1 >= len(arguments):
+        if option not in ("--address", "--entry", "--stack", "--clock") or index + 1 >= len(arguments):
             raise ValueError(f"unknown or incomplete load option: {option!r}")
         value = arguments[index + 1]
         if option == "--address":
             load_address = parse_number(value)
         elif option == "--entry":
             entry = parse_far_pointer(value)
-        else:
+        elif option == "--stack":
             stack = parse_far_pointer(value)
+        else:
+            if value not in ("auto", "free-running", "clock-stepped"):
+                raise ValueError(
+                    "--clock must be auto, free-running, or clock-stepped"
+                )
+            clock = value
         index += 2
 
     try:
@@ -260,6 +287,11 @@ def workload_from_command(
         image = encoded
         if entry is None:
             entry = (load_address >> 4, load_address & 0x0F)
+        clock_flags = {
+            "auto": 0,
+            "free-running": FLAG_CLOCK_FREE_RUNNING,
+            "clock-stepped": FLAG_CLOCK_STEPPED,
+        }[clock]
         manifest = WorkloadManifest.for_image(
             image,
             load_address=load_address,
@@ -267,7 +299,7 @@ def workload_from_command(
             entry_offset=entry[1],
             stack_segment=stack[0],
             stack_offset=stack[1],
-            flags=FLAG_STDIO,
+            flags=FLAG_STDIO | clock_flags,
         )
     return manifest, image, upload_records(
         manifest, image, transfer_id=transfer_id, first_sequence=first_sequence
@@ -288,7 +320,11 @@ def control_record(operation: str, *, workload_id: int, sequence: int) -> Messag
     )
 
 
-def decode_status_payload(payload: bytes) -> tuple[int, int, int]:
+def decode_status_payload(payload: bytes) -> tuple[int, int, int, int, int]:
+    """Decode current status while accepting the earlier 12-byte firmware."""
+    if len(payload) == _STATUS_V1.size:
+        workload_id, state, detail = _STATUS_V1.unpack(payload)
+        return workload_id, state, detail, CLOCK_MODES["auto"], 0
     if len(payload) != _STATUS.size:
         raise ValueError("workload status payload has the wrong size")
     return _STATUS.unpack(payload)

@@ -7,7 +7,7 @@ from .transport import _open_hid, _serial_module
 from .exchange import *
 from .console import *
 from .console import _read_terminal_command
-from .workload import WorkloadManifest
+from .workload import CLOCK_MODE_NAMES, WorkloadManifest
 from .calculator import calculator_payload
 
 
@@ -38,6 +38,8 @@ def _format_runtime_top(
     workload_state: int,
     workload_detail: int,
     manifest: WorkloadManifest | None,
+    workload_clock_mode: int = 0,
+    workload_cycles: int = 0,
 ) -> str:
     """Present CPU-visible resources without exposing protocol state numbers."""
     state_name = _workload_state_name(workload_state)
@@ -47,14 +49,24 @@ def _format_runtime_top(
         )
     else:
         workload_text = f"{state_name} id={workload_id} detail={workload_detail}"
+    clock_name = CLOCK_MODE_NAMES.get(
+        workload_clock_mode, f"UNKNOWN({workload_clock_mode})"
+    )
+    processor_clock = (
+        "@ 1.000 MHz"
+        if workload_clock_mode in (0, 1)
+        else f"[{clock_name}]"
+    )
 
     lines = [
         "Physical processor runtime top",
         f"  {processor_name:<10} "
-        f"{'ALIVE' if connected else 'NOT RESPONDING'} @ 1.000 MHz",
+        f"{'ALIVE' if connected else 'NOT RESPONDING'} {processor_clock}",
         f"  Heartbeat  {completed} completed / {lost} lost",
         f"  Latency    {average_ms:.1f} ms average",
         f"  Workload   {workload_text}",
+        f"  Clock mode {clock_name}",
+        f"  CPU cycles {workload_cycles}",
     ]
     if manifest is not None:
         lines.append(
@@ -111,7 +123,10 @@ def persistent_monitor(
     staged_workload_id = 0
     staged_workload_state = 0
     staged_workload_detail = 0
+    staged_workload_clock_mode = 0
+    staged_workload_cycles = 0
     staged_workload_manifest: WorkloadManifest | None = None
+    prepared_heartbeat_available = True
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -320,6 +335,8 @@ def persistent_monitor(
     ) -> bool:
         nonlocal current_sequence, next_due
         nonlocal staged_workload_id, staged_workload_state, staged_workload_detail
+        nonlocal staged_workload_clock_mode, staged_workload_cycles
+        nonlocal prepared_heartbeat_available
         for index, request in enumerate(records, 1):
             reply, latency_ms, error = exchange(request)
             if reply is None:
@@ -332,7 +349,13 @@ def persistent_monitor(
                 current_sequence = 1
             try:
                 (staged_workload_id, staged_workload_state,
-                 staged_workload_detail) = decode_status_payload(reply.payload)
+                 staged_workload_detail, staged_workload_clock_mode,
+                 staged_workload_cycles) = decode_status_payload(reply.payload)
+                if (
+                    staged_workload_state == 3
+                    and staged_workload_clock_mode == 2
+                ):
+                    prepared_heartbeat_available = False
             except ValueError as exc:
                 print_event(f"{description}: invalid status payload: {exc}")
                 return False
@@ -346,7 +369,9 @@ def persistent_monitor(
         print_event(
             f"{description}: PASS ({len(records)} records)\n"
             f"  workload_id={staged_workload_id} state={state_name} "
-            f"detail={staged_workload_detail}"
+            f"detail={staged_workload_detail} "
+            f"clock={CLOCK_MODE_NAMES.get(staged_workload_clock_mode, staged_workload_clock_mode)} "
+            f"cycles={staged_workload_cycles}"
         )
         return True
 
@@ -529,6 +554,8 @@ def persistent_monitor(
                                 workload_id=staged_workload_id,
                                 workload_state=staged_workload_state,
                                 workload_detail=staged_workload_detail,
+                                workload_clock_mode=staged_workload_clock_mode,
+                                workload_cycles=staged_workload_cycles,
                                 manifest=staged_workload_manifest,
                             )
                         )
@@ -543,7 +570,7 @@ def persistent_monitor(
                         "Negotiated capabilities:\n"
                         "  heartbeat  AVAILABLE\n"
                         "  console    bounded 14-byte command exchange\n"
-                        "  workload   INTERNAL SRAM CALCULATOR EXECUTION AVAILABLE\n"
+                        "  workload   INTERNAL SRAM GENERAL EXECUTION AVAILABLE\n"
                         "  memory     NOT AVAILABLE\n"
                         "  filesystem RP-FLASH ls / df / cat / put\n"
                         "  storage    flash: FAT16 AVAILABLE\n"
@@ -576,6 +603,7 @@ def persistent_monitor(
                         f"  image   {len(image)} bytes\n"
                         f"  address 0x{manifest.load_address:05X}\n"
                         f"  entry   {manifest.entry_segment:04X}:{manifest.entry_offset:04X}\n"
+                        f"  clock   {'AUTO' if not manifest.flags & 0x18 else 'FREE-RUNNING' if manifest.flags & 0x08 else 'CLOCK-STEPPED'}\n"
                         f"  CRC32   {manifest.image_crc32:08X}"
                     )
                     if perform_workload_transaction(records, "workload upload"):
@@ -745,9 +773,18 @@ def persistent_monitor(
                     print_event(unavailable_message(shell_command))
 
             now = time.monotonic()
-            if request_type is None and now >= next_due:
+            if (
+                request_type is None
+                and now >= next_due
+                and prepared_heartbeat_available
+            ):
                 request_type = TYPE_HEARTBEAT
                 request_payload = heartbeat_payload(current_sequence)
+            elif request_type is None and now >= next_due:
+                # A general workload owns the physical processor and its bus.
+                # Keep HID available for explicit status/stop/restart commands,
+                # but do not inject the prepared-runtime heartbeat protocol.
+                next_due = now + interval
             if request_type is None:
                 time.sleep(0.02)
                 continue

@@ -223,19 +223,26 @@ Bounded Host-loaded execution is physically accepted for the calculator image
 at `10000h`, including manifest/CRC validation, lifecycle control, physical
 fetch, interrupt return, and mailbox result.
 
-The standalone CLOCK_STEPPED controller is also physically accepted. It served a flat native
-image from Internal SRAM through reset fetch, taken branches, `LOOP`, `PUSH`/`POP`,
-byte and word RAM operations, and I/O result publication. It completed 218 bus
-cycles with 183 memory reads, 33 memory writes, two I/O writes, and no unmapped,
-lane, or pad faults.
+The CLOCK_STEPPED controller is integrated into the canonical Host lifecycle.
+The Host uploads a flat image and clock metadata, RP2350 constructs the
+`FFFF0h` reset handoff, and the physical processor executes from the 256 KiB
+Internal-SRAM tier. `status` reports the actual clock mode and serviced cycle
+count; `stop` asserts RESET only after CLK is parked low; `restart` reconstructs
+the handoff and begins a new physical execution epoch.
 
 Runtime switching between FREE_RUNNING and CLOCK_STEPPED is a cooperative operation, not a
 mid-cycle clock change. A workload requests a mode through a control I/O port. RP2350
 commits that complete I/O write cycle, reaches `CLK=LOW`, and changes clock policy;
 the interrupt handler then returns under the selected mode and may enter `STI; HLT`.
-Both clock controllers and this request/commit transition have been physically
-validated. Exposing mode selection through the canonical Host lifecycle remains an
-integration item.
+Both clock controllers, the request/commit transition, and canonical
+CLOCK_STEPPED lifecycle control have been physically validated.
+
+The fixed HAT does not route the 8086 minimum-mode `RD`, `WR`, or `DEN`
+qualifiers. Intel specifies that software HLT emits one ALE without a
+qualifying bus-control signal; the visible subset alone can therefore resemble
+an I/O-read indication. A native workload writes `IDLE_PREPARE` to the runtime
+control port immediately before HLT. RP2350 accepts exactly that next HLT
+indication as idle; it does not silently broaden the unmapped-I/O policy.
 
 Host software, USB, and filesystem work still do not participate directly in a
 partially completed bus cycle. CLOCK_STEPPED mode pauses between complete pulses; it does

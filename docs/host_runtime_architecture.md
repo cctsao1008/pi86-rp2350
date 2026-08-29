@@ -381,8 +381,9 @@ The RP2350 provides two physical execution policies:
   pulses while it services general Internal-SRAM memory or I/O.
 
 Bounded Host-loaded FREE_RUNNING execution is physically accepted for the
-calculator image. Standalone CLOCK_STEPPED execution is also physically accepted for
-general binary control flow, stack traffic, writable byte/word RAM, and I/O.
+calculator image. Canonical Host-loaded CLOCK_STEPPED execution is physically
+accepted for general binary control flow, stack traffic, writable byte/word
+RAM, I/O, status, safe stop, restart, and cooperative HLT idle.
 The existing Pi86 HAT holds `READY` asserted; CLOCK_STEPPED changes the interval between
 complete pulses rather than inserting READY wait states or truncating a pulse.
 
@@ -390,8 +391,8 @@ A cooperative clock-mode change occurs only at an explicit safe point. The workl
 publishes a request through I/O; RP2350 commits that complete I/O cycle at `CLK=LOW`
 and switches policy before the native interrupt handler returns. The processor may
 then enter `STI; HLT` and remains wakeable through the established
-INTR/two-cycle-INTA/ISR/IRET path. This transition is physically accepted; canonical
-Host lifecycle selection remains an integration item.
+INTR/two-cycle-INTA/ISR/IRET path. This transition and canonical Host lifecycle
+selection are physically accepted.
 
 Host software, USB, FAT operations, NOR access, SD access, and arbitrary PSRAM
 transactions do not own a partially completed physical bus phase. External PSRAM
@@ -419,10 +420,9 @@ the stable Host shell:
 
 1. Host shell framework and capability reporting;
 2. bounded FREE_RUNNING Internal-SRAM lifecycle (calculator accepted);
-3. general CLOCK_STEPPED Internal-SRAM execution and cooperative
-   FREE_RUNNING/CLOCK_STEPPED transition (physically accepted), followed by Host
-   lifecycle integration;
-4. native workload stdio;
+3. general CLOCK_STEPPED Internal-SRAM execution, Host lifecycle, cooperative
+   FREE_RUNNING/CLOCK_STEPPED transition, and HLT-idle handshake (accepted);
+4. expand native workload stdio beyond the diagnostic/control ports;
 5. Internal-SRAM Host/processor shared memory;
 6. External NOR shared FAT volume as `flash:`;
 7. External PSRAM detection, integrity, and Host read/write;

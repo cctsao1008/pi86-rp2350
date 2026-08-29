@@ -20,7 +20,11 @@ add_executable(rp86_rp2350
     board/rp2350_pizero_resources.c
     memory/backing.c
     memory/internal_sram_backing.c
+    memory/memory.c
     memory/psram_backing.c
+    processor/processor_bus.c
+    runtime/clock_stepped_bus_controller.c
+    runtime/execution_clock_controller.c
     runtime/runtime.c
     runtime/workload_manager.c
     storage/flash_disk.c
@@ -92,6 +96,12 @@ pico_generate_pio_header(rp86_rp2350
     ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
 )
 pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/clock_stepped_clock.pio
+)
+pico_generate_pio_header(rp86_rp2350
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/execution_clock_control.pio
+)
+pico_generate_pio_header(rp86_rp2350
     ${CMAKE_CURRENT_LIST_DIR}/runtime/prepared_bus_responder.pio
 )
 pico_generate_pio_header(rp86_rp2350
@@ -122,4 +132,10 @@ add_custom_command(TARGET rp86_rp2350 POST_BUILD
 rp86_add_processor_image(hello
     SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/hello.asm"
     SYMBOL hello_workload
+)
+
+# Lifecycle validation image for the general Internal-SRAM execution path.
+rp86_add_processor_image(runtime_lifecycle
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/runtime_lifecycle.asm"
+    SYMBOL runtime_lifecycle_workload
 )

@@ -118,12 +118,16 @@ class Rp86RuntimeTests(unittest.TestCase):
             workload_id=1,
             workload_state=2,
             workload_detail=len(image),
+            workload_clock_mode=2,
+            workload_cycles=123,
             manifest=manifest,
         )
         self.assertIn("Workload   STAGED id=1 size=157 bytes", output)
         self.assertIn("Load       0x10000 entry=1000:0000", output)
         self.assertIn("Memory     INTERNAL SRAM 00000-3FFFF 256 KiB", output)
         self.assertIn("PSRAM      NOT AVAILABLE (optional expansion)", output)
+        self.assertIn("Clock mode CLOCK-STEPPED", output)
+        self.assertIn("CPU cycles 123", output)
         self.assertNotIn("state=2", output)
         self.assertNotIn("detail=157", output)
 

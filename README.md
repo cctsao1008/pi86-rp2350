@@ -208,9 +208,12 @@ uses the historical `AAD 16` behavior difference and prints either `HELLO
 INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
 uses the same physical identity mechanism and lets the installed processor
 demonstrate which instruction behavior it actually executed. The upload and
-lifecycle ABI are implemented; bounded Host-loaded calculator execution is
-physically validated, and the standalone CLOCK_STEPPED clock controller has validated general
-Internal-SRAM code, stack, writable RAM, and I/O response.
+lifecycle ABI now drives both physical execution policies. Bounded calculator
+execution remains the FREE_RUNNING proof; canonical
+`load → run → status → stop → restart` now also launches general images from
+Internal SRAM under CLOCK_STEPPED control. The native `hello.bin` prints its
+automatically identified processor, enters the explicit HLT-idle handshake,
+and can be safely stopped and restarted from the same Host session.
 
 > **The V30 was not an accident. A real Intel 8086 entered the same
 > runtime—and answered.**
@@ -227,6 +230,8 @@ all four operations and continued with zero heartbeat loss; see the
 The subsequent Host-loaded extension uploaded a 16-byte image into Internal
 SRAM and physically validated `load`, `run`, `stop`, and `restart`; see the
 [`Host-loaded Internal-SRAM calculator validation`](docs/validation/host_loaded_internal_sram_calculator_1mhz_validation.md).
+General lifecycle and HLT-idle evidence is retained in the
+[`canonical CLOCK_STEPPED workload validation`](docs/validation/canonical_clock_stepped_workload_lifecycle_validation.md).
 
 
 ## 📚 Documentation

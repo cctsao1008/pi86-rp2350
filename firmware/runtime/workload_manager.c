@@ -46,8 +46,13 @@ static bool manifest_valid(const rp86_workload_manifest_t *manifest,
 
     const uint32_t known_flags = RP86_WORKLOAD_FLAG_PERSISTENT |
                                  RP86_WORKLOAD_FLAG_STDIO |
-                                 RP86_WORKLOAD_FLAG_SHARED_MEMORY;
+                                 RP86_WORKLOAD_FLAG_SHARED_MEMORY |
+                                 RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING |
+                                 RP86_WORKLOAD_FLAG_CLOCK_STEPPED;
     if ((manifest->flags & ~known_flags) != 0u) return false;
+    if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u &&
+        (manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_STEPPED) != 0u)
+        return false;
     if ((manifest->shared_size == 0u) !=
         ((manifest->flags & RP86_WORKLOAD_FLAG_SHARED_MEMORY) == 0u))
         return false;

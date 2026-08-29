@@ -53,10 +53,11 @@ Internal-SRAM code, data, and stack one complete clock pulse at a time. Its firs
 physical workload validated reset handoff, taken branches, `LOOP`, `PUSH`/`POP`,
 byte/word RAM, and I/O publication across 218 serviced cycles.
 
-The next integration gate places the validated clock controllers and cooperative
-FREE_RUNNING/CLOCK_STEPPED transition behind the canonical Host lifecycle, then adds
-shared-memory behavior, stdio, and timeout/restart handling without making External
-PSRAM a prerequisite.
+The validated clock controller is now behind the canonical Host lifecycle.
+General images execute from this backing through a generated `FFFF0h` reset
+handoff, and `status`, safe `stop`, and `restart` are physically accepted. The
+next memory step is the shared Internal-SRAM mailbox, followed by broader stdio
+and timeout/fault inspection without making External PSRAM a prerequisite.
 
 ### External PSRAM
 

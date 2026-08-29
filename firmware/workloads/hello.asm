@@ -15,6 +15,8 @@ org 0
 ; console; the Host treats this result as execution evidence, not CPUID.
 
 %define DIAGNOSTIC_PORT 0x00E9
+%define CONTROL_PORT 0x00E6
+%define CONTROL_IDLE_PREPARE 0x0001
 
 %macro putc 1
     mov al, %1
@@ -95,6 +97,9 @@ nec_v30:
 done:
     putc 13
     putc 10
+    mov dx, CONTROL_PORT
+    mov ax, CONTROL_IDLE_PREPARE
+    out dx, ax
 halted:
     hlt
     jmp short halted

@@ -184,6 +184,46 @@ This validates bounded Host-loaded Internal-SRAM execution at the manifest's
 declared address and entry point. It does not yet claim a general responder for
 arbitrary image sizes or unrestricted processor-visible RAM.
 
+### General Internal-SRAM workload lifecycle
+
+Raw flat binaries default to an automatic clock policy. A workload may request
+the general responder explicitly:
+
+```text
+8086> load build/firmware/generated/hello/hello.bin --clock clock-stepped
+workload upload: PASS
+  workload_id=1 state=STAGED detail=164 clock=CLOCK-STEPPED cycles=0
+8086> run
+workload run: PASS
+8086> status
+workload status: PASS
+  workload_id=1 state=RUNNING detail=164 clock=CLOCK-STEPPED cycles=70
+8086> stop
+workload stop: PASS
+8086> restart
+workload restart: PASS
+```
+
+Complete syntax is:
+
+```text
+load <bin> [--address N] [--entry CS:IP] [--stack SS:SP]
+           [--clock auto|free-running|clock-stepped]
+```
+
+`auto` preserves the prepared calculator path and otherwise selects the safe
+general policy. An arbitrary image cannot request FREE_RUNNING unless the
+firmware has a prepared current-cycle response profile for it. CLOCK_STEPPED
+does not mean a fixed wall-clock frequency: every pulse is complete and RP2350
+may leave CLK low while servicing memory, I/O, USB, or Host control.
+
+The canonical `hello.bin` writes its identity through port `E9h`, publishes
+`IDLE_PREPARE` through the runtime control port, and executes HLT. This explicit
+handshake is necessary because the fixed minimum-mode HAT does not route the
+8086 `RD`, `WR`, or `DEN` qualifiers needed to distinguish the HLT ALE pulse
+from every possible I/O indication. `status`, `stop`, and `restart` remain
+available while the processor is idle.
+
 The displayed `cpu_seq` is not a Host loop counter. It is maintained by the
 physical Intel 8086 or NEC V30 inside the native interrupt service routine and
 returned only after the processor commits its reply:
@@ -210,8 +250,10 @@ watchdog state, and restart count.
 The Host constructs flat native workload manifests, divides images into fixed
 64-byte upload records, and exposes `load`, `run`, `stop`, and `restart`
 transactions. Canonical firmware accepts begin/data/commit/status records,
-validates address, chunk order, and CRC32, stages the calculator in the 256 KiB
-Internal-SRAM processor range, and physically dispatches its four entry points.
+validates address, chunk order, and CRC32, and stages images in the 256 KiB
+Internal-SRAM processor range. Calculator manifests use the prepared
+FREE_RUNNING dispatch path; general manifests use the canonical CLOCK_STEPPED
+reset-handoff and bus-service path.
 Composite CDC+HID, the accepted 1 MHz bus controller, physical INTR/two-cycle INTA,
 persistent heartbeat, command mailbox, status, trace, and Host-directed UF2
 entry remain integrated. External PSRAM is a later optional capacity backend

@@ -26,6 +26,9 @@ typedef struct {
     uint32_t first_address;
     uint32_t last_address;
     rp86_processor_bus_cycle_type_t last_type;
+    rp86_processor_bus_lanes_t last_lanes;
+    uint16_t last_data;
+    bool last_data_valid;
     bool first_cycle_seen;
     bool unmapped;
     bool invalid_lane;

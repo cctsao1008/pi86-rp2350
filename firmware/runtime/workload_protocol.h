@@ -24,7 +24,16 @@ typedef enum {
     RP86_WORKLOAD_FLAG_PERSISTENT = 1u << 0,
     RP86_WORKLOAD_FLAG_STDIO = 1u << 1,
     RP86_WORKLOAD_FLAG_SHARED_MEMORY = 1u << 2,
+    RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING = 1u << 3,
+    RP86_WORKLOAD_FLAG_CLOCK_STEPPED = 1u << 4,
 } rp86_workload_flags_t;
+
+typedef enum {
+    RP86_WORKLOAD_CLOCK_AUTO = 0,
+    RP86_WORKLOAD_CLOCK_FREE_RUNNING = 1,
+    RP86_WORKLOAD_CLOCK_STEPPED = 2,
+    RP86_WORKLOAD_CLOCK_STOPPED = 3,
+} rp86_workload_clock_mode_t;
 
 typedef enum {
     RP86_WORKLOAD_STATE_EMPTY = 0,
@@ -79,6 +88,8 @@ typedef struct __attribute__((packed)) {
     uint32_t workload_id;
     uint32_t state;
     uint32_t detail;
+    uint32_t clock_mode;
+    uint32_t processor_cycles;
 } rp86_workload_status_payload_t;
 
 _Static_assert(sizeof(rp86_workload_manifest_t) == 40u,
@@ -89,7 +100,7 @@ _Static_assert(sizeof(rp86_workload_commit_payload_t) == 8u,
                "workload commit ABI changed");
 _Static_assert(sizeof(rp86_workload_control_payload_t) == 8u,
                "workload control ABI changed");
-_Static_assert(sizeof(rp86_workload_status_payload_t) == 12u,
+_Static_assert(sizeof(rp86_workload_status_payload_t) == 20u,
                "workload status ABI changed");
 
 #endif

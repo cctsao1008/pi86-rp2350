@@ -17,6 +17,7 @@ from rp86_runtime.workload import (  # noqa: E402
     DATA_BYTES,
     FLAG_SHARED_MEMORY,
     FLAG_STDIO,
+    FLAG_CLOCK_STEPPED,
     MANIFEST_SIZE,
     WorkloadManifest,
     decode_data_payload,
@@ -26,6 +27,7 @@ from rp86_runtime.workload import (  # noqa: E402
     parse_far_pointer,
     upload_records,
     workload_from_command,
+    decode_status_payload,
 )
 
 
@@ -132,6 +134,25 @@ class WorkloadTests(unittest.TestCase):
         self.assertEqual(manifest.load_address, 0x10000)
         self.assertEqual((manifest.entry_segment, manifest.entry_offset), (0x1000, 0))
         self.assertEqual(records[0].sequence, 30)
+
+    def test_flat_load_can_request_clock_stepped_execution(self) -> None:
+        path = ROOT / "tests" / "runtime" / "sample_clock_workload.bin"
+        path.write_bytes(b"\x90\xf4")
+        try:
+            manifest, _image, _records = workload_from_command(
+                (str(path), "--clock", "clock-stepped"),
+                transfer_id=8,
+                first_sequence=40,
+            )
+        finally:
+            path.unlink(missing_ok=True)
+        self.assertTrue(manifest.flags & FLAG_CLOCK_STEPPED)
+
+    def test_extended_status_reports_clock_and_cycles(self) -> None:
+        payload = bytes.fromhex(
+            "01000000" "03000000" "9d000000" "02000000" "2a000000"
+        )
+        self.assertEqual(decode_status_payload(payload), (1, 3, 157, 2, 42))
 
 
 if __name__ == "__main__":

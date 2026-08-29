@@ -75,7 +75,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("top", "top", "observe", "show the live physical-processor summary"),
     CommandSpec("info", "info", "observe", "show negotiated Host/RP2350 capabilities"),
     CommandSpec("ping", "ping", "control", "request one physical-processor liveness proof"),
-    CommandSpec("load", "load <bin> [--address N] [--entry CS:IP]", "workload", "load a native workload", "workload"),
+    CommandSpec("load", "load <bin> [--address N] [--entry CS:IP] [--stack SS:SP] [--clock MODE]", "workload", "load a native workload", "workload"),
     CommandSpec("run", "run", "workload", "start the loaded workload", "workload"),
     CommandSpec("stop", "stop", "workload", "stop the active workload safely", "workload"),
     CommandSpec("restart", "restart", "workload", "reset and restart the workload", "restart"),
