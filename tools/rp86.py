@@ -3,10 +3,13 @@
 
 import os
 import sys
+import threading
+import time
 
 
 _WEB_OWNER_ENV = "RP86_WEB_OWNER"
 _WEB_OWNER_STARTUP_WAIT_S = 75.0
+_WEB_REBOOT_SETTLE_S = 1.5
 
 
 def _rewrite_web_owned_runtime_args() -> None:
@@ -36,24 +39,104 @@ def _rewrite_web_owned_runtime_args() -> None:
 
 
 def _web_main() -> int:
-    """Run the Web console after its Web-owned processor runtime is ready.
+    """Run the Web console with a supervised Web-owned processor runtime.
 
-    A fresh --exchange path performs the full physical acceptance sequence
-    before persistent_monitor() creates the Host Broker.  That takes longer
-    than the Web console's original four-second startup window.  Keep the HTTP
-    server offline during this acceptance phase so auto-refresh cannot open a
-    competing CDC status transaction while the background owner is bringing
-    up the real processor.
+    Initial startup waits for the full physical acceptance sequence before the
+    HTTP server is exposed.  If the Web UI later reboots the RP2350, the owner
+    process is expected to terminate because its broker intentionally quiesces
+    after acknowledging the reboot.  The Web parent therefore supervises that
+    child and automatically starts a fresh exchange+heartbeat owner after USB
+    re-enumeration, instead of leaving the browser attached to a dead broker.
     """
     os.environ[_WEB_OWNER_ENV] = "1"
     import rp86_web
 
     original_ensure_runtime_owner = rp86_web._ensure_runtime_owner
+    original_processor_snapshot = rp86_web._processor_snapshot
+    original_run_rp86 = rp86_web._run_rp86
+
+    recovery_lock = threading.Lock()
+    recovery_active = threading.Event()
 
     def ensure_runtime_owner(wait_seconds: float = _WEB_OWNER_STARTUP_WAIT_S):
         return original_ensure_runtime_owner(wait_seconds=wait_seconds)
 
+    def start_recovery(reason: str) -> None:
+        """Start one asynchronous Web-owned runtime recovery attempt."""
+        if rp86_web._owner_mode != "web-owned":
+            return
+        if recovery_active.is_set():
+            return
+        with recovery_lock:
+            if recovery_active.is_set():
+                return
+            recovery_active.set()
+
+        def recover() -> None:
+            try:
+                rp86_web._owner_error = f"RP86 runtime restarting: {reason}"
+                time.sleep(_WEB_REBOOT_SETTLE_S)
+
+                process = rp86_web._owned_runtime
+                if process is not None and process.poll() is None:
+                    try:
+                        process.wait(timeout=5.0)
+                    except Exception:
+                        pass
+                if process is not None and process.poll() is not None:
+                    rp86_web._owned_runtime = None
+
+                result = original_ensure_runtime_owner(
+                    wait_seconds=_WEB_OWNER_STARTUP_WAIT_S
+                )
+                if not result.get("ok"):
+                    rp86_web._owner_error = str(
+                        result.get("error") or "RP86 runtime recovery failed"
+                    )
+            finally:
+                recovery_active.clear()
+
+        threading.Thread(
+            target=recover,
+            name="rp86-web-runtime-recovery",
+            daemon=True,
+        ).start()
+
+    def run_rp86(*args: str, timeout: float = 8.0):
+        """Wrap canonical CLI operations with Web-owner lifecycle handling."""
+        if recovery_active.is_set() and "--status" in args:
+            return {
+                "ok": False,
+                "error": "RP86 runtime is restarting after hardware reboot",
+                "stdout": "",
+                "stderr": "",
+            }
+        result = original_run_rp86(*args, timeout=timeout)
+        if "--reboot" in args and result.get("ok"):
+            start_recovery("RP2350 reboot acknowledged")
+        return result
+
+    def processor_snapshot():
+        """Self-heal if a Web-owned broker disappears unexpectedly."""
+        result = original_processor_snapshot()
+        if result.get("ok"):
+            return result
+        process = rp86_web._owned_runtime
+        owner_died = (
+            rp86_web._owner_mode == "web-owned"
+            and (process is None or process.poll() is not None)
+        )
+        if owner_died:
+            start_recovery("Web-owned processor session exited")
+        if recovery_active.is_set():
+            result = dict(result)
+            result["error"] = rp86_web._owner_error or "RP86 runtime is restarting"
+            result["owner_mode"] = "web-owned"
+        return result
+
     rp86_web._ensure_runtime_owner = ensure_runtime_owner
+    rp86_web._run_rp86 = run_rp86
+    rp86_web._processor_snapshot = processor_snapshot
     return rp86_web.main()
 
 
