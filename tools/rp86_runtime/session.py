@@ -42,13 +42,9 @@ def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
     return "ACTIVE"
 
 
-def _workload_upload_requires_stop(
-    clock_mode: int, processor_flags: int
-) -> bool:
-    """Uploads may replace memory only while the processor is held in RESET."""
-    return _processor_execution_state(
-        clock_mode, processor_flags
-    ) != "STOPPED / RESET"
+def _workload_upload_requires_stop(workload_state: int) -> bool:
+    """The firmware permits upload in every state except RUNNING."""
+    return workload_state == 3
 
 
 def _broker_runtime_state(transport_error: str | None) -> str:
@@ -902,8 +898,7 @@ def persistent_monitor(
                         f"  CRC32   {manifest.image_crc32:08X}"
                     )
                     if _workload_upload_requires_stop(
-                        staged_workload_clock_mode,
-                        staged_workload_processor_flags,
+                        staged_workload_state,
                     ):
                         print_event("load: stopping active processor")
                         stop_record = control_record(

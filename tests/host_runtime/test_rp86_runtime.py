@@ -238,11 +238,12 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
         self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
 
-    def test_upload_stops_any_processor_not_held_in_reset(self) -> None:
-        self.assertFalse(_workload_upload_requires_stop(3, 0))
-        self.assertTrue(_workload_upload_requires_stop(1, 0))
-        self.assertTrue(_workload_upload_requires_stop(2, 0))
-        self.assertTrue(_workload_upload_requires_stop(2, 1))
+    def test_upload_only_stops_a_running_workload(self) -> None:
+        self.assertFalse(_workload_upload_requires_stop(0))
+        self.assertFalse(_workload_upload_requires_stop(2))
+        self.assertTrue(_workload_upload_requires_stop(3))
+        self.assertFalse(_workload_upload_requires_stop(4))
+        self.assertFalse(_workload_upload_requires_stop(6))
 
     def test_broker_runtime_state_uses_transport_not_processor_liveness(self) -> None:
         self.assertEqual(_broker_runtime_state(None), "OWNER_ACTIVE")
