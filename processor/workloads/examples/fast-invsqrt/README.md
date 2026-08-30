@@ -316,6 +316,14 @@ Possible benchmark extensions include comparing:
 
 ## Validation status
 
-The source and package structure follow the existing RP86 workload conventions. Build output and physical-processor execution should be treated as the final validation authority.
+**PASS — 2026-08-30 on a physical Intel `P8086-2`.** The 623-byte native image
+completed all five self-test vectors in 3,212 `CLOCK_STEPPED` processor cycles,
+reported `RESULT: PASS`, and entered cooperative `HLT` idle. The RP86 Host then
+stopped the workload and returned the processor to RESET.
 
-When physical execution results are available, this README can be extended with measured output, instruction/clock cost, and Intel 8086 versus NEC V30 comparison data.
+The retained output, artifact hashes, lifecycle state, and two pre-acceptance
+defects found through physical execution are recorded in
+[`docs/validation/native_fast_invsqrt_intel_8086_validation.md`](../../../../docs/validation/native_fast_invsqrt_intel_8086_validation.md).
+
+NEC V30 timing comparison remains optional future work; it is not required for
+the accepted Intel 8086 result.

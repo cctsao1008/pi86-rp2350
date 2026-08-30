@@ -1,4 +1,5 @@
 bits 16
+cpu 8086
 org 0
 
 ; Native 8086/NEC V30 fixed-point inverse-square-root example.
@@ -30,6 +31,8 @@ org 0
 fast_invsqrt_entry:
     cli
     cld
+    push cs
+    pop ds                      ; local tables live beside the loaded image
 
     ; Banner.
     putc '8'
@@ -63,6 +66,7 @@ fast_invsqrt_entry:
     mov dl, '1'
     xor di, di                  ; failure count
 
+align 2, db 90h
 test_loop:
     ; Prefix: Tn X=
     putc 'T'
@@ -119,8 +123,11 @@ test_loop:
     add si, 4
     inc dl
     dec bp
-    jnz test_loop
+    jz tests_complete
+    jmp test_loop                 ; 8086 near JMP; near Jcc requires 386+
 
+align 2, db 90h
+tests_complete:
     ; Final summary.
     cmp di, 0
     jne workload_fail
