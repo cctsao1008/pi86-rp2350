@@ -32,6 +32,13 @@ rp86_add_processor_image(shared_mailbox
     PACKAGE_NAME "MAILBOX.P86W"
 )
 
+rp86_add_processor_image(fast_invsqrt
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/examples/fast-invsqrt/fast-invsqrt.asm"
+    SYMBOL fast_invsqrt_workload
+    METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/examples/fast-invsqrt/workload.json"
+    PACKAGE_NAME "INVSQRT.P86W"
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
