@@ -26,6 +26,7 @@ RP86 = ROOT / "rp86.py"
 # tools/ is already on sys.path when this file is launched as tools/rp86_web.py.
 from rp86_runtime.broker import BrokerClient, discover_brokers, select_broker
 from rp86_runtime.core import Message, NativeServiceWitness, TYPE_COMMAND
+from rp86_runtime.memory import format_memory_dump, memory_read_request, parse_memory_read
 
 _owned_runtime: subprocess.Popen[str] | None = None
 _owner_mode = "not-started"
@@ -51,7 +52,7 @@ button,input{border:1px solid var(--control-line);background:var(--control);colo
 .toolbar{display:flex;flex-wrap:wrap;gap:8px}.statusline{display:flex;gap:10px;align-items:center;margin-bottom:10px}.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);display:inline-block}.dot.good{background:var(--good);box-shadow:0 0 10px color-mix(in srgb,var(--good) 50%,transparent)}.dot.bad{background:var(--bad)}
 .metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 18px}.metric{display:flex;justify-content:space-between;border-bottom:1px dotted var(--metric-line);padding:5px 0}.metric .k{color:var(--muted)}.metric .v{text-align:right}.hero{font-size:20px;font-weight:700;margin-bottom:12px}.hero small{font-size:12px;font-weight:400;color:var(--muted)}
 pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--pre);border:1px solid var(--pre-line);border-radius:7px;padding:11px;min-height:115px;max-height:420px;overflow:auto}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}.muted{color:var(--muted)}.good{color:var(--good)}.bad{color:var(--bad)}.warn{color:var(--warn)}
-.placeholder{border:1px dashed var(--placeholder-line);border-radius:8px;padding:16px;color:var(--muted);min-height:115px}.console-line{display:flex;gap:8px;margin-top:9px}.console-line input{flex:1}.small{font-size:12px}@media(max-width:1000px){.card,.card.third{grid-column:span 12}.metrics{grid-template-columns:1fr}header{align-items:flex-start;flex-direction:column}}
+.placeholder{border:1px dashed var(--placeholder-line);border-radius:8px;padding:16px;color:var(--muted);min-height:115px}.console-line{display:flex;gap:8px;margin-top:9px}.console-line input{flex:1}.small{font-size:12px}.memory-line{display:grid;grid-template-columns:minmax(0,1fr) 90px auto;gap:8px;margin-bottom:10px}.memory-line input{min-width:0}@media(max-width:1000px){.card,.card.third{grid-column:span 12}.metrics{grid-template-columns:1fr}header{align-items:flex-start;flex-direction:column}.memory-line{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -70,8 +71,8 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--pre);bo
 <div class="metric"><span class="k">Workload ID</span><span class="v" id="workloadId">--</span></div><div class="metric"><span class="k">Workload state</span><span class="v" id="workloadState">--</span></div><div class="metric"><span class="k">Clock mode</span><span class="v" id="clockMode">--</span></div><div class="metric"><span class="k">CPU cycles</span><span class="v" id="cpuCycles">--</span></div><div class="metric"><span class="k">Boot ID</span><span class="v" id="bootId">--</span></div><div class="metric"><span class="k">Command sequence</span><span class="v" id="commandSeq">--</span></div>
 </div><div class="muted small" style="margin-top:12px">The Web console starts a background persistent RP86 owner when no Host Broker exists. Existing brokers are attached without taking hardware ownership.</div></div></section>
 
-<section class="card wide"><div class="card-head"><span>Physical processor console</span><span class="good">BROKER-BACKED</span></div><div class="card-body"><pre id="consoleOut">Physical command transport ready. Payload limit: 14 UTF-8 bytes.</pre><div class="console-line"><input id="consoleInput" maxlength="14" placeholder="Command payload (max 14 UTF-8 bytes)"><button id="consoleSend">Send</button></div></div></section>
-<section class="card third"><div class="card-head"><span>Memory viewer</span><span class="muted">planned</span></div><div class="card-body"><div class="placeholder">Next step: broker-backed memory read/write API using the existing runtime memory service.</div></div></section>
+<section class="card wide"><div class="card-head"><span>Physical processor console</span><span class="good">NATIVE TYPE_COMMAND</span></div><div class="card-body"><pre id="consoleOut">Direct TYPE_COMMAND payload to the physical processor through the Host Broker. This is not the RP86 Host shell. Payload limit: 14 UTF-8 bytes.</pre><div class="console-line"><input id="consoleInput" maxlength="14" placeholder="Native command payload (max 14 UTF-8 bytes)"><button id="consoleSend">Send</button></div></div></section>
+<section class="card third"><div class="card-head"><span>Memory viewer</span><span class="good">BROKER-BACKED / READ-ONLY</span></div><div class="card-body"><div class="memory-line"><input id="memoryAddress" value="0x00000" placeholder="Address, e.g. 0x7FF0"><input id="memoryLength" value="32" inputmode="numeric" placeholder="1-40"><button id="memoryRead">Read</button></div><pre id="memoryOut">Internal SRAM 00000-3FFFF. Read 1-40 bytes through the existing memory service.</pre></div></section>
 <section class="card third"><div class="card-head"><span>Bus trace</span><span class="muted">planned</span></div><div class="card-body"><div class="placeholder">Next step: expose retained physical bus trace records through the broker instead of scraping status text.</div></div></section>
 <section class="card third"><div class="card-head"><span>Runtime control</span><span class="warn">physical hardware</span></div><div class="card-body"><div class="toolbar" style="margin-bottom:12px"><button id="rebootBtn" class="danger">Reboot RP2350</button><button id="bootBtn" class="danger">Enter UF2 bootloader</button></div><div class="muted small">Uses the same canonical control path as <code>tools/rp86.py</code>.</div></div></section>
 <section class="card"><div class="card-head"><span>RP2350 runtime status</span><span id="runtimeBadge" class="muted">unknown</span></div><div class="card-body"><div class="statusline"><span id="runtimeDot" class="dot"></span><span id="runtimeText">Not checked</span></div><pre id="statusOut">Press Refresh to query the canonical RP86 runtime.</pre></div></section>
@@ -92,8 +93,9 @@ async function refreshStatus(){if(busyStatus)return;busyStatus=true;try{const d=
 async function scanDevices(){$('devicesBtn').disabled=true;try{const d=await api('/api/devices'),rows=d.devices||[];if(!rows.length){$('deviceTable').innerHTML='<span class="muted">No RP86 HID device found.</span>';return}$('deviceTable').innerHTML=`<table><thead><tr><th>VID</th><th>PID</th><th>Serial</th><th>Product</th></tr></thead><tbody>${rows.map(x=>`<tr><td>${x.vid??''}</td><td>${x.pid??''}</td><td>${x.serial??''}</td><td>${x.product??''}</td></tr>`).join('')}</tbody></table>`;log(`Found ${rows.length} RP86 HID device(s)`)}catch(e){$('deviceTable').innerHTML=`<span class="bad">${e.message}</span>`;log(`Device scan failed: ${e.message}`)}finally{$('devicesBtn').disabled=false}}
 async function simulate(){$('simulateBtn').disabled=true;try{const d=await api('/api/simulate');$('simulateOut').textContent=JSON.stringify(d.result,null,2);log('Protocol simulation PASS')}catch(e){$('simulateOut').textContent=e.message;log(`Protocol simulation failed: ${e.message}`)}finally{$('simulateBtn').disabled=false}}
 async function sendConsole(){const input=$('consoleInput'),button=$('consoleSend'),text=input.value;if(!text)return;button.disabled=true;input.disabled=true;const out=$('consoleOut');out.textContent+=`\n> ${text}\n`;try{const d=await api('/api/console',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})});out.textContent+=`${d.processor||'processor'} < ${d.reply}\n`;out.scrollTop=out.scrollHeight;input.value='';refreshProcessor()}catch(e){out.textContent+=`ERROR: ${e.message}\n`;out.scrollTop=out.scrollHeight;log(`Processor command failed: ${e.message}`)}finally{button.disabled=false;input.disabled=false;input.focus()}}
+async function readMemory(){const button=$('memoryRead'),out=$('memoryOut');button.disabled=true;try{const d=await api('/api/memory',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({address:$('memoryAddress').value,length:$('memoryLength').value})});out.textContent=d.dump;log(`Memory read 0x${Number(d.address).toString(16).toUpperCase().padStart(5,'0')} + ${d.length}`)}catch(e){out.textContent=`ERROR: ${e.message}`;log(`Memory read failed: ${e.message}`)}finally{button.disabled=false}}
 async function control(action,label){if(!confirm(`${label}?`))return;const b=action==='reboot'?$('rebootBtn'):$('bootBtn');b.disabled=true;try{const d=await api('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});log(`${label}: ${d.stdout.trim()||'acknowledged'}`);setTimeout(()=>{refreshStatus();refreshProcessor()},1200)}catch(e){log(`${label} failed: ${e.message}`);alert(e.message)}finally{b.disabled=false}}
-function refreshAll(){refreshProcessor();refreshStatus();scanDevices()}$('refreshAll').onclick=refreshAll;$('devicesBtn').onclick=scanDevices;$('simulateBtn').onclick=simulate;$('rebootBtn').onclick=()=>control('reboot','Reboot RP2350');$('bootBtn').onclick=()=>control('bootloader','Enter UF2 bootloader');$('consoleSend').onclick=sendConsole;$('consoleInput').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();sendConsole()}};$('clearLog').onclick=()=>$('logOut').textContent='';$('autoBtn').onclick=()=>{autoRefresh=!autoRefresh;$('autoBtn').textContent=`Auto refresh: ${autoRefresh?'ON':'OFF'}`};$('themeBtn').onclick=toggleTheme;syncThemeButton();setInterval(()=>{if(autoRefresh){refreshProcessor();refreshStatus()}},2000);refreshAll();
+function refreshAll(){refreshProcessor();refreshStatus();scanDevices()}$('refreshAll').onclick=refreshAll;$('devicesBtn').onclick=scanDevices;$('simulateBtn').onclick=simulate;$('rebootBtn').onclick=()=>control('reboot','Reboot RP2350');$('bootBtn').onclick=()=>control('bootloader','Enter UF2 bootloader');$('consoleSend').onclick=sendConsole;$('consoleInput').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();sendConsole()}};$('memoryRead').onclick=readMemory;$('memoryAddress').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();readMemory()}};$('memoryLength').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();readMemory()}};$('clearLog').onclick=()=>$('logOut').textContent='';$('autoBtn').onclick=()=>{autoRefresh=!autoRefresh;$('autoBtn').textContent=`Auto refresh: ${autoRefresh?'ON':'OFF'}`};$('themeBtn').onclick=toggleTheme;syncThemeButton();setInterval(()=>{if(autoRefresh){refreshProcessor();refreshStatus()}},2000);refreshAll();
 </script>
 </body>
 </html>
@@ -236,8 +238,15 @@ def _processor_snapshot() -> dict[str, object]:
     }
 
 
+def _broker_client(prefix: str) -> tuple[object, BrokerClient] | tuple[None, None]:
+    record = _active_broker()
+    if record is None:
+        return None, None
+    return record, BrokerClient(record, f"{prefix}-{os.getpid()}")
+
+
 def _processor_command(text: str, timeout: float = 3.0) -> dict[str, object]:
-    """Send one native command through the active Host Broker."""
+    """Send one native TYPE_COMMAND through the active Host Broker."""
     payload = text.encode("utf-8")
     if not payload:
         return {"ok": False, "error": "command is empty"}
@@ -245,13 +254,12 @@ def _processor_command(text: str, timeout: float = 3.0) -> dict[str, object]:
         return {"ok": False, "error": "command exceeds the 14-byte native mailbox limit"}
 
     try:
-        record = _active_broker()
+        record, client = _broker_client("web-console")
     except RuntimeError as exc:
         return {"ok": False, "error": str(exc)}
-    if record is None:
+    if record is None or client is None:
         return {"ok": False, "error": "No active RP86 Host Broker."}
 
-    client = BrokerClient(record, f"web-console-{os.getpid()}")
     last_error = "processor command failed"
     for attempt in range(2):
         try:
@@ -288,8 +296,60 @@ def _processor_command(text: str, timeout: float = 3.0) -> dict[str, object]:
     return {"ok": False, "error": last_error}
 
 
+def _memory_read(address_value: object, length_value: object, timeout: float = 3.0) -> dict[str, object]:
+    """Read one bounded Internal-SRAM window through the active Host Broker."""
+    try:
+        address = int(str(address_value), 0)
+        length = int(str(length_value), 0)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "address and length must be integers"}
+    if not 1 <= length <= 40:
+        return {"ok": False, "error": "memory viewer length must be 1-40 bytes"}
+
+    try:
+        record, client = _broker_client("web-memory")
+    except RuntimeError as exc:
+        return {"ok": False, "error": str(exc)}
+    if record is None or client is None:
+        return {"ok": False, "error": "No active RP86 Host Broker."}
+
+    last_error = "memory read failed"
+    for attempt in range(2):
+        try:
+            hello = client.hello()
+            if not hello.get("ok"):
+                raise RuntimeError(str(hello.get("error") or "broker hello failed"))
+            snapshot = dict(hello.get("snapshot") or {})
+            sequence = int(snapshot.get("request_sequence") or 1) & 0xFFFFFFFF or 1
+            request = memory_read_request(address, length, sequence)
+            result = client.exchange(
+                request.encode(),
+                f"web-memory-{os.getpid()}-{time.time_ns()}-{attempt}",
+                timeout,
+            )
+            if not result.get("ok"):
+                last_error = str(result.get("error") or "memory read failed")
+                continue
+            reply = Message.decode(bytes.fromhex(str(result["reply_hex"])))
+            data = parse_memory_read(reply, request)
+            return {
+                "ok": True,
+                "address": address,
+                "length": len(data),
+                "hex": data.hex(),
+                "dump": format_memory_dump(address, data),
+                "request_sequence": sequence,
+                "latency_ms": float(result.get("latency_ms") or 0.0),
+            }
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            last_error = str(exc)
+            if attempt == 0:
+                time.sleep(0.03)
+    return {"ok": False, "error": last_error}
+
+
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RP86Web/3.3"
+    server_version = "RP86Web/3.4"
 
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"[rp86-web] {self.address_string()} - {fmt % args}")
@@ -353,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/api/control", "/api/console"}:
+        if path not in {"/api/control", "/api/console", "/api/memory"}:
             self._send_json({"ok": False, "error": "not found"}, 404)
             return
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -370,6 +430,11 @@ class Handler(BaseHTTPRequestHandler):
                 return
             result = _processor_command(text)
             self._send_json(result, 200 if result["ok"] else 503)
+            return
+
+        if path == "/api/memory":
+            result = _memory_read(payload.get("address"), payload.get("length"))
+            self._send_json(result, 200 if result["ok"] else 400 if "integer" in str(result.get("error")) or "1-40" in str(result.get("error")) or "Internal SRAM" in str(result.get("error")) else 503)
             return
 
         action = payload.get("action")
