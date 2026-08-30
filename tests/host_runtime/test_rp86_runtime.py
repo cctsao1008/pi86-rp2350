@@ -21,10 +21,12 @@ from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
 from rp86_runtime.session import (  # noqa: E402
+    _broker_runtime_state,
     _heartbeat_responder_unavailable,
     _format_runtime_top,
     _prepared_heartbeat_is_available,
     _processor_execution_state,
+    _workload_upload_requires_stop,
 )
 from rp86_runtime.shell_commands import (  # noqa: E402
     complete_shell_input,
@@ -235,6 +237,16 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(_processor_execution_state(2, 1), "IDLE / HLT")
         self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
         self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
+
+    def test_upload_stops_any_processor_not_held_in_reset(self) -> None:
+        self.assertFalse(_workload_upload_requires_stop(3, 0))
+        self.assertTrue(_workload_upload_requires_stop(1, 0))
+        self.assertTrue(_workload_upload_requires_stop(2, 0))
+        self.assertTrue(_workload_upload_requires_stop(2, 1))
+
+    def test_broker_runtime_state_uses_transport_not_processor_liveness(self) -> None:
+        self.assertEqual(_broker_runtime_state(None), "OWNER_ACTIVE")
+        self.assertEqual(_broker_runtime_state("USB disconnected"), "FAULT")
 
     def test_top_suspends_heartbeat_during_native_workload(self) -> None:
         output = _format_runtime_top(

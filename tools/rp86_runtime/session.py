@@ -13,6 +13,7 @@ from .workload import (
     PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
     PROCESSOR_FLAG_IDLE,
     WorkloadManifest,
+    upload_records,
 )
 from .calculator import calculator_payload
 
@@ -39,6 +40,20 @@ def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
     if clock_mode == CLOCK_MODES["stopped"]:
         return "STOPPED / RESET"
     return "ACTIVE"
+
+
+def _workload_upload_requires_stop(
+    clock_mode: int, processor_flags: int
+) -> bool:
+    """Uploads may replace memory only while the processor is held in RESET."""
+    return _processor_execution_state(
+        clock_mode, processor_flags
+    ) != "STOPPED / RESET"
+
+
+def _broker_runtime_state(transport_error: str | None) -> str:
+    """RP2350 reachability is transport state, not processor heartbeat state."""
+    return "OWNER_ACTIVE" if transport_error is None else "FAULT"
 
 
 def _prepared_heartbeat_is_available(
@@ -179,6 +194,7 @@ def persistent_monitor(
     staged_workload_processor_flags = 0
     staged_workload_manifest: WorkloadManifest | None = None
     prepared_heartbeat_available = True
+    workload_completion_pending = False
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -213,7 +229,9 @@ def persistent_monitor(
         owner_broker.start()
 
     def drain_cdc() -> None:
-        nonlocal transport_error
+        nonlocal transport_error, workload_completion_pending
+        nonlocal staged_workload_processor_flags
+        nonlocal prepared_heartbeat_available
         if transport_error is not None or connection is None:
             return
         try:
@@ -222,6 +240,13 @@ def persistent_monitor(
                 chunk = connection.read(waiting)
                 captured.extend(chunk)
                 for line in cdc_display.feed(chunk):
+                    if line.startswith("[WORKLOAD COMPLETED]"):
+                        # Native HLT evidence precedes the next HID status.
+                        # Reflect completion now and refresh cycles in the loop.
+                        staged_workload_processor_flags |= PROCESSOR_FLAG_IDLE
+                        prepared_heartbeat_available = False
+                        workload_completion_pending = True
+                        update_console_runtime()
                     if interactive and display != "quiet":
                         print_event(line)
         except (OSError, serial.SerialException) as exc:
@@ -291,7 +316,7 @@ def persistent_monitor(
 
     def broker_snapshot() -> dict[str, Any]:
         return {
-            "state": "OWNER_ACTIVE" if connected else "FAULT",
+            "state": _broker_runtime_state(transport_error),
             "processor": processor,
             "request_sequence": current_sequence,
             "boot_id": current_boot_id,
@@ -318,6 +343,10 @@ def persistent_monitor(
 
     def service_broker_requests() -> None:
         nonlocal stop
+        nonlocal staged_workload_id, staged_workload_state
+        nonlocal staged_workload_detail, staged_workload_clock_mode
+        nonlocal staged_workload_cycles, staged_workload_processor_flags
+        nonlocal prepared_heartbeat_available
         if owner_broker is None:
             return
         for pending in owner_broker.pending():
@@ -327,6 +356,28 @@ def persistent_monitor(
                 if reply is None:
                     result = {"ok": False, "error": error, "latency_ms": latency_ms}
                 else:
+                    if request.message_type in (
+                        TYPE_WORKLOAD_BEGIN,
+                        TYPE_WORKLOAD_DATA,
+                        TYPE_WORKLOAD_COMMIT,
+                        TYPE_WORKLOAD_CONTROL,
+                    ):
+                        (
+                            staged_workload_id,
+                            staged_workload_state,
+                            staged_workload_detail,
+                            staged_workload_clock_mode,
+                            staged_workload_cycles,
+                            staged_workload_processor_flags,
+                        ) = decode_status_payload(reply.payload)
+                        prepared_heartbeat_available = (
+                            _prepared_heartbeat_is_available(
+                                staged_workload_clock_mode,
+                                staged_workload_state,
+                                staged_workload_processor_flags,
+                            )
+                        )
+                        update_console_runtime()
                     result = {
                         "ok": True,
                         "reply_hex": reply.encode().hex(),
@@ -413,7 +464,7 @@ def persistent_monitor(
         )
 
     def perform_workload_transaction(
-        records: list[Message], description: str
+        records: list[Message], description: str, *, announce: bool = True
     ) -> bool:
         nonlocal current_sequence, next_due
         nonlocal staged_workload_id, staged_workload_state, staged_workload_detail
@@ -457,14 +508,15 @@ def persistent_monitor(
             "workload run", "workload restart", "workload stop"
         )
         outcome = "ACCEPTED" if accepted else "PASS"
-        print_event(
-            f"{description}: {outcome} ({len(records)} records)\n"
-            f"  workload_id={staged_workload_id} state={state_name} "
-            f"detail={staged_workload_detail} "
-            f"clock={CLOCK_MODE_NAMES.get(staged_workload_clock_mode, staged_workload_clock_mode)} "
-            f"cycles={staged_workload_cycles} "
-            f"processor={_processor_execution_state(staged_workload_clock_mode, staged_workload_processor_flags)}"
-        )
+        if announce:
+            print_event(
+                f"{description}: {outcome} ({len(records)} records)\n"
+                f"  workload_id={staged_workload_id} state={state_name} "
+                f"detail={staged_workload_detail} "
+                f"clock={CLOCK_MODE_NAMES.get(staged_workload_clock_mode, staged_workload_clock_mode)} "
+                f"cycles={staged_workload_cycles} "
+                f"processor={_processor_execution_state(staged_workload_clock_mode, staged_workload_processor_flags)}"
+            )
         return True
 
     def ensure_prepared_runtime_initialized() -> bool:
@@ -671,6 +723,18 @@ def persistent_monitor(
                 print_event(transport_error)
                 stop = True
                 continue
+            if workload_completion_pending:
+                workload_completion_pending = False
+                completion_status = control_record(
+                    "status",
+                    workload_id=staged_workload_id,
+                    sequence=current_sequence,
+                )
+                perform_workload_transaction(
+                    [completion_status],
+                    "workload completion status",
+                    announce=False,
+                )
             command: str | None = None
             if interactive:
                 command_buffer, command_cursor, command, changed, tab_requested, history_delta, clear_requested = (
@@ -837,6 +901,26 @@ def persistent_monitor(
                         f"  clock   {'AUTO' if not manifest.flags & 0x18 else 'FREE-RUNNING' if manifest.flags & 0x08 else 'CLOCK-STEPPED'}\n"
                         f"  CRC32   {manifest.image_crc32:08X}"
                     )
+                    if _workload_upload_requires_stop(
+                        staged_workload_clock_mode,
+                        staged_workload_processor_flags,
+                    ):
+                        print_event("load: stopping active processor")
+                        stop_record = control_record(
+                            "stop",
+                            workload_id=staged_workload_id,
+                            sequence=current_sequence,
+                        )
+                        if not perform_workload_transaction(
+                            [stop_record], "workload stop"
+                        ):
+                            continue
+                        records = upload_records(
+                            manifest,
+                            image,
+                            transfer_id=transfer_id,
+                            first_sequence=current_sequence,
+                        )
                     if perform_workload_transaction(records, "workload upload"):
                         staged_workload_manifest = manifest
                     continue
