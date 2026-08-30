@@ -41,9 +41,14 @@ def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
     return "ACTIVE"
 
 
-def _prepared_heartbeat_is_available(clock_mode: int) -> bool:
-    """Only a running prepared responder can answer native heartbeats."""
-    return clock_mode in (CLOCK_MODES["auto"], CLOCK_MODES["free-running"])
+def _prepared_heartbeat_is_available(
+    clock_mode: int, workload_state: int = 0
+) -> bool:
+    """Only the empty prepared runtime can answer native heartbeats."""
+    return (
+        workload_state == 0
+        and clock_mode in (CLOCK_MODES["auto"], CLOCK_MODES["free-running"])
+    )
 
 
 def _format_runtime_top(
@@ -60,6 +65,7 @@ def _format_runtime_top(
     workload_clock_mode: int = 0,
     workload_cycles: int = 0,
     workload_processor_flags: int = 0,
+    heartbeat_available: bool = True,
 ) -> str:
     """Present CPU-visible resources without exposing protocol state numbers."""
     state_name = _workload_state_name(workload_state)
@@ -78,16 +84,27 @@ def _format_runtime_top(
         else f"[{clock_name}]"
     )
 
+    execution_state = _processor_execution_state(
+        workload_clock_mode, workload_processor_flags
+    )
+    if heartbeat_available:
+        processor_summary = f"{'ALIVE' if connected else 'NOT RESPONDING'} {processor_clock}"
+        heartbeat_summary = f"{completed} completed / {lost} lost"
+        latency_summary = f"{average_ms:.1f} ms average"
+    else:
+        processor_summary = f"{execution_state} {processor_clock}"
+        heartbeat_summary = "SUSPENDED (native workload owns processor)"
+        latency_summary = "N/A during native workload"
+
     lines = [
         "Physical processor runtime top",
-        f"  {processor_name:<10} "
-        f"{'ALIVE' if connected else 'NOT RESPONDING'} {processor_clock}",
-        f"  Heartbeat  {completed} completed / {lost} lost",
-        f"  Latency    {average_ms:.1f} ms average",
+        f"  {processor_name:<10} {processor_summary}",
+        f"  Heartbeat  {heartbeat_summary}",
+        f"  Latency    {latency_summary}",
         f"  Workload   {workload_text}",
         f"  Clock mode {clock_name}",
         f"  CPU cycles {workload_cycles}",
-        f"  Processor {_processor_execution_state(workload_clock_mode, workload_processor_flags)}",
+        f"  Processor {execution_state}",
     ]
     if manifest is not None:
         lines.append(
@@ -128,7 +145,8 @@ def persistent_monitor(
     captured = bytearray()
     events: list[dict[str, Any]] = []
     stats = HeartbeatStats()
-    console = ConsoleStatus(processor)
+    console = ConsoleStatus(processor, live=display not in ("plain",))
+    cdc_display = CdcDisplayStream()
     processor_name = PROCESSOR_NAMES[processor]
     expected_processor = None if processor == "auto" else processor
     command_buffer = ""
@@ -191,6 +209,9 @@ def persistent_monitor(
             if waiting:
                 chunk = connection.read(waiting)
                 captured.extend(chunk)
+                for line in cdc_display.feed(chunk):
+                    if interactive and display != "quiet":
+                        print_event(line)
         except (OSError, serial.SerialException) as exc:
             transport_error = f"USB CDC disconnected: {exc}"
 
@@ -365,6 +386,20 @@ def persistent_monitor(
                 current_cpu_sequence, stats, connected, command_buffer, command_cursor
             )
 
+    def update_console_runtime() -> None:
+        console.set_runtime(
+            heartbeat_available=prepared_heartbeat_available,
+            workload_state=_workload_state_name(staged_workload_state),
+            clock_mode=CLOCK_MODE_NAMES.get(
+                staged_workload_clock_mode,
+                f"UNKNOWN({staged_workload_clock_mode})",
+            ),
+            workload_cycles=staged_workload_cycles,
+            processor_state=_processor_execution_state(
+                staged_workload_clock_mode, staged_workload_processor_flags
+            ),
+        )
+
     def perform_workload_transaction(
         records: list[Message], description: str
     ) -> bool:
@@ -391,8 +426,9 @@ def persistent_monitor(
                      reply.payload
                  )
                 prepared_heartbeat_available = _prepared_heartbeat_is_available(
-                    staged_workload_clock_mode
+                    staged_workload_clock_mode, staged_workload_state
                 )
+                update_console_runtime()
             except ValueError as exc:
                 print_event(f"{description}: invalid status payload: {exc}")
                 return False
@@ -403,8 +439,12 @@ def persistent_monitor(
                 )
         next_due = time.monotonic() + interval
         state_name = _workload_state_name(staged_workload_state)
+        accepted = description in (
+            "workload run", "workload restart", "workload stop"
+        )
+        outcome = "ACCEPTED" if accepted else "PASS"
         print_event(
-            f"{description}: PASS ({len(records)} records)\n"
+            f"{description}: {outcome} ({len(records)} records)\n"
             f"  workload_id={staged_workload_id} state={state_name} "
             f"detail={staged_workload_detail} "
             f"clock={CLOCK_MODE_NAMES.get(staged_workload_clock_mode, staged_workload_clock_mode)} "
@@ -703,37 +743,31 @@ def persistent_monitor(
                     host_cwd = candidate
                     print_event(str(host_cwd))
                 elif name in ("status", "top"):
-                    print_event(
-                        f"{processor_name} ALIVE={connected} completed={stats.completed} "
-                        f"lost={stats.lost} min/avg/max="
-                        f"{stats.minimum_ms if stats.completed else 0:.1f}/"
-                        f"{stats.average_ms:.1f}/{stats.maximum_ms:.1f} ms\n"
-                        f"boot_id={current_boot_id if current_boot_id is not None else '--'} "
-                        f"cpu_seq={current_cpu_sequence if current_cpu_sequence is not None else '--'} "
-                        f"command_seq={current_command_sequence if current_command_sequence is not None else '--'}"
-                    )
-                    if name == "top":
-                        print_event(
-                            _format_runtime_top(
-                                processor_name=processor_name,
-                                connected=connected,
-                                completed=stats.completed,
-                                lost=stats.lost,
-                                average_ms=stats.average_ms,
-                                workload_id=staged_workload_id,
-                                workload_state=staged_workload_state,
-                                workload_detail=staged_workload_detail,
-                                workload_clock_mode=staged_workload_clock_mode,
-                                workload_cycles=staged_workload_cycles,
-                                workload_processor_flags=staged_workload_processor_flags,
-                                manifest=staged_workload_manifest,
-                            )
-                        )
                     record = control_record(
                         "status", workload_id=staged_workload_id,
                         sequence=current_sequence
                     )
-                    perform_workload_transaction([record], "workload status")
+                    if not perform_workload_transaction(
+                        [record], "workload status"
+                    ):
+                        continue
+                    print_event(
+                        _format_runtime_top(
+                            processor_name=processor_name,
+                            connected=connected,
+                            completed=stats.completed,
+                            lost=stats.lost,
+                            average_ms=stats.average_ms,
+                            workload_id=staged_workload_id,
+                            workload_state=staged_workload_state,
+                            workload_detail=staged_workload_detail,
+                            workload_clock_mode=staged_workload_clock_mode,
+                            workload_cycles=staged_workload_cycles,
+                            workload_processor_flags=staged_workload_processor_flags,
+                            heartbeat_available=prepared_heartbeat_available,
+                            manifest=staged_workload_manifest,
+                        )
+                    )
                     continue
                 elif name == "info":
                     print_event(

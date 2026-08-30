@@ -56,7 +56,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--heartbeat-timeout", type=float, default=2.0)
     parser.add_argument("--rounds", type=int, default=0, help="0 means run until Ctrl+C")
     parser.add_argument(
-        "--display", choices=("quiet", "status", "verbose"), default="status"
+        "--display",
+        choices=("quiet", "status", "live", "plain", "verbose"),
+        default="status",
+        help=(
+            "terminal renderer: status/live uses an updating status row; "
+            "plain is redirect-safe; quiet suppresses routine native output"
+        ),
     )
     parser.add_argument("--json", action="store_true", help="print only stable JSON")
     return parser

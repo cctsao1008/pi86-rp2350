@@ -10,7 +10,12 @@ TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 from rp86_runtime.cli import build_parser  # noqa: E402
-from rp86_runtime.console import ConsoleStatus, _apply_input_character  # noqa: E402
+from rp86_runtime.console import (  # noqa: E402
+    CdcDisplayStream,
+    ConsoleStatus,
+    _apply_input_character,
+    _status_text,
+)
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
@@ -130,6 +135,16 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertTrue(args.interactive)
         self.assertEqual(args.processor, "intel-8086")
 
+    def test_cli_accepts_live_and_plain_renderers(self) -> None:
+        self.assertEqual(
+            build_parser().parse_args(["--interactive", "--display", "live"]).display,
+            "live",
+        )
+        self.assertEqual(
+            build_parser().parse_args(["--interactive", "--display", "plain"]).display,
+            "plain",
+        )
+
     def test_console_adopts_native_processor_identity(self) -> None:
         console = ConsoleStatus("auto")
         self.assertEqual(console._prompt, "CPU")
@@ -215,11 +230,67 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
         self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
 
+    def test_top_suspends_heartbeat_during_native_workload(self) -> None:
+        output = _format_runtime_top(
+            processor_name="INTEL 8086",
+            connected=False,
+            completed=0,
+            lost=12,
+            average_ms=0.0,
+            workload_id=1,
+            workload_state=3,
+            workload_detail=623,
+            workload_clock_mode=2,
+            workload_cycles=3212,
+            workload_processor_flags=1,
+            heartbeat_available=False,
+            manifest=None,
+        )
+        self.assertIn("INTEL 8086 IDLE / HLT", output)
+        self.assertIn("SUSPENDED (native workload owns processor)", output)
+        self.assertIn("CPU cycles 3212", output)
+        self.assertNotIn("NOT RESPONDING", output)
+        self.assertNotIn("12 lost", output)
+
     def test_heartbeat_requires_the_prepared_free_running_responder(self) -> None:
         self.assertTrue(_prepared_heartbeat_is_available(0))
         self.assertTrue(_prepared_heartbeat_is_available(1))
         self.assertFalse(_prepared_heartbeat_is_available(2))
         self.assertFalse(_prepared_heartbeat_is_available(3))
+        self.assertFalse(_prepared_heartbeat_is_available(1, workload_state=2))
+        self.assertFalse(_prepared_heartbeat_is_available(1, workload_state=3))
+
+    def test_workload_status_replaces_false_heartbeat_loss(self) -> None:
+        text = _status_text(
+            None,
+            SimpleNamespace(completed=0, last_ms=0.0, lost=12),
+            False,
+            "intel-8086",
+            heartbeat_available=False,
+            workload_state="RUNNING",
+            clock_mode="CLOCK-STEPPED",
+            workload_cycles=3212,
+            processor_state="IDLE / HLT",
+        )
+        self.assertIn("workload=COMPLETED", text)
+        self.assertIn("cycles=3212", text)
+        self.assertIn("processor=IDLE / HLT", text)
+        self.assertNotIn("LOST", text)
+
+    def test_cdc_native_output_is_rendered_without_protocol_noise(self) -> None:
+        stream = CdcDisplayStream()
+        self.assertEqual(stream.feed(b"protocol noise\r\n"), ())
+        self.assertEqual(
+            stream.feed(
+                b"[NATIVE STDOUT] RESULT: PASS\r\n"
+                b"[WORKLOAD IDLE] armed native HLT indication accepted\r\n"
+            ),
+            (
+                "[NATIVE OUTPUT]",
+                "RESULT: PASS",
+                "[WORKLOAD COMPLETED] processor=IDLE / HLT",
+            ),
+        )
 
 
 if __name__ == "__main__":

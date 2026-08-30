@@ -8,11 +8,26 @@ def _status_text(
     stats: HeartbeatStats,
     connected: bool,
     processor: str = "nec-v30",
+    *,
+    heartbeat_available: bool = True,
+    workload_state: str = "EMPTY",
+    clock_mode: str = "AUTO",
+    workload_cycles: int = 0,
+    processor_state: str = "ACTIVE",
 ) -> str:
+    processor_name = PROCESSOR_NAMES[processor]
+    if not heartbeat_available:
+        lifecycle = (
+            "COMPLETED" if processor_state == "IDLE / HLT" else workload_state
+        )
+        return (
+            f"| ◆ {processor_name}  workload={lifecycle}  "
+            f"clock={clock_mode}  cycles={workload_cycles}  "
+            f"processor={processor_state}"
+        )
     state = "ALIVE" if connected else "LOST"
     latency = f"{stats.last_ms:.1f} ms" if stats.completed else "--"
     sequence = "------" if cpu_sequence is None else f"{cpu_sequence:06d}"
-    processor_name = PROCESSOR_NAMES[processor]
     return (
         f"| {'●' if connected else '○'} {processor_name} {state}  "
         f"cpu_seq={sequence}  rtt={latency}  lost={stats.lost}"
@@ -22,11 +37,17 @@ def _status_text(
 class ConsoleStatus:
     """Own two terminal rows: immutable status above an editable prompt."""
 
-    def __init__(self, processor: str) -> None:
+    def __init__(self, processor: str, *, live: bool = True) -> None:
         self._rows = 0
         self._tty = sys.stdout.isatty()
+        self._live = live
         self._processor = processor
         self._prompt = self._prompt_for(processor)
+        self._heartbeat_available = True
+        self._workload_state = "EMPTY"
+        self._clock_mode = "AUTO"
+        self._workload_cycles = 0
+        self._processor_state = "ACTIVE"
 
     @staticmethod
     def _prompt_for(processor: str) -> str:
@@ -40,6 +61,22 @@ class ConsoleStatus:
         """Adopt the identity reported by the current physical processor."""
         self._processor = processor
         self._prompt = self._prompt_for(processor)
+
+    def set_runtime(
+        self,
+        *,
+        heartbeat_available: bool,
+        workload_state: str,
+        clock_mode: str,
+        workload_cycles: int,
+        processor_state: str,
+    ) -> None:
+        """Update the single live row from canonical workload telemetry."""
+        self._heartbeat_available = heartbeat_available
+        self._workload_state = workload_state
+        self._clock_mode = clock_mode
+        self._workload_cycles = workload_cycles
+        self._processor_state = processor_state
 
     def _erase(self) -> None:
         if self._rows == 0 or not self._tty:
@@ -59,10 +96,23 @@ class ConsoleStatus:
     ) -> None:
         if not self._tty:
             return
+        if not self._live:
+            self.render_prompt(command_buffer, cursor)
+            return
         self._erase()
+        status = _status_text(
+            sequence,
+            stats,
+            connected,
+            self._processor,
+            heartbeat_available=self._heartbeat_available,
+            workload_state=self._workload_state,
+            clock_mode=self._clock_mode,
+            workload_cycles=self._workload_cycles,
+            processor_state=self._processor_state,
+        )
         sys.stdout.write(
-            f"{_status_text(sequence, stats, connected, self._processor)}\n"
-            f"{self._prompt}> {command_buffer}"
+            f"{status}\n{self._prompt}> {command_buffer}"
         )
         cursor = len(command_buffer) if cursor is None else cursor
         if cursor < len(command_buffer):
@@ -86,6 +136,35 @@ class ConsoleStatus:
         if self._tty:
             sys.stdout.flush()
         self._rows = 0
+
+
+class CdcDisplayStream:
+    """Turn selected CDC evidence lines into concise interactive events."""
+
+    def __init__(self) -> None:
+        self._pending = bytearray()
+        self._native_group_open = False
+
+    def feed(self, chunk: bytes) -> tuple[str, ...]:
+        self._pending.extend(chunk)
+        events: list[str] = []
+        while b"\n" in self._pending:
+            raw, _, remainder = self._pending.partition(b"\n")
+            self._pending = bytearray(remainder)
+            line = raw.rstrip(b"\r").decode("utf-8", errors="replace")
+            if line.startswith("[WORKLOAD START]"):
+                self._native_group_open = False
+                continue
+            if line.startswith("[NATIVE STDOUT]"):
+                payload = line.removeprefix("[NATIVE STDOUT]").lstrip()
+                if not self._native_group_open:
+                    events.append("[NATIVE OUTPUT]")
+                    self._native_group_open = True
+                events.append(payload)
+            elif line.startswith("[WORKLOAD IDLE]"):
+                events.append("[WORKLOAD COMPLETED] processor=IDLE / HLT")
+                self._native_group_open = False
+        return tuple(events)
 
 
 def _apply_input_character(
