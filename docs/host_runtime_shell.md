@@ -207,9 +207,24 @@ workload restart: PASS
 Complete syntax is:
 
 ```text
-load <bin> [--address N] [--entry CS:IP] [--stack SS:SP]
+load <Host bin|p86w|flash:/file.p86w> [--address N] [--entry CS:IP] [--stack SS:SP]
            [--clock auto|free-running|clock-stepped]
 ```
+
+A `.p86w` file is one native workload package: the existing 40-byte manifest
+followed by the flat processor image. The manifest carries image size, CRC32,
+load address, entry point, optional stack, clock mode, and flags. Frequently
+used packages can remain on RP-FLASH and be staged without choosing those
+values again:
+
+```text
+load flash:/CALC.P86W
+run
+```
+
+The Host reads the package through the RP2350-owned FAT service, validates its
+size and CRC32, and uploads the verified image into Internal SRAM. Raw `.bin`
+files remain supported and use explicit or default load metadata.
 
 `auto` preserves the prepared calculator path and otherwise selects the safe
 general policy. An arbitrary image cannot request FREE_RUNNING unless the

@@ -28,6 +28,7 @@ from rp86_runtime.workload import (  # noqa: E402
     parse_far_pointer,
     upload_records,
     workload_from_command,
+    workload_from_bytes,
     decode_status_payload,
 )
 
@@ -111,6 +112,31 @@ class WorkloadTests(unittest.TestCase):
         encoded[-1] ^= 1
         with self.assertRaisesRegex(ValueError, "CRC"):
             decode_workload_file(bytes(encoded))
+
+    def test_flash_package_bytes_preserve_manifest_and_crc(self) -> None:
+        manifest, image = self.sample()
+        encoded = encode_workload_file(manifest, image)
+        decoded, decoded_image, records = workload_from_bytes(
+            encoded,
+            ("flash:/CALC.P86W",),
+            transfer_id=0x55AA,
+            first_sequence=50,
+        )
+        self.assertEqual(decoded, manifest)
+        self.assertEqual(decoded_image, image)
+        self.assertEqual(records[0].sequence, 50)
+
+    def test_flash_package_bytes_reject_crc_mismatch(self) -> None:
+        manifest, image = self.sample()
+        encoded = bytearray(encode_workload_file(manifest, image))
+        encoded[-1] ^= 1
+        with self.assertRaisesRegex(ValueError, "CRC"):
+            workload_from_bytes(
+                bytes(encoded),
+                ("flash:/CALC.P86W",),
+                transfer_id=0x55AA,
+                first_sequence=50,
+            )
 
     def test_control_record_uses_current_workload_zero(self) -> None:
         record = control_record("run", workload_id=0, sequence=22)

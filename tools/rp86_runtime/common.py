@@ -24,6 +24,7 @@ from .shell_commands import (
     complete_shell_input,
     completion_token,
     format_host_directory,
+    host_list_path,
     is_device_path,
     parse_command,
     unavailable_message,
@@ -45,7 +46,12 @@ from .broker import (
     discover_brokers,
     select_broker,
 )
-from .workload import control_record, decode_status_payload, workload_from_command
+from .workload import (
+    control_record,
+    decode_status_payload,
+    workload_from_bytes,
+    workload_from_command,
+)
 from .memory import (
     format_memory_dump,
     memory_read_request,

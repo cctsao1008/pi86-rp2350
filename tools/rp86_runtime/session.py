@@ -484,6 +484,40 @@ def persistent_monitor(
             entries.append(entry)
             cursor = entry.next_cursor
 
+    def read_device_file(path: str) -> tuple[bytes | None, str | None]:
+        """Read one complete RP2350 file through the bounded HID service."""
+        offset = 0
+        total_size: int | None = None
+        content = bytearray()
+        while True:
+            try:
+                request = read_request(path, offset, current_sequence)
+            except ValueError as exc:
+                return None, str(exc)
+            reply, error = perform_filesystem_request(request)
+            if reply is None:
+                return None, error
+            try:
+                chunk = parse_read(reply, request)
+            except ValueError as exc:
+                return None, f"invalid device reply: {exc}"
+            if chunk.offset != offset:
+                return None, f"reply offset mismatch {chunk.offset} != {offset}"
+            if total_size is None:
+                total_size = chunk.total_size
+            elif chunk.total_size != total_size:
+                return None, "file size changed while reading"
+            content.extend(chunk.data)
+            offset += len(chunk.data)
+            if chunk.eof:
+                if total_size != len(content):
+                    return None, (
+                        f"file length mismatch {len(content)} != {total_size}"
+                    )
+                return bytes(content), None
+            if not chunk.data:
+                return None, "device returned an empty non-final file chunk"
+
     def remote_completion_entries(token: str) -> tuple[tuple[str, bool], ...]:
         """Return device-directory candidates for a Tab request."""
         slash = token.rfind("/")
@@ -671,11 +705,22 @@ def persistent_monitor(
                 elif name == "load":
                     try:
                         transfer_id = secrets.randbits(32)
-                        manifest, image, records = workload_from_command(
-                            arguments,
-                            transfer_id=transfer_id,
-                            first_sequence=current_sequence,
-                        )
+                        if arguments and is_device_path(arguments[0]):
+                            encoded, error = read_device_file(arguments[0])
+                            if encoded is None:
+                                raise ValueError(error or "device read failed")
+                            manifest, image, records = workload_from_bytes(
+                                encoded,
+                                arguments,
+                                transfer_id=transfer_id,
+                                first_sequence=current_sequence,
+                            )
+                        else:
+                            manifest, image, records = workload_from_command(
+                                arguments,
+                                transfer_id=transfer_id,
+                                first_sequence=current_sequence,
+                            )
                     except ValueError as exc:
                         print_event(f"load: {exc}")
                         continue
@@ -781,38 +826,16 @@ def persistent_monitor(
                         print_event("Usage: cat <flash:/file>")
                         continue
                     path = arguments[0]
-                    offset = 0
-                    content = bytearray()
-                    while True:
-                        try:
-                            request = read_request(path, offset, current_sequence)
-                        except ValueError as exc:
-                            print_event(f"cat: {exc}")
-                            break
-                        reply, error = perform_filesystem_request(request)
-                        if reply is None:
-                            print_event(f"cat: {error}")
-                            break
-                        try:
-                            chunk = parse_read(reply, request)
-                        except ValueError as exc:
-                            print_event(f"cat: invalid device reply: {exc}")
-                            break
-                        if chunk.offset != offset:
-                            print_event(
-                                f"cat: reply offset mismatch {chunk.offset} != {offset}"
-                            )
-                            break
-                        content.extend(chunk.data)
-                        offset += len(chunk.data)
-                        if chunk.eof:
-                            try:
-                                rendered = content.decode("utf-8")
-                            except UnicodeDecodeError:
-                                rendered = content.hex(" ")
-                                rendered = "Binary data (hex):\n" + rendered
-                            print_event(rendered if rendered else "<empty>")
-                            break
+                    content, error = read_device_file(path)
+                    if content is None:
+                        print_event(f"cat: {error}")
+                        continue
+                    try:
+                        rendered = content.decode("utf-8")
+                    except UnicodeDecodeError:
+                        rendered = content.hex(" ")
+                        rendered = "Binary data (hex):\n" + rendered
+                    print_event(rendered if rendered else "<empty>")
                     continue
                 elif name == "put":
                     if len(arguments) != 2:

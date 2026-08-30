@@ -245,17 +245,21 @@ def parse_far_pointer(value: str) -> tuple[int, int]:
     return segment, offset
 
 
-def workload_from_command(
-    arguments: tuple[str, ...], *, transfer_id: int, first_sequence: int
+def workload_from_bytes(
+    encoded: bytes,
+    arguments: tuple[str, ...],
+    *,
+    transfer_id: int,
+    first_sequence: int,
 ) -> tuple[WorkloadManifest, bytes, list[Message]]:
-    """Create an upload transaction from one ``load`` shell command."""
+    """Create an upload transaction from Host- or device-sourced bytes."""
     if not arguments:
         raise ValueError(
             "usage: load <bin> [--address N] [--entry CS:IP] "
             "[--stack SS:SP] [--clock auto|free-running|clock-stepped]"
         )
 
-    source = Path(arguments[0])
+    source_name = arguments[0]
     load_address = 0x10000
     entry: tuple[int, int] | None = None
     stack = (0, 0)
@@ -280,11 +284,7 @@ def workload_from_command(
             clock = value
         index += 2
 
-    try:
-        encoded = source.read_bytes()
-    except OSError as exc:
-        raise ValueError(f"cannot read workload {source}: {exc}") from exc
-    if source.suffix.lower() == ".p86w":
+    if source_name.lower().endswith(".p86w"):
         manifest, image = decode_workload_file(encoded)
     else:
         image = encoded
@@ -306,6 +306,28 @@ def workload_from_command(
         )
     return manifest, image, upload_records(
         manifest, image, transfer_id=transfer_id, first_sequence=first_sequence
+    )
+
+
+def workload_from_command(
+    arguments: tuple[str, ...], *, transfer_id: int, first_sequence: int
+) -> tuple[WorkloadManifest, bytes, list[Message]]:
+    """Create an upload transaction from one Host-local ``load`` command."""
+    if not arguments:
+        raise ValueError(
+            "usage: load <bin|p86w> [--address N] [--entry CS:IP] "
+            "[--stack SS:SP] [--clock auto|free-running|clock-stepped]"
+        )
+    source = Path(arguments[0])
+    try:
+        encoded = source.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"cannot read workload {source}: {exc}") from exc
+    return workload_from_bytes(
+        encoded,
+        arguments,
+        transfer_id=transfer_id,
+        first_sequence=first_sequence,
     )
 
 
