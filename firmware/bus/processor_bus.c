@@ -1,4 +1,4 @@
-#include "processor/processor_bus.h"
+#include "bus/processor_bus.h"
 
 #include <stddef.h>
 
@@ -6,7 +6,7 @@
 #include "pico/stdlib.h"
 
 #include "board/rp2350_pizero.h"
-#include "processor/processor_bus_pins.h"
+#include "bus/processor_bus_pins.h"
 
 static const uint8_t ad_gpio[16] = {
     RP86_PROCESSOR_PIN_AD0, RP86_PROCESSOR_PIN_AD1, RP86_PROCESSOR_PIN_AD2, RP86_PROCESSOR_PIN_AD3,

@@ -1,21 +1,3 @@
-include("${PROJECT_SOURCE_DIR}/cmake/ProcessorImage.cmake")
-
-# The accepted 1 MHz companion image is now the canonical physical runtime.
-# Keep its embedded-image symbol/header stable so the same source also remains usable by
-# the retained characterization targets.
-rp86_add_processor_image(processor_runtime_image
-    SOURCE "${CMAKE_CURRENT_LIST_DIR}/processor/runtime.asm"
-    SYMBOL processor_runtime_image
-    DEPENDS
-        "${CMAKE_CURRENT_LIST_DIR}/processor/include/platform.inc"
-)
-
-# A standalone flat image loaded by the Host into the Internal SRAM backing.
-rp86_add_processor_image(calculator_workload
-    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/calculator.asm"
-    SYMBOL calculator_workload
-)
-
 add_executable(rp86_rp2350
     board/rp2350_pizero_resources.c
     memory/backing.c
@@ -24,7 +6,7 @@ add_executable(rp86_rp2350
     memory/memory.c
     memory/psram_backing.c
     memory/shared_mailbox.c
-    processor/processor_bus.c
+    bus/processor_bus.c
     runtime/clock_stepped_bus_controller.c
     runtime/evidence_queue.c
     runtime/execution_clock_controller.c
@@ -39,6 +21,11 @@ add_executable(rp86_rp2350
     host_protocol/usb_transport.c
     host_protocol/usb_descriptors.c
 )
+
+# The canonical firmware build also produces the maintained calculator
+# package. Other examples and validation packages are part of the default
+# all-target build but are not firmware dependencies.
+add_dependencies(rp86_rp2350 calculator_workload_package)
 
 target_include_directories(rp86_rp2350 PRIVATE
     ${CMAKE_CURRENT_LIST_DIR}
@@ -61,7 +48,6 @@ target_link_libraries(rp86_rp2350
     hardware_watchdog
     tinyusb_device
 )
-add_dependencies(rp86_rp2350 calculator_workload_image)
 
 target_compile_definitions(rp86_rp2350 PRIVATE
     RP86_HAS_EXTERNAL_PSRAM=$<BOOL:${RP86_HAS_EXTERNAL_PSRAM}>
@@ -127,24 +113,4 @@ add_custom_command(TARGET rp86_rp2350 POST_BUILD
         -DRP86_FIRMWARE_LIMIT=4194304
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFirmwareSize.cmake
     VERBATIM
-)
-
-# First canonical native workload. It is built as a standalone flat binary
-# for Host upload; it is not linked into the RP2350 firmware or presented as a
-# fixed image dependency.
-rp86_add_processor_image(hello
-    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/hello.asm"
-    SYMBOL hello_workload
-)
-
-# Lifecycle validation image for the general Internal-SRAM execution path.
-rp86_add_processor_image(runtime_lifecycle
-    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/runtime_lifecycle.asm"
-    SYMBOL runtime_lifecycle_workload
-)
-
-# Polling Host/processor ownership-transfer mailbox demonstration.
-rp86_add_processor_image(shared_mailbox
-    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/shared_mailbox.asm"
-    SYMBOL shared_mailbox_workload
 )

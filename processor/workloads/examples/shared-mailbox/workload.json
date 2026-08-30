@@ -1,0 +1,13 @@
+{
+  "format": "p86w-v1",
+  "name": "shared-mailbox",
+  "load_address": "0x10000",
+  "entry": "1000:0000",
+  "stack": "0000:0000",
+  "clock": "clock-stepped",
+  "flags": ["persistent"],
+  "shared_memory": {
+    "base": "0x3F000",
+    "size": "0x1000"
+  }
+}

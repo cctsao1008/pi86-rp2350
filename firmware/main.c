@@ -32,7 +32,7 @@
 #include "memory/internal_sram_backing.h"
 #include "memory/memory_service.h"
 #include "memory/shared_mailbox.h"
-#include "processor/processor_bus.h"
+#include "bus/processor_bus.h"
 #include "processor_service.pio.h"
 #include "runtime/clock_stepped_bus_controller.h"
 #include "runtime/evidence_queue.h"

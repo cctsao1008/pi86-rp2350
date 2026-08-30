@@ -1,0 +1,9 @@
+{
+  "format": "p86w-v1",
+  "name": "runtime-lifecycle-validation",
+  "load_address": "0x10000",
+  "entry": "1000:0000",
+  "stack": "0000:0000",
+  "clock": "clock-stepped",
+  "flags": ["stdio", "persistent"]
+}

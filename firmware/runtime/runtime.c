@@ -9,7 +9,7 @@
 #include "pico/bootrom.h"
 #include "pico/stdio.h"
 #include "pico/stdlib.h"
-#include "processor/processor_bus_pins.h"
+#include "bus/processor_bus_pins.h"
 
 static const char *const capability_names[RP86_CAP_COUNT] = {
     [RP86_CAP_HOST_CDC] = "Host CDC diagnostics",

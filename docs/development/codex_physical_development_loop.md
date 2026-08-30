@@ -61,7 +61,7 @@ processor execution.
 
 The workload is authored as 16-bit x86 machine code, normally using NASM. For
 the first Host-loaded execution gate, Codex created
-[`../../firmware/workloads/calculator.asm`](../../firmware/workloads/calculator.asm).
+[`../../processor/workloads/builtins/calculator/calculator.asm`](../../processor/workloads/builtins/calculator/calculator.asm).
 
 Its four aligned entry slots contain native operations:
 
@@ -88,7 +88,7 @@ The relevant output artifacts are:
 
 ```text
 build/firmware/rp86_rp2350.uf2
-build/firmware/generated/calculator_workload/calculator_workload.bin
+build/processor/generated/calculator_workload/calculator_workload.bin
 ```
 
 The accepted 2026-08-28 artifacts were:

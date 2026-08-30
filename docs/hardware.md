@@ -123,7 +123,7 @@ The original HAT is not redesigned or remapped.
 | A18 | 16 | 23 | 23 | processor -> RP2350 |
 | A19 | 18 | 24 | 24 | processor -> RP2350 |
 
-Firmware definitions live in `firmware/processor/processor_bus_pins.h` and must remain
+Firmware definitions live in `firmware/bus/processor_bus_pins.h` and must remain
 consistent with this table. AD0-AD15 are intentionally scattered in RP2350
 GPIO space; realtime code uses snapshots, masks, and lookup-based packing
 instead of slow per-pin operations.
@@ -150,12 +150,12 @@ the incorrect identities are superseded unless explicitly revalidated.
 
 ### Firmware and ownership rules
 
-1. `firmware/processor/processor_bus_pins.h` is the firmware source of processor GPIO constants.
+1. `firmware/bus/processor_bus_pins.h` is the firmware source of processor GPIO constants.
 2. Bus code uses `RP86_PROCESSOR_PIN_*` definitions rather than undocumented literals.
 3. Absolute GPIO references in PIO must name the corresponding signal and
    physical header pin.
 4. Any mapping change requires simultaneous review of this document,
-   `firmware/processor/processor_bus_pins.h`, and affected PIO programs.
+   `firmware/bus/processor_bus_pins.h`, and affected PIO programs.
 5. A new host board must rebuild the translation from physical header pins;
    BCM numbering is not a portable intermediate ABI.
 6. Before diagnosing timing or protocol behavior, prove signal identity,

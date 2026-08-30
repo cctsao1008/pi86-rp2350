@@ -139,14 +139,14 @@ change event density only; they do not hide liveness.
 The calculator is the first Host-loaded native workload. Build output contains:
 
 ```text
-build/firmware/generated/calculator_workload/calculator_workload.bin
+build/workloads/CALC.P86W
 ```
 
 Load it into the Internal-SRAM execution tier, start it, then use either
 `send <expression>` or the explicit `calc` alias:
 
 ```text
-8086> load build/firmware/generated/calculator_workload/calculator_workload.bin --address 0x10000 --entry 1000:0000
+8086> load build/workloads/CALC.P86W
 workload upload: PASS
 8086> run
 workload run: PASS
@@ -190,7 +190,7 @@ Raw flat binaries default to an automatic clock policy. A workload may request
 the general responder explicitly:
 
 ```text
-8086> load build/firmware/generated/hello/hello.bin --clock clock-stepped
+8086> load build/workloads/HELLO.P86W
 workload upload: PASS
   workload_id=1 state=STAGED detail=164 clock=CLOCK-STEPPED cycles=0
 8086> run
@@ -280,7 +280,7 @@ entry remain integrated. External PSRAM is a later optional capacity backend
 behind the same workload contract.
 
 The first canonical image is `hello.bin`, assembled from
-`firmware/workloads/hello.asm`. It performs an `AAD 16` identity witness and
+`processor/workloads/examples/hello/hello.asm`. It performs an `AAD 16` identity witness and
 prints `HELLO INTEL 8086` or `HELLO NEC V30`. Remaining shell commands are
 stable framework contracts whose backends are enabled as their capabilities
 are integrated.
@@ -311,7 +311,7 @@ The example `shared_mailbox.bin` polls for a Host request, uppercases it on the
 physical processor, and returns ownership and the result:
 
 ```text
-8086> load build/firmware/generated/shared_mailbox/shared_mailbox.bin --clock clock-stepped
+8086> load build/workloads/MAILBOX.P86W
 8086> run
 8086> mailbox Hello from Host to real 8086
 mailbox: PASS generation=1 processor=HELLO FROM HOST TO REAL 8086

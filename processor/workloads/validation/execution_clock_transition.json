@@ -1,0 +1,9 @@
+{
+  "format": "p86w-v1",
+  "name": "execution-clock-transition-validation",
+  "load_address": "0x10000",
+  "entry": "1000:0000",
+  "stack": "3000:FFFE",
+  "clock": "clock-stepped",
+  "flags": ["stdio"]
+}

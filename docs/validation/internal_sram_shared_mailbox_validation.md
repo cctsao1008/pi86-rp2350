@@ -21,7 +21,7 @@ It is not a Host-side calculation and does not use an emulator.
 ## Candidate
 
 - firmware: `build/firmware/rp86_rp2350.uf2`
-- workload: `build/firmware/generated/shared_mailbox/shared_mailbox.bin`
+- workload package: `build/workloads/MAILBOX.P86W`
 - workload size: 99 bytes
 - load address / entry: `10000h` / `1000:0000`
 - mailbox: `3F000h-3FFFFh`

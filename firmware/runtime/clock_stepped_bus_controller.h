@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 #include "memory/memory.h"
-#include "processor/processor_bus.h"
+#include "bus/processor_bus.h"
 
 typedef bool (*rp86_clock_stepped_io_read_fn)(void *context, uint16_t port,
                                      rp86_processor_bus_lanes_t lanes, uint16_t *value);

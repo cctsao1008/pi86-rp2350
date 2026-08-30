@@ -36,7 +36,7 @@
 #endif
 #include RP86_PROCESSOR_IMAGE_HEADER
 #include "free_running_clock.pio.h"
-#include "processor/processor_bus_pins.h"
+#include "bus/processor_bus_pins.h"
 
 /* Test envelope and bounded evidence storage. */
 #ifndef RP86_PROCESSOR_HZ

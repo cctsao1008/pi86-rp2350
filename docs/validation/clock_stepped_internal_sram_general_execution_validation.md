@@ -36,7 +36,7 @@ The workload deliberately exercises:
 
 Current source lineage:
 
-- `firmware/workloads/clock_stepped_general.asm`
+- `processor/workloads/validation/clock_stepped_general.asm`
 - `firmware/runtime/clock_stepped_bus_controller.c`
 - `tests/execution_clock_runtime/execution_clock_runtime.c`
 

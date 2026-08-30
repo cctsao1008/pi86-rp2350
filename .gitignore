@@ -42,6 +42,8 @@
 *.uf2
 *.elf
 *.bin
+*.p86w
+*.P86W
 *.hex
 *.map
 *.dis

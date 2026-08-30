@@ -47,7 +47,14 @@ build/firmware/rp86_rp2350.uf2
 ```
 
 The build also assembles the native 8086-class processor runtime and standalone
-workloads with NASM. To bootstrap only NASM:
+workloads with NASM. Workload source and metadata live under `processor/`, and
+the build writes CRC-protected packages to:
+
+```text
+build/workloads/*.P86W
+```
+
+To bootstrap only NASM:
 
 ```bash
 ./scripts/bootstrap_nasm.sh

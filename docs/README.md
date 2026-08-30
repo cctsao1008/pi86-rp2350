@@ -17,6 +17,8 @@
 10. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
 11. [`bringup/recovery.md`](bringup/recovery.md) — recovery
 12. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
+13. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
+14. [`reference.md`](reference.md) — external specification and implementation references
 
 ```text
 Host       = Runtime Controller

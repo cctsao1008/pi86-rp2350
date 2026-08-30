@@ -18,8 +18,7 @@ control remained responsive while the general bus controller owned execution.
 ## Host command
 
 ```text
-load build/firmware/generated/runtime_lifecycle/runtime_lifecycle.bin \
-  --clock clock-stepped
+load build/workloads/LIFECYCLE.P86W
 run
 status
 stop

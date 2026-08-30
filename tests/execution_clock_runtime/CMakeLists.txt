@@ -1,15 +1,8 @@
-include("${PROJECT_SOURCE_DIR}/cmake/ProcessorImage.cmake")
-
-rp86_add_processor_image(execution_clock_transition_workload
-    SOURCE "${PROJECT_SOURCE_DIR}/firmware/workloads/execution_clock_transition.asm"
-    SYMBOL execution_clock_transition_workload
-)
-
 add_executable(execution_clock_runtime
     execution_clock_runtime.c
     ${PROJECT_SOURCE_DIR}/firmware/runtime/execution_clock_controller.c
     ${PROJECT_SOURCE_DIR}/firmware/runtime/clock_stepped_bus_controller.c
-    ${PROJECT_SOURCE_DIR}/firmware/processor/processor_bus.c
+    ${PROJECT_SOURCE_DIR}/firmware/bus/processor_bus.c
     ${PROJECT_SOURCE_DIR}/firmware/memory/memory.c
 )
 

@@ -7,7 +7,7 @@
 
 #include "clock_stepped_clock.pio.h"
 #include "execution_clock_control.pio.h"
-#include "processor/processor_bus_pins.h"
+#include "bus/processor_bus_pins.h"
 
 #define FREE_RUNNING_PIO_CYCLES_PER_PROCESSOR_CYCLE 10u
 #define SAFE_STOP_TOKEN 1u

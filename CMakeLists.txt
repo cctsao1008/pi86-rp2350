@@ -56,5 +56,6 @@ message(STATUS "RP86 PIO-USB:       ${RP86_HAS_PIO_USB}")
 
 pico_sdk_init()
 
+add_subdirectory(processor)
 add_subdirectory(firmware)
 add_subdirectory(tests/execution_clock_runtime)

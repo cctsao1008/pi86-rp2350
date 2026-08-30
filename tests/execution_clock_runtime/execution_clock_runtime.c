@@ -7,8 +7,8 @@
 
 #include "execution_clock_transition_workload.h"
 #include "memory/memory.h"
-#include "processor/processor_bus.h"
-#include "processor/processor_bus_pins.h"
+#include "bus/processor_bus.h"
+#include "bus/processor_bus_pins.h"
 #include "runtime/clock_stepped_bus_controller.h"
 
 #define CLOCK_STEPPED_PIO_HZ     2000000u

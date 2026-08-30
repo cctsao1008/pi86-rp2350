@@ -11,7 +11,7 @@
  *
  * Scope:
  * - preserves the established Pi86 HAT clock-step cadence;
- * - decodes signal identity using firmware/processor/processor_bus_pins.h;
+ * - decodes signal identity using firmware/bus/processor_bus_pins.h;
  * - exposes raw A0 and active-low BHE/INTA values explicitly;
  * - does not decide the system memory map or I/O policy.
  */

@@ -248,6 +248,7 @@ and the Host retrieves the result. See the
 - [`docs/host_protocol.md`](docs/host_protocol.md) — language-independent Host Protocol
 - [`docs/hardware.md`](docs/hardware.md) — board resources, locked signal mapping, and physical interface contract
 - [`docs/development/codex_physical_development_loop.md`](docs/development/codex_physical_development_loop.md) — AI-written code through physical processor evidence
+- [`processor/`](processor/) — native runtime and workload source executed by the physical processor
 - [`docs/validation/`](docs/validation/) — accepted physical evidence
 - [`docs/README.md`](docs/README.md) — complete documentation map
 
