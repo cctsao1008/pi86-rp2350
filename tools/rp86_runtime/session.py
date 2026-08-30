@@ -10,6 +10,7 @@ from .console import _read_terminal_command
 from .workload import (
     CLOCK_MODES,
     CLOCK_MODE_NAMES,
+    PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
     PROCESSOR_FLAG_IDLE,
     WorkloadManifest,
 )
@@ -399,6 +400,48 @@ def persistent_monitor(
         )
         return True
 
+    def ensure_prepared_runtime_initialized() -> bool:
+        """Bootstrap the native responder before the first lifecycle RUN."""
+        nonlocal current_sequence, next_due, connected
+        nonlocal current_boot_id, current_cpu_sequence, current_command_sequence
+        nonlocal current_native_processor, processor_name
+        nonlocal staged_workload_processor_flags, prepared_heartbeat_available
+        if (staged_workload_processor_flags &
+                PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED):
+            return True
+        request = Message(
+            TYPE_HEARTBEAT, current_sequence,
+            heartbeat_payload(current_sequence),
+        )
+        reply, latency_ms, error = exchange(request)
+        if reply is None:
+            print_event(f"processor bootstrap: FAILED: {error}")
+            return False
+        try:
+            witness = NativeServiceWitness.decode(reply.payload)
+        except ValueError as exc:
+            print_event(f"processor bootstrap: invalid native proof: {exc}")
+            return False
+        current_sequence = (request.sequence + 1) & 0xFFFFFFFF or 1
+        current_boot_id = witness.boot_id
+        current_cpu_sequence = witness.cpu_sequence
+        current_command_sequence = witness.command_sequence
+        current_native_processor = witness.processor
+        processor_name = PROCESSOR_NAMES[witness.processor]
+        console.set_processor(witness.processor)
+        stats.accept(latency_ms)
+        connected = True
+        staged_workload_processor_flags |= (
+            PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
+        )
+        prepared_heartbeat_available = True
+        next_due = time.monotonic() + interval
+        print_event(
+            f"processor bootstrap: PASS ({processor_name}, "
+            f"boot_id={witness.boot_id}, cpu_seq={witness.cpu_sequence})"
+        )
+        return True
+
     def perform_filesystem_request(
         request: Message,
     ) -> tuple[Message | None, str | None]:
@@ -736,6 +779,12 @@ def persistent_monitor(
                         staged_workload_manifest = manifest
                     continue
                 elif name in ("run", "stop", "restart"):
+                    if name in ("run", "restart") and not (
+                        staged_workload_processor_flags &
+                        PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
+                    ):
+                        if not ensure_prepared_runtime_initialized():
+                            continue
                     record = control_record(
                         name, workload_id=0, sequence=current_sequence
                     )

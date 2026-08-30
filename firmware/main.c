@@ -174,6 +174,7 @@ static rp86_clock_stepped_stats_t g_workload_bus_stats;
 static uint8_t g_reset_handoff[RESET_HANDOFF_SIZE];
 static bool g_general_workload_active;
 static bool g_prepared_runtime_available = true;
+static bool g_prepared_runtime_initialized;
 static rp86_workload_clock_mode_t g_workload_clock_mode =
     RP86_WORKLOAD_CLOCK_STOPPED;
 static char g_diagnostic_line[96];
@@ -194,6 +195,11 @@ static int g_foreground_dma = -1;
 static int g_irq_rom_dma = -1;
 static int g_irq_io_dma = -1;
 static int g_observer_dma = -1;
+static rp86_pio_sm_t g_foreground_sm;
+static rp86_pio_sm_t g_irq_rom_sm;
+static rp86_pio_sm_t g_irq_io_sm;
+static rp86_pio_sm_t g_inta_sm;
+static rp86_pio_sm_t g_observer_sm;
 static uint32_t g_int60_dma_words;
 static uint32_t g_irq_rom_dma_words;
 static uint32_t g_irq_io_dma_words;
@@ -214,7 +220,9 @@ static bool handle_runtime_control(const rp86_host_protocol_message_t *record);
 static bool handle_filesystem_record(const rp86_host_protocol_message_t *record);
 static bool handle_memory_record(const rp86_host_protocol_message_t *record);
 static bool handle_workload_record(const rp86_host_protocol_message_t *record);
+static void park_physical_processor(void);
 static bool start_general_workload(void);
+static bool start_calculator_workload(void);
 static void stop_general_workload(void);
 static void service_general_workload(void);
 
@@ -640,18 +648,22 @@ static bool select_calculator_opcode(const rp86_host_protocol_message_t *record)
     return true;
 }
 
-static void rearm_exact_stream(const rp86_pio_sm_t *sm, int dma,
+static bool rearm_exact_stream(const rp86_pio_sm_t *sm, int dma,
                                const exact_sequence_t *sequence,
                                const uint32_t *words, uint32_t word_count) {
+    if (sm == NULL || sm->pio == NULL || dma < 0 || words == NULL ||
+        word_count == 0u)
+        return false;
     dma_channel_set_irq0_enabled((uint)dma, false);
     dma_channel_abort((uint)dma);
     dma_channel_acknowledge_irq0((uint)dma);
     prime_exact(sm, sequence);
     dma_channel_set_read_addr((uint)dma, words, false);
     dma_channel_set_trans_count((uint)dma, word_count, true);
-    hard_assert(wait_fifo_primed(sm, 4u));
+    if (!wait_fifo_primed(sm, 4u)) return false;
     dma_channel_set_irq0_enabled((uint)dma, true);
     pio_sm_set_enabled(sm->pio, sm->sm, true);
+    return true;
 }
 
 static void rearm_live_observer(const rp86_pio_sm_t *observer,
@@ -819,12 +831,13 @@ static bool run_live_round(const rp86_pio_sm_t *foreground,
      * one common cycle boundary before asserting the next physical INTR.
      * This prevents a completed bring-up burst from leaving one matcher on a
      * stale ROM/prefetch key while another has already advanced. */
-    rearm_exact_stream(foreground, g_foreground_dma, &g_int60,
-                       g_int60_words, g_int60_dma_words);
-    rearm_exact_stream(irq_rom, g_irq_rom_dma, &g_irq_rom,
-                       g_irq_rom_words, g_irq_rom_dma_words);
-    rearm_exact_stream(irq_io, g_irq_io_dma, &g_irq_io,
-                       g_irq_io_words, g_irq_io_dma_words);
+    if (!rearm_exact_stream(foreground, g_foreground_dma, &g_int60,
+                            g_int60_words, g_int60_dma_words) ||
+        !rearm_exact_stream(irq_rom, g_irq_rom_dma, &g_irq_rom,
+                            g_irq_rom_words, g_irq_rom_dma_words) ||
+        !rearm_exact_stream(irq_io, g_irq_io_dma, &g_irq_io,
+                            g_irq_io_words, g_irq_io_dma_words))
+        return false;
     rearm_live_observer(observer, observer_dma);
 
     pio_interrupt_clear(pio1, 4u);
@@ -989,6 +1002,121 @@ static rp86_workload_clock_mode_t physical_workload_clock_mode(void) {
         default:
             return RP86_WORKLOAD_CLOCK_STOPPED;
     }
+}
+
+static bool prepared_runtime_physically_running(void) {
+    return g_prepared_runtime_available && g_bus_active &&
+        physical_workload_clock_mode() == RP86_WORKLOAD_CLOCK_FREE_RUNNING &&
+        !gpio_get(RP86_PROCESSOR_PIN_RESET);
+}
+
+static bool start_calculator_workload(void) {
+    if (!g_prepared_runtime_initialized ||
+        g_foreground_dma < 0 || g_irq_rom_dma < 0 ||
+        g_irq_io_dma < 0 || g_observer_dma < 0 ||
+        !calculator_workload_valid())
+        return false;
+
+    /* A calculator package is native code called by the resident processor
+     * runtime.  RUN owns the complete physical lifecycle: even when the
+     * resident responder was previously parked, rebuild its prepared streams,
+     * assert RESET, start the clock and responder, release RESET, and prove a
+     * native interrupt round before reporting RUNNING to the Host. */
+    gpio_put(RP86_PROCESSOR_PIN_INTR, false);
+    gpio_put(RP86_PROCESSOR_PIN_RESET, true);
+    g_bus_active = false;
+    irq_set_enabled(DMA_IRQ_0, false);
+    pio_set_sm_mask_enabled(pio1, 0x0fu, false);
+    pio_set_sm_mask_enabled(pio0, 0x0fu, false);
+    const int channels[] = {
+        g_foreground_dma, g_irq_rom_dma, g_irq_io_dma, g_observer_dma,
+    };
+    for (uint32_t i = 0u; i < count_of(channels); ++i) {
+        if (channels[i] >= 0) dma_channel_abort((uint)channels[i]);
+    }
+
+    g_calculator_opcode = CALCULATOR_OPCODE_ADD;
+    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
+    compile_sequences();
+    uint32_t foreground_words = flatten_append(
+        &g_boot, g_foreground_initial_words, 0u);
+    foreground_words = flatten_append(
+        &g_int60_initial, g_foreground_initial_words, foreground_words);
+    g_int60_dma_words = flatten_full(&g_int60, g_int60_words);
+    g_irq_rom_dma_words = flatten_full(&g_irq_rom, g_irq_rom_words);
+    g_irq_io_dma_words = flatten_full(&g_irq_io, g_irq_io_words);
+
+    if (!rearm_exact_stream(&g_foreground_sm, g_foreground_dma, &g_boot,
+                            g_foreground_initial_words, foreground_words) ||
+        !rearm_exact_stream(&g_irq_rom_sm, g_irq_rom_dma, &g_irq_rom,
+                            g_irq_rom_words, g_irq_rom_dma_words) ||
+        !rearm_exact_stream(&g_irq_io_sm, g_irq_io_dma, &g_irq_io,
+                            g_irq_io_words, g_irq_io_dma_words)) {
+        park_physical_processor();
+        return false;
+    }
+    pio_sm_set_enabled(g_inta_sm.pio, g_inta_sm.sm, false);
+    arm_sm(&g_inta_sm);
+    pio_sm_exec(g_inta_sm.pio, g_inta_sm.sm,
+                pio_encode_mov(pio_pindirs, pio_null));
+    pio_sm_put_blocking(g_inta_sm.pio, g_inta_sm.sm,
+                        encode_gpio_word(COMPANION_VECTOR));
+    pio_sm_set_enabled(g_inta_sm.pio, g_inta_sm.sm, true);
+    rearm_live_observer(&g_observer_sm, g_observer_dma);
+    irq_set_enabled(DMA_IRQ_0, true);
+    route_ad_to_responder(&g_foreground_sm);
+
+    if (physical_workload_clock_mode() == RP86_WORKLOAD_CLOCK_STOPPED &&
+        !rp86_processor_bus_set_execution_clock_mode(
+            &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
+            EXECUTION_CLOCK_SWITCH_US)) {
+        park_physical_processor();
+        return false;
+    }
+    if (!rp86_processor_bus_set_execution_clock_mode(
+            &g_processor_bus, RP86_EXECUTION_CLOCK_FREE_RUNNING,
+            EXECUTION_CLOCK_SWITCH_US) ||
+        !wait_reset_clocks(RESET_CLOCKS) ||
+        !rp86_processor_bus_set_execution_clock_mode(
+            &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
+            EXECUTION_CLOCK_SWITCH_US)) {
+        park_physical_processor();
+        return false;
+    }
+
+    ++g_processor_boot_id;
+    if (g_processor_boot_id == 0u) ++g_processor_boot_id;
+    if (!rp86_processor_bus_set_execution_clock_mode(
+            &g_processor_bus, RP86_EXECUTION_CLOCK_FREE_RUNNING,
+            EXECUTION_CLOCK_SWITCH_US)) {
+        park_physical_processor();
+        return false;
+    }
+    gpio_put(RP86_PROCESSOR_PIN_RESET, false);
+    g_prepared_runtime_available = true;
+    g_general_workload_active = false;
+    g_bus_active = true;
+    g_workload_clock_mode = RP86_WORKLOAD_CLOCK_FREE_RUNNING;
+
+    busy_wait_ms(20u);
+    rp86_host_protocol_message_t proof = {
+        .version = RP86_HOST_PROTOCOL_VERSION,
+        .type = RP86_HOST_PROTOCOL_MESSAGE_HEARTBEAT,
+        .status = RP86_HOST_PROTOCOL_STATUS_OK,
+    };
+    live_round_result_t round;
+    if (!run_live_round(&g_foreground_sm, &g_irq_rom_sm, &g_irq_io_sm,
+                        &g_inta_sm, &g_observer_sm, g_observer_dma,
+                        &proof, &round)) {
+        park_physical_processor();
+        return false;
+    }
+    evidence_printf(
+        "[WORKLOAD START] id=%lu entry=%04X:%04X clock=FREE_RUNNING native=PASS\n",
+        (unsigned long)g_workload_manager.workload_id,
+        g_workload_manager.manifest.entry_segment,
+        g_workload_manager.manifest.entry_offset);
+    return prepared_runtime_physically_running();
 }
 
 static void print_canonical_status(void) {
@@ -1424,7 +1552,10 @@ static bool send_workload_reply(const rp86_host_protocol_message_t *request,
         .detail = g_workload_manager.received,
         .clock_mode = (uint32_t)physical_workload_clock_mode(),
         .processor_cycles = g_workload_bus_stats.cycles,
-        .processor_flags = g_processor_idle ? RP86_WORKLOAD_PROCESSOR_IDLE : 0u,
+        .processor_flags =
+            (g_processor_idle ? RP86_WORKLOAD_PROCESSOR_IDLE : 0u) |
+            (g_prepared_runtime_initialized ?
+                RP86_WORKLOAD_PREPARED_RUNTIME_INITIALIZED : 0u),
     };
     reply.version = RP86_HOST_PROTOCOL_VERSION;
     reply.type = status_reply ? RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_STATUS :
@@ -1496,34 +1627,32 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
              control.workload_id == g_workload_manager.workload_id)) {
             status = RP86_HOST_PROTOCOL_STATUS_OK;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_RUN) {
-            const bool calculator = g_prepared_runtime_available &&
-                                    calculator_workload_valid();
+            const bool calculator = calculator_workload_valid();
             const bool state_ok = rp86_workload_run(
                 &g_workload_manager, control.workload_id);
-            const bool started = !state_ok ? false : calculator ? true :
+            const bool started = !state_ok ? false : calculator ?
+                                 start_calculator_workload() :
                                  start_general_workload();
-            if (started && calculator)
-                g_workload_clock_mode = RP86_WORKLOAD_CLOCK_FREE_RUNNING;
             if (state_ok && !started)
                 g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
             status = started ? RP86_HOST_PROTOCOL_STATUS_OK :
                                RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_STOP) {
+            const bool calculator = calculator_workload_valid();
             const bool stopped = rp86_workload_stop(
                 &g_workload_manager, control.workload_id);
             if (stopped && g_general_workload_active) stop_general_workload();
+            else if (stopped && calculator) park_physical_processor();
             status = stopped ? RP86_HOST_PROTOCOL_STATUS_OK :
                                RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_RESTART) {
-            const bool calculator = g_prepared_runtime_available &&
-                                    calculator_workload_valid();
+            const bool calculator = calculator_workload_valid();
             const bool state_ok = rp86_workload_restart(
                 &g_workload_manager, control.workload_id);
             if (state_ok && g_general_workload_active) stop_general_workload();
-            const bool started = !state_ok ? false : calculator ? true :
+            const bool started = !state_ok ? false : calculator ?
+                                 start_calculator_workload() :
                                  start_general_workload();
-            if (started && calculator)
-                g_workload_clock_mode = RP86_WORKLOAD_CLOCK_FREE_RUNNING;
             if (state_ok && !started)
                 g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
             status = started ? RP86_HOST_PROTOCOL_STATUS_OK :
@@ -1799,22 +1928,22 @@ int main(void) {
         pio1, &rp86_processor_service_responder_program);
     const uint inta_offset = pio_add_program(
         pio1, &rp86_interrupt_acknowledge_responder_program);
-    rp86_pio_sm_t foreground, irq_rom, irq_io, inta, observer;
-    exact_sm_init(&foreground, 0u, exact_offset);
-    exact_sm_init(&irq_rom, 1u, exact_offset);
-    exact_sm_init(&irq_io, 2u, exact_offset);
-    inta_sm_init(&inta, 3u, inta_offset);
+    exact_sm_init(&g_foreground_sm, 0u, exact_offset);
+    exact_sm_init(&g_irq_rom_sm, 1u, exact_offset);
+    exact_sm_init(&g_irq_io_sm, 2u, exact_offset);
+    inta_sm_init(&g_inta_sm, 3u, inta_offset);
     hard_assert(rp86_processor_bus_init(
         &g_processor_bus, pio2, RP86_PROCESSOR_HZ,
         CLOCK_STEPPED_PIO_HZ));
-    observer_init(&observer);
+    observer_init(&g_observer_sm);
 
-    prime_exact(&foreground, &g_boot);
-    prime_exact(&irq_rom, &g_irq_rom);
-    prime_exact(&irq_io, &g_irq_io);
-    arm_sm(&inta);
-    pio_sm_exec(pio1, inta.sm, pio_encode_mov(pio_pindirs, pio_null));
-    pio_sm_put_blocking(pio1, inta.sm,
+    prime_exact(&g_foreground_sm, &g_boot);
+    prime_exact(&g_irq_rom_sm, &g_irq_rom);
+    prime_exact(&g_irq_io_sm, &g_irq_io);
+    arm_sm(&g_inta_sm);
+    pio_sm_exec(pio1, g_inta_sm.sm,
+                pio_encode_mov(pio_pindirs, pio_null));
+    pio_sm_put_blocking(pio1, g_inta_sm.sm,
                         encode_gpio_word(COMPANION_VECTOR));
 
     uint32_t foreground_initial_words = flatten_append(
@@ -1826,22 +1955,25 @@ int main(void) {
     g_irq_rom_dma_words = flatten_full(&g_irq_rom, g_irq_rom_words);
     g_irq_io_dma_words = flatten_full(&g_irq_io, g_irq_io_words);
     g_foreground_dma = start_words_dma(
-        &foreground, g_foreground_initial_words, foreground_initial_words);
+        &g_foreground_sm, g_foreground_initial_words,
+        foreground_initial_words);
     g_irq_rom_dma = start_words_dma(
-        &irq_rom, g_irq_rom_words, g_irq_rom_dma_words);
+        &g_irq_rom_sm, g_irq_rom_words, g_irq_rom_dma_words);
     g_irq_io_dma = start_words_dma(
-        &irq_io, g_irq_io_words, g_irq_io_dma_words);
+        &g_irq_io_sm, g_irq_io_words, g_irq_io_dma_words);
     dma_channel_set_irq0_enabled((uint)g_foreground_dma, true);
     dma_channel_set_irq0_enabled((uint)g_irq_rom_dma, true);
     dma_channel_set_irq0_enabled((uint)g_irq_io_dma, true);
     irq_set_exclusive_handler(DMA_IRQ_0, companion_dma_irq0);
     irq_set_priority(DMA_IRQ_0, 0x40u);
     irq_set_enabled(DMA_IRQ_0, true);
-    const int observer_dma = start_observer_dma(&observer);
+    const int observer_dma = start_observer_dma(&g_observer_sm);
     g_observer_dma = observer_dma;
+    g_prepared_runtime_initialized = true;
 
-    route_ad_to_responder(&foreground);
-    result.non_ad_isolation = responder_non_ad_pins_isolated(&foreground);
+    route_ad_to_responder(&g_foreground_sm);
+    result.non_ad_isolation =
+        responder_non_ad_pins_isolated(&g_foreground_sm);
     result.pre_release_clean = result.non_ad_isolation &&
         pio1->dbg_padoe == 0u && !gpio_get(RP86_PROCESSOR_PIN_CLK) &&
         (sio_hw->gpio_oe & RP86_PROCESSOR_AD_BUS_MASK) == 0u;
@@ -1858,7 +1990,7 @@ int main(void) {
     result.pre_release_clean = result.pre_release_clean && reset_ok;
 
     pio_enable_sm_mask_in_sync(pio1, 0x0Fu);
-    pio_sm_set_enabled(pio0, observer.sm, true);
+    pio_sm_set_enabled(pio0, g_observer_sm.sm, true);
     ++g_processor_boot_id;
     if (g_processor_boot_id == 0u)
         ++g_processor_boot_id;
@@ -1889,7 +2021,7 @@ int main(void) {
             pio_interrupt_clear(pio1, 5u);
             result.second_inta_complete = true;
             ++result.irq_completions;
-            pio_sm_put_blocking(pio1, inta.sm,
+            pio_sm_put_blocking(pio1, g_inta_sm.sm,
                                 encode_gpio_word(COMPANION_VECTOR));
         }
         busy_wait_us_32(IRQ_PERIOD_US);
@@ -1916,13 +2048,14 @@ int main(void) {
     result.foreground_dma_remain = dma_remaining(g_foreground_dma);
     result.irq_rom_dma_remain = dma_remaining(g_irq_rom_dma);
     result.irq_io_dma_remain = dma_remaining(g_irq_io_dma);
-    result.foreground_fifo = pio_sm_get_tx_fifo_level(pio1, foreground.sm);
-    result.irq_rom_fifo = pio_sm_get_tx_fifo_level(pio1, irq_rom.sm);
-    result.irq_io_fifo = pio_sm_get_tx_fifo_level(pio1, irq_io.sm);
-    result.foreground_pc = pio_sm_get_pc(pio1, foreground.sm);
-    result.irq_rom_pc = pio_sm_get_pc(pio1, irq_rom.sm);
-    result.irq_io_pc = pio_sm_get_pc(pio1, irq_io.sm);
-    result.inta_pc = pio_sm_get_pc(pio1, inta.sm);
+    result.foreground_fifo =
+        pio_sm_get_tx_fifo_level(pio1, g_foreground_sm.sm);
+    result.irq_rom_fifo = pio_sm_get_tx_fifo_level(pio1, g_irq_rom_sm.sm);
+    result.irq_io_fifo = pio_sm_get_tx_fifo_level(pio1, g_irq_io_sm.sm);
+    result.foreground_pc = pio_sm_get_pc(pio1, g_foreground_sm.sm);
+    result.irq_rom_pc = pio_sm_get_pc(pio1, g_irq_rom_sm.sm);
+    result.irq_io_pc = pio_sm_get_pc(pio1, g_irq_io_sm.sm);
+    result.inta_pc = pio_sm_get_pc(pio1, g_inta_sm.sm);
 
     send_live_reply(&g_host_record, &initial_round,
                     result.heartbeat_active);
@@ -1943,8 +2076,8 @@ int main(void) {
         } else if (g_prepared_runtime_available && take_live_record(&request)) {
             live_round_result_t round;
             const bool passed = run_live_round(
-                &foreground, &irq_rom, &irq_io, &inta,
-                &observer, observer_dma, &request, &round);
+                &g_foreground_sm, &g_irq_rom_sm, &g_irq_io_sm, &g_inta_sm,
+                &g_observer_sm, observer_dma, &request, &round);
             send_live_reply(&request, &round, passed);
         } else if (!g_prepared_runtime_available) {
             (void)take_non_control_record(&request);

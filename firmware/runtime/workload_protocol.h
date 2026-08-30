@@ -48,6 +48,7 @@ typedef enum {
 
 typedef enum {
     RP86_WORKLOAD_PROCESSOR_IDLE = 1u << 0,
+    RP86_WORKLOAD_PREPARED_RUNTIME_INITIALIZED = 1u << 1,
 } rp86_workload_processor_flags_t;
 
 typedef struct __attribute__((packed)) {

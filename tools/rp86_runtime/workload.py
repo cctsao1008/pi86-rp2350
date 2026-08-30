@@ -39,6 +39,7 @@ _STATUS_V2 = struct.Struct("<IIIII")
 _STATUS = struct.Struct("<IIIIII")
 
 PROCESSOR_FLAG_IDLE = 1 << 0
+PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED = 1 << 1
 
 CLOCK_MODES = {
     "auto": 0,
