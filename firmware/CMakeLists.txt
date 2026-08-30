@@ -6,11 +6,12 @@ add_executable(rp86_rp2350
     memory/memory.c
     memory/psram_backing.c
     memory/shared_mailbox.c
+    bus/prepared_responder.c
     bus/processor_bus.c
     runtime/clock_stepped_bus_controller.c
+    runtime/canonical_runtime.c
     runtime/evidence_queue.c
     runtime/execution_clock_controller.c
-    runtime/runtime.c
     runtime/workload_manager.c
     storage/flash_disk.c
     storage/flash_service.c
