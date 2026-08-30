@@ -1,6 +1,8 @@
 #ifndef RP86_HOST_PROTOCOL_H
 #define RP86_HOST_PROTOCOL_H
 
+#include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 /* Provider-neutral Core1/Core0 and USB message ABI.
@@ -111,6 +113,12 @@ typedef struct {
     uint16_t status;
     uint8_t payload[RP86_HOST_PROTOCOL_PAYLOAD_SIZE];
 } rp86_host_protocol_message_t;
+
+static inline bool rp86_host_protocol_payload_length_valid(
+    const rp86_host_protocol_message_t *record) {
+    return record != NULL &&
+           record->length <= RP86_HOST_PROTOCOL_PAYLOAD_SIZE;
+}
 
 /* Native service completion witness carried at the start of a HEARTBEAT or
  * RESULT payload. cpu_sequence is produced by the physical 8086-class

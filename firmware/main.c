@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "pico/bootrom.h"
+#include "hardware/clocks.h"
 #include "hardware/watchdog.h"
 #include "tusb.h"
 
@@ -68,6 +69,7 @@
 #define IRQ_TIMEOUT_US               10000u
 #define LIVE_ROUND_TIMEOUT_US         50000u
 #define HOST_TIMEOUT_US            5000000u
+#define EXACT_RESPONDER_CLK_SYS_HZ 150000000u
 #define MAX_PAIRS                       96u
 #define STREAM_WORDS (MAX_PAIRS * 2u)
 #define NATIVE_TEXT_WORDS                 6u
@@ -236,6 +238,13 @@ static bool g_bus_active;
 
 static bool take_non_control_record(rp86_host_protocol_message_t *record) {
     if (!rp86_host_protocol_hid_take_record((uint8_t *)record)) return false;
+    if (!rp86_host_protocol_payload_length_valid(record)) {
+        if (record->version == RP86_HOST_PROTOCOL_VERSION &&
+            record->type >= RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_BEGIN &&
+            record->type <= RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_CONTROL)
+            handle_workload_record(record);
+        return false;
+    }
     if (record->version == RP86_HOST_PROTOCOL_VERSION &&
         record->type == RP86_HOST_PROTOCOL_MESSAGE_RUNTIME_CONTROL) {
         handle_runtime_control(record);
@@ -477,6 +486,7 @@ static uint32_t flatten_append(const exact_sequence_t *s,
 }
 
 static void exact_sm_init(rp86_pio_sm_t *s, uint sm, uint offset) {
+    hard_assert(clock_get_hz(clk_sys) == EXACT_RESPONDER_CLK_SYS_HZ);
     s->pio = pio1;
     s->sm = sm;
     s->offset = offset;
@@ -1431,7 +1441,10 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
     rp86_host_protocol_status_t status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
     bool status_reply = false;
 
-    if (request->status != RP86_HOST_PROTOCOL_STATUS_OK) {
+    if (!rp86_host_protocol_payload_length_valid(request)) {
+        /* The dispatcher rejects this ABI violation before any payload read.
+         * Keep the check here too so this handler remains safe in isolation. */
+    } else if (request->status != RP86_HOST_PROTOCOL_STATUS_OK) {
         status = RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
     } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_BEGIN &&
                request->length == sizeof(rp86_workload_begin_payload_t)) {
