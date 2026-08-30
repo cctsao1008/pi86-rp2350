@@ -54,7 +54,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--pre);bo
 </style>
 </head>
 <body>
-<header><div><h1>RP86 Development Console</h1><div class="sub">Intel 8086 / NEC V30 × RP2350 · physical-processor first</div></div><div class="toolbar"><button id="refreshAll">Refresh</button><button id="autoBtn">Auto refresh: ON</button><button id="themeBtn" title="Switch color theme">☾ Dark</button></div></header>
+<header><div><h1>RP86 Development Console</h1><div class="sub">Intel 8086 / NEC V30 × RP2350 · physical-processor first</div></div><div class="toolbar"><button id="refreshAll">Refresh</button><button id="autoBtn">Auto refresh: ON</button><button id="themeBtn" title="Switch to light theme">☀ Light</button></div></header>
 <main>
 <section class="card"><div class="card-head"><span>Physical processor</span><span id="cpuBadge" class="muted">UNKNOWN</span></div><div class="card-body">
 <div class="hero"><span id="cpuName">8086-class processor</span> <small id="brokerMode">waiting for telemetry</small></div><div class="statusline"><span id="cpuDot" class="dot"></span><span id="cpuAlive">Not checked</span></div>
@@ -82,7 +82,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--pre);bo
 <script>
 const $=id=>document.getElementById(id);let autoRefresh=true,busyStatus=false,busyProcessor=false;
 function now(){return new Date().toLocaleTimeString()}function log(msg){const el=$('logOut');el.textContent+=`[${now()}] ${msg}\n`;el.scrollTop=el.scrollHeight}function val(v,f='--'){return v===null||v===undefined||v===''?f:String(v)}
-function theme(){return document.documentElement.dataset.theme==='light'?'light':'dark'}function syncThemeButton(){$('themeBtn').textContent=theme()==='light'?'☀ Light':'☾ Dark';$('themeBtn').title=theme()==='light'?'Switch to dark theme':'Switch to light theme'}function toggleTheme(){const next=theme()==='dark'?'light':'dark';document.documentElement.dataset.theme=next;try{localStorage.setItem('rp86-theme',next)}catch(_){}syncThemeButton()}
+function theme(){return document.documentElement.dataset.theme==='light'?'light':'dark'}function syncThemeButton(){$('themeBtn').textContent=theme()==='light'?'◐ Dark':'☀ Light';$('themeBtn').title=theme()==='light'?'Switch to dark theme':'Switch to light theme'}function toggleTheme(){const next=theme()==='dark'?'light':'dark';document.documentElement.dataset.theme=next;try{localStorage.setItem('rp86-theme',next)}catch(_){}syncThemeButton()}
 async function api(path,options={}){const r=await fetch(path,options);const d=await r.json().catch(()=>({ok:false,error:'invalid JSON response'}));if(!r.ok||!d.ok)throw new Error(d.error||`HTTP ${r.status}`);return d}
 function setCpuOffline(reason){$('cpuDot').className='dot bad';$('cpuAlive').textContent=reason||'No live broker telemetry';$('cpuBadge').textContent='NO BROKER';$('cpuBadge').className='warn';$('brokerMode').textContent='runtime-only view';$('cpuIdentity').textContent='UNKNOWN'}
 function renderProcessor(data){const s=data.snapshot||{},native=s.native_processor||null,policy=(data.processor||'auto').toLowerCase(),completed=Number(s.completed||0),liveness=!!native&&completed>0;const names={'nec-v30':'NEC V30','intel-8086':'Intel 8086'};$('cpuName').textContent=native?(names[String(native).toLowerCase()]||String(native).toUpperCase()):'8086-class processor';$('cpuIdentity').textContent=native?(names[String(native).toLowerCase()]||String(native).toUpperCase()):'UNKNOWN';$('identityPolicy').textContent=policy==='auto'?'AUTO DETECT':policy.toUpperCase();$('cpuState').textContent=val(s.state);$('heartbeat').textContent=`${completed} completed / ${val(s.lost,0)} lost`;$('rtt').textContent=completed?`${Number(s.last_ms||0).toFixed(1)} ms`:'--';$('requestSeq').textContent=val(s.request_sequence);$('cpuSeq').textContent=val(s.cpu_sequence);$('deviceId').textContent=val(data.device_id);$('bootId').textContent=val(s.boot_id);$('commandSeq').textContent=val(s.command_sequence);$('workloadId').textContent=val(s.workload_id);$('workloadState').textContent=val(s.workload_state);$('clockMode').textContent=val(s.workload_clock_mode);$('cpuCycles').textContent=val(s.workload_cycles);if(liveness){$('cpuDot').className='dot good';$('cpuAlive').textContent='Physical processor liveness proven';$('cpuBadge').textContent='ALIVE';$('cpuBadge').className='good'}else{$('cpuDot').className='dot';$('cpuAlive').textContent='Host Broker active; CPU liveness not yet proven';$('cpuBadge').textContent='UNPROVEN';$('cpuBadge').className='warn'}const mode=data.owner_mode==='web-owned'?'Web-owned background runtime':data.owner_mode==='existing'?'Existing Host Broker':'Host Broker';$('brokerMode').textContent=`${mode} · ${val(data.device_id)}`;$('brokerBadge').textContent=data.owner_mode==='web-owned'?'WEB OWNER':'ACTIVE';$('brokerBadge').className='good';$('brokerOut').textContent=JSON.stringify(data,null,2)}
@@ -235,7 +235,7 @@ def _processor_snapshot() -> dict[str, object]:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RP86Web/3.1"
+    server_version = "RP86Web/3.2"
 
     def log_message(self, fmt: str, *args: object) -> None:
         print(f"[rp86-web] {self.address_string()} - {fmt % args}")
