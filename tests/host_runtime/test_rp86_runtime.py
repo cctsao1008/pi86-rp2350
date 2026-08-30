@@ -2,6 +2,8 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
@@ -23,9 +25,40 @@ from rp86_runtime.shell_commands import (  # noqa: E402
     parse_command,
 )
 from rp86_runtime.workload import WorkloadManifest  # noqa: E402
+import rp86_web  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
+    def test_canonical_entrypoint_does_not_monkey_patch_runtime_modules(self) -> None:
+        source = (TOOLS / "rp86.py").read_text(encoding="utf-8")
+        self.assertNotIn("decode_status_payload =", source)
+        self.assertNotIn("DeviceBroker.publish =", source)
+        self.assertNotIn("rp86_web._", source)
+
+    def test_web_owner_starts_canonical_exchange_and_heartbeat(self) -> None:
+        process = Mock()
+        process.poll.return_value = None
+        record = SimpleNamespace(device_id="TEST-RP86")
+        rp86_web._owned_runtime = None
+        rp86_web._owner_mode = "not-started"
+        rp86_web._owner_error = None
+        with (
+            patch.object(rp86_web, "_active_broker", side_effect=[None, record]),
+            patch.object(rp86_web.subprocess, "Popen", return_value=process) as popen,
+            patch.object(rp86_web.time, "sleep"),
+        ):
+            result = rp86_web._ensure_runtime_owner(wait_seconds=0.5)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode"], "web-owned")
+        command = popen.call_args.args[0]
+        self.assertIn("--exchange", command)
+        self.assertIn("--heartbeat", command)
+        self.assertNotIn("--attach", command)
+        rp86_web._owned_runtime = None
+        rp86_web._owner_mode = "not-started"
+        rp86_web._owner_error = None
+
     def test_calculator_encodes_syntax_without_host_evaluation(self) -> None:
         payload = calculator_payload(("0x1234", "*", "3"))
         self.assertTrue(is_calculator_payload(payload))

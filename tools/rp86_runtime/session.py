@@ -268,6 +268,19 @@ def persistent_monitor(
             "completed": stats.completed,
             "lost": stats.lost,
             "last_ms": stats.last_ms,
+            "workload_id": staged_workload_id,
+            "workload_state": _workload_state_name(staged_workload_state),
+            "workload_detail": staged_workload_detail,
+            "workload_clock_mode": CLOCK_MODE_NAMES.get(
+                staged_workload_clock_mode,
+                f"UNKNOWN({staged_workload_clock_mode})",
+            ),
+            "workload_cycles": staged_workload_cycles,
+            "workload_processor_flags": staged_workload_processor_flags,
+            "workload_processor_state": _processor_execution_state(
+                staged_workload_clock_mode,
+                staged_workload_processor_flags,
+            ),
         }
 
     def service_broker_requests() -> None:

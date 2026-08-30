@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 import time
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,6 +32,10 @@ from rp86_runtime.memory import format_memory_dump, memory_read_request, parse_m
 _owned_runtime: subprocess.Popen[str] | None = None
 _owner_mode = "not-started"
 _owner_error: str | None = None
+_OWNER_STARTUP_WAIT_S = 75.0
+_REBOOT_SETTLE_S = 1.5
+_recovery_lock = threading.Lock()
+_recovery_active = threading.Event()
 
 INDEX_HTML = r"""<!doctype html>
 <html lang="en">
@@ -146,7 +151,9 @@ def _active_broker():
         raise
 
 
-def _ensure_runtime_owner(wait_seconds: float = 4.0) -> dict[str, object]:
+def _ensure_runtime_owner(
+    wait_seconds: float = _OWNER_STARTUP_WAIT_S,
+) -> dict[str, object]:
     """Attach to an existing broker or start one headlessly for the Web UI."""
     global _owned_runtime, _owner_mode, _owner_error
 
@@ -163,9 +170,8 @@ def _ensure_runtime_owner(wait_seconds: float = 4.0) -> dict[str, object]:
     command = [
         sys.executable,
         str(RP86),
-        "--interactive",
+        "--exchange",
         "--heartbeat",
-        "--attach",
         "--display",
         "quiet",
         "--interval",
@@ -222,6 +228,45 @@ def _stop_owned_runtime() -> None:
     _owned_runtime = None
 
 
+def _start_runtime_recovery(reason: str) -> None:
+    """Restore a Web-owned runtime after an RP2350 restart or owner exit."""
+    global _owner_error
+
+    if _owner_mode != "web-owned" or _recovery_active.is_set():
+        return
+    with _recovery_lock:
+        if _recovery_active.is_set():
+            return
+        _recovery_active.set()
+    _owner_error = f"RP86 runtime restarting: {reason}"
+
+    def recover() -> None:
+        global _owned_runtime, _owner_error
+        try:
+            time.sleep(_REBOOT_SETTLE_S)
+            process = _owned_runtime
+            if process is not None and process.poll() is None:
+                try:
+                    process.wait(timeout=5.0)
+                except subprocess.TimeoutExpired:
+                    pass
+            if process is not None and process.poll() is not None:
+                _owned_runtime = None
+            result = _ensure_runtime_owner()
+            if not result.get("ok"):
+                _owner_error = str(
+                    result.get("error") or "RP86 runtime recovery failed"
+                )
+        finally:
+            _recovery_active.clear()
+
+    threading.Thread(
+        target=recover,
+        name="rp86-web-runtime-recovery",
+        daemon=True,
+    ).start()
+
+
 def _processor_snapshot() -> dict[str, object]:
     """Return read-only physical-processor telemetry from the active broker."""
     try:
@@ -229,6 +274,13 @@ def _processor_snapshot() -> dict[str, object]:
     except RuntimeError as exc:
         return {"ok": False, "error": str(exc), "owner_mode": _owner_mode}
     if record is None:
+        process = _owned_runtime
+        owner_died = (
+            _owner_mode == "web-owned"
+            and (process is None or process.poll() is not None)
+        )
+        if owner_died:
+            _start_runtime_recovery("Web-owned processor session exited")
         detail = _owner_error or "No active RP86 Host Broker."
         return {"ok": False, "error": detail, "owner_mode": _owner_mode}
     try:
@@ -453,6 +505,8 @@ class Handler(BaseHTTPRequestHandler):
             return
         flag = "--reboot" if action == "reboot" else "--bootloader"
         result = _run_rp86(flag, "--timeout", "5", timeout=8.0)
+        if action == "reboot" and result.get("ok"):
+            _start_runtime_recovery("RP2350 reboot acknowledged")
         self._send_json(result, 200 if result["ok"] else 503)
 
 

@@ -56,7 +56,9 @@ fast_invsqrt_entry:
     putc '8'
     call newline
 
-    mov si, test_vectors
+    ; Use an image-relative scalar. NASM 3.02 deliberately rejects an
+    ; unresolved 16-bit absolute relocation in a flat binary build.
+    mov si, test_vectors - $$
     mov bp, test_vector_count
     mov dl, '1'
     xor di, di                  ; failure count
@@ -217,7 +219,7 @@ invsqrt_q8_8:
     mov cl, 5
     shr bx, cl
     shl bx, 1                  ; word table index
-    mov di, [invsqrt_lut + bx] ; DI = initial y estimate
+    mov di, [bx + invsqrt_lut - $$] ; DI = initial y estimate
 
     ; Two Newton-Raphson refinements.
     mov cx, 2
