@@ -8,6 +8,7 @@
  */
 
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -33,6 +34,7 @@
 #include "processor/processor_bus.h"
 #include "processor_service.pio.h"
 #include "runtime/clock_stepped_bus_controller.h"
+#include "runtime/evidence_queue.h"
 #include "runtime/workload_manager.h"
 #include "storage/flash_layout.h"
 #include "storage/flash_service.h"
@@ -165,6 +167,7 @@ static rp86_memory_service_t g_memory_service;
 static rp86_workload_manager_t g_workload_manager;
 static rp86_processor_bus_t g_processor_bus;
 static rp86_memory_t g_processor_memory;
+static rp86_evidence_queue_t g_runtime_evidence;
 static rp86_clock_stepped_stats_t g_workload_bus_stats;
 static uint8_t g_reset_handoff[RESET_HANDOFF_SIZE];
 static bool g_general_workload_active;
@@ -203,6 +206,7 @@ static const uint8_t g_calculator_workload_contract[CALCULATOR_WORKLOAD_SIZE] = 
 };
 
 static int evidence_printf(const char *format, ...);
+static void drain_runtime_evidence(void);
 static void service_cdc_control(void);
 static bool handle_runtime_control(const rp86_host_protocol_message_t *record);
 static bool handle_filesystem_record(const rp86_host_protocol_message_t *record);
@@ -944,8 +948,25 @@ static int evidence_printf(const char *format, ...) {
     const int length = vsnprintf(line, sizeof line, format, args);
     va_end(args);
     if (length < 0 || (size_t)length >= sizeof line) return -1;
+    if (g_general_workload_active) {
+        return rp86_evidence_queue_try_push(
+                   &g_runtime_evidence, line, (size_t)length) ?
+                   length : -1;
+    }
     return rp86_host_protocol_cdc_write(line, (uint32_t)length,
                                     HOST_TIMEOUT_US) ? length : -1;
+}
+
+static void drain_runtime_evidence(void) {
+    const uint8_t *data = NULL;
+    const size_t available = rp86_evidence_queue_peek(
+        &g_runtime_evidence, &data);
+    if (available == 0u) return;
+    const uint32_t bounded = available > UINT32_MAX ?
+        UINT32_MAX : (uint32_t)available;
+    const uint32_t written = rp86_host_protocol_cdc_try_write(
+        (const char *)data, bounded);
+    rp86_evidence_queue_consume(&g_runtime_evidence, written);
 }
 
 static rp86_workload_clock_mode_t physical_workload_clock_mode(void) {
@@ -977,6 +998,15 @@ static void print_canonical_status(void) {
                     (double)RP86_PROCESSOR_HZ / 1000000.0);
     evidence_printf("Clock-stepped cycles       = %lu\n",
                     (unsigned long)g_workload_bus_stats.cycles);
+    evidence_printf("Maximum clock-step interval = %lu us\n",
+                    (unsigned long)rp86_processor_bus_max_step_interval_us(
+                        &g_processor_bus));
+    evidence_printf("Native evidence queue drops = %lu\n",
+                    (unsigned long)rp86_evidence_queue_drops(
+                        &g_runtime_evidence));
+    evidence_printf("HID OUT record drops       = %lu\n",
+                    (unsigned long)
+                        rp86_host_protocol_hid_producer_drops());
     evidence_printf("Processor idle             = %s\n",
                     g_processor_idle ? "YES / HLT" : "NO");
     evidence_printf("Processor                  = HOST DECLARED: INTEL 8086 OR NEC V30\n");
@@ -1235,6 +1265,7 @@ static bool start_general_workload(void) {
         rp86_processor_bus_force_safe_state(&g_processor_bus);
         return false;
     }
+    rp86_processor_bus_reset_step_timing(&g_processor_bus);
     evidence_printf(
         "[WORKLOAD START] id=%lu entry=%04X:%04X clock=CLOCK_STEPPED\n",
         (unsigned long)g_workload_manager.workload_id,
@@ -1246,7 +1277,6 @@ static void stop_general_workload(void) {
     if (!g_general_workload_active) return;
     rp86_processor_bus_safe_halt(&g_processor_bus, RESET_CLOCKS);
     flush_diagnostic_line();
-    g_general_workload_active = false;
     g_bus_active = false;
     g_workload_idle_armed = false;
     g_processor_idle = false;
@@ -1254,6 +1284,7 @@ static void stop_general_workload(void) {
     g_workload_clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
     evidence_printf("[WORKLOAD STOP] cycles=%lu\n",
                     (unsigned long)g_workload_bus_stats.cycles);
+    g_general_workload_active = false;
 }
 
 static void retain_workload_cycle(void) {
@@ -1515,10 +1546,14 @@ static bool handle_filesystem_record(const rp86_host_protocol_message_t *request
 
 static bool handle_memory_record(const rp86_host_protocol_message_t *request) {
     rp86_host_protocol_message_t reply;
-    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING &&
+        rp86_shared_mailbox_host_owned(&g_workload_memory)) {
         rp86_memory_service_set_write_window(
             &g_memory_service, RP86_SHARED_MAILBOX_BASE,
             RP86_SHARED_MAILBOX_SIZE);
+    } else if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+        rp86_memory_service_set_write_window(
+            &g_memory_service, RP86_SHARED_MAILBOX_BASE, 0u);
     } else {
         rp86_memory_service_set_write_window(
             &g_memory_service, g_workload_memory.processor_base,
@@ -1720,6 +1755,7 @@ int main(void) {
     prepare_header_high_z();
     init_control_outputs();
     route_ad_to_sio_high_z();
+    rp86_evidence_queue_reset(&g_runtime_evidence);
     rp86_internal_sram_backing_init(&g_workload_memory);
     hard_assert(rp86_shared_mailbox_init(&g_workload_memory));
     rp86_memory_service_init(&g_memory_service, &g_workload_memory);
@@ -1886,6 +1922,7 @@ int main(void) {
     while (true) {
         rp86_host_protocol_usb_task();
         service_cdc_control();
+        drain_runtime_evidence();
         rp86_host_protocol_message_t request;
         if (g_general_workload_active) {
             (void)take_non_control_record(&request);

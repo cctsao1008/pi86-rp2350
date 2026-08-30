@@ -14,9 +14,11 @@ void rp86_host_protocol_usb_init(void);
 void rp86_host_protocol_usb_task(void);
 bool rp86_host_protocol_cdc_write(const char *data, uint32_t length,
                               uint32_t timeout_us);
+uint32_t rp86_host_protocol_cdc_try_write(const char *data, uint32_t length);
 bool rp86_host_protocol_hid_take_record(
     uint8_t record[RP86_HOST_PROTOCOL_MESSAGE_SIZE]);
 bool rp86_host_protocol_hid_send_record(
     const uint8_t record[RP86_HOST_PROTOCOL_MESSAGE_SIZE], uint32_t timeout_us);
+uint32_t rp86_host_protocol_hid_producer_drops(void);
 
 #endif

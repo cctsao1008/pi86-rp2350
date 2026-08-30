@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -92,6 +93,36 @@ int main(void) {
     assert(rp86_memory_service_handle(&service, &request, &reply));
     assert(reply.status == RP86_HOST_PROTOCOL_STATUS_OK);
     assert(memcmp(storage + mailbox_write.address, "run", 3u) == 0);
+
+    const uint16_t processor_owner = RP86_SHARED_MAILBOX_OWNER_PROCESSOR;
+    const request_header_t owner_write = {
+        .operation = RP86_MEMORY_WRITE,
+        .address = RP86_SHARED_MAILBOX_BASE +
+                   offsetof(rp86_shared_mailbox_header_t, owner),
+        .length = sizeof processor_owner,
+    };
+    request.sequence = 12u;
+    memset(request.payload, 0, sizeof request.payload);
+    memcpy(request.payload, &owner_write, sizeof owner_write);
+    memcpy(request.payload + sizeof owner_write, &processor_owner,
+           sizeof processor_owner);
+    request.length = sizeof owner_write + sizeof processor_owner;
+    assert(rp86_memory_service_handle(&service, &request, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_OK);
+    assert(!rp86_shared_mailbox_host_owned(&backing));
+
+    /* Firmware closes the complete Host write window while the processor
+     * owns the transaction, including both header and data bytes. */
+    rp86_memory_service_set_write_window(
+        &service, RP86_SHARED_MAILBOX_BASE, 0u);
+    request.sequence = 13u;
+    assert(rp86_memory_service_handle(&service, &request, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_STATE);
+
+    const uint16_t host_owner = RP86_SHARED_MAILBOX_OWNER_HOST;
+    assert(rp86_memory_backing_write(&backing, owner_write.address,
+                                     &host_owner, sizeof host_owner));
+    assert(rp86_shared_mailbox_host_owned(&backing));
 
     return 0;
 }

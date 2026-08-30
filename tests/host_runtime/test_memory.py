@@ -49,7 +49,7 @@ class HostMemoryTests(unittest.TestCase):
             request.payload[:12],
             status=STATUS_BAD_STATE,
         )
-        with self.assertRaisesRegex(ValueError, "only the shared mailbox"):
+        with self.assertRaisesRegex(ValueError, "Host-owned shared mailbox"):
             validate_memory_reply(reply, request)
 
     def test_mailbox_commit_transfers_owner_last(self) -> None:

@@ -45,6 +45,8 @@ typedef struct __attribute__((packed)) {
 } rp86_shared_mailbox_header_t;
 
 bool rp86_shared_mailbox_init(rp86_memory_backing_t *backing);
+bool rp86_shared_mailbox_host_owned(
+    const rp86_memory_backing_t *backing);
 
 _Static_assert(sizeof(rp86_shared_mailbox_header_t) ==
                RP86_SHARED_MAILBOX_DATA_OFFSET,

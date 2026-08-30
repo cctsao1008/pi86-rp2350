@@ -49,6 +49,8 @@ typedef struct {
 typedef struct {
     rp86_execution_clock_t execution_clock;
     bool faulted;
+    uint64_t last_step_us;
+    uint32_t max_step_interval_us;
 } rp86_processor_bus_t;
 
 void rp86_processor_bus_prepare_header_high_z(void);
@@ -66,6 +68,9 @@ rp86_execution_clock_mode_t rp86_processor_bus_execution_clock_mode(
     const rp86_processor_bus_t *bus);
 bool rp86_processor_bus_faulted(const rp86_processor_bus_t *bus);
 void rp86_processor_bus_clear_fault(rp86_processor_bus_t *bus);
+void rp86_processor_bus_reset_step_timing(rp86_processor_bus_t *bus);
+uint32_t rp86_processor_bus_max_step_interval_us(
+    const rp86_processor_bus_t *bus);
 void rp86_processor_bus_force_safe_state(rp86_processor_bus_t *bus);
 
 

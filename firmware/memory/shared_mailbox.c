@@ -18,3 +18,15 @@ bool rp86_shared_mailbox_init(rp86_memory_backing_t *backing) {
     rp86_memory_backing_publish(backing);
     return true;
 }
+
+bool rp86_shared_mailbox_host_owned(
+    const rp86_memory_backing_t *backing) {
+    rp86_shared_mailbox_header_t header;
+    if (!rp86_memory_backing_read(backing, RP86_SHARED_MAILBOX_BASE,
+                                  &header, sizeof header))
+        return false;
+    return header.magic == RP86_SHARED_MAILBOX_MAGIC &&
+           header.version == RP86_SHARED_MAILBOX_VERSION &&
+           header.header_size == sizeof header &&
+           header.owner == RP86_SHARED_MAILBOX_OWNER_HOST;
+}

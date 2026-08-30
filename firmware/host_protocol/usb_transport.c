@@ -53,6 +53,16 @@ bool rp86_host_protocol_cdc_write(const char *data, uint32_t length,
     return offset == length;
 }
 
+uint32_t rp86_host_protocol_cdc_try_write(const char *data, uint32_t length) {
+    if (data == NULL || length == 0u || !tud_cdc_connected()) return 0u;
+    const uint32_t available = tud_cdc_write_available();
+    if (available == 0u) return 0u;
+    if (length > available) length = available;
+    const uint32_t written = tud_cdc_write(data, length);
+    if (written != 0u) tud_cdc_write_flush();
+    return written;
+}
+
 bool rp86_host_protocol_hid_take_record(
     uint8_t record[RP86_HOST_PROTOCOL_MESSAGE_SIZE]) {
     return rp86_spsc_record_try_take(&g_hid_out_slot, record);
@@ -76,6 +86,10 @@ bool rp86_host_protocol_hid_send_record(
     while (!g_hid_in_complete && time_us_64() <= deadline)
         rp86_host_protocol_usb_task();
     return g_hid_in_complete;
+}
+
+uint32_t rp86_host_protocol_hid_producer_drops(void) {
+    return rp86_spsc_record_drops(&g_hid_out_slot);
 }
 
 uint16_t tud_hid_get_report_cb(uint8_t instance, uint8_t report_id,

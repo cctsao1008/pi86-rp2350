@@ -26,6 +26,7 @@ add_executable(rp86_rp2350
     memory/shared_mailbox.c
     processor/processor_bus.c
     runtime/clock_stepped_bus_controller.c
+    runtime/evidence_queue.c
     runtime/execution_clock_controller.c
     runtime/runtime.c
     runtime/workload_manager.c

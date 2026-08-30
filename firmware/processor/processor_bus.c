@@ -114,6 +114,8 @@ bool rp86_processor_bus_init(rp86_processor_bus_t *bus, PIO pio,
     if (bus == NULL) return false;
     init_data_luts();
     bus->faulted = false;
+    bus->last_step_us = 0u;
+    bus->max_step_interval_us = 0u;
     return rp86_execution_clock_init(&bus->execution_clock, pio,
                                      free_running_hz,
                                      clock_stepped_pio_hz);
@@ -131,6 +133,17 @@ void rp86_processor_bus_force_safe_state(rp86_processor_bus_t *bus) {
 }
 
 uint32_t rp86_processor_bus_step(rp86_processor_bus_t *bus) {
+    if (bus != NULL) {
+        const uint64_t now = time_us_64();
+        if (bus->last_step_us != 0u) {
+            const uint64_t interval = now - bus->last_step_us;
+            const uint32_t bounded = interval > UINT32_MAX ?
+                UINT32_MAX : (uint32_t)interval;
+            if (bounded > bus->max_step_interval_us)
+                bus->max_step_interval_us = bounded;
+        }
+        bus->last_step_us = now;
+    }
     if (bus == NULL || !rp86_execution_clock_step(&bus->execution_clock)) {
         if (bus != NULL) bus->faulted = true;
         rp86_processor_bus_force_safe_state(bus);
@@ -157,6 +170,17 @@ bool rp86_processor_bus_faulted(const rp86_processor_bus_t *bus) {
 
 void rp86_processor_bus_clear_fault(rp86_processor_bus_t *bus) {
     if (bus != NULL) bus->faulted = false;
+}
+
+void rp86_processor_bus_reset_step_timing(rp86_processor_bus_t *bus) {
+    if (bus == NULL) return;
+    bus->last_step_us = 0u;
+    bus->max_step_interval_us = 0u;
+}
+
+uint32_t rp86_processor_bus_max_step_interval_us(
+    const rp86_processor_bus_t *bus) {
+    return bus == NULL ? 0u : bus->max_step_interval_us;
 }
 
 bool rp86_processor_bus_reset_sequence(rp86_processor_bus_t *bus, uint reset_clocks) {
