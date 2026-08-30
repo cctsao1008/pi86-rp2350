@@ -3,6 +3,17 @@
 from .common import *
 from .core import *
 
+try:
+    from rich.console import Console as RichConsole
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+except ImportError:  # Plain/JSON operation remains dependency tolerant.
+    RichConsole = None
+    Panel = None
+    Table = None
+    Text = None
+
 def _status_text(
     cpu_sequence: int | None,
     stats: HeartbeatStats,
@@ -34,13 +45,35 @@ def _status_text(
     )
 
 
+def heartbeat_suspension_text(
+    workload_state: str, processor_state: str
+) -> str:
+    """Explain why a native heartbeat is intentionally unavailable."""
+    if processor_state == "STOPPED / RESET":
+        return "UNAVAILABLE (processor stopped / RESET)"
+    if workload_state in ("STAGED", "RUNNING"):
+        return "SUSPENDED (native workload owns processor)"
+    return "SUSPENDED (prepared responder inactive)"
+
+
 class ConsoleStatus:
-    """Own two terminal rows: immutable status above an editable prompt."""
+    """Render a Rich live panel, with a small ANSI-free fallback."""
 
     def __init__(self, processor: str, *, live: bool = True) -> None:
         self._rows = 0
         self._tty = sys.stdout.isatty()
         self._live = live
+        self._rich = (
+            RichConsole(
+                file=sys.stdout,
+                force_terminal=True,
+                color_system="auto",
+                highlight=False,
+                soft_wrap=True,
+            )
+            if self._tty and self._live and RichConsole is not None
+            else None
+        )
         self._processor = processor
         self._prompt = self._prompt_for(processor)
         self._heartbeat_available = True
@@ -82,9 +115,90 @@ class ConsoleStatus:
         if self._rows == 0 or not self._tty:
             return
         sys.stdout.write("\r\x1b[2K")
-        if self._rows == 2:
-            # Move from the prompt row to the status row and clear it too.
+        for _ in range(self._rows - 1):
             sys.stdout.write("\x1b[1A\r\x1b[2K")
+
+    @property
+    def renderer_name(self) -> str:
+        if self._rich is not None:
+            return "rich-live"
+        if self._live:
+            return "basic-live"
+        return "plain"
+
+    def _rich_panel(
+        self, sequence: int, stats: HeartbeatStats, connected: bool
+    ) -> str:
+        assert self._rich is not None
+        assert Panel is not None and Table is not None and Text is not None
+        processor_name = PROCESSOR_NAMES[self._processor]
+        if self._processor == "auto":
+            processor_name = "8086-CLASS"
+        if self._heartbeat_available:
+            state = "ALIVE" if connected else "LOST"
+            state_style = "bold green" if connected else "bold red"
+            detail = (
+                f"cpu_seq={sequence:06d}  "
+                f"rtt={stats.last_ms:.1f} ms  lost={stats.lost}"
+                if stats.completed
+                else f"cpu_seq=------  rtt=--  lost={stats.lost}"
+            )
+        else:
+            state = (
+                "COMPLETED"
+                if self._processor_state == "IDLE / HLT"
+                else self._workload_state
+            )
+            state_style = (
+                "bold green" if state == "COMPLETED" else "bold yellow"
+            )
+            detail = heartbeat_suspension_text(
+                self._workload_state, self._processor_state
+            ).lower()
+
+        grid = Table.grid(expand=True, padding=(0, 1))
+        grid.add_column(ratio=2, no_wrap=True)
+        grid.add_column(ratio=2, no_wrap=True)
+        grid.add_column(ratio=4)
+        grid.add_row(
+            Text(processor_name, style="bold cyan"),
+            Text(state, style=state_style),
+            Text(f"{self._clock_mode}  ·  IRAM", style="magenta"),
+        )
+        grid.add_row(
+            Text(f"Workload {self._workload_state}"),
+            Text(f"Cycles {self._workload_cycles:,}"),
+            Text(f"{self._processor_state}  ·  {detail}", style="dim"),
+        )
+        panel = Panel(
+            grid,
+            title=Text("RP86 Runtime", style="bold"),
+            border_style="cyan" if connected or not self._heartbeat_available else "red",
+            padding=(0, 1),
+        )
+        with self._rich.capture() as capture:
+            self._rich.print(panel, end="")
+        return capture.get().rstrip("\n")
+
+    def write_event(self, text: str) -> None:
+        """Write one event using Rich styles without altering evidence text."""
+        if self._rich is None or Text is None:
+            print(text)
+            return
+        for line in text.splitlines() or ("",):
+            upper = line.upper()
+            if line == "[NATIVE OUTPUT]":
+                self._rich.rule("Native output", style="bold cyan")
+            elif line.startswith("[WORKLOAD COMPLETED]"):
+                self._rich.print(Text(line, style="bold green"))
+            elif any(word in upper for word in ("FAILED", "FAULT", " LOST")):
+                self._rich.print(Text(line, style="bold red"))
+            elif any(word in upper for word in ("PASS", "ACCEPTED")):
+                self._rich.print(Text(line, style="green"))
+            elif "SUSPENDED" in upper:
+                self._rich.print(Text(line, style="yellow"))
+            else:
+                self._rich.print(Text(line))
 
     def render(
         self,
@@ -100,17 +214,22 @@ class ConsoleStatus:
             self.render_prompt(command_buffer, cursor)
             return
         self._erase()
-        status = _status_text(
-            sequence,
-            stats,
-            connected,
-            self._processor,
-            heartbeat_available=self._heartbeat_available,
-            workload_state=self._workload_state,
-            clock_mode=self._clock_mode,
-            workload_cycles=self._workload_cycles,
-            processor_state=self._processor_state,
-        )
+        if self._rich is not None:
+            status = self._rich_panel(sequence, stats, connected)
+            status_rows = len(status.splitlines())
+        else:
+            status = _status_text(
+                sequence,
+                stats,
+                connected,
+                self._processor,
+                heartbeat_available=self._heartbeat_available,
+                workload_state=self._workload_state,
+                clock_mode=self._clock_mode,
+                workload_cycles=self._workload_cycles,
+                processor_state=self._processor_state,
+            )
+            status_rows = 1
         sys.stdout.write(
             f"{status}\n{self._prompt}> {command_buffer}"
         )
@@ -118,7 +237,7 @@ class ConsoleStatus:
         if cursor < len(command_buffer):
             sys.stdout.write(f"\x1b[{len(command_buffer) - cursor}D")
         sys.stdout.flush()
-        self._rows = 2
+        self._rows = status_rows + 1
 
     def render_prompt(self, command_buffer: str, cursor: int | None = None) -> None:
         if not self._tty:

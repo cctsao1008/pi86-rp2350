@@ -58,7 +58,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--display",
         choices=("quiet", "status", "live", "plain", "verbose"),
-        default="status",
+        default="live",
         help=(
             "terminal renderer: status/live uses an updating status row; "
             "plain is redirect-safe; quiet suppresses routine native output"

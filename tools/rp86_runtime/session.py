@@ -42,13 +42,23 @@ def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
 
 
 def _prepared_heartbeat_is_available(
-    clock_mode: int, workload_state: int = 0
+    clock_mode: int,
+    workload_state: int = 0,
+    processor_flags: int = PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
 ) -> bool:
     """Only the empty prepared runtime can answer native heartbeats."""
     return (
         workload_state == 0
+        and bool(
+            processor_flags & PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
+        )
         and clock_mode in (CLOCK_MODES["auto"], CLOCK_MODES["free-running"])
     )
+
+
+def _heartbeat_responder_unavailable(error: str | None) -> bool:
+    """Recognize an RP2350-completed native heartbeat timeout."""
+    return bool(error and error.endswith("status is not OK: 4"))
 
 
 def _format_runtime_top(
@@ -93,7 +103,9 @@ def _format_runtime_top(
         latency_summary = f"{average_ms:.1f} ms average"
     else:
         processor_summary = f"{execution_state} {processor_clock}"
-        heartbeat_summary = "SUSPENDED (native workload owns processor)"
+        heartbeat_summary = heartbeat_suspension_text(
+            state_name, execution_state
+        )
         latency_summary = "N/A during native workload"
 
     lines = [
@@ -380,7 +392,7 @@ def persistent_monitor(
 
     def print_event(text: str) -> None:
         console.clear()
-        print(text)
+        console.write_event(text)
         if interactive:
             console.render(
                 current_cpu_sequence, stats, connected, command_buffer, command_cursor
@@ -426,7 +438,9 @@ def persistent_monitor(
                      reply.payload
                  )
                 prepared_heartbeat_available = _prepared_heartbeat_is_available(
-                    staged_workload_clock_mode, staged_workload_state
+                    staged_workload_clock_mode,
+                    staged_workload_state,
+                    staged_workload_processor_flags,
                 )
                 update_console_runtime()
             except ValueError as exc:
@@ -628,6 +642,7 @@ def persistent_monitor(
         print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
         print("Host runtime shell: type help for the complete command framework.")
         print("Heartbeat runs in the background; command traffic has priority.\n")
+        print(f"Terminal renderer: {console.renderer_name}\n")
         console.render(current_cpu_sequence, stats, connected, command_buffer, command_cursor)
 
     # A previous Host session may have left a general workload RUNNING,
@@ -1210,12 +1225,26 @@ def persistent_monitor(
                         f"latency={latency_ms:.1f} ms"
                     )
             else:
-                stats.lost += 1
-                connected = False
-                print_event(
-                    f"[{current_sequence:03d}] {processor_name} HEARTBEAT LOST  "
-                    f"latency={latency_ms:.1f} ms  error={error}"
-                )
+                if (
+                    request_type == TYPE_HEARTBEAT
+                    and _heartbeat_responder_unavailable(error)
+                ):
+                    prepared_heartbeat_available = False
+                    connected = False
+                    event["heartbeat_suspended"] = True
+                    update_console_runtime()
+                    if display == "verbose":
+                        print_event(
+                            "[HEARTBEAT SUSPENDED] prepared native responder "
+                            "did not complete; workload control remains available"
+                        )
+                else:
+                    stats.lost += 1
+                    connected = False
+                    print_event(
+                        f"[{current_sequence:03d}] {processor_name} HEARTBEAT LOST  "
+                        f"latency={latency_ms:.1f} ms  error={error}"
+                    )
             if interactive:
                 console.render(
                     current_cpu_sequence, stats, connected, command_buffer, command_cursor

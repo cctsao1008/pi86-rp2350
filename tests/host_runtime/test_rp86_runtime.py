@@ -15,11 +15,13 @@ from rp86_runtime.console import (  # noqa: E402
     ConsoleStatus,
     _apply_input_character,
     _status_text,
+    heartbeat_suspension_text,
 )
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
 from rp86_runtime.session import (  # noqa: E402
+    _heartbeat_responder_unavailable,
     _format_runtime_top,
     _prepared_heartbeat_is_available,
     _processor_execution_state,
@@ -137,6 +139,10 @@ class Rp86RuntimeTests(unittest.TestCase):
 
     def test_cli_accepts_live_and_plain_renderers(self) -> None:
         self.assertEqual(
+            build_parser().parse_args(["--interactive"]).display,
+            "live",
+        )
+        self.assertEqual(
             build_parser().parse_args(["--interactive", "--display", "live"]).display,
             "live",
         )
@@ -252,6 +258,16 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertNotIn("NOT RESPONDING", output)
         self.assertNotIn("12 lost", output)
 
+    def test_stopped_runtime_does_not_claim_workload_ownership(self) -> None:
+        self.assertEqual(
+            heartbeat_suspension_text("EMPTY", "STOPPED / RESET"),
+            "UNAVAILABLE (processor stopped / RESET)",
+        )
+        self.assertEqual(
+            heartbeat_suspension_text("RUNNING", "IDLE / HLT"),
+            "SUSPENDED (native workload owns processor)",
+        )
+
     def test_heartbeat_requires_the_prepared_free_running_responder(self) -> None:
         self.assertTrue(_prepared_heartbeat_is_available(0))
         self.assertTrue(_prepared_heartbeat_is_available(1))
@@ -259,6 +275,20 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertFalse(_prepared_heartbeat_is_available(3))
         self.assertFalse(_prepared_heartbeat_is_available(1, workload_state=2))
         self.assertFalse(_prepared_heartbeat_is_available(1, workload_state=3))
+        self.assertFalse(
+            _prepared_heartbeat_is_available(
+                1, workload_state=0, processor_flags=0
+            )
+        )
+
+    def test_explicit_native_timeout_suspends_instead_of_counting_loss(self) -> None:
+        self.assertTrue(
+            _heartbeat_responder_unavailable(
+                "V30 live reply status is not OK: 4"
+            )
+        )
+        self.assertFalse(_heartbeat_responder_unavailable("heartbeat timeout"))
+        self.assertFalse(_heartbeat_responder_unavailable(None))
 
     def test_workload_status_replaces_false_heartbeat_loss(self) -> None:
         text = _status_text(

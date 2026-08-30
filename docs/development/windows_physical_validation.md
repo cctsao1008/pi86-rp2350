@@ -40,9 +40,14 @@ Use `--port COM27` only when automatic selection is ambiguous.
 
 ```powershell
 py tools\rp86.py --interactive --heartbeat --attach `
-  --display status --interval 1.0 `
+  --display live --interval 1.0 `
   --output-dir D:\pi86-validation-logs
 ```
+
+`live` is the default interactive renderer. It uses Rich panels and color on
+PowerShell, Windows Terminal, Bash, WSL, and SSH terminals. `plain` keeps the
+same runtime events as redirect-safe lines; non-TTY output automatically avoids
+the live panel. Existing `status` remains an alias for the live renderer.
 
 The native `AAD 16` witness identifies Intel 8086 or NEC V30 behavior. The
 optional `--processor intel-8086` or `--processor nec-v30` argument turns that
