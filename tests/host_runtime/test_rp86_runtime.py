@@ -59,6 +59,46 @@ class Rp86RuntimeTests(unittest.TestCase):
         rp86_web._owner_mode = "not-started"
         rp86_web._owner_error = None
 
+    def test_web_owner_recovers_stopped_runtime_once_via_hid_reboot(self) -> None:
+        stopped = Mock()
+        stopped.poll.return_value = 5
+        stopped.returncode = 5
+        accepted = Mock()
+        accepted.poll.return_value = None
+        record = SimpleNamespace(device_id="TEST-RP86")
+        rp86_web._owned_runtime = None
+        rp86_web._owner_mode = "not-started"
+        rp86_web._owner_error = None
+        with (
+            patch.object(
+                rp86_web,
+                "_active_broker",
+                side_effect=[None, None, record],
+            ),
+            patch.object(
+                rp86_web.subprocess,
+                "Popen",
+                side_effect=[stopped, accepted],
+            ) as popen,
+            patch.object(
+                rp86_web,
+                "_run_rp86",
+                return_value={"ok": True},
+            ) as run_rp86,
+            patch.object(rp86_web.time, "sleep"),
+        ):
+            result = rp86_web._ensure_runtime_owner(wait_seconds=0.5)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["mode"], "web-owned")
+        self.assertEqual(popen.call_count, 2)
+        run_rp86.assert_called_once_with(
+            "--reboot", "--timeout", "5", timeout=8.0
+        )
+        rp86_web._owned_runtime = None
+        rp86_web._owner_mode = "not-started"
+        rp86_web._owner_error = None
+
     def test_calculator_encodes_syntax_without_host_evaluation(self) -> None:
         payload = calculator_payload(("0x1234", "*", "3"))
         self.assertTrue(is_calculator_payload(payload))

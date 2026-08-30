@@ -153,6 +153,7 @@ def _active_broker():
 
 def _ensure_runtime_owner(
     wait_seconds: float = _OWNER_STARTUP_WAIT_S,
+    allow_reboot_recovery: bool = True,
 ) -> dict[str, object]:
     """Attach to an existing broker or start one headlessly for the Web UI."""
     global _owned_runtime, _owner_mode, _owner_error
@@ -193,9 +194,29 @@ def _ensure_runtime_owner(
     deadline = time.monotonic() + wait_seconds
     while time.monotonic() < deadline:
         if _owned_runtime.poll() is not None:
+            exit_code = _owned_runtime.returncode
+            if allow_reboot_recovery:
+                reboot = _run_rp86("--reboot", "--timeout", "5", timeout=8.0)
+                if reboot.get("ok"):
+                    _owned_runtime = None
+                    time.sleep(_REBOOT_SETTLE_S)
+                    return _ensure_runtime_owner(
+                        wait_seconds=wait_seconds,
+                        allow_reboot_recovery=False,
+                    )
+                reboot_error = str(
+                    reboot.get("error")
+                    or reboot.get("stderr")
+                    or "HID reboot failed"
+                ).strip()
+                _owner_error = (
+                    "background RP86 runtime exited before publishing a Host "
+                    f"Broker (exit {exit_code}); recovery failed: {reboot_error}"
+                )
+                return {"ok": False, "error": _owner_error}
             _owner_error = (
                 "background RP86 runtime exited before publishing a Host Broker "
-                f"(exit {_owned_runtime.returncode})"
+                f"(exit {exit_code})"
             )
             return {"ok": False, "error": _owner_error}
         try:
