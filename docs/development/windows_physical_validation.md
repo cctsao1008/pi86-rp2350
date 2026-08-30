@@ -39,7 +39,7 @@ Use `--port COM27` only when automatic selection is ambiguous.
 ## Interactive physical runtime
 
 ```powershell
-py tools\rp86.py --interactive --heartbeat --attach `
+py tools\rp86.py --interactive --attach `
   --display live --interval 1.0 `
   --output-dir D:\pi86-validation-logs
 ```
@@ -74,7 +74,7 @@ the RP2350 enters ROM USB boot mode.
 
 ## Evidence
 
-An interactive or bounded heartbeat session retains:
+An interactive runtime session or explicit bounded native-probe session retains:
 
 - a raw CDC `.log` containing physical observations;
 - a `.json` session record containing identity, sequence, latency, loss, and

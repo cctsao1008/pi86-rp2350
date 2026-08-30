@@ -1247,7 +1247,7 @@ static void print_canonical_status(void) {
     evidence_printf("Host 64-byte HID records    = AVAILABLE\n");
     evidence_printf("physical 8086-class PIO/DMA bus = AVAILABLE\n");
     evidence_printf("physical INTR / two-cycle INTA = AVAILABLE\n");
-    evidence_printf("persistent processor heartbeat = AVAILABLE\n");
+    evidence_printf("prepared native probe       = OPTIONAL / DIAGNOSTIC\n");
     evidence_printf("native workload staging     = AVAILABLE / INTERNAL SRAM\n");
     evidence_printf("workload run / stop / restart = AVAILABLE / INTERNAL SRAM\n");
     evidence_printf("processor stdin / stdout    = COMMAND MAILBOX AVAILABLE\n");

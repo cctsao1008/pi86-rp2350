@@ -372,7 +372,7 @@ class ProtocolTests(unittest.TestCase):
         text = _status_text(919, stats, True)
         self.assertEqual(
             text,
-            "| ● NEC V30 ALIVE  cpu_seq=000919  rtt=3.3 ms  lost=0",
+            "| ◆ NEC V30  workload=EMPTY  clock=AUTO  cycles=0  processor=ACTIVE",
         )
         self.assertNotIn("V30>", text)
 
@@ -382,7 +382,7 @@ class ProtocolTests(unittest.TestCase):
         text = _status_text(55, stats, True, "intel-8086")
         self.assertEqual(
             text,
-            "| ● INTEL 8086 ALIVE  cpu_seq=000055  rtt=2.7 ms  lost=0",
+            "| ◆ INTEL 8086  workload=EMPTY  clock=AUTO  cycles=0  processor=ACTIVE",
         )
 
     def test_cdc_port_selection_defaults_to_the_only_composite_device(self) -> None:
@@ -422,21 +422,19 @@ class ProtocolTests(unittest.TestCase):
         args = build_parser().parse_args(
             [
                 "--interactive",
-                "--heartbeat",
                 "--attach",
                 "--port",
                 "COM27",
             ]
         )
         self.assertTrue(args.interactive)
-        self.assertTrue(args.heartbeat)
+        self.assertFalse(args.native_probe)
         self.assertTrue(args.attach)
 
     def test_processor_identity_is_explicit_host_metadata(self) -> None:
         args = build_parser().parse_args(
             [
                 "--interactive",
-                "--heartbeat",
                 "--attach",
                 "--processor",
                 "intel-8086",

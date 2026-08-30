@@ -45,15 +45,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--output-dir", type=Path, default=default_output_dir())
     parser.add_argument(
-        "--heartbeat", action="store_true",
-        help="continue with host-driven physical-processor heartbeat after acceptance",
+        "--monitor", action="store_true",
+        help="keep a headless Host runtime owner active without probing the workload",
+    )
+    parser.add_argument(
+        "--native-probe", action="store_true",
+        help="periodically run the prepared diagnostic liveness probe",
     )
     parser.add_argument(
         "--attach", action="store_true",
         help="attach to an already-running RP86 processor runtime without RESET evidence",
     )
     parser.add_argument("--interval", type=float, default=1.0)
-    parser.add_argument("--heartbeat-timeout", type=float, default=2.0)
+    parser.add_argument("--probe-timeout", type=float, default=2.0)
     parser.add_argument("--rounds", type=int, default=0, help="0 means run until Ctrl+C")
     parser.add_argument(
         "--display",
@@ -109,18 +113,18 @@ def main() -> int:
 
     if args.interval <= 0:
         parser.error("--interval must be greater than zero")
-    if args.heartbeat_timeout <= 0:
-        parser.error("--heartbeat-timeout must be greater than zero")
+    if args.probe_timeout <= 0:
+        parser.error("--probe-timeout must be greater than zero")
     if args.rounds < 0:
         parser.error("--rounds cannot be negative")
-    if args.json and (args.interactive or args.heartbeat):
-        parser.error("persistent heartbeat display cannot be combined with --json")
-    if args.attach and not (args.interactive or args.heartbeat):
-        parser.error("--attach requires --interactive or --heartbeat")
+    if args.json and (args.interactive or args.monitor or args.native_probe):
+        parser.error("persistent runtime monitoring cannot be combined with --json")
+    if args.attach and not (args.interactive or args.monitor or args.native_probe):
+        parser.error("--attach requires --interactive, --monitor, or --native-probe")
 
     broker_record: BrokerRecord | None = None
     if args.status or args.bootloader or args.reboot or (
-        args.attach and (args.interactive or args.heartbeat)
+        args.attach and (args.interactive or args.monitor or args.native_probe)
     ):
         device_hint = args.hid_serial
         if device_hint is None and args.port:
@@ -162,7 +166,11 @@ def main() -> int:
         print(f"Physical processor         = {str(processor_status).upper()}")
         print(f"Broker state               = {snapshot.get('state', 'UNKNOWN')}")
         print(f"TCP / UDP                  = {broker_record.tcp_port} / {broker_record.udp_port}")
-        print(f"Heartbeat completed / lost = {snapshot.get('completed', 0)} / {snapshot.get('lost', 0)}")
+        print(
+            "Native probes completed/lost = "
+            f"{snapshot.get('probe_completed', 0)} / "
+            f"{snapshot.get('probe_lost', 0)}"
+        )
         print("Hardware owner              = EXISTING BROKER")
         print("HOST BROKER STATUS RESULT = PASS")
         print_status_evidence(bytes.fromhex(str(control["evidence_hex"])))
@@ -224,7 +232,7 @@ def main() -> int:
         return persistent_monitor(
             port="",
             sequence=args.sequence or 1,
-            timeout=args.heartbeat_timeout,
+            timeout=args.probe_timeout,
             interval=args.interval,
             output_dir=args.output_dir,
             serial_number=broker_record.device_id,
@@ -233,6 +241,7 @@ def main() -> int:
             rounds=args.rounds,
             processor=session_processor,
             broker_record=broker_record,
+            native_probe=args.native_probe,
         )
 
     if args.bootloader or args.reboot:
@@ -289,7 +298,7 @@ def main() -> int:
             return persistent_monitor(
                 port=args.port,
                 sequence=args.sequence or 1,
-                timeout=args.heartbeat_timeout,
+                timeout=args.probe_timeout,
                 interval=args.interval,
                 output_dir=args.output_dir,
                 serial_number=args.hid_serial,
@@ -297,6 +306,7 @@ def main() -> int:
                 interactive=args.interactive,
                 rounds=args.rounds,
                 processor=args.processor,
+                native_probe=args.native_probe,
             )
         except RuntimeError as exc:
             print(f"ERROR: {exc}", file=sys.stderr)
@@ -320,11 +330,11 @@ def main() -> int:
         print_human_result(result)
     if exit_code != PASS_EXIT:
         return exit_code
-    if args.interactive or args.heartbeat:
+    if args.interactive or args.monitor or args.native_probe:
         return persistent_monitor(
             port=args.port,
             sequence=(args.sequence + 1) & 0xFFFFFFFF or 1,
-            timeout=args.heartbeat_timeout,
+            timeout=args.probe_timeout,
             interval=args.interval,
             output_dir=args.output_dir,
             serial_number=args.hid_serial,
@@ -332,6 +342,7 @@ def main() -> int:
             interactive=args.interactive,
             rounds=args.rounds,
             processor=args.processor,
+            native_probe=args.native_probe,
         )
     return exit_code
 

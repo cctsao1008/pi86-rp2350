@@ -32,7 +32,7 @@ architecture documents use the following vocabulary:
 | clock engine | clock mode / clock controller | *Mode* names policy; *controller* names the implementation that supplies clock pulses |
 | workload `READY` | workload `STAGED` | Avoids collision with the physical processor `READY` input |
 | workload `FAULT` / `TIMEOUT` | `FAULTED` / `TIMED_OUT` | Completed state names use unambiguous past-tense terms |
-| heartbeat (architecture) | processor liveness monitoring | `heartbeat` remains a valid CLI and message compatibility term |
+| heartbeat (architecture) | native diagnostic probe | `HEARTBEAT` remains a wire-ABI compatibility name, not a general workload requirement |
 
 Historical validation output, published articles, photographs, and Git history retain
 the names that were true when they were produced. Compatibility entry points may also

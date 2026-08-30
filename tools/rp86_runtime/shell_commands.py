@@ -74,7 +74,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("status", "status", "observe", "show a concise runtime status"),
     CommandSpec("top", "top", "observe", "show the live physical-processor summary"),
     CommandSpec("info", "info", "observe", "show negotiated Host/RP2350 capabilities"),
-    CommandSpec("ping", "ping", "control", "request one physical-processor liveness proof"),
+    CommandSpec("probe", "probe", "observe", "run one prepared-runtime processor identity/liveness diagnostic"),
     CommandSpec("load", "load <Host bin|p86w|flash:/file.p86w> [--address N] [--entry CS:IP] [--stack SS:SP] [--clock MODE]", "workload", "load a native workload", "workload"),
     CommandSpec("run", "run", "workload", "start the loaded workload", "workload"),
     CommandSpec("stop", "stop", "workload", "stop the active workload safely", "workload"),
@@ -102,7 +102,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("timeout", "timeout [seconds|off]", "control", "show or set the workload watchdog", "watchdog"),
     CommandSpec("regs", "regs", "observe", "show workload-published processor registers", "registers"),
     CommandSpec("quiet", "quiet", "shell", "show errors and command results only"),
-    CommandSpec("verbose", "verbose", "shell", "show every heartbeat result"),
+    CommandSpec("verbose", "verbose", "shell", "show every native diagnostic probe result"),
     CommandSpec("quit", "quit", "shell", "close the Host shell", aliases=("exit",)),
 )
 
@@ -182,7 +182,7 @@ def complete_shell_input(
 
     The return value is ``(new_line, candidates)``.  One match is inserted;
     multiple matches are displayed by the caller without disturbing the live
-    heartbeat status line.
+    runtime lifecycle status line.
     """
     token = completion_token(line)
     if not line.strip() or (" " not in line and "\t" not in line):

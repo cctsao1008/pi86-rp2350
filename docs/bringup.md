@@ -43,7 +43,7 @@ re-enumerate.
 ## Observe
 
 ```powershell
-py tools\rp86.py --interactive --heartbeat --attach `
+py tools\rp86.py --interactive --attach `
   --display status --interval 1.0 `
   --output-dir D:\pi86-validation-logs
 ```

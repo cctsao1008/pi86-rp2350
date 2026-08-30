@@ -48,16 +48,16 @@ def _workload_upload_requires_stop(workload_state: int) -> bool:
 
 
 def _broker_runtime_state(transport_error: str | None) -> str:
-    """RP2350 reachability is transport state, not processor heartbeat state."""
+    """RP2350 reachability is transport state, not processor probe state."""
     return "OWNER_ACTIVE" if transport_error is None else "FAULT"
 
 
-def _prepared_heartbeat_is_available(
+def _prepared_native_probe_is_available(
     clock_mode: int,
     workload_state: int = 0,
     processor_flags: int = PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
 ) -> bool:
-    """Only the empty prepared runtime can answer native heartbeats."""
+    """Only the empty prepared runtime can answer the diagnostic probe."""
     return (
         workload_state == 0
         and bool(
@@ -67,18 +67,15 @@ def _prepared_heartbeat_is_available(
     )
 
 
-def _heartbeat_responder_unavailable(error: str | None) -> bool:
-    """Recognize an RP2350-completed native heartbeat timeout."""
+def _native_probe_unavailable(error: str | None) -> bool:
+    """Recognize an RP2350-completed diagnostic probe timeout."""
     return bool(error and error.endswith("status is not OK: 4"))
 
 
 def _format_runtime_top(
     *,
     processor_name: str,
-    connected: bool,
-    completed: int,
-    lost: int,
-    average_ms: float,
+    processor_identified: bool,
     workload_id: int,
     workload_state: int,
     workload_detail: int,
@@ -86,7 +83,6 @@ def _format_runtime_top(
     workload_clock_mode: int = 0,
     workload_cycles: int = 0,
     workload_processor_flags: int = 0,
-    heartbeat_available: bool = True,
 ) -> str:
     """Present CPU-visible resources without exposing protocol state numbers."""
     state_name = _workload_state_name(workload_state)
@@ -108,22 +104,13 @@ def _format_runtime_top(
     execution_state = _processor_execution_state(
         workload_clock_mode, workload_processor_flags
     )
-    if heartbeat_available:
-        processor_summary = f"{'ALIVE' if connected else 'NOT RESPONDING'} {processor_clock}"
-        heartbeat_summary = f"{completed} completed / {lost} lost"
-        latency_summary = f"{average_ms:.1f} ms average"
-    else:
-        processor_summary = f"{execution_state} {processor_clock}"
-        heartbeat_summary = heartbeat_suspension_text(
-            state_name, execution_state
-        )
-        latency_summary = "N/A during native workload"
-
     lines = [
         "Physical processor runtime top",
-        f"  {processor_name:<10} {processor_summary}",
-        f"  Heartbeat  {heartbeat_summary}",
-        f"  Latency    {latency_summary}",
+        f"  Processor  {processor_name} · {execution_state} {processor_clock}",
+        "  Identity   " + (
+            "NATIVE AAD 16 IDENTIFIED"
+            if processor_identified else "NOT PROBED"
+        ),
         f"  Workload   {workload_text}",
         f"  Clock mode {clock_name}",
         f"  CPU cycles {workload_cycles}",
@@ -157,17 +144,18 @@ def persistent_monitor(
     rounds: int,
     processor: str,
     broker_record: BrokerRecord | None = None,
+    native_probe: bool = False,
 ) -> int:
-    """Keep one HID/CDC session synchronized with the living physical CPU."""
+    """Keep one Host-owned runtime session synchronized with RP2350 state."""
     serial = _serial_module()
     output_dir.mkdir(parents=True, exist_ok=True)
     started = datetime.now().astimezone()
     timestamp = started.strftime("%Y%m%d_%H%M%S%z")
-    raw_path = output_dir / f"companion_heartbeat_{timestamp}.log"
-    json_path = output_dir / f"companion_heartbeat_{timestamp}.json"
+    raw_path = output_dir / f"runtime_session_{timestamp}.log"
+    json_path = output_dir / f"runtime_session_{timestamp}.json"
     captured = bytearray()
     events: list[dict[str, Any]] = []
-    stats = HeartbeatStats()
+    probe_stats = HeartbeatStats()
     console = ConsoleStatus(processor, live=display not in ("plain",))
     cdc_display = CdcDisplayStream()
     processor_name = PROCESSOR_NAMES[processor]
@@ -176,7 +164,7 @@ def persistent_monitor(
     command_cursor = 0
     command_history = CommandHistory()
     host_cwd = Path.cwd()
-    connected = True
+    connected = False
     current_sequence = sequence & 0xFFFFFFFF
     current_boot_id: int | None = None
     current_cpu_sequence: int | None = None
@@ -189,7 +177,7 @@ def persistent_monitor(
     staged_workload_cycles = 0
     staged_workload_processor_flags = 0
     staged_workload_manifest: WorkloadManifest | None = None
-    prepared_heartbeat_available = True
+    prepared_native_probe_available = True
     workload_completion_pending = False
     next_due = time.monotonic()
     stop = False
@@ -227,7 +215,7 @@ def persistent_monitor(
     def drain_cdc() -> None:
         nonlocal transport_error, workload_completion_pending
         nonlocal staged_workload_processor_flags
-        nonlocal prepared_heartbeat_available
+        nonlocal prepared_native_probe_available
         if transport_error is not None or connection is None:
             return
         try:
@@ -240,7 +228,7 @@ def persistent_monitor(
                         # Native HLT evidence precedes the next HID status.
                         # Reflect completion now and refresh cycles in the loop.
                         staged_workload_processor_flags |= PROCESSOR_FLAG_IDLE
-                        prepared_heartbeat_available = False
+                        prepared_native_probe_available = False
                         workload_completion_pending = True
                         update_console_runtime()
                     if interactive and display != "quiet":
@@ -308,7 +296,7 @@ def persistent_monitor(
         except OSError as exc:
             transport_error = f"USB HID disconnected: {exc}"
             return None, (time.monotonic() - began) * 1000.0, transport_error
-        return None, (time.monotonic() - began) * 1000.0, "heartbeat timeout"
+        return None, (time.monotonic() - began) * 1000.0, "device reply timeout"
 
     def broker_snapshot() -> dict[str, Any]:
         return {
@@ -319,9 +307,9 @@ def persistent_monitor(
             "cpu_sequence": current_cpu_sequence,
             "command_sequence": current_command_sequence,
             "native_processor": current_native_processor,
-            "completed": stats.completed,
-            "lost": stats.lost,
-            "last_ms": stats.last_ms,
+            "probe_completed": probe_stats.completed,
+            "probe_lost": probe_stats.lost,
+            "probe_last_ms": probe_stats.last_ms,
             "workload_id": staged_workload_id,
             "workload_state": _workload_state_name(staged_workload_state),
             "workload_detail": staged_workload_detail,
@@ -342,7 +330,7 @@ def persistent_monitor(
         nonlocal staged_workload_id, staged_workload_state
         nonlocal staged_workload_detail, staged_workload_clock_mode
         nonlocal staged_workload_cycles, staged_workload_processor_flags
-        nonlocal prepared_heartbeat_available
+        nonlocal prepared_native_probe_available
         if owner_broker is None:
             return
         for pending in owner_broker.pending():
@@ -366,8 +354,8 @@ def persistent_monitor(
                             staged_workload_cycles,
                             staged_workload_processor_flags,
                         ) = decode_status_payload(reply.payload)
-                        prepared_heartbeat_available = (
-                            _prepared_heartbeat_is_available(
+                        prepared_native_probe_available = (
+                            _prepared_native_probe_is_available(
                                 staged_workload_clock_mode,
                                 staged_workload_state,
                                 staged_workload_processor_flags,
@@ -442,12 +430,11 @@ def persistent_monitor(
         console.write_event(text)
         if interactive:
             console.render(
-                current_cpu_sequence, stats, connected, command_buffer, command_cursor
+                current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor
             )
 
     def update_console_runtime() -> None:
         console.set_runtime(
-            heartbeat_available=prepared_heartbeat_available,
             workload_state=_workload_state_name(staged_workload_state),
             clock_mode=CLOCK_MODE_NAMES.get(
                 staged_workload_clock_mode,
@@ -466,7 +453,7 @@ def persistent_monitor(
         nonlocal staged_workload_id, staged_workload_state, staged_workload_detail
         nonlocal staged_workload_clock_mode, staged_workload_cycles
         nonlocal staged_workload_processor_flags
-        nonlocal prepared_heartbeat_available
+        nonlocal prepared_native_probe_available
         for index, request in enumerate(records, 1):
             reply, latency_ms, error = exchange(request)
             if reply is None:
@@ -484,7 +471,7 @@ def persistent_monitor(
                  staged_workload_processor_flags) = decode_status_payload(
                      reply.payload
                  )
-                prepared_heartbeat_available = _prepared_heartbeat_is_available(
+                prepared_native_probe_available = _prepared_native_probe_is_available(
                     staged_workload_clock_mode,
                     staged_workload_state,
                     staged_workload_processor_flags,
@@ -516,13 +503,16 @@ def persistent_monitor(
         return True
 
     def ensure_prepared_runtime_initialized() -> bool:
-        """Bootstrap the native responder before the first lifecycle RUN."""
+        """Obtain one prepared-runtime identity witness when it is available."""
         nonlocal current_sequence, next_due, connected
         nonlocal current_boot_id, current_cpu_sequence, current_command_sequence
         nonlocal current_native_processor, processor_name
-        nonlocal staged_workload_processor_flags, prepared_heartbeat_available
-        if (staged_workload_processor_flags &
-                PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED):
+        nonlocal staged_workload_processor_flags, prepared_native_probe_available
+        if (
+            staged_workload_processor_flags
+            & PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
+            and current_native_processor is not None
+        ):
             return True
         request = Message(
             TYPE_HEARTBEAT, current_sequence,
@@ -530,12 +520,12 @@ def persistent_monitor(
         )
         reply, latency_ms, error = exchange(request)
         if reply is None:
-            print_event(f"processor bootstrap: FAILED: {error}")
+            print_event(f"processor identity probe: FAILED: {error}")
             return False
         try:
             witness = NativeServiceWitness.decode(reply.payload)
         except ValueError as exc:
-            print_event(f"processor bootstrap: invalid native proof: {exc}")
+            print_event(f"processor identity probe: invalid native proof: {exc}")
             return False
         current_sequence = (request.sequence + 1) & 0xFFFFFFFF or 1
         current_boot_id = witness.boot_id
@@ -544,15 +534,15 @@ def persistent_monitor(
         current_native_processor = witness.processor
         processor_name = PROCESSOR_NAMES[witness.processor]
         console.set_processor(witness.processor)
-        stats.accept(latency_ms)
+        probe_stats.accept(latency_ms)
         connected = True
         staged_workload_processor_flags |= (
             PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
         )
-        prepared_heartbeat_available = True
+        prepared_native_probe_available = True
         next_due = time.monotonic() + interval
         print_event(
-            f"processor bootstrap: PASS ({processor_name}, "
+            f"processor identity probe: PASS ({processor_name}, "
             f"boot_id={witness.boot_id}, cpu_seq={witness.cpu_sequence})"
         )
         return True
@@ -687,21 +677,25 @@ def persistent_monitor(
         return tuple((entry.name, entry.directory) for entry in entries)
 
     if interactive:
-        print(f"\n[{processor_name} INTERACTIVE HEARTBEAT]")
+        print("\n[RP86 PHYSICAL PROCESSOR RUNTIME]")
         print("Host runtime shell: type help for the complete command framework.")
-        print("Heartbeat runs in the background; command traffic has priority.\n")
+        print("RP2350 owns transport and lifecycle; native probes are diagnostic.\n")
         print(f"Terminal renderer: {console.renderer_name}\n")
-        console.render(current_cpu_sequence, stats, connected, command_buffer, command_cursor)
+        console.render(current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor)
 
     # A previous Host session may have left a general workload RUNNING,
     # IDLE/HLT, FAULTED, or STOPPED/RESET. Probe the RP2350-owned lifecycle
-    # before sending any prepared-runtime heartbeat. A status record is always
+    # before sending any prepared-runtime diagnostic probe. A status record is always
     # safe and tells this new session whether the native ISR responder exists.
     startup_status = control_record(
         "status", workload_id=0, sequence=current_sequence
     )
     if not perform_workload_transaction([startup_status], "attached runtime"):
-        prepared_heartbeat_available = False
+        prepared_native_probe_available = False
+    elif prepared_native_probe_available:
+        # Identify the installed processor once. This diagnostic witness is
+        # not a generic workload liveness and is never used as RP2350 health.
+        ensure_prepared_runtime_initialized()
 
     posix_terminal_state = None
     if interactive and os.name != "nt" and sys.stdin.isatty():
@@ -712,7 +706,7 @@ def persistent_monitor(
         tty.setcbreak(sys.stdin.fileno())
 
     try:
-        while not stop and (rounds == 0 or stats.completed + stats.lost < rounds):
+        while not stop and (rounds == 0 or probe_stats.completed + probe_stats.lost < rounds):
             service_broker_requests()
             drain_cdc()
             if transport_error is not None:
@@ -767,7 +761,7 @@ def persistent_monitor(
                     command_history.edit(command_buffer)
                 if changed:
                     console.render(
-                        current_cpu_sequence, stats, connected, command_buffer
+                        current_cpu_sequence, probe_stats, connected, command_buffer
                         , command_cursor
                     )
 
@@ -829,17 +823,13 @@ def persistent_monitor(
                     print_event(
                         _format_runtime_top(
                             processor_name=processor_name,
-                            connected=connected,
-                            completed=stats.completed,
-                            lost=stats.lost,
-                            average_ms=stats.average_ms,
+                            processor_identified=current_native_processor is not None,
                             workload_id=staged_workload_id,
                             workload_state=staged_workload_state,
                             workload_detail=staged_workload_detail,
                             workload_clock_mode=staged_workload_clock_mode,
                             workload_cycles=staged_workload_cycles,
                             workload_processor_flags=staged_workload_processor_flags,
-                            heartbeat_available=prepared_heartbeat_available,
                             manifest=staged_workload_manifest,
                         )
                     )
@@ -847,7 +837,7 @@ def persistent_monitor(
                 elif name == "info":
                     print_event(
                         "Negotiated capabilities:\n"
-                        "  heartbeat  AVAILABLE\n"
+                        "  native probe DIAGNOSTIC / PREPARED RUNTIME ONLY\n"
                         "  console    bounded 14-byte command exchange\n"
                         "  workload   INTERNAL SRAM GENERAL EXECUTION AVAILABLE\n"
                         "  memory     INTERNAL SRAM read / write / load / save\n"
@@ -859,11 +849,11 @@ def persistent_monitor(
                     )
                 elif name == "quiet":
                     display = "quiet"
-                    print_event("Heartbeat display: quiet (errors and commands only)")
+                    print_event("Runtime display: quiet (errors and command results only)")
                 elif name == "verbose":
                     display = "verbose"
-                    print_event("Heartbeat display: verbose")
-                elif name == "ping":
+                    print_event("Runtime display: verbose")
+                elif name == "probe":
                     request_type = TYPE_HEARTBEAT
                     request_payload = heartbeat_payload(current_sequence)
                     is_command = True
@@ -1212,14 +1202,15 @@ def persistent_monitor(
             if (
                 request_type is None
                 and now >= next_due
-                and prepared_heartbeat_available
+                and native_probe
+                and prepared_native_probe_available
             ):
                 request_type = TYPE_HEARTBEAT
                 request_payload = heartbeat_payload(current_sequence)
             elif request_type is None and now >= next_due:
                 # A general workload owns the physical processor and its bus.
                 # Keep HID available for explicit status/stop/restart commands,
-                # but do not inject the prepared-runtime heartbeat protocol.
+                # but do not inject the prepared-runtime diagnostic probe protocol.
                 next_due = now + interval
             if request_type is None:
                 time.sleep(0.02)
@@ -1286,8 +1277,9 @@ def persistent_monitor(
                             f"[PROCESSOR IDENTITY] {identity_text}"
                         )
             if reply is not None:
-                stats.accept(latency_ms)
-                connected = True
+                if request_type == TYPE_HEARTBEAT:
+                    probe_stats.accept(latency_ms)
+                    connected = True
                 if display == "verbose" or is_command:
                     if reply.message_type in (
                         TYPE_WORKLOAD_RESULT, TYPE_WORKLOAD_STATUS
@@ -1306,27 +1298,32 @@ def persistent_monitor(
             else:
                 if (
                     request_type == TYPE_HEARTBEAT
-                    and _heartbeat_responder_unavailable(error)
+                    and _native_probe_unavailable(error)
                 ):
-                    prepared_heartbeat_available = False
+                    prepared_native_probe_available = False
                     connected = False
-                    event["heartbeat_suspended"] = True
+                    event["native_probe_unavailable"] = True
                     update_console_runtime()
-                    if display == "verbose":
+                    if display == "verbose" or is_command:
                         print_event(
-                            "[HEARTBEAT SUSPENDED] prepared native responder "
+                            "[NATIVE PROBE UNAVAILABLE] prepared responder "
                             "did not complete; workload control remains available"
                         )
-                else:
-                    stats.lost += 1
+                elif request_type == TYPE_HEARTBEAT:
+                    probe_stats.lost += 1
                     connected = False
                     print_event(
-                        f"[{current_sequence:03d}] {processor_name} HEARTBEAT LOST  "
+                        f"[{current_sequence:03d}] {processor_name} NATIVE PROBE FAILED  "
+                        f"latency={latency_ms:.1f} ms  error={error}"
+                    )
+                else:
+                    print_event(
+                        f"[{current_sequence:03d}] HOST REQUEST FAILED  "
                         f"latency={latency_ms:.1f} ms  error={error}"
                     )
             if interactive:
                 console.render(
-                    current_cpu_sequence, stats, connected, command_buffer, command_cursor
+                    current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor
                 )
             current_sequence = (current_sequence + 1) & 0xFFFFFFFF
             if current_sequence == 0:
@@ -1369,30 +1366,38 @@ def persistent_monitor(
             "command_sequence": current_command_sequence,
             "native_processor": current_native_processor,
             "hid_identity": hid_identity,
-            "completed": stats.completed,
-            "lost": stats.lost,
-            "latency_ms": {
-                "last": stats.last_ms,
-                "minimum": 0.0 if not stats.completed else stats.minimum_ms,
-                "average": stats.average_ms,
-                "maximum": stats.maximum_ms,
+            "native_probe": {
+                "completed": probe_stats.completed,
+                "lost": probe_stats.lost,
+                "latency_ms": {
+                "last": probe_stats.last_ms,
+                "minimum": 0.0 if not probe_stats.completed else probe_stats.minimum_ms,
+                "average": probe_stats.average_ms,
+                "maximum": probe_stats.maximum_ms,
+                },
             },
             "events": events,
             "transport_error": transport_error,
             "raw_cdc_log": str(raw_path.resolve()),
-            "passed": stats.completed > 0 and stats.lost == 0 and
-            transport_error is None,
+            "passed": transport_error is None and (
+                not native_probe or (probe_stats.completed > 0 and probe_stats.lost == 0)
+            ),
         }
         json_path.write_text(
             json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
-        print(
-            f"{processor_name} heartbeat stopped: completed={stats.completed} lost={stats.lost} "
-            f"avg={stats.average_ms:.1f} ms"
-        )
+        print(f"RP86 runtime session closed: processor={processor_name}")
+        if native_probe:
+            print(
+                "Native diagnostic probes: "
+                f"completed={probe_stats.completed} lost={probe_stats.lost} "
+                f"avg={probe_stats.average_ms:.1f} ms"
+            )
         print(f"Raw CDC evidence = {raw_path}")
         print(f"Session JSON     = {json_path}")
     if transport_error is not None:
         return TRANSPORT_EXIT
-    return PASS_EXIT if stats.completed > 0 and stats.lost == 0 else VALIDATION_EXIT
+    if native_probe and not (probe_stats.completed > 0 and probe_stats.lost == 0):
+        return VALIDATION_EXIT
+    return PASS_EXIT

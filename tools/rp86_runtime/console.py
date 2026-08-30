@@ -20,40 +20,20 @@ def _status_text(
     connected: bool,
     processor: str = "nec-v30",
     *,
-    heartbeat_available: bool = True,
     workload_state: str = "EMPTY",
     clock_mode: str = "AUTO",
     workload_cycles: int = 0,
     processor_state: str = "ACTIVE",
 ) -> str:
     processor_name = PROCESSOR_NAMES[processor]
-    if not heartbeat_available:
-        lifecycle = (
-            "COMPLETED" if processor_state == "IDLE / HLT" else workload_state
-        )
-        return (
-            f"| ◆ {processor_name}  workload={lifecycle}  "
-            f"clock={clock_mode}  cycles={workload_cycles}  "
-            f"processor={processor_state}"
-        )
-    state = "ALIVE" if connected else "LOST"
-    latency = f"{stats.last_ms:.1f} ms" if stats.completed else "--"
-    sequence = "------" if cpu_sequence is None else f"{cpu_sequence:06d}"
-    return (
-        f"| {'●' if connected else '○'} {processor_name} {state}  "
-        f"cpu_seq={sequence}  rtt={latency}  lost={stats.lost}"
+    lifecycle = (
+        "COMPLETED" if processor_state == "IDLE / HLT" else workload_state
     )
-
-
-def heartbeat_suspension_text(
-    workload_state: str, processor_state: str
-) -> str:
-    """Explain why a native heartbeat is intentionally unavailable."""
-    if processor_state == "STOPPED / RESET":
-        return "UNAVAILABLE (processor stopped / RESET)"
-    if workload_state in ("STAGED", "RUNNING"):
-        return "SUSPENDED (native workload owns processor)"
-    return "SUSPENDED (prepared responder inactive)"
+    return (
+        f"| ◆ {processor_name}  workload={lifecycle}  "
+        f"clock={clock_mode}  cycles={workload_cycles}  "
+        f"processor={processor_state}"
+    )
 
 
 class ConsoleStatus:
@@ -76,7 +56,6 @@ class ConsoleStatus:
         )
         self._processor = processor
         self._prompt = self._prompt_for(processor)
-        self._heartbeat_available = True
         self._workload_state = "EMPTY"
         self._clock_mode = "AUTO"
         self._workload_cycles = 0
@@ -98,14 +77,12 @@ class ConsoleStatus:
     def set_runtime(
         self,
         *,
-        heartbeat_available: bool,
         workload_state: str,
         clock_mode: str,
         workload_cycles: int,
         processor_state: str,
     ) -> None:
         """Update the single live row from canonical workload telemetry."""
-        self._heartbeat_available = heartbeat_available
         self._workload_state = workload_state
         self._clock_mode = clock_mode
         self._workload_cycles = workload_cycles
@@ -134,27 +111,18 @@ class ConsoleStatus:
         processor_name = PROCESSOR_NAMES[self._processor]
         if self._processor == "auto":
             processor_name = "8086-CLASS"
-        if self._heartbeat_available:
-            state = "ALIVE" if connected else "LOST"
-            state_style = "bold green" if connected else "bold red"
-            detail = (
-                f"cpu_seq={sequence:06d}  "
-                f"rtt={stats.last_ms:.1f} ms  lost={stats.lost}"
-                if stats.completed
-                else f"cpu_seq=------  rtt=--  lost={stats.lost}"
-            )
-        else:
-            state = (
-                "COMPLETED"
-                if self._processor_state == "IDLE / HLT"
-                else self._workload_state
-            )
-            state_style = (
-                "bold green" if state == "COMPLETED" else "bold yellow"
-            )
-            detail = heartbeat_suspension_text(
-                self._workload_state, self._processor_state
-            ).lower()
+        state = (
+            "COMPLETED"
+            if self._processor_state == "IDLE / HLT"
+            else "RESET"
+            if self._processor_state == "STOPPED / RESET"
+            else self._workload_state
+            if self._workload_state != "EMPTY"
+            else "ACTIVE"
+        )
+        state_style = "bold green" if state in ("ACTIVE", "COMPLETED") else "bold yellow"
+        identity = "identified" if self._processor != "auto" else "identity not probed"
+        detail = f"{self._processor_state}  ·  {identity}"
 
         grid = Table.grid(expand=True, padding=(0, 1))
         grid.add_column(ratio=2, no_wrap=True)
@@ -168,12 +136,12 @@ class ConsoleStatus:
         grid.add_row(
             Text(f"Workload {self._workload_state}"),
             Text(f"Cycles {self._workload_cycles:,}"),
-            Text(f"{self._processor_state}  ·  {detail}", style="dim"),
+            Text(detail, style="dim"),
         )
         panel = Panel(
             grid,
             title=Text("RP86 Runtime", style="bold"),
-            border_style="cyan" if connected or not self._heartbeat_available else "red",
+            border_style="cyan",
             padding=(0, 1),
         )
         with self._rich.capture() as capture:
@@ -223,7 +191,6 @@ class ConsoleStatus:
                 stats,
                 connected,
                 self._processor,
-                heartbeat_available=self._heartbeat_available,
                 workload_state=self._workload_state,
                 clock_mode=self._clock_mode,
                 workload_cycles=self._workload_cycles,

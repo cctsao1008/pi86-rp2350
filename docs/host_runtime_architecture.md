@@ -324,8 +324,9 @@ pi86> load flash:/workloads/hello.bin --address 0x10000 --entry 1000:0000
 pi86> run
 HELLO FROM NEC V30
 
-pi86> top
-V30       ALIVE @ 1.000 MHz
+rp86> top
+Processor NEC V30 · IDLE / HLT
+Clock     1.000 MHz
 Workload  hello.bin
 Runtime   00:00:08
 Heartbeat 8 completed / 0 lost

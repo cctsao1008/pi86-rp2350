@@ -46,7 +46,7 @@ The record size and field offsets are normative. The C structure has a static si
 | `03h` | `ACK` | acknowledgement |
 | `04h` | `COMMAND` | host request for native Companion Service work |
 | `05h` | `RESULT` | completed native result for the same sequence |
-| `06h` | `HEARTBEAT` | low-priority V30 liveness record; never an application result |
+| `06h` | `HEARTBEAT` | optional prepared-runtime diagnostic probe; never an application result or general workload requirement |
 | `7Fh` | `ERROR` | error record |
 
 Unknown types must not be interpreted as a known service. A future service either defines a new type under a compatible version contract or increments the protocol version.
@@ -83,8 +83,9 @@ Unknown flag bits are reserved and must not silently change execution.
    window, or an ambiguous sequence is rejected as `BAD_SEQUENCE`.
 7. A timeout produces an explicit same-sequence `RESULT` or `ERROR` with
    `TIMEOUT`; it is never represented by a fabricated heartbeat.
-8. Heartbeats use their own monotonic sequence space, are lower priority than
-   command results and faults, and may be coalesced or dropped with accounting.
+8. Diagnostic `HEARTBEAT` probes use their own monotonic sequence space, are
+   lower priority than command results and faults, and may be coalesced or
+   dropped with accounting.
 9. Sequence equality identifies a transaction but is not a cryptographic integrity check.
 
 ### Payload rules
@@ -211,16 +212,19 @@ BOOT -> READY/IDLE -> BUSY -> DONE -> READY/IDLE
   interrupt wrapper at `INT 60h`.
 - Host-originated work is published atomically by the RP2350 and announced to
   the V30 through a physical interrupt and INTA-qualified vector.
-- Host-originated heartbeat traffic wakes the idle V30 through physical INTR
-  and two-cycle INTA. A PIT-compatible timer remains an optional runtime service.
+- When the prepared diagnostic responder is installed, a Host-originated
+  `HEARTBEAT` probe wakes the idle processor through physical INTR and
+  two-cycle INTA. General workloads are not required to implement it. A
+  PIT-compatible timer remains an optional runtime service.
 - Idle native code uses `STI`/`HLT`; interrupt handlers acknowledge and enqueue
   bounded work but do not wait for the host.
 
-Heartbeat is a liveness class, not a successful-result class. It has lower
-priority than fault, result, and command acknowledgement traffic, may be
-coalesced or dropped under explicit backpressure policy, and carries a dropped
-count or equivalent diagnostic witness. A full heartbeat queue must not block
-the realtime producer or a current processor bus response.
+`HEARTBEAT` is a diagnostic message class, not a successful-result class and
+not the source of generic processor state. It has lower priority than fault,
+result, and command acknowledgement traffic, may be coalesced or dropped under
+explicit backpressure policy, and carries a dropped count or equivalent
+diagnostic witness. A full probe queue must not block the realtime producer or
+a current processor bus response.
 
 Persistent operation does not replace the validation terminal state. Bounded
 validation targets continue to end at `RESET=HIGH`, `CLK=LOW`, and AD high-Z.

@@ -15,16 +15,15 @@ from rp86_runtime.console import (  # noqa: E402
     ConsoleStatus,
     _apply_input_character,
     _status_text,
-    heartbeat_suspension_text,
 )
 from rp86_runtime.device import DeviceClient  # noqa: E402
 from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
 from rp86_runtime.session import (  # noqa: E402
     _broker_runtime_state,
-    _heartbeat_responder_unavailable,
+    _native_probe_unavailable,
     _format_runtime_top,
-    _prepared_heartbeat_is_available,
+    _prepared_native_probe_is_available,
     _processor_execution_state,
     _workload_upload_requires_stop,
 )
@@ -44,7 +43,7 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertNotIn("DeviceBroker.publish =", source)
         self.assertNotIn("rp86_web._", source)
 
-    def test_web_owner_starts_canonical_exchange_and_heartbeat(self) -> None:
+    def test_web_owner_starts_canonical_runtime_monitor(self) -> None:
         process = Mock()
         process.poll.return_value = None
         record = SimpleNamespace(device_id="TEST-RP86")
@@ -62,7 +61,8 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(result["mode"], "web-owned")
         command = popen.call_args.args[0]
         self.assertIn("--exchange", command)
-        self.assertIn("--heartbeat", command)
+        self.assertIn("--monitor", command)
+        self.assertNotIn("--heartbeat", command)
         self.assertNotIn("--attach", command)
         rp86_web._owned_runtime = None
         rp86_web._owner_mode = "not-started"
@@ -153,6 +153,11 @@ class Rp86RuntimeTests(unittest.TestCase):
             "plain",
         )
 
+    def test_generic_interactive_runtime_does_not_enable_native_probe(self) -> None:
+        args = build_parser().parse_args(["--interactive", "--attach"])
+        self.assertFalse(args.native_probe)
+        self.assertFalse(args.monitor)
+
     def test_console_adopts_native_processor_identity(self) -> None:
         console = ConsoleStatus("auto")
         self.assertEqual(console._prompt, "CPU")
@@ -211,10 +216,7 @@ class Rp86RuntimeTests(unittest.TestCase):
         )
         output = _format_runtime_top(
             processor_name="INTEL 8086",
-            connected=True,
-            completed=25,
-            lost=0,
-            average_ms=2.6,
+            processor_identified=True,
             workload_id=1,
             workload_state=2,
             workload_detail=len(image),
@@ -249,67 +251,52 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(_broker_runtime_state(None), "OWNER_ACTIVE")
         self.assertEqual(_broker_runtime_state("USB disconnected"), "FAULT")
 
-    def test_top_suspends_heartbeat_during_native_workload(self) -> None:
+    def test_top_reports_lifecycle_without_workload_heartbeat(self) -> None:
         output = _format_runtime_top(
             processor_name="INTEL 8086",
-            connected=False,
-            completed=0,
-            lost=12,
-            average_ms=0.0,
+            processor_identified=True,
             workload_id=1,
             workload_state=3,
             workload_detail=623,
             workload_clock_mode=2,
             workload_cycles=3212,
             workload_processor_flags=1,
-            heartbeat_available=False,
             manifest=None,
         )
-        self.assertIn("INTEL 8086 IDLE / HLT", output)
-        self.assertIn("SUSPENDED (native workload owns processor)", output)
+        self.assertIn("Processor  INTEL 8086 · IDLE / HLT", output)
+        self.assertIn("Identity   NATIVE AAD 16 IDENTIFIED", output)
         self.assertIn("CPU cycles 3212", output)
-        self.assertNotIn("NOT RESPONDING", output)
-        self.assertNotIn("12 lost", output)
+        self.assertNotIn("Heartbeat", output)
+        self.assertNotIn("ALIVE", output)
 
-    def test_stopped_runtime_does_not_claim_workload_ownership(self) -> None:
-        self.assertEqual(
-            heartbeat_suspension_text("EMPTY", "STOPPED / RESET"),
-            "UNAVAILABLE (processor stopped / RESET)",
-        )
-        self.assertEqual(
-            heartbeat_suspension_text("RUNNING", "IDLE / HLT"),
-            "SUSPENDED (native workload owns processor)",
-        )
-
-    def test_heartbeat_requires_the_prepared_free_running_responder(self) -> None:
-        self.assertTrue(_prepared_heartbeat_is_available(0))
-        self.assertTrue(_prepared_heartbeat_is_available(1))
-        self.assertFalse(_prepared_heartbeat_is_available(2))
-        self.assertFalse(_prepared_heartbeat_is_available(3))
-        self.assertFalse(_prepared_heartbeat_is_available(1, workload_state=2))
-        self.assertFalse(_prepared_heartbeat_is_available(1, workload_state=3))
+    def test_native_probe_requires_the_prepared_free_running_responder(self) -> None:
+        self.assertTrue(_prepared_native_probe_is_available(0))
+        self.assertTrue(_prepared_native_probe_is_available(1))
+        self.assertFalse(_prepared_native_probe_is_available(2))
+        self.assertFalse(_prepared_native_probe_is_available(3))
+        self.assertFalse(_prepared_native_probe_is_available(1, workload_state=2))
+        self.assertFalse(_prepared_native_probe_is_available(1, workload_state=3))
         self.assertFalse(
-            _prepared_heartbeat_is_available(
+            _prepared_native_probe_is_available(
                 1, workload_state=0, processor_flags=0
             )
         )
 
     def test_explicit_native_timeout_suspends_instead_of_counting_loss(self) -> None:
         self.assertTrue(
-            _heartbeat_responder_unavailable(
+            _native_probe_unavailable(
                 "V30 live reply status is not OK: 4"
             )
         )
-        self.assertFalse(_heartbeat_responder_unavailable("heartbeat timeout"))
-        self.assertFalse(_heartbeat_responder_unavailable(None))
+        self.assertFalse(_native_probe_unavailable("probe timeout"))
+        self.assertFalse(_native_probe_unavailable(None))
 
-    def test_workload_status_replaces_false_heartbeat_loss(self) -> None:
+    def test_workload_status_is_independent_of_native_probe(self) -> None:
         text = _status_text(
             None,
             SimpleNamespace(completed=0, last_ms=0.0, lost=12),
             False,
             "intel-8086",
-            heartbeat_available=False,
             workload_state="RUNNING",
             clock_mode="CLOCK-STEPPED",
             workload_cycles=3212,

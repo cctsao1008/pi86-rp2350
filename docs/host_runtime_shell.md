@@ -81,7 +81,7 @@ interface.
 | Storage | `df`, `mount`, `unmount`, `sync` |
 | Memory | `mem read`, `mem write`, `mem load`, `mem save` |
 | Observation | `status`, `top`, `info`, `trace`, `regs` |
-| Supervision | `ping`, `timeout`, heartbeat, restart, `bootloader` |
+| Diagnostics and supervision | `probe`, `timeout`, restart, `bootloader` |
 | Shell | `help`, `pwd`, `cd`, `quiet`, `verbose`, `quit` |
 
 The canonical RP-FLASH Host service currently implements four device-backed
@@ -111,7 +111,7 @@ Host paths are read locally and never sent to the RP2350.
 
 Interactive Tab completion covers command names, Host paths, and `flash:/`
 entries. One match is inserted immediately; multiple matches are printed above
-the persistent heartbeat prompt. This line editor is implemented on both
+the persistent runtime prompt. This line editor is implemented on both
 Windows and POSIX Hosts, so completion does not depend on a particular shell.
 The Up and Down arrow keys traverse in-memory command history; moving past the
 newest entry restores the unfinished draft that was present before navigation.
@@ -125,14 +125,15 @@ working directory without changing the RP2350 `flash:/` or `sd:/` namespaces.
 `<host-file>` is syntax notation, not a literal `C:\path\hello.txt` filename.
 
 They use the same sequence-bound 64-byte HID ABI and the same single-owner
-Device Actor as heartbeat and runtime control. `put` writes a hidden temporary
+Device Actor as diagnostic probes and runtime control. `put` writes a hidden temporary
 file, verifies the complete CRC32, flushes NOR state, and only then replaces the
 target. `get`, `rm`, `mv`, `sync`, processor-side file calls, and `sd:` remain
 framework contracts until their backends are integrated.
 
-In interactive mode the physical-processor `ALIVE` row remains above the
-editable prompt in all three display modes. `quiet`, `status`, and `verbose`
-change event density only; they do not hide liveness.
+In interactive mode the runtime row remains above the editable prompt in all
+three display modes. It reports workload, clock, cycle count, and RP2350-owned
+processor lifecycle state. `quiet`, `status`, and `verbose` change event density
+only; they do not turn a workload-specific response into generic liveness.
 
 ### Native calculator service
 
@@ -244,12 +245,12 @@ unmapped cycle. Without `IDLE_PREPARE`, sustained absence of ALE transitions to
 `TIMED_OUT`. `status` reports the actual physical clock and processor-idle flag;
 `stop` and `restart` remain available while the processor is idle.
 
-The displayed `cpu_seq` is not a Host loop counter. It is maintained by the
-physical Intel 8086 or NEC V30 inside the native interrupt service routine and
-returned only after the processor commits its reply:
+The optional `probe` command exercises the prepared native interrupt responder.
+Its `cpu_seq` is not a Host loop counter: it is maintained by the physical
+Intel 8086 or NEC V30 and returned only after the processor commits its reply:
 
 ```text
-| ● INTEL 8086 ALIVE  cpu_seq=001011  rtt=3.7 ms  lost=0
+processor identity probe: INTEL 8086 cpu_seq=001011 rtt=3.7 ms
 ```
 
 The 64-byte reply also carries an RP2350-assigned `boot_id` and a reserved
@@ -262,8 +263,8 @@ header for request/reply correlation. These fields have separate meanings:
 - `boot_id`: separates processor RESET epochs.
 
 `top` describes one physical-CPU environment rather than an operating-system
-process list. Its eventual fields include processor liveness and clock, active
-workload, runtime, heartbeat latency/loss, PSRAM use, `flash:` and `sd:`
+process list. Its fields include processor lifecycle and clock, active
+workload, runtime, PSRAM use, `flash:` and `sd:`
 availability, open service handles, I/O counters, interrupt counts, bus errors,
 watchdog state, and restart count.
 
@@ -275,7 +276,7 @@ Internal-SRAM processor range. Calculator manifests use the prepared
 FREE_RUNNING dispatch path; general manifests use the canonical CLOCK_STEPPED
 reset-handoff and bus-service path.
 Composite CDC+HID, the accepted 1 MHz bus controller, physical INTR/two-cycle INTA,
-persistent heartbeat, command mailbox, status, trace, and Host-directed UF2
+the optional prepared-runtime diagnostic probe, command mailbox, status, trace, and Host-directed UF2
 entry remain integrated. External PSRAM is a later optional capacity backend
 behind the same workload contract.
 
@@ -337,7 +338,7 @@ does not guess: it reports the candidates and requires `--port` (or a matching
 
 ## Sharing one physical device between Host clients
 
-The first persistent interactive/heartbeat process is both the normal shell
+The first persistent interactive/monitor process is both the normal shell
 and the local Host broker. It is the only process that owns the composite CDC
 and HID interfaces. Later processes discover it by USB serial `device_id` and
 connect as clients instead of reopening the hardware:
@@ -351,7 +352,7 @@ later rp86.py or another rp86_runtime client
 ```
 
 Reliable 64-byte request/reply transactions use localhost TCP. Read-only
-heartbeat/status snapshots use UDP telemetry. Every remote exchange enters the
+runtime/status snapshots use UDP telemetry. Every remote exchange enters the
 Device Actor queue, so the physical HID sequence and current bus transaction
 still have exactly one owner. The broker lifecycle is an explicit FSM:
 
@@ -374,7 +375,7 @@ The Host requires one complete `RP86 STATUS BEGIN` / `RP86 STATUS END` block,
 so USB startup text cannot be mistaken for the response to a new request. This
 operation only observes RP2350 state. Before the first HID record it reports
 `IDLE` and leaves the processor in RESET. After startup it reports `RUNNING`
-without disturbing the active physical bus or heartbeat runtime.
+without disturbing the active physical bus or workload runtime.
 
 ## Restarting or entering the RP2350 UF2 bootloader
 

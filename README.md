@@ -197,9 +197,10 @@ executing all four calculator operations at 1 MHz. That clean session completed
 74 heartbeats with zero loss; every calculator round retained physical `INTA`,
 commit, EOI, and return-to-idle `PASS` witnesses.
 
-Neither processor provides CPUID, so the runtime obtains identity from native
-execution instead: every heartbeat carries the result of the historical
-`AAD 16` discriminator. The default is automatic identification. Optional
+Neither processor provides CPUID, so the Host obtains identity from a bounded
+native `AAD 16` diagnostic probe when the prepared responder is available.
+This probe is not a requirement placed on general workloads. The default is
+automatic identification. Optional
 `--processor intel-8086` or `--processor nec-v30` arguments turn that result
 into a strict assertion for a test setup that expects one specific processor.
 
