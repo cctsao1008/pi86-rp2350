@@ -12,6 +12,69 @@ _WEB_OWNER_STARTUP_WAIT_S = 75.0
 _WEB_REBOOT_SETTLE_S = 1.5
 
 
+def _install_broker_workload_telemetry() -> None:
+    """Enrich broker snapshots with the runtime's existing workload status.
+
+    The persistent session already decodes every workload status/result record,
+    but older broker snapshots expose only processor heartbeat telemetry.  Keep
+    one process-local copy of the latest decoded workload state and merge it
+    into DeviceBroker.publish().  This does not add USB traffic or change the
+    wire protocol; it only exposes state the Host runtime already owns.
+    """
+    import rp86_runtime.session as session
+
+    if getattr(session, "_broker_workload_telemetry_installed", False):
+        return
+
+    latest = {
+        "workload_id": 0,
+        "workload_state": "EMPTY",
+        "workload_detail": 0,
+        "workload_clock_mode": "AUTO",
+        "workload_cycles": 0,
+        "workload_processor_flags": 0,
+        "workload_processor_state": "ACTIVE",
+    }
+    original_decode = session.decode_status_payload
+    original_publish = session.DeviceBroker.publish
+
+    def decode_status_payload(payload):
+        decoded = original_decode(payload)
+        (
+            workload_id,
+            workload_state,
+            workload_detail,
+            workload_clock_mode,
+            workload_cycles,
+            workload_processor_flags,
+        ) = decoded
+        latest.update(
+            {
+                "workload_id": workload_id,
+                "workload_state": session._workload_state_name(workload_state),
+                "workload_detail": workload_detail,
+                "workload_clock_mode": session.CLOCK_MODE_NAMES.get(
+                    workload_clock_mode, f"UNKNOWN({workload_clock_mode})"
+                ),
+                "workload_cycles": workload_cycles,
+                "workload_processor_flags": workload_processor_flags,
+                "workload_processor_state": session._processor_execution_state(
+                    workload_clock_mode, workload_processor_flags
+                ),
+            }
+        )
+        return decoded
+
+    def publish(broker, snapshot):
+        enriched = dict(snapshot)
+        enriched.update(latest)
+        return original_publish(broker, enriched)
+
+    session.decode_status_payload = decode_status_payload
+    session.DeviceBroker.publish = publish
+    session._broker_workload_telemetry_installed = True
+
+
 def _rewrite_web_owned_runtime_args() -> None:
     """Use the proven exchange+heartbeat path for Web-owned background sessions.
 
@@ -144,6 +207,7 @@ if "--web" in sys.argv:
     sys.argv.remove("--web")
     main = _web_main
 else:
+    _install_broker_workload_telemetry()
     _rewrite_web_owned_runtime_args()
     from rp86_runtime.cli import main
 
