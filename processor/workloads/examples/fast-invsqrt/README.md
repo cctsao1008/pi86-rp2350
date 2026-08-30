@@ -4,9 +4,9 @@ A native fixed-point inverse-square-root workload for the physical Intel 8086 / 
 
 This example computes an approximation to
 
-$$
+```math
 \frac{1}{\sqrt{x}}
-$$
+```
 
 without relying on an 8087 coprocessor, IEEE-754 floating point, or host-side arithmetic.
 
@@ -42,19 +42,19 @@ The result is a native 16-bit numerical workload that is appropriate for the pro
 
 Inverse square root appears naturally in vector normalization. For a vector
 
-$$
+```math
 \mathbf{v}=(x,y,z)
-$$
+```
 
 its normalized form is
 
-$$
+```math
 \hat{\mathbf{v}}
 =
 \frac{\mathbf{v}}{\lVert\mathbf{v}\rVert}
 =
 \mathbf{v}\frac{1}{\sqrt{x^2+y^2+z^2}}.
-$$
+```
 
 This makes inverse square root a useful building block for later workloads involving:
 
@@ -94,9 +94,9 @@ The workload uses unsigned Q8.8 fixed-point values.
 
 A Q8.8 value stores eight fractional bits:
 
-$$
+```math
 \text{real value}=\frac{\text{stored integer}}{256}.
-$$
+```
 
 Examples:
 
@@ -111,9 +111,9 @@ Examples:
 
 Multiplication follows the usual fixed-point rule:
 
-$$
+```math
 Q8.8 \times Q8.8 = Q16.16.
-$$
+```
 
 The 32-bit product is formed by the 8086 `MUL` instruction in `DX:AX`, then shifted right by eight bits to return to Q8.8.
 
@@ -127,18 +127,18 @@ result = (a * b) >> 8;
 
 The input is normalized by powers of four so that
 
-$$
+```math
 x=m4^k,
 \qquad 1\le m<4.
-$$
+```
 
 Then
 
-$$
+```math
 \frac{1}{\sqrt{x}}
 =
 \frac{1}{\sqrt{m}}2^{-k}.
-$$
+```
 
 This is useful on a binary processor because the exponent correction becomes a power-of-two shift.
 
@@ -172,11 +172,11 @@ Return Q8.8 result
 
 The refinement step is
 
-$$
+```math
 y_{n+1}
 =
 y_n\left(\frac{3}{2}-\frac{x}{2}y_n^2\right).
-$$
+```
 
 In code-oriented form:
 
@@ -237,9 +237,9 @@ reference +/- 1 Q8.8 LSB
 
 One Q8.8 LSB is
 
-$$
+```math
 \frac{1}{256}=0.00390625.
-$$
+```
 
 The purpose of the self-test is to verify the complete fixed-point path, not to claim floating-point-level precision.
 
@@ -278,9 +278,9 @@ Not required by the numerical algorithm:
 
 The main point of this example is not the specific lookup table or the exact Q-format. It is the design pattern:
 
-$$
+```math
 \boxed{\text{Transform} \rightarrow \text{Approximate} \rightarrow \text{Refine}}
-$$
+```
 
 On an 8086-class processor, the best representation of a numerical problem may be very different from the representation chosen on a later x86 CPU or GPU.
 
