@@ -87,7 +87,8 @@ bool rp86_workload_begin(rp86_workload_manager_t *manager,
     if (manager == NULL || manager->backing == NULL ||
         !manager->backing->available ||
         !manifest_valid(manifest, manager->backing) ||
-        manager->state == RP86_WORKLOAD_STATE_RUNNING)
+        (manager->state == RP86_WORKLOAD_STATE_RUNNING ||
+         manager->state == RP86_WORKLOAD_STATE_COMPLETED))
         return false;
 
     manager->manifest = *manifest;
@@ -154,9 +155,19 @@ bool rp86_workload_run(rp86_workload_manager_t *manager,
 bool rp86_workload_stop(rp86_workload_manager_t *manager,
                         uint32_t workload_id) {
     if (!workload_id_matches(manager, workload_id) ||
-        manager->state != RP86_WORKLOAD_STATE_RUNNING)
+        (manager->state != RP86_WORKLOAD_STATE_RUNNING &&
+         manager->state != RP86_WORKLOAD_STATE_COMPLETED))
         return false;
     manager->state = RP86_WORKLOAD_STATE_STOPPED;
+    return true;
+}
+
+bool rp86_workload_complete(rp86_workload_manager_t *manager,
+                            uint32_t workload_id) {
+    if (!workload_id_matches(manager, workload_id) ||
+        manager->state != RP86_WORKLOAD_STATE_RUNNING)
+        return false;
+    manager->state = RP86_WORKLOAD_STATE_COMPLETED;
     return true;
 }
 
@@ -165,7 +176,8 @@ bool rp86_workload_restart(rp86_workload_manager_t *manager,
     if (!workload_id_matches(manager, workload_id) ||
         (manager->state != RP86_WORKLOAD_STATE_STAGED &&
          manager->state != RP86_WORKLOAD_STATE_RUNNING &&
-         manager->state != RP86_WORKLOAD_STATE_STOPPED))
+         manager->state != RP86_WORKLOAD_STATE_STOPPED &&
+         manager->state != RP86_WORKLOAD_STATE_COMPLETED))
         return false;
     manager->state = RP86_WORKLOAD_STATE_RUNNING;
     return true;
@@ -188,7 +200,7 @@ const char *rp86_workload_state_name(rp86_workload_state_t state) {
         case RP86_WORKLOAD_STATE_STAGED: return "STAGED";
         case RP86_WORKLOAD_STATE_RUNNING: return "RUNNING";
         case RP86_WORKLOAD_STATE_STOPPED: return "STOPPED";
-        case RP86_WORKLOAD_STATE_EXITED: return "EXITED";
+        case RP86_WORKLOAD_STATE_COMPLETED: return "COMPLETED";
         case RP86_WORKLOAD_STATE_FAULTED: return "FAULTED";
         case RP86_WORKLOAD_STATE_TIMED_OUT: return "TIMED_OUT";
         default: return "UNKNOWN";

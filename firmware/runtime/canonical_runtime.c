@@ -1514,12 +1514,21 @@ static void service_general_workload(void) {
         (g_workload_bus_stats.no_cycle || g_workload_bus_stats.unmapped ||
          g_workload_bus_stats.invalid_lane)) {
         g_workload_idle_armed = false;
+        if (!rp86_workload_complete(&g_workload_manager,
+                                    g_workload_manager.workload_id)) {
+            evidence_printf(
+                "[WORKLOAD FAULT] completion transition rejected\n");
+            stop_general_workload();
+            g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
+            return;
+        }
         g_processor_idle = true;
         g_bus_starvation_started_us = 0u;
         g_workload_bus_stats.unmapped = false;
         g_workload_bus_stats.invalid_lane = false;
         g_workload_bus_stats.no_cycle = false;
-        evidence_printf("[WORKLOAD IDLE] armed native HLT indication accepted\n");
+        evidence_printf(
+            "[WORKLOAD COMPLETED] armed native HLT indication accepted\n");
         return;
     }
 

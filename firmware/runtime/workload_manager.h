@@ -39,6 +39,8 @@ bool rp86_workload_commit(rp86_workload_manager_t *manager,
                           uint32_t transfer_id, uint32_t expected_crc32);
 bool rp86_workload_run(rp86_workload_manager_t *manager,
                        uint32_t workload_id);
+bool rp86_workload_complete(rp86_workload_manager_t *manager,
+                            uint32_t workload_id);
 bool rp86_workload_stop(rp86_workload_manager_t *manager,
                         uint32_t workload_id);
 bool rp86_workload_restart(rp86_workload_manager_t *manager,

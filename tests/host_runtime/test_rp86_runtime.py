@@ -240,11 +240,12 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
         self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
 
-    def test_upload_only_stops_a_running_workload(self) -> None:
+    def test_upload_stops_a_running_or_completed_workload(self) -> None:
         self.assertFalse(_workload_upload_requires_stop(0))
         self.assertFalse(_workload_upload_requires_stop(2))
         self.assertTrue(_workload_upload_requires_stop(3))
         self.assertFalse(_workload_upload_requires_stop(4))
+        self.assertTrue(_workload_upload_requires_stop(5))
         self.assertFalse(_workload_upload_requires_stop(6))
 
     def test_broker_runtime_state_uses_transport_not_processor_liveness(self) -> None:
@@ -256,7 +257,7 @@ class Rp86RuntimeTests(unittest.TestCase):
             processor_name="INTEL 8086",
             processor_identified=True,
             workload_id=1,
-            workload_state=3,
+            workload_state=5,
             workload_detail=623,
             workload_clock_mode=2,
             workload_cycles=3212,
@@ -264,6 +265,7 @@ class Rp86RuntimeTests(unittest.TestCase):
             manifest=None,
         )
         self.assertIn("Processor  INTEL 8086 · IDLE / HLT", output)
+        self.assertIn("Workload   COMPLETED", output)
         self.assertIn("Identity   NATIVE AAD 16 IDENTIFIED", output)
         self.assertIn("CPU cycles 3212", output)
         self.assertNotIn("Heartbeat", output)
@@ -297,7 +299,7 @@ class Rp86RuntimeTests(unittest.TestCase):
             SimpleNamespace(completed=0, last_ms=0.0, lost=12),
             False,
             "intel-8086",
-            workload_state="RUNNING",
+            workload_state="COMPLETED",
             clock_mode="CLOCK-STEPPED",
             workload_cycles=3212,
             processor_state="IDLE / HLT",
@@ -313,7 +315,7 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertEqual(
             stream.feed(
                 b"[NATIVE STDOUT] RESULT: PASS\r\n"
-                b"[WORKLOAD IDLE] armed native HLT indication accepted\r\n"
+                b"[WORKLOAD COMPLETED] armed native HLT indication accepted\r\n"
             ),
             (
                 "[NATIVE OUTPUT]",

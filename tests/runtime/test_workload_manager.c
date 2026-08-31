@@ -71,12 +71,20 @@ int main(void) {
     assert(!rp86_workload_commit(&manager, 7u, manifest.image_crc32));
     assert(manager.state == RP86_WORKLOAD_STATE_RUNNING);
     assert(!rp86_workload_run(&manager, manager.workload_id));
+    assert(!rp86_workload_complete(&manager, manager.workload_id + 1u));
+    assert(rp86_workload_complete(&manager, manager.workload_id));
+    assert(manager.state == RP86_WORKLOAD_STATE_COMPLETED);
+    assert(!rp86_workload_begin(&manager, 8u, &manifest));
+    assert(!rp86_workload_complete(&manager, manager.workload_id));
     assert(rp86_workload_stop(&manager, 0u));
     assert(manager.state == RP86_WORKLOAD_STATE_STOPPED);
     assert(rp86_workload_restart(&manager, manager.workload_id));
     assert(manager.state == RP86_WORKLOAD_STATE_RUNNING);
+    assert(rp86_workload_complete(&manager, manager.workload_id));
+    assert(manager.state == RP86_WORKLOAD_STATE_COMPLETED);
+    assert(rp86_workload_restart(&manager, manager.workload_id));
+    assert(manager.state == RP86_WORKLOAD_STATE_RUNNING);
     assert(rp86_workload_stop(&manager, manager.workload_id));
-    assert(manager.state == RP86_WORKLOAD_STATE_STOPPED);
 
     /* A manifest outside the selected backing must fail before receiving. */
     rp86_workload_discard(&manager);

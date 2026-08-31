@@ -45,7 +45,7 @@ The project keeps three state domains separate:
 | Domain | Examples | Meaning |
 |---|---|---|
 | Runtime State | `IDLE`, `LOADING`, `STAGED`, `RUNNING`, `STOPPED`, `FAULTED` | Host/RP2350 lifecycle |
-| Workload State | `EMPTY`, `RECEIVING`, `STAGED`, `RUNNING`, `EXITED`, `FAULTED`, `TIMED_OUT` | One native image lifecycle |
+| Workload State | `EMPTY`, `RECEIVING`, `STAGED`, `RUNNING`, `STOPPED`, `COMPLETED`, `FAULTED`, `TIMED_OUT` | One native image lifecycle |
 | Execution Clock Mode | `FREE_RUNNING`, `CLOCK_STEPPED` | How complete processor clock pulses are supplied |
 
 ## 3. Three fixed roles
@@ -178,7 +178,7 @@ sd:/traces/run001.log
 ## 7. Runtime states
 
 ```text
-EMPTY -> STAGED -> RUNNING -> EXITED
+EMPTY -> STAGED -> RUNNING -> COMPLETED
                     |  |
                     |  `-> FAULTED / TIMED_OUT
                     |              |
@@ -189,7 +189,7 @@ EMPTY -> STAGED -> RUNNING -> EXITED
 - **STAGED/STOPPED:** Host may prepare memory and launch state.
 - **RUNNING:** processor owns workload execution; Host observes and uses approved
   mailbox/shared regions.
-- **EXITED:** normal workload completion with retained results.
+- **COMPLETED:** normal workload completion after the native terminal `HLT`, with retained results and final cycle count.
 - **FAULTED/TIMED_OUT:** abnormal workload result with retained evidence and Host
   control still alive.
 

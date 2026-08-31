@@ -222,7 +222,7 @@ Host mutation commands are separate later integrations.
 The RP2350 maintains one explicit runtime state:
 
 ```text
-EMPTY -> STAGED -> RUNNING -> EXITED
+EMPTY -> STAGED -> RUNNING -> COMPLETED
                     |  |
                     |  `-> FAULTED / TIMED_OUT
                     |              |
@@ -244,7 +244,7 @@ The processor owns its code, data, stack, and heap. The Host normally observes r
 than changing ordinary workload memory. Mailbox, stdio, approved shared memory,
 file services, trace, stop, and restart remain available.
 
-### EXITED
+### COMPLETED
 
 The workload reported normal completion. Results, memory, and trace remain
 available to the Host.

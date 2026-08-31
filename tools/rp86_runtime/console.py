@@ -26,11 +26,8 @@ def _status_text(
     processor_state: str = "ACTIVE",
 ) -> str:
     processor_name = PROCESSOR_NAMES[processor]
-    lifecycle = (
-        "COMPLETED" if processor_state == "IDLE / HLT" else workload_state
-    )
     return (
-        f"| ◆ {processor_name}  workload={lifecycle}  "
+        f"| ◆ {processor_name}  workload={workload_state}  "
         f"clock={clock_mode}  cycles={workload_cycles}  "
         f"processor={processor_state}"
     )
@@ -112,9 +109,7 @@ class ConsoleStatus:
         if self._processor == "auto":
             processor_name = "8086-CLASS"
         state = (
-            "COMPLETED"
-            if self._processor_state == "IDLE / HLT"
-            else "RESET"
+            "RESET"
             if self._processor_state == "STOPPED / RESET"
             else self._workload_state
             if self._workload_state != "EMPTY"
@@ -247,7 +242,8 @@ class CdcDisplayStream:
                     events.append("[NATIVE OUTPUT]")
                     self._native_group_open = True
                 events.append(payload)
-            elif line.startswith("[WORKLOAD IDLE]"):
+            elif (line.startswith("[WORKLOAD COMPLETED]") or
+                  line.startswith("[WORKLOAD IDLE]")):
                 events.append("[WORKLOAD COMPLETED] processor=IDLE / HLT")
                 self._native_group_open = False
         return tuple(events)

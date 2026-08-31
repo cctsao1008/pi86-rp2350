@@ -24,7 +24,7 @@ _WORKLOAD_STATE_NAMES = {
     2: "STAGED",
     3: "RUNNING",
     4: "STOPPED",
-    5: "EXITED",
+    5: "COMPLETED",
     6: "FAULTED",
     7: "TIMED_OUT",
 }
@@ -43,8 +43,8 @@ def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
 
 
 def _workload_upload_requires_stop(workload_state: int) -> bool:
-    """The firmware permits upload in every state except RUNNING."""
-    return workload_state == 3
+    """A live or terminal-HLT processor must be reset before upload."""
+    return workload_state in (3, 5)
 
 
 def _broker_runtime_state(transport_error: str | None) -> str:

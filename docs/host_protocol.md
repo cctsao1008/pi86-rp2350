@@ -105,7 +105,7 @@ A minimal runtime-state model is:
 EMPTY
 LOADED
 RUNNING
-EXITED
+COMPLETED
 STOPPED
 FAULT
 TIMEOUT
