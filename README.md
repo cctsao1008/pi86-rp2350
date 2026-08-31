@@ -246,6 +246,7 @@ and the Host retrieves the result. See the
 - [`docs/host_runtime_architecture.md`](docs/host_runtime_architecture.md) — detailed runtime and resource contract
 - [`docs/host_runtime_shell.md`](docs/host_runtime_shell.md) — Host shell command model
 - [`docs/memory_architecture.md`](docs/memory_architecture.md) — memory and shared-storage ownership
+- [`docs/processor_memory_map.md`](docs/processor_memory_map.md) — canonical Intel 8086 / NEC V30 physical address map
 - [`docs/host_protocol.md`](docs/host_protocol.md) — language-independent Host Protocol
 - [`docs/hardware.md`](docs/hardware.md) — board resources, locked signal mapping, and physical interface contract
 - [`docs/development/codex_physical_development_loop.md`](docs/development/codex_physical_development_loop.md) — AI-written code through physical processor evidence
