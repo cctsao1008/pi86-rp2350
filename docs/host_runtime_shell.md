@@ -185,6 +185,17 @@ This validates bounded Host-loaded Internal-SRAM execution at the manifest's
 declared address and entry point. It does not yet claim a general responder for
 arbitrary image sizes or unrestricted processor-visible RAM.
 
+For a single-command physical regression, run:
+
+```powershell
+py tools\rp86.py --physical-regression build\workloads\INVSQRT.P86W
+```
+
+The command auto-selects the device, loads and runs the package, waits for the
+firmware-owned `COMPLETED` state, requires native `RESULT: PASS`, and saves the
+raw CDC log plus session JSON. Its process exit code is nonzero on transport,
+execution, result-marker, or timeout failure.
+
 ### General Internal-SRAM workload lifecycle
 
 Raw flat binaries default to an automatic clock policy. A workload may request

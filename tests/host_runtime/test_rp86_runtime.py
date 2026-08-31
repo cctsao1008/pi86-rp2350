@@ -139,6 +139,15 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertTrue(args.interactive)
         self.assertEqual(args.processor, "intel-8086")
 
+    def test_physical_regression_is_a_single_workload_mode(self) -> None:
+        args = build_parser().parse_args(
+            ["--physical-regression", "build/workloads/INVSQRT.P86W"]
+        )
+        self.assertEqual(
+            args.physical_regression,
+            "build/workloads/INVSQRT.P86W",
+        )
+
     def test_cli_accepts_live_and_plain_renderers(self) -> None:
         self.assertEqual(
             build_parser().parse_args(["--interactive"]).display,

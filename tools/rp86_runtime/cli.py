@@ -15,6 +15,10 @@ def build_parser() -> argparse.ArgumentParser:
     mode.add_argument("--exchange", action="store_true")
     mode.add_argument("--interactive", action="store_true")
     mode.add_argument(
+        "--physical-regression", metavar="P86W",
+        help="load, run, and verify one physical workload to COMPLETED",
+    )
+    mode.add_argument(
         "--bootloader", action="store_true",
         help="request RP2350 UF2 bootloader mode over HID, with CDC fallback",
     )
@@ -117,7 +121,10 @@ def main() -> int:
         parser.error("--probe-timeout must be greater than zero")
     if args.rounds < 0:
         parser.error("--rounds cannot be negative")
-    if args.json and (args.interactive or args.monitor or args.native_probe):
+    if args.json and (
+        args.interactive or args.monitor or args.native_probe or
+        args.physical_regression
+    ):
         parser.error("persistent runtime monitoring cannot be combined with --json")
     if args.attach and not (args.interactive or args.monitor or args.native_probe):
         parser.error("--attach requires --interactive, --monitor, or --native-probe")
@@ -125,7 +132,7 @@ def main() -> int:
     broker_record: BrokerRecord | None = None
     if args.status or args.bootloader or args.reboot or (
         args.attach and (args.interactive or args.monitor or args.native_probe)
-    ):
+    ) or args.physical_regression:
         device_hint = args.hid_serial
         if device_hint is None and args.port:
             try:
@@ -242,6 +249,8 @@ def main() -> int:
             processor=session_processor,
             broker_record=broker_record,
             native_probe=args.native_probe,
+            regression_workload=args.physical_regression,
+            regression_timeout=args.timeout,
         )
 
     if args.bootloader or args.reboot:
@@ -293,6 +302,26 @@ def main() -> int:
         return request_bootloader(args.port, args.timeout)
     if args.reboot:
         return request_reboot_cdc(args.port, args.timeout)
+    if args.physical_regression:
+        try:
+            return persistent_monitor(
+                port=args.port,
+                sequence=args.sequence or 1,
+                timeout=args.probe_timeout,
+                interval=args.interval,
+                output_dir=args.output_dir,
+                serial_number=args.hid_serial,
+                display=args.display,
+                interactive=False,
+                rounds=0,
+                processor=args.processor,
+                native_probe=False,
+                regression_workload=args.physical_regression,
+                regression_timeout=args.timeout,
+            )
+        except RuntimeError as exc:
+            print(f"ERROR: {exc}", file=sys.stderr)
+            return DEPENDENCY_EXIT
     if args.attach:
         try:
             return persistent_monitor(

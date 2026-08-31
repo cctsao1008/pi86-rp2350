@@ -145,6 +145,8 @@ def persistent_monitor(
     processor: str,
     broker_record: BrokerRecord | None = None,
     native_probe: bool = False,
+    regression_workload: str | None = None,
+    regression_timeout: float = 60.0,
 ) -> int:
     """Keep one Host-owned runtime session synchronized with RP2350 state."""
     serial = _serial_module()
@@ -179,6 +181,17 @@ def persistent_monitor(
     staged_workload_manifest: WorkloadManifest | None = None
     prepared_native_probe_available = True
     workload_completion_pending = False
+    regression_commands = (
+        [f'load "{regression_workload}"', "run"]
+        if regression_workload else []
+    )
+    regression_deadline = (
+        time.monotonic() + regression_timeout
+        if regression_workload else None
+    )
+    regression_started = False
+    regression_result_seen = False
+    regression_passed: bool | None = None
     next_due = time.monotonic()
     stop = False
     transport_error: str | None = None
@@ -214,6 +227,7 @@ def persistent_monitor(
 
     def drain_cdc() -> None:
         nonlocal transport_error, workload_completion_pending
+        nonlocal regression_result_seen
         nonlocal staged_workload_processor_flags
         nonlocal prepared_native_probe_available
         if transport_error is not None or connection is None:
@@ -224,6 +238,8 @@ def persistent_monitor(
                 chunk = connection.read(waiting)
                 captured.extend(chunk)
                 for line in cdc_display.feed(chunk):
+                    if line == "RESULT: PASS":
+                        regression_result_seen = True
                     if line.startswith("[WORKLOAD COMPLETED]"):
                         # Native HLT evidence precedes the next HID status.
                         # Reflect completion now and refresh cycles in the loop.
@@ -682,6 +698,9 @@ def persistent_monitor(
         print("RP2350 owns transport and lifecycle; native probes are diagnostic.\n")
         print(f"Terminal renderer: {console.renderer_name}\n")
         console.render(current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor)
+    elif regression_workload:
+        print("\n[RP86 PHYSICAL REGRESSION]")
+        print(f"Workload = {regression_workload}")
 
     # A previous Host session may have left a general workload RUNNING,
     # IDLE/HLT, FAULTED, or STOPPED/RESET. Probe the RP2350-owned lifecycle
@@ -725,8 +744,25 @@ def persistent_monitor(
                     "workload completion status",
                     announce=False,
                 )
+            if regression_started and staged_workload_state == 5:
+                regression_passed = regression_result_seen
+                print_event(
+                    "PHYSICAL REGRESSION: PASS"
+                    if regression_passed else
+                    "PHYSICAL REGRESSION: FAIL (missing RESULT: PASS)"
+                )
+                stop = True
+                continue
+            if (regression_deadline is not None and
+                    time.monotonic() >= regression_deadline):
+                regression_passed = False
+                print_event("PHYSICAL REGRESSION: FAIL (timeout)")
+                stop = True
+                continue
             command: str | None = None
-            if interactive:
+            if regression_commands:
+                command = regression_commands.pop(0)
+            elif interactive:
                 command_buffer, command_cursor, command, changed, tab_requested, history_delta, clear_requested = (
                     _read_terminal_command(command_buffer, command_cursor)
                 )
@@ -899,6 +935,9 @@ def persistent_monitor(
                         if not perform_workload_transaction(
                             [stop_record], "workload stop"
                         ):
+                            if regression_workload:
+                                regression_passed = False
+                                stop = True
                             continue
                         records = upload_records(
                             manifest,
@@ -908,6 +947,9 @@ def persistent_monitor(
                         )
                     if perform_workload_transaction(records, "workload upload"):
                         staged_workload_manifest = manifest
+                    elif regression_workload:
+                        regression_passed = False
+                        stop = True
                     continue
                 elif name in ("run", "stop", "restart"):
                     if name in ("run", "restart") and not (
@@ -919,7 +961,14 @@ def persistent_monitor(
                     record = control_record(
                         name, workload_id=0, sequence=current_sequence
                     )
-                    perform_workload_transaction([record], f"workload {name}")
+                    accepted = perform_workload_transaction(
+                        [record], f"workload {name}"
+                    )
+                    if regression_workload and not accepted:
+                        regression_passed = False
+                        stop = True
+                    elif regression_workload and name == "run":
+                        regression_started = True
                     continue
                 elif name == "console":
                     print_event(
@@ -1378,10 +1427,16 @@ def persistent_monitor(
             },
             "events": events,
             "transport_error": transport_error,
+            "physical_regression": {
+                "workload": regression_workload,
+                "result_marker": regression_result_seen,
+                "completed": staged_workload_state == 5,
+                "passed": regression_passed,
+            } if regression_workload else None,
             "raw_cdc_log": str(raw_path.resolve()),
             "passed": transport_error is None and (
                 not native_probe or (probe_stats.completed > 0 and probe_stats.lost == 0)
-            ),
+            ) and (not regression_workload or regression_passed is True),
         }
         json_path.write_text(
             json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
@@ -1399,5 +1454,7 @@ def persistent_monitor(
     if transport_error is not None:
         return TRANSPORT_EXIT
     if native_probe and not (probe_stats.completed > 0 and probe_stats.lost == 0):
+        return VALIDATION_EXIT
+    if regression_workload and regression_passed is not True:
         return VALIDATION_EXIT
     return PASS_EXIT
