@@ -1,4 +1,4 @@
-foreach(required_var NASM_EXECUTABLE SOURCE OUTPUT)
+foreach(required_var NASM_EXECUTABLE SOURCE OUTPUT INCLUDE_DIR)
     if(NOT DEFINED ${required_var} OR "${${required_var}}" STREQUAL "")
         message(FATAL_ERROR "${required_var} is required")
     endif()
@@ -31,7 +31,8 @@ endif()
 get_filename_component(source_dir "${SOURCE}" DIRECTORY)
 
 execute_process(
-    COMMAND "${NASM_EXECUTABLE}" -f bin -Wall -Werror "-I${source_dir}/"
+    COMMAND "${NASM_EXECUTABLE}" -f bin -Wall -Werror
+            "-I${source_dir}/" "-I${INCLUDE_DIR}/"
             -o "${OUTPUT}" "${SOURCE}"
     RESULT_VARIABLE assemble_result
     OUTPUT_VARIABLE assemble_output

@@ -2,6 +2,7 @@ bits 16
 org 0
 
 %include "include/platform.inc"
+%include "rp86_abi.inc"
 
 ; Persistent RP86 processor runtime.
 ;
@@ -13,16 +14,16 @@ org 0
 ; compact and section-aligned so independent PIO response streams can retain
 ; their own exact keys while unrelated interrupt traffic is in flight.
 
-%define COMPANION_VECTOR       0x20
-%define NATIVE_SERVICE_VECTOR  0x60
+%define COMPANION_VECTOR       RP86_INTERRUPT_VECTOR_COMPANION
+%define NATIVE_SERVICE_VECTOR  RP86_INTERRUPT_VECTOR_NATIVE_SERVICE
 %define COMPANION_ISR_OFFSET   0x0140
 %define INT60_ISR_OFFSET       0x0100
 
-%define STATUS_PORT            0x00E0
-%define TX_PORT                0x00E2
-%define RX_PORT                0x00E4
-%define CONTROL_PORT           0x00E6
-%define WITNESS_PORT           0x00E8
+%define STATUS_PORT            RP86_IO_PORT_STATUS
+%define TX_PORT                RP86_IO_PORT_TX
+%define RX_PORT                RP86_IO_PORT_RX
+%define CONTROL_PORT           RP86_IO_PORT_CONTROL
+%define WITNESS_PORT           RP86_IO_PORT_RESULT
 %define COMMIT                 0x0001
 %define HOST_WORDS             7
 %define CALCULATOR_MAGIC       0xCA1C

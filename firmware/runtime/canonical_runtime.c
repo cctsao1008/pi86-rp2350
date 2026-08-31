@@ -38,33 +38,34 @@
 #include "processor_service.pio.h"
 #include "runtime/clock_stepped_bus_controller.h"
 #include "runtime/evidence_queue.h"
+#include "runtime/processor_abi.h"
 #include "runtime/workload_manager.h"
 #include "storage/flash_layout.h"
 #include "storage/flash_service.h"
 #include "storage/flash_volume.h"
 
-#define COMPANION_VECTOR             0x20u
-#define INT60_VECTOR                 0x60u
+#define COMPANION_VECTOR             RP86_INTERRUPT_VECTOR_COMPANION
+#define INT60_VECTOR                 RP86_INTERRUPT_VECTOR_NATIVE_SERVICE
 #define INT60_HANDLER_OFFSET       0x0100u
 #define IRQ_HANDLER_OFFSET         0x0140u
 #define INITIAL_INT60_RETURN       0x0020u
 #define IRQ_RETURN_OFFSET          0x0022u
 #define CYCLIC_INT60_RETURN        0x0024u
-#define IVT20_OFFSET_ADDRESS       0x0080u
-#define IVT20_SEGMENT_ADDRESS      0x0082u
-#define IVT60_OFFSET_ADDRESS       0x0180u
-#define IVT60_SEGMENT_ADDRESS      0x0182u
+#define IVT20_OFFSET_ADDRESS       RP86_IVT_COMPANION_OFFSET_ADDRESS
+#define IVT20_SEGMENT_ADDRESS      RP86_IVT_COMPANION_SEGMENT_ADDRESS
+#define IVT60_OFFSET_ADDRESS       RP86_IVT_NATIVE_SERVICE_OFFSET_ADDRESS
+#define IVT60_SEGMENT_ADDRESS      RP86_IVT_NATIVE_SERVICE_SEGMENT_ADDRESS
 #define CALCULATOR_STACK_IP_ADDRESS 0x7FF6u
 #define CALCULATOR_STACK_CS_ADDRESS 0x7FF8u
 #define STACK_IP_ADDRESS           0x7FFAu
 #define STACK_CS_ADDRESS           0x7FFCu
 #define STACK_FLAGS_ADDRESS        0x7FFEu
-#define STATUS_PORT                0x00E0u
-#define TX_PORT                    0x00E2u
-#define RX_PORT                    0x00E4u
-#define CONTROL_PORT               0x00E6u
-#define WITNESS_PORT               0x00E8u
-#define PIC_COMMAND_PORT           0x0020u
+#define STATUS_PORT                RP86_IO_PORT_STATUS
+#define TX_PORT                    RP86_IO_PORT_TX
+#define RX_PORT                    RP86_IO_PORT_RX
+#define CONTROL_PORT               RP86_IO_PORT_CONTROL
+#define WITNESS_PORT               RP86_IO_PORT_RESULT
+#define PIC_COMMAND_PORT           RP86_IO_PORT_PIC_COMMAND
 #define HOST_WORDS                       7u
 #define HEARTBEAT_ACCEPT_COUNT           8u
 #define IRQ_PERIOD_US                50000u
@@ -93,12 +94,12 @@
 #define CALCULATOR_OPCODE_SUB           0xC829u /* 29 C8: SUB AX,CX */
 #define CALCULATOR_OPCODE_MUL           0xE1F7u /* F7 E1: MUL CX */
 #define CALCULATOR_OPCODE_DIV           0xF1F7u /* F7 F1: DIV CX */
-#define GENERAL_RESULT_PORT             0x00E8u
-#define GENERAL_DIAGNOSTIC_PORT         0x00E9u
-#define EXECUTION_CLOCK_PORT            0x00EAu
-#define EXECUTION_CLOCK_REQUEST_FREE    0x0001u
-#define EXECUTION_CLOCK_REQUEST_STEPPED 0x0002u
-#define WORKLOAD_CONTROL_IDLE_PREPARE    0x0001u
+#define GENERAL_RESULT_PORT             RP86_IO_PORT_RESULT
+#define GENERAL_DIAGNOSTIC_PORT         RP86_IO_PORT_DIAGNOSTIC
+#define EXECUTION_CLOCK_PORT            RP86_IO_PORT_EXECUTION_CLOCK
+#define EXECUTION_CLOCK_REQUEST_FREE    RP86_EXECUTION_CLOCK_REQUEST_FREE_RUNNING
+#define EXECUTION_CLOCK_REQUEST_STEPPED RP86_EXECUTION_CLOCK_REQUEST_CLOCK_STEPPED
+#define WORKLOAD_CONTROL_IDLE_PREPARE    RP86_CONTROL_IDLE_PREPARE
 #define CLOCK_STEPPED_PIO_HZ            2000000u
 #define EXECUTION_CLOCK_SWITCH_US        100000u
 #define GENERAL_BUS_STARVATION_TIMEOUT_US 100000u

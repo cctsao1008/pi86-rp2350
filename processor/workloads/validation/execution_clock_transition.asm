@@ -1,6 +1,8 @@
 bits 16
 org 0
 
+%include "rp86_abi.inc"
+
 ; Native execution-clock transition proof, loaded at physical 10000h.
 ;
 ; The workload installs an INT 60h handler in writable Internal SRAM. The
@@ -9,11 +11,11 @@ org 0
 ; and lets the handler return under FREE_RUNNING. The foreground then reaches
 ; STI/HLT and remains interrupt-wakeable.
 
-EXECUTION_CLOCK_PORT       equ 00EAh
-EXECUTION_CLOCK_FREE       equ 0001h
-RESULT_PORT                equ 00E8h
-INT60_VECTOR_OFFSET        equ 0180h
-INT60_VECTOR_SEGMENT       equ 0182h
+EXECUTION_CLOCK_PORT       equ RP86_IO_PORT_EXECUTION_CLOCK
+EXECUTION_CLOCK_FREE       equ RP86_EXECUTION_CLOCK_REQUEST_FREE_RUNNING
+RESULT_PORT                equ RP86_IO_PORT_RESULT
+INT60_VECTOR_OFFSET        equ RP86_IVT_NATIVE_SERVICE_OFFSET_ADDRESS
+INT60_VECTOR_SEGMENT       equ RP86_IVT_NATIVE_SERVICE_SEGMENT_ADDRESS
 
 start:
     cli
@@ -31,7 +33,7 @@ start:
     mov dx, RESULT_PORT
     out dx, ax
 
-    int 60h
+    int RP86_INTERRUPT_VECTOR_NATIVE_SERVICE
 
     sti
     nop

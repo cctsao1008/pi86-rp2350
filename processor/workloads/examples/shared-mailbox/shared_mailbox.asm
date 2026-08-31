@@ -1,6 +1,8 @@
 bits 16
 org 0
 
+%include "rp86_abi.inc"
+
 ; Polling demonstration for the canonical 3F000h shared mailbox. The Host
 ; commits a request by transferring owner to PROCESSOR. This physical CPU
 ; uppercases the payload in place, publishes its length/status, and transfers
@@ -19,7 +21,7 @@ STATUS_PROCESSING    equ 2
 STATUS_RESULT_READY  equ 3
 STATUS_ERROR         equ 4
 DATA_CAPACITY        equ 4064
-DIAGNOSTIC_PORT      equ 00E9h
+DIAGNOSTIC_PORT      equ RP86_IO_PORT_DIAGNOSTIC
 
 start:
     cli

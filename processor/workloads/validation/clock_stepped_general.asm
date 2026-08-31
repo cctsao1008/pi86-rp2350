@@ -1,6 +1,8 @@
 bits 16
 org 0
 
+%include "rp86_abi.inc"
+
 ; General-control-flow proof for the clock-stepped physical bus controller.
 ;
 ; Loaded at physical 10000h and entered at 1000:0000.  The workload uses a
@@ -12,8 +14,8 @@ org 0
 ;   counter     = 10
 ;   byte_value  = A5h
 
-RESULT_PORT equ 00E8h
-EXIT_PORT   equ 00E6h
+RESULT_PORT equ RP86_IO_PORT_RESULT
+EXIT_PORT   equ RP86_IO_PORT_CONTROL
 SUM_OFF     equ 0100h
 COUNTER_OFF equ 0102h
 BYTE_OFF    equ 0104h

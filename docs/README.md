@@ -10,16 +10,17 @@
 3. [`host_runtime_shell.md`](host_runtime_shell.md) — RP86 Host shell
 4. [`memory_architecture.md`](memory_architecture.md) — SRAM, PSRAM, flash, SD, and sharing
 5. [`processor_memory_map.md`](processor_memory_map.md) — canonical 8086/V30 physical address map
-6. [`host_protocol.md`](host_protocol.md) — Host operations and transports
-7. [`companion_service_abi.md`](companion_service_abi.md) — records and processor mailbox
-8. [`hardware.md`](hardware.md) — board resources and electrical ownership
-9. [`bringup.md`](bringup.md) — physical bring-up and acceptance
-10. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
-11. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
-12. [`bringup/recovery.md`](bringup/recovery.md) — recovery
-13. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
-14. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
-15. [`reference.md`](reference.md) — external specification and implementation references
+6. [`processor_io_interrupt_map.md`](processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
+7. [`host_protocol.md`](host_protocol.md) — Host operations and transports
+8. [`companion_service_abi.md`](companion_service_abi.md) — records and processor mailbox
+9. [`hardware.md`](hardware.md) — board resources and electrical ownership
+10. [`bringup.md`](bringup.md) — physical bring-up and acceptance
+11. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
+12. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
+13. [`bringup/recovery.md`](bringup/recovery.md) — recovery
+14. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
+15. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
+16. [`reference.md`](reference.md) — external specification and implementation references
 
 ```text
 Host       = Runtime Controller

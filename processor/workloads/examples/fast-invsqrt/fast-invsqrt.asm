@@ -2,6 +2,8 @@ bits 16
 cpu 8086
 org 0
 
+%include "rp86_abi.inc"
+
 ; Native 8086/NEC V30 fixed-point inverse-square-root example.
 ;
 ; Computes y ~= 1/sqrt(x) without an FPU using:
@@ -19,9 +21,9 @@ org 0
 ; deterministic self-test and accepts +/-1 LSB error versus rounded Q8.8
 ; reference values.  Port 00E9h is the project diagnostic console.
 
-%define DIAGNOSTIC_PORT      0x00E9
-%define CONTROL_PORT         0x00E6
-%define CONTROL_IDLE_PREPARE 0x0001
+%define DIAGNOSTIC_PORT      RP86_IO_PORT_DIAGNOSTIC
+%define CONTROL_PORT         RP86_IO_PORT_CONTROL
+%define CONTROL_IDLE_PREPARE RP86_CONTROL_IDLE_PREPARE
 
 %macro putc 1
     mov al, %1

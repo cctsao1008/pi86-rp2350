@@ -1,6 +1,8 @@
 bits 16
 org 0
 
+%include "rp86_abi.inc"
+
 ; Canonical native hello workload with a physical-processor identity witness.
 ;
 ; D5 ib is the undocumented generalized AAD form on Intel 8086/8088:
@@ -14,9 +16,9 @@ org 0
 ; Intel 8086 and NEC V30.  Port 00E9h is the project's early native diagnostic
 ; console; the Host treats this result as execution evidence, not CPUID.
 
-%define DIAGNOSTIC_PORT 0x00E9
-%define CONTROL_PORT 0x00E6
-%define CONTROL_IDLE_PREPARE 0x0001
+%define DIAGNOSTIC_PORT RP86_IO_PORT_DIAGNOSTIC
+%define CONTROL_PORT RP86_IO_PORT_CONTROL
+%define CONTROL_IDLE_PREPARE RP86_CONTROL_IDLE_PREPARE
 
 %macro putc 1
     mov al, %1

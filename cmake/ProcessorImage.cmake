@@ -32,11 +32,13 @@ function(rp86_add_processor_image target_name)
             "-DNASM_EXECUTABLE=${RP86_NASM_EXECUTABLE}"
             "-DSOURCE=${source_path}"
             "-DOUTPUT=${binary_path}"
+            "-DINCLUDE_DIR=${PROJECT_SOURCE_DIR}/processor/include"
             -P "${PROJECT_SOURCE_DIR}/cmake/AssembleProcessorImage.cmake"
         DEPENDS
             "${source_path}"
             ${IMAGE_DEPENDS}
             "${PROJECT_SOURCE_DIR}/cmake/AssembleProcessorImage.cmake"
+            "${PROJECT_SOURCE_DIR}/processor/include/rp86_abi.inc"
         VERBATIM
         COMMENT "Assembling processor image ${target_name}"
     )
