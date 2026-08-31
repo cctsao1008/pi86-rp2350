@@ -214,16 +214,22 @@ def persistent_monitor(
             "udp_port": broker_record.udp_port,
         }
     else:
-        connection = serial.Serial(
-            port=port, baudrate=115200, timeout=0, write_timeout=1.0
-        )
-        connection.dtr = True
-        hid_device, hid_identity = _open_hid(serial_number)
-        device_id = str(hid_identity.get("serial") or port)
+        device_id = str(serial_number or port)
         if select_broker(discover_brokers(), device_id) is not None:
             raise RuntimeError(f"device {device_id} already has an active broker")
         owner_broker = DeviceBroker(device_id, processor)
         owner_broker.start()
+        try:
+            connection = serial.Serial(
+                port=port, baudrate=115200, timeout=0, write_timeout=1.0
+            )
+            connection.dtr = True
+            hid_device, hid_identity = _open_hid(serial_number)
+        except Exception:
+            if connection is not None:
+                connection.close()
+            owner_broker.stop()
+            raise
 
     def drain_cdc() -> None:
         nonlocal transport_error, workload_completion_pending
@@ -276,6 +282,7 @@ def persistent_monitor(
                 return None, (time.monotonic() - began) * 1000.0, transport_error
         try:
             assert hid_device is not None
+            stale_reply_error: str | None = None
             while bytes(hid_device.read(MESSAGE_SIZE + 1)):
                 pass
             record = request.encode()
@@ -294,7 +301,8 @@ def persistent_monitor(
                             candidate, request, expected_processor
                         )
                     except ValueError as exc:
-                        return None, (time.monotonic() - began) * 1000.0, str(exc)
+                        stale_reply_error = str(exc)
+                        continue
                     # Latency ends at the complete, sequence-bound HID reply.
                     # The following CDC drain preserves evidence but is not part
                     # of the physical V30 request/reply round-trip measurement.
@@ -312,7 +320,10 @@ def persistent_monitor(
         except OSError as exc:
             transport_error = f"USB HID disconnected: {exc}"
             return None, (time.monotonic() - began) * 1000.0, transport_error
-        return None, (time.monotonic() - began) * 1000.0, "device reply timeout"
+        timeout_error = "device reply timeout"
+        if stale_reply_error is not None:
+            timeout_error += f" after stale HID reply: {stale_reply_error}"
+        return None, (time.monotonic() - began) * 1000.0, timeout_error
 
     def broker_snapshot() -> dict[str, Any]:
         return {
