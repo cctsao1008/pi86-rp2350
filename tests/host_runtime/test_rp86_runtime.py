@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
 
-from rp86_runtime.cli import build_parser  # noqa: E402
+from rp86_runtime.cli import build_parser, _regression_workload_error  # noqa: E402
 from rp86_runtime.console import (  # noqa: E402
     CdcDisplayStream,
     ConsoleStatus,
@@ -60,10 +60,10 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["mode"], "web-owned")
         command = popen.call_args.args[0]
-        self.assertIn("--exchange", command)
-        self.assertIn("--monitor", command)
+        self.assertIn("--interactive", command)
+        self.assertIn("--attach", command)
         self.assertNotIn("--heartbeat", command)
-        self.assertNotIn("--attach", command)
+        self.assertNotIn("--exchange", command)
         rp86_web._owned_runtime = None
         rp86_web._owner_mode = "not-started"
         rp86_web._owner_error = None
@@ -147,6 +147,12 @@ class Rp86RuntimeTests(unittest.TestCase):
             args.physical_regression,
             "build/workloads/INVSQRT.P86W",
         )
+
+    def test_physical_regression_rejects_a_missing_host_file_early(self) -> None:
+        self.assertIsNotNone(
+            _regression_workload_error("missing/INVSQRT.P86W")
+        )
+        self.assertIsNone(_regression_workload_error("flash:/INVSQRT.P86W"))
 
     def test_cli_accepts_live_and_plain_renderers(self) -> None:
         self.assertEqual(

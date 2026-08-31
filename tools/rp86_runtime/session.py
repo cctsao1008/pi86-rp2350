@@ -190,7 +190,7 @@ def persistent_monitor(
         if regression_workload else None
     )
     regression_started = False
-    regression_result_seen = False
+    native_result_pass_seen = False
     regression_passed: bool | None = None
     next_due = time.monotonic()
     stop = False
@@ -227,7 +227,7 @@ def persistent_monitor(
 
     def drain_cdc() -> None:
         nonlocal transport_error, workload_completion_pending
-        nonlocal regression_result_seen
+        nonlocal native_result_pass_seen
         nonlocal staged_workload_processor_flags
         nonlocal prepared_native_probe_available
         if transport_error is not None or connection is None:
@@ -239,7 +239,7 @@ def persistent_monitor(
                 captured.extend(chunk)
                 for line in cdc_display.feed(chunk):
                     if line == "RESULT: PASS":
-                        regression_result_seen = True
+                        native_result_pass_seen = True
                     if line.startswith("[WORKLOAD COMPLETED]"):
                         # Native HLT evidence precedes the next HID status.
                         # Reflect completion now and refresh cycles in the loop.
@@ -335,6 +335,7 @@ def persistent_monitor(
             ),
             "workload_cycles": staged_workload_cycles,
             "workload_processor_flags": staged_workload_processor_flags,
+            "native_result_pass": native_result_pass_seen,
             "workload_processor_state": _processor_execution_state(
                 staged_workload_clock_mode,
                 staged_workload_processor_flags,
@@ -711,7 +712,7 @@ def persistent_monitor(
     )
     if not perform_workload_transaction([startup_status], "attached runtime"):
         prepared_native_probe_available = False
-    elif prepared_native_probe_available:
+    elif prepared_native_probe_available and not regression_workload:
         # Identify the installed processor once. This diagnostic witness is
         # not a generic workload liveness and is never used as RP2350 health.
         ensure_prepared_runtime_initialized()
@@ -744,8 +745,28 @@ def persistent_monitor(
                     "workload completion status",
                     announce=False,
                 )
+            if (regression_started and staged_workload_state != 5 and
+                    time.monotonic() >= next_due):
+                poll_status = control_record(
+                    "status",
+                    workload_id=staged_workload_id,
+                    sequence=current_sequence,
+                )
+                perform_workload_transaction(
+                    [poll_status], "workload regression status", announce=False
+                )
+                if broker_client is not None:
+                    broker_state = broker_client.hello().get("snapshot", {})
+                    native_result_pass_seen = bool(
+                        broker_state.get("native_result_pass", False)
+                    )
             if regression_started and staged_workload_state == 5:
-                regression_passed = regression_result_seen
+                if broker_client is not None:
+                    broker_state = broker_client.hello().get("snapshot", {})
+                    native_result_pass_seen = bool(
+                        broker_state.get("native_result_pass", False)
+                    )
+                regression_passed = native_result_pass_seen
                 print_event(
                     "PHYSICAL REGRESSION: PASS"
                     if regression_passed else
@@ -894,6 +915,7 @@ def persistent_monitor(
                     request_payload = heartbeat_payload(current_sequence)
                     is_command = True
                 elif name == "load":
+                    native_result_pass_seen = False
                     try:
                         transfer_id = secrets.randbits(32)
                         if arguments and is_device_path(arguments[0]):
@@ -914,6 +936,9 @@ def persistent_monitor(
                             )
                     except ValueError as exc:
                         print_event(f"load: {exc}")
+                        if regression_workload:
+                            regression_passed = False
+                            stop = True
                         continue
                     print_event(
                         "Native workload upload\n"
@@ -1429,7 +1454,7 @@ def persistent_monitor(
             "transport_error": transport_error,
             "physical_regression": {
                 "workload": regression_workload,
-                "result_marker": regression_result_seen,
+                "result_marker": native_result_pass_seen,
                 "completed": staged_workload_state == 5,
                 "passed": regression_passed,
             } if regression_workload else None,

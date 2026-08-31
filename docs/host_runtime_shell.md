@@ -187,9 +187,13 @@ arbitrary image sizes or unrestricted processor-visible RAM.
 
 For a single-command physical regression, run:
 
+From the Windows checkout, address the package produced by the WSL build:
+
 ```powershell
-py tools\rp86.py --physical-regression build\workloads\INVSQRT.P86W
+py tools\rp86.py --physical-regression "\\wsl.localhost\Ubuntu-22.04\home\build\github\pi86-rp2350\build\workloads\INVSQRT.P86W"
 ```
+
+From the WSL checkout itself, use `build/workloads/INVSQRT.P86W`.
 
 The command auto-selects the device, loads and runs the package, waits for the
 firmware-owned `COMPLETED` state, requires native `RESULT: PASS`, and saves the

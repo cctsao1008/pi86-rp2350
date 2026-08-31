@@ -76,9 +76,23 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _regression_workload_error(workload: str | None) -> str | None:
+    if workload is None or is_device_path(workload) or Path(workload).is_file():
+        return None
+    return (
+        f"workload not found: {workload}. "
+        "A Windows checkout does not contain WSL build artifacts; use the "
+        r"\\wsl.localhost\<distro>\...\build\workloads\<name>.P86W path"
+    )
+
+
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    regression_error = _regression_workload_error(args.physical_regression)
+    if regression_error is not None:
+        print(f"ERROR: {regression_error}", file=sys.stderr)
+        return VALIDATION_EXIT
     if args.simulate:
         request = Message(TYPE_HELLO, args.sequence, CANONICAL_GREETING)
         response = Message.decode(simulate_v30(request.encode()))

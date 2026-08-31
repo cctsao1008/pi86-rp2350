@@ -171,8 +171,8 @@ def _ensure_runtime_owner(
     command = [
         sys.executable,
         str(RP86),
-        "--exchange",
-        "--monitor",
+        "--interactive",
+        "--attach",
         "--display",
         "quiet",
         "--interval",
