@@ -38,6 +38,7 @@
 #include "processor_service.pio.h"
 #include "runtime/clock_stepped_bus_controller.h"
 #include "runtime/evidence_queue.h"
+#include "runtime/host_service_dispatch.h"
 #include "runtime/processor_abi.h"
 #include "runtime/workload_manager.h"
 #include "storage/flash_layout.h"
@@ -171,6 +172,7 @@ static rp86_flash_service_t g_flash_service;
 static bool g_flash_volume_ready;
 static rp86_memory_backing_t g_workload_memory;
 static rp86_memory_service_t g_memory_service;
+static rp86_host_service_dispatch_t g_host_services;
 static rp86_workload_manager_t g_workload_manager;
 static rp86_processor_bus_t g_processor_bus;
 static rp86_memory_t g_processor_memory;
@@ -1717,51 +1719,29 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
 }
 
 static bool handle_filesystem_record(const rp86_host_protocol_message_t *request) {
-    rp86_host_protocol_message_t reply = {0};
-    if (!rp86_flash_service_handle(&g_flash_service, request, &reply))
-        return false;
-    const bool sent = rp86_host_protocol_hid_send_record(
-        (const uint8_t *)&reply, HOST_TIMEOUT_US);
+    const rp86_host_service_result_t result =
+        rp86_host_service_dispatch_filesystem(&g_host_services, request);
+    if (!result.handled) return false;
     evidence_printf("RP-FLASH op=%u seq=%lu status=%u %s\n",
-                    request->length == 0u ? 0u : request->payload[0],
+                    result.operation,
                     (unsigned long)request->sequence,
-                    (unsigned)reply.status,
-                    sent ? "REPLIED" : "REPLY TIMEOUT");
-    return sent;
+                    (unsigned)result.status,
+                    result.replied ? "REPLIED" : "REPLY TIMEOUT");
+    return result.replied;
 }
 
 static bool handle_memory_record(const rp86_host_protocol_message_t *request) {
-    rp86_host_protocol_message_t reply;
-    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING &&
-        rp86_shared_mailbox_host_owned(&g_workload_memory)) {
-        rp86_memory_service_set_write_window(
-            &g_memory_service, RP86_SHARED_MAILBOX_BASE,
-            RP86_SHARED_MAILBOX_SIZE);
-    } else if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
-        rp86_memory_service_set_write_window(
-            &g_memory_service, RP86_SHARED_MAILBOX_BASE, 0u);
-    } else {
-        rp86_memory_service_set_write_window(
-            &g_memory_service, g_workload_memory.processor_base,
-            g_workload_memory.size);
-    }
-    if (!rp86_memory_service_handle(&g_memory_service, request, &reply))
-        return false;
-    const bool sent = rp86_host_protocol_hid_send_record(
-        (const uint8_t *)&reply, HOST_TIMEOUT_US);
-    uint32_t address = 0u;
-    uint32_t length = 0u;
-    if (request->length >= 12u) {
-        memcpy(&address, request->payload + 4u, sizeof address);
-        memcpy(&length, request->payload + 8u, sizeof length);
-    }
+    const rp86_host_service_result_t result =
+        rp86_host_service_dispatch_memory(&g_host_services, request);
+    if (!result.handled) return false;
     evidence_printf("MEMORY op=%u address=%05lX length=%lu seq=%lu status=%u %s\n",
-                    request->length < 12u ? 0u : request->payload[0],
-                    (unsigned long)address, (unsigned long)length,
+                    result.operation,
+                    (unsigned long)result.address,
+                    (unsigned long)result.length,
                     (unsigned long)request->sequence,
-                    (unsigned)reply.status,
-                    sent ? "REPLIED" : "REPLY TIMEOUT");
-    return sent;
+                    (unsigned)result.status,
+                    result.replied ? "REPLIED" : "REPLY TIMEOUT");
+    return result.replied;
 }
 
 static void wait_for_usb_ack_flush(void) {
@@ -1949,6 +1929,13 @@ int rp86_canonical_runtime_run(void) {
     g_flash_volume_ready = rp86_flash_volume_init(&g_flash_volume);
     rp86_flash_service_init(&g_flash_service, &g_flash_volume,
                             g_flash_volume_ready);
+    g_host_services = (rp86_host_service_dispatch_t){
+        .flash = &g_flash_service,
+        .memory = &g_memory_service,
+        .workload = &g_workload_manager,
+        .workload_memory = &g_workload_memory,
+        .reply_timeout_us = HOST_TIMEOUT_US,
+    };
     rp86_host_protocol_usb_init();
     stdio_init_all();
     while (!stdio_usb_connected()) {

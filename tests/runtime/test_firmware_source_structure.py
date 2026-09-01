@@ -25,6 +25,26 @@ class FirmwareSourceStructureTests(unittest.TestCase):
         self.assertTrue((FIRMWARE / "runtime" / "canonical_runtime.c").is_file())
         self.assertTrue((FIRMWARE / "bus" / "prepared_responder.c").is_file())
 
+    def test_host_service_policy_is_outside_canonical_runtime(self):
+        runtime_source = (
+            FIRMWARE / "runtime" / "canonical_runtime.c"
+        ).read_text(encoding="utf-8")
+        dispatch_source = (
+            FIRMWARE / "runtime" / "host_service_dispatch.c"
+        ).read_text(encoding="utf-8")
+        cmake_source = (FIRMWARE / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("runtime/host_service_dispatch.c", cmake_source)
+        self.assertIn("rp86_host_service_dispatch_memory", runtime_source)
+        self.assertIn("rp86_host_service_dispatch_filesystem", runtime_source)
+        for policy_call in (
+            "rp86_flash_service_handle(",
+            "rp86_memory_service_handle(",
+            "rp86_memory_service_set_write_window(",
+        ):
+            self.assertNotIn(policy_call, runtime_source)
+            self.assertIn(policy_call, dispatch_source)
+
     def test_superseded_parallel_runtime_is_absent(self):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())
