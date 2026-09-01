@@ -1,10 +1,43 @@
 """Command-line interface for the RP86 Host runtime."""
 
-from .common import *
-from .core import *
-from .transport import *
-from .exchange import *
-from .session import *
+import argparse
+import json
+import os
+from pathlib import Path
+import sys
+
+from .broker import BrokerClient, BrokerRecord, discover_brokers, select_broker
+from .constants import (
+    CANONICAL_GREETING,
+    DEPENDENCY_EXIT,
+    PASS_EXIT,
+    PROCESSOR_NAMES,
+    TRANSPORT_EXIT,
+    USB_PID,
+    USB_VID,
+    VALIDATION_EXIT,
+)
+from .core import simulate_v30
+from .exchange import physical_exchange, print_human_result
+from .protocol import (
+    Message,
+    RUNTIME_CONTROL_ENTER_BOOTLOADER,
+    RUNTIME_CONTROL_REBOOT,
+    TYPE_HELLO,
+)
+from .session import persistent_monitor
+from .shell_commands import is_device_path
+from .transport import (
+    cdc_serial_for_port,
+    default_output_dir,
+    list_hid_devices,
+    print_status_evidence,
+    request_bootloader,
+    request_reboot_cdc,
+    request_status,
+    resolve_cdc_port,
+    send_hid_runtime_control,
+)
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(

@@ -5,7 +5,7 @@ import sys
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
@@ -18,9 +18,23 @@ from rp86_runtime.broker import (  # noqa: E402
     discover_brokers,
     select_broker,
 )
+from rp86_runtime.device_ownership import DeviceOwnership  # noqa: E402
 
 
 class HostBrokerTests(unittest.TestCase):
+    def test_startup_failure_releases_device_ownership(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ", {"RP86_BROKER_DIR": directory}
+        ):
+            broker = DeviceBroker("STARTUP-FAIL", "intel-8086")
+            broker._run = AsyncMock(side_effect=RuntimeError("startup failed"))
+
+            with self.assertRaisesRegex(RuntimeError, "did not start"):
+                broker.start()
+
+            with DeviceOwnership("STARTUP-FAIL"):
+                pass
+
     def test_broker_fsm_rejects_invalid_transition(self) -> None:
         broker = DeviceBroker("FSM", "intel-8086")
         with self.assertRaisesRegex(RuntimeError, "invalid broker transition"):

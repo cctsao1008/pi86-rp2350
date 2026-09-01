@@ -1,70 +1,110 @@
 """Persistent RP86 physical-processor session."""
 
-from .common import *
-from .core import *
-from .transport import *
-from .transport import _open_hid, _serial_module
-from .exchange import *
-from .console import *
-from .console import _read_terminal_command
-from .workload import (
-    CLOCK_MODES,
-    CLOCK_MODE_NAMES,
-    PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
-    PROCESSOR_FLAG_IDLE,
-    WorkloadManifest,
-    upload_records,
+from datetime import datetime
+import os
+from pathlib import Path
+import queue
+import re
+import secrets
+import sys
+import time
+from typing import Any
+
+from .broker import (
+    BrokerClient,
+    BrokerRecord,
+    DeviceBroker,
+    discover_brokers,
+    select_broker,
 )
 from .calculator import calculator_payload
-
-
-_WORKLOAD_STATE_NAMES = {
-    0: "EMPTY",
-    1: "RECEIVING",
-    2: "STAGED",
-    3: "RUNNING",
-    4: "STOPPED",
-    5: "COMPLETED",
-    6: "FAULTED",
-    7: "TIMED_OUT",
-}
-
-
-def _workload_state_name(state: int) -> str:
-    return _WORKLOAD_STATE_NAMES.get(state, f"UNKNOWN({state})")
-
-
-def _processor_execution_state(clock_mode: int, processor_flags: int) -> str:
-    if processor_flags & PROCESSOR_FLAG_IDLE:
-        return "IDLE / HLT"
-    if clock_mode == CLOCK_MODES["stopped"]:
-        return "STOPPED / RESET"
-    return "ACTIVE"
-
-
-def _workload_upload_requires_stop(workload_state: int) -> bool:
-    """A live or terminal-HLT processor must be reset before upload."""
-    return workload_state in (3, 5)
+from .console import (
+    CdcDisplayStream,
+    ConsoleStatus,
+    _read_terminal_command,
+)
+from .constants import (
+    PASS_EXIT,
+    PROCESSOR_NAMES,
+    TRANSPORT_EXIT,
+    VALIDATION_EXIT,
+)
+from .core import (
+    HeartbeatStats,
+    heartbeat_payload,
+    validate_device_reply,
+)
+from .filesystem import (
+    df_request,
+    parse_df,
+    write_records,
+)
+from .mailbox import (
+    MAILBOX_BASE,
+    MAILBOX_DATA_SIZE,
+    MailboxHeader,
+    mailbox_commit_records,
+)
+from .memory import (
+    format_memory_dump,
+)
+from .protocol import (
+    Message,
+    NativeServiceWitness,
+    RUNTIME_CONTROL_ENTER_BOOTLOADER,
+    RUNTIME_CONTROL_REBOOT,
+    TYPE_COMMAND,
+    TYPE_HEARTBEAT,
+    TYPE_WORKLOAD_BEGIN,
+    TYPE_WORKLOAD_COMMIT,
+    TYPE_WORKLOAD_CONTROL,
+    TYPE_WORKLOAD_DATA,
+    TYPE_WORKLOAD_RESULT,
+    TYPE_WORKLOAD_STATUS,
+)
+from .request_channel import exchange_hid_request
+from .runtime_state import (
+    ProcessorObservationState,
+    RequestSequence,
+    WorkloadRuntimeState,
+    processor_execution_state as _processor_execution_state,
+    workload_state_name as _workload_state_name,
+    workload_upload_requires_stop as _workload_upload_requires_stop,
+)
+from .service_client import RuntimeServiceClient
+from .session_evidence import SessionEvidence
+from .shell_commands import (
+    CommandHistory,
+    command_help,
+    complete_shell_input,
+    completion_token,
+    format_host_directory,
+    host_list_path,
+    is_device_path,
+    parse_command,
+    unavailable_message,
+)
+from .transport import (
+    _open_hid,
+    _serial_module,
+    exchange_hid_runtime_control,
+    send_status_request,
+)
+from .workload import (
+    CLOCK_MODE_NAMES,
+    PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
+    WorkloadManifest,
+    control_record,
+    upload_records,
+    workload_from_bytes,
+    workload_from_command,
+)
+from .workload_client import WorkloadClient
 
 
 def _broker_runtime_state(transport_error: str | None) -> str:
     """RP2350 reachability is transport state, not processor probe state."""
     return "OWNER_ACTIVE" if transport_error is None else "FAULT"
-
-
-def _prepared_native_probe_is_available(
-    clock_mode: int,
-    workload_state: int = 0,
-    processor_flags: int = PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
-) -> bool:
-    """Only the empty prepared runtime can answer the diagnostic probe."""
-    return (
-        workload_state == 0
-        and bool(
-            processor_flags & PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
-        )
-        and clock_mode in (CLOCK_MODES["auto"], CLOCK_MODES["free-running"])
-    )
 
 
 def _native_probe_unavailable(error: str | None) -> bool:
@@ -150,13 +190,8 @@ def persistent_monitor(
 ) -> int:
     """Keep one Host-owned runtime session synchronized with RP2350 state."""
     serial = _serial_module()
-    output_dir.mkdir(parents=True, exist_ok=True)
     started = datetime.now().astimezone()
-    timestamp = started.strftime("%Y%m%d_%H%M%S%z")
-    raw_path = output_dir / f"runtime_session_{timestamp}.log"
-    json_path = output_dir / f"runtime_session_{timestamp}.json"
-    captured = bytearray()
-    events: list[dict[str, Any]] = []
+    evidence = SessionEvidence.create(output_dir, started)
     probe_stats = HeartbeatStats()
     console = ConsoleStatus(processor, live=display not in ("plain",))
     cdc_display = CdcDisplayStream()
@@ -166,18 +201,9 @@ def persistent_monitor(
     command_cursor = 0
     command_history = CommandHistory()
     host_cwd = Path.cwd()
-    connected = False
-    current_sequence = sequence & 0xFFFFFFFF
-    current_boot_id: int | None = None
-    current_cpu_sequence: int | None = None
-    current_command_sequence: int | None = None
-    current_native_processor: str | None = None
-    staged_workload_id = 0
-    staged_workload_state = 0
-    staged_workload_detail = 0
-    staged_workload_clock_mode = 0
-    staged_workload_cycles = 0
-    staged_workload_processor_flags = 0
+    request_sequence = RequestSequence(sequence)
+    processor_observation = ProcessorObservationState()
+    workload = WorkloadRuntimeState()
     staged_workload_manifest: WorkloadManifest | None = None
     prepared_native_probe_available = True
     workload_completion_pending = False
@@ -190,7 +216,6 @@ def persistent_monitor(
         if regression_workload else None
     )
     regression_started = False
-    native_result_pass_seen = False
     regression_passed: bool | None = None
     next_due = time.monotonic()
     stop = False
@@ -225,7 +250,7 @@ def persistent_monitor(
             )
             connection.dtr = True
             hid_device, hid_identity = _open_hid(serial_number)
-        except Exception:
+        except (OSError, RuntimeError, serial.SerialException):
             if connection is not None:
                 connection.close()
             owner_broker.stop()
@@ -233,8 +258,6 @@ def persistent_monitor(
 
     def drain_cdc() -> None:
         nonlocal transport_error, workload_completion_pending
-        nonlocal native_result_pass_seen
-        nonlocal staged_workload_processor_flags
         nonlocal prepared_native_probe_available
         if transport_error is not None or connection is None:
             return
@@ -242,14 +265,14 @@ def persistent_monitor(
             waiting = connection.in_waiting
             if waiting:
                 chunk = connection.read(waiting)
-                captured.extend(chunk)
+                evidence.capture(chunk)
                 for line in cdc_display.feed(chunk):
                     if line == "RESULT: PASS":
-                        native_result_pass_seen = True
+                        processor_observation.result_pass_seen = True
                     if line.startswith("[WORKLOAD COMPLETED]"):
                         # Native HLT evidence precedes the next HID status.
                         # Reflect completion now and refresh cycles in the loop.
-                        staged_workload_processor_flags |= PROCESSOR_FLAG_IDLE
+                        workload.mark_idle()
                         prepared_native_probe_available = False
                         workload_completion_pending = True
                         update_console_runtime()
@@ -280,84 +303,50 @@ def persistent_monitor(
             except (OSError, RuntimeError, ValueError, KeyError) as exc:
                 transport_error = f"Host broker disconnected: {exc}"
                 return None, (time.monotonic() - began) * 1000.0, transport_error
-        try:
-            assert hid_device is not None
-            stale_reply_error: str | None = None
-            while bytes(hid_device.read(MESSAGE_SIZE + 1)):
-                pass
-            record = request.encode()
-            written = hid_device.write(hid_output_report(record))
-            if written != MESSAGE_SIZE + 1:
-                return None, 0.0, f"short HID write: {written}/{MESSAGE_SIZE + 1} bytes"
-            deadline = began + timeout
-            while time.monotonic() <= deadline:
-                drain_cdc()
-                if transport_error is not None:
-                    return None, (time.monotonic() - began) * 1000.0, transport_error
-                candidate = bytes(hid_device.read(MESSAGE_SIZE + 1))
-                if candidate:
-                    try:
-                        reply = validate_device_reply(
-                            candidate, request, expected_processor
-                        )
-                    except ValueError as exc:
-                        stale_reply_error = str(exc)
-                        continue
-                    # Latency ends at the complete, sequence-bound HID reply.
-                    # The following CDC drain preserves evidence but is not part
-                    # of the physical V30 request/reply round-trip measurement.
-                    latency_ms = (time.monotonic() - began) * 1000.0
-                    # Firmware publishes its concise CDC proof immediately after
-                    # the HID reply. Retain it without delaying the next V30 IRQ.
-                    drain_deadline = time.monotonic() + 0.05
-                    while time.monotonic() < drain_deadline:
-                        drain_cdc()
-                        if transport_error is not None:
-                            break
-                        time.sleep(0.001)
-                    return reply, latency_ms, None
-                time.sleep(0.001)
-        except OSError as exc:
-            transport_error = f"USB HID disconnected: {exc}"
-            return None, (time.monotonic() - began) * 1000.0, transport_error
-        timeout_error = "device reply timeout"
-        if stale_reply_error is not None:
-            timeout_error += f" after stale HID reply: {stale_reply_error}"
-        return None, (time.monotonic() - began) * 1000.0, timeout_error
+        assert hid_device is not None
+
+        def service_transport() -> str | None:
+            drain_cdc()
+            return transport_error
+
+        result = exchange_hid_request(
+            hid_device,
+            request,
+            timeout=timeout,
+            expected_processor=expected_processor,
+            service_transport=service_transport,
+        )
+        if result.error and result.error.startswith("USB HID disconnected:"):
+            transport_error = result.error
+        return result.reply, result.latency_ms, result.error
 
     def broker_snapshot() -> dict[str, Any]:
         return {
             "state": _broker_runtime_state(transport_error),
             "processor": processor,
-            "request_sequence": current_sequence,
-            "boot_id": current_boot_id,
-            "cpu_sequence": current_cpu_sequence,
-            "command_sequence": current_command_sequence,
-            "native_processor": current_native_processor,
+            "request_sequence": request_sequence.value,
+            "boot_id": processor_observation.boot_id,
+            "cpu_sequence": processor_observation.cpu_sequence,
+            "command_sequence": processor_observation.command_sequence,
+            "native_processor": processor_observation.processor,
             "probe_completed": probe_stats.completed,
             "probe_lost": probe_stats.lost,
             "probe_last_ms": probe_stats.last_ms,
-            "workload_id": staged_workload_id,
-            "workload_state": _workload_state_name(staged_workload_state),
-            "workload_detail": staged_workload_detail,
-            "workload_clock_mode": CLOCK_MODE_NAMES.get(
-                staged_workload_clock_mode,
-                f"UNKNOWN({staged_workload_clock_mode})",
-            ),
-            "workload_cycles": staged_workload_cycles,
-            "workload_processor_flags": staged_workload_processor_flags,
-            "native_result_pass": native_result_pass_seen,
+            "workload_id": workload.workload_id,
+            "workload_state": workload.lifecycle_name,
+            "workload_detail": workload.detail,
+            "workload_clock_mode": workload.clock_name,
+            "workload_cycles": workload.cycles,
+            "workload_processor_flags": workload.processor_flags,
+            "native_result_pass": processor_observation.result_pass_seen,
             "workload_processor_state": _processor_execution_state(
-                staged_workload_clock_mode,
-                staged_workload_processor_flags,
+                workload.clock_mode,
+                workload.processor_flags,
             ),
         }
 
     def service_broker_requests() -> None:
         nonlocal stop
-        nonlocal staged_workload_id, staged_workload_state
-        nonlocal staged_workload_detail, staged_workload_clock_mode
-        nonlocal staged_workload_cycles, staged_workload_processor_flags
         nonlocal prepared_native_probe_available
         if owner_broker is None:
             return
@@ -374,20 +363,9 @@ def persistent_monitor(
                         TYPE_WORKLOAD_COMMIT,
                         TYPE_WORKLOAD_CONTROL,
                     ):
-                        (
-                            staged_workload_id,
-                            staged_workload_state,
-                            staged_workload_detail,
-                            staged_workload_clock_mode,
-                            staged_workload_cycles,
-                            staged_workload_processor_flags,
-                        ) = decode_status_payload(reply.payload)
+                        workload.update_from_payload(reply.payload)
                         prepared_native_probe_available = (
-                            _prepared_native_probe_is_available(
-                                staged_workload_clock_mode,
-                                staged_workload_state,
-                                staged_workload_processor_flags,
-                            )
+                            workload.prepared_runtime_available
                         )
                         update_console_runtime()
                     result = {
@@ -408,7 +386,7 @@ def persistent_monitor(
                 if pending_control.command == "status":
                     if connection is None:
                         raise RuntimeError("broker does not own a CDC connection")
-                    evidence = send_status_request(
+                    control_evidence = send_status_request(
                         connection, pending_control.timeout
                     )
                 elif pending_control.command == "bootloader":
@@ -417,10 +395,10 @@ def persistent_monitor(
                     exchange_hid_runtime_control(
                         hid_device,
                         RUNTIME_CONTROL_ENTER_BOOTLOADER,
-                        current_sequence,
+                        request_sequence.value,
                         pending_control.timeout,
                     )
-                    evidence = b""
+                    control_evidence = b""
                     bootloader_requested = True
                 elif pending_control.command == "reboot":
                     if hid_device is None:
@@ -428,19 +406,19 @@ def persistent_monitor(
                     exchange_hid_runtime_control(
                         hid_device,
                         RUNTIME_CONTROL_REBOOT,
-                        current_sequence,
+                        request_sequence.value,
                         pending_control.timeout,
                     )
-                    evidence = b""
+                    control_evidence = b""
                     bootloader_requested = True
                 else:
                     raise RuntimeError(
                         f"unsupported CDC control: {pending_control.command}"
                     )
-                captured.extend(evidence)
+                evidence.capture(control_evidence)
                 control_result = {
                     "ok": True,
-                    "evidence_hex": evidence.hex(),
+                    "evidence_hex": control_evidence.hex(),
                 }
             except (OSError, RuntimeError, serial.SerialException) as exc:
                 bootloader_requested = False
@@ -458,63 +436,38 @@ def persistent_monitor(
         console.write_event(text)
         if interactive:
             console.render(
-                current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor
+                processor_observation.cpu_sequence,
+                probe_stats,
+                processor_observation.connected,
+                command_buffer,
+                command_cursor,
             )
 
     def update_console_runtime() -> None:
         console.set_runtime(
-            workload_state=_workload_state_name(staged_workload_state),
-            clock_mode=CLOCK_MODE_NAMES.get(
-                staged_workload_clock_mode,
-                f"UNKNOWN({staged_workload_clock_mode})",
-            ),
-            workload_cycles=staged_workload_cycles,
-            processor_state=_processor_execution_state(
-                staged_workload_clock_mode, staged_workload_processor_flags
-            ),
+            workload_state=workload.lifecycle_name,
+            clock_mode=workload.clock_name,
+            workload_cycles=workload.cycles,
+            processor_state=workload.processor_state,
         )
 
     def perform_workload_transaction(
         records: list[Message], description: str, *, announce: bool = True
     ) -> bool:
-        nonlocal current_sequence, next_due
-        nonlocal staged_workload_id, staged_workload_state, staged_workload_detail
-        nonlocal staged_workload_clock_mode, staged_workload_cycles
-        nonlocal staged_workload_processor_flags
-        nonlocal prepared_native_probe_available
-        for index, request in enumerate(records, 1):
-            reply, latency_ms, error = exchange(request)
-            if reply is None:
-                print_event(
-                    f"{description}: FAILED at record {index}/{len(records)}: {error}"
-                )
-                return False
-            current_sequence = (request.sequence + 1) & 0xFFFFFFFF
-            if current_sequence == 0:
-                current_sequence = 1
-            try:
-                (staged_workload_id, staged_workload_state,
-                 staged_workload_detail, staged_workload_clock_mode,
-                 staged_workload_cycles,
-                 staged_workload_processor_flags) = decode_status_payload(
-                     reply.payload
-                 )
-                prepared_native_probe_available = _prepared_native_probe_is_available(
-                    staged_workload_clock_mode,
-                    staged_workload_state,
-                    staged_workload_processor_flags,
-                )
-                update_console_runtime()
-            except ValueError as exc:
-                print_event(f"{description}: invalid status payload: {exc}")
-                return False
-            if display == "verbose":
+        result = workload_client.transact(records)
+        if not result.success:
+            print_event(
+                f"{description}: FAILED at record "
+                f"{result.failed_index}/{result.count}: {result.error}"
+            )
+            return False
+        if display == "verbose":
+            for index, latency_ms in enumerate(result.latencies_ms, 1):
                 print_event(
                     f"{description}: record {index}/{len(records)} accepted "
                     f"({latency_ms:.1f} ms)"
                 )
-        next_due = time.monotonic() + interval
-        state_name = _workload_state_name(staged_workload_state)
+        state_name = workload.lifecycle_name
         accepted = description in (
             "workload run", "workload restart", "workload stop"
         )
@@ -522,29 +475,28 @@ def persistent_monitor(
         if announce:
             print_event(
                 f"{description}: {outcome} ({len(records)} records)\n"
-                f"  workload_id={staged_workload_id} state={state_name} "
-                f"detail={staged_workload_detail} "
-                f"clock={CLOCK_MODE_NAMES.get(staged_workload_clock_mode, staged_workload_clock_mode)} "
-                f"cycles={staged_workload_cycles} "
-                f"processor={_processor_execution_state(staged_workload_clock_mode, staged_workload_processor_flags)}"
+                f"  workload_id={workload.workload_id} state={state_name} "
+                f"detail={workload.detail} "
+                f"clock={workload.clock_name} "
+                f"cycles={workload.cycles} "
+                f"processor={workload.processor_state}"
             )
         return True
 
     def ensure_prepared_runtime_initialized() -> bool:
         """Obtain one prepared-runtime identity witness when it is available."""
-        nonlocal current_sequence, next_due, connected
-        nonlocal current_boot_id, current_cpu_sequence, current_command_sequence
-        nonlocal current_native_processor, processor_name
-        nonlocal staged_workload_processor_flags, prepared_native_probe_available
+        nonlocal next_due
+        nonlocal processor_name
+        nonlocal prepared_native_probe_available
         if (
-            staged_workload_processor_flags
+            workload.processor_flags
             & PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
-            and current_native_processor is not None
+            and processor_observation.processor is not None
         ):
             return True
         request = Message(
-            TYPE_HEARTBEAT, current_sequence,
-            heartbeat_payload(current_sequence),
+            TYPE_HEARTBEAT, request_sequence.value,
+            heartbeat_payload(request_sequence.value),
         )
         reply, latency_ms, error = exchange(request)
         if reply is None:
@@ -555,18 +507,12 @@ def persistent_monitor(
         except ValueError as exc:
             print_event(f"processor identity probe: invalid native proof: {exc}")
             return False
-        current_sequence = (request.sequence + 1) & 0xFFFFFFFF or 1
-        current_boot_id = witness.boot_id
-        current_cpu_sequence = witness.cpu_sequence
-        current_command_sequence = witness.command_sequence
-        current_native_processor = witness.processor
+        request_sequence.advance_after(request.sequence)
+        processor_observation.accept_witness(witness)
         processor_name = PROCESSOR_NAMES[witness.processor]
         console.set_processor(witness.processor)
         probe_stats.accept(latency_ms)
-        connected = True
-        staged_workload_processor_flags |= (
-            PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
-        )
+        workload.mark_prepared_runtime_initialized()
         prepared_native_probe_available = True
         next_due = time.monotonic() + interval
         print_event(
@@ -575,130 +521,32 @@ def persistent_monitor(
         )
         return True
 
-    def perform_filesystem_request(
-        request: Message,
-    ) -> tuple[Message | None, str | None]:
-        nonlocal current_sequence, next_due
-        reply, _latency_ms, error = exchange(request)
-        current_sequence = (request.sequence + 1) & 0xFFFFFFFF
-        if current_sequence == 0:
-            current_sequence = 1
+    def defer_periodic_probe() -> None:
+        nonlocal next_due
         next_due = time.monotonic() + interval
-        if reply is None:
-            return None, error or "filesystem exchange failed"
-        try:
-            validate_filesystem_payload(reply, request)
-        except ValueError as exc:
-            return None, str(exc)
-        return reply, None
 
-    def perform_memory_request(
-        request: Message,
-    ) -> tuple[Message | None, str | None]:
-        nonlocal current_sequence, next_due
-        reply, _latency_ms, error = exchange(request)
-        current_sequence = (request.sequence + 1) & 0xFFFFFFFF or 1
-        next_due = time.monotonic() + interval
-        if reply is None:
-            return None, error or "memory exchange failed"
-        try:
-            validate_memory_reply(reply, request)
-        except ValueError as exc:
-            return None, str(exc)
-        return reply, None
+    def accept_workload_state() -> None:
+        nonlocal prepared_native_probe_available
+        prepared_native_probe_available = workload.prepared_runtime_available
+        update_console_runtime()
 
-    def read_memory(address: int, length: int) -> tuple[bytes | None, str | None]:
-        content = bytearray()
-        while len(content) < length:
-            chunk_length = min(40, length - len(content))
-            try:
-                request = memory_read_request(
-                    address + len(content), chunk_length, current_sequence
-                )
-            except ValueError as exc:
-                return None, str(exc)
-            reply, error = perform_memory_request(request)
-            if reply is None:
-                return None, error
-            try:
-                content.extend(parse_memory_read(reply, request))
-            except ValueError as exc:
-                return None, str(exc)
-        return bytes(content), None
+    workload_client = WorkloadClient(
+        exchange,
+        request_sequence,
+        workload,
+        accept_workload_state,
+        defer_periodic_probe,
+    )
 
-    def write_memory(address: int, data: bytes) -> str | None:
-        try:
-            records = memory_write_records(address, data, current_sequence)
-        except ValueError as exc:
-            return str(exc)
-        for request in records:
-            reply, error = perform_memory_request(request)
-            if reply is None:
-                return error
-        return None
-
-    def read_device_directory(
-        path: str,
-    ) -> tuple[list[Any] | None, str | None]:
-        """Read one RP2350 filesystem directory without formatting it."""
-        cursor = 0
-        entries: list[Any] = []
-        while True:
-            try:
-                request = list_request(path, cursor, current_sequence)
-            except ValueError as exc:
-                return None, str(exc)
-            reply, error = perform_filesystem_request(request)
-            if reply is None:
-                return None, error
-            try:
-                entry = parse_list(reply, request)
-            except ValueError as exc:
-                return None, f"invalid device reply: {exc}"
-            if entry.eof:
-                return entries, None
-            entries.append(entry)
-            cursor = entry.next_cursor
-
-    def read_device_file(path: str) -> tuple[bytes | None, str | None]:
-        """Read one complete RP2350 file through the bounded HID service."""
-        offset = 0
-        total_size: int | None = None
-        content = bytearray()
-        while True:
-            try:
-                request = read_request(path, offset, current_sequence)
-            except ValueError as exc:
-                return None, str(exc)
-            reply, error = perform_filesystem_request(request)
-            if reply is None:
-                return None, error
-            try:
-                chunk = parse_read(reply, request)
-            except ValueError as exc:
-                return None, f"invalid device reply: {exc}"
-            if chunk.offset != offset:
-                return None, f"reply offset mismatch {chunk.offset} != {offset}"
-            if total_size is None:
-                total_size = chunk.total_size
-            elif chunk.total_size != total_size:
-                return None, "file size changed while reading"
-            content.extend(chunk.data)
-            offset += len(chunk.data)
-            if chunk.eof:
-                if total_size != len(content):
-                    return None, (
-                        f"file length mismatch {len(content)} != {total_size}"
-                    )
-                return bytes(content), None
-            if not chunk.data:
-                return None, "device returned an empty non-final file chunk"
+    services = RuntimeServiceClient(
+        exchange, request_sequence, defer_periodic_probe
+    )
 
     def remote_completion_entries(token: str) -> tuple[tuple[str, bool], ...]:
         """Return device-directory candidates for a Tab request."""
         slash = token.rfind("/")
         path = token[: slash + 1] if slash >= 0 else token + "/"
-        entries, error = read_device_directory(path)
+        entries, error = services.read_directory(path)
         if entries is None:
             print_event(f"completion: {error}")
             return ()
@@ -709,7 +557,13 @@ def persistent_monitor(
         print("Host runtime shell: type help for the complete command framework.")
         print("RP2350 owns transport and lifecycle; native probes are diagnostic.\n")
         print(f"Terminal renderer: {console.renderer_name}\n")
-        console.render(current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor)
+        console.render(
+            processor_observation.cpu_sequence,
+            probe_stats,
+            processor_observation.connected,
+            command_buffer,
+            command_cursor,
+        )
     elif regression_workload:
         print("\n[RP86 PHYSICAL REGRESSION]")
         print(f"Workload = {regression_workload}")
@@ -719,7 +573,7 @@ def persistent_monitor(
     # before sending any prepared-runtime diagnostic probe. A status record is always
     # safe and tells this new session whether the native ISR responder exists.
     startup_status = control_record(
-        "status", workload_id=0, sequence=current_sequence
+        "status", workload_id=0, sequence=request_sequence.value
     )
     if not perform_workload_transaction([startup_status], "attached runtime"):
         prepared_native_probe_available = False
@@ -748,36 +602,36 @@ def persistent_monitor(
                 workload_completion_pending = False
                 completion_status = control_record(
                     "status",
-                    workload_id=staged_workload_id,
-                    sequence=current_sequence,
+                    workload_id=workload.workload_id,
+                    sequence=request_sequence.value,
                 )
                 perform_workload_transaction(
                     [completion_status],
                     "workload completion status",
                     announce=False,
                 )
-            if (regression_started and staged_workload_state != 5 and
+            if (regression_started and not workload.completed and
                     time.monotonic() >= next_due):
                 poll_status = control_record(
                     "status",
-                    workload_id=staged_workload_id,
-                    sequence=current_sequence,
+                    workload_id=workload.workload_id,
+                    sequence=request_sequence.value,
                 )
                 perform_workload_transaction(
                     [poll_status], "workload regression status", announce=False
                 )
                 if broker_client is not None:
                     broker_state = broker_client.hello().get("snapshot", {})
-                    native_result_pass_seen = bool(
+                    processor_observation.result_pass_seen = bool(
                         broker_state.get("native_result_pass", False)
                     )
-            if regression_started and staged_workload_state == 5:
+            if regression_started and workload.completed:
                 if broker_client is not None:
                     broker_state = broker_client.hello().get("snapshot", {})
-                    native_result_pass_seen = bool(
+                    processor_observation.result_pass_seen = bool(
                         broker_state.get("native_result_pass", False)
                     )
-                regression_passed = native_result_pass_seen
+                regression_passed = processor_observation.result_pass_seen
                 print_event(
                     "PHYSICAL REGRESSION: PASS"
                     if regression_passed else
@@ -829,8 +683,11 @@ def persistent_monitor(
                     command_history.edit(command_buffer)
                 if changed:
                     console.render(
-                        current_cpu_sequence, probe_stats, connected, command_buffer
-                        , command_cursor
+                        processor_observation.cpu_sequence,
+                        probe_stats,
+                        processor_observation.connected,
+                        command_buffer,
+                        command_cursor,
                     )
 
             request_type: int | None = None
@@ -881,8 +738,8 @@ def persistent_monitor(
                     print_event(str(host_cwd))
                 elif name in ("status", "top"):
                     record = control_record(
-                        "status", workload_id=staged_workload_id,
-                        sequence=current_sequence
+                        "status", workload_id=workload.workload_id,
+                        sequence=request_sequence.value
                     )
                     if not perform_workload_transaction(
                         [record], "workload status"
@@ -891,13 +748,15 @@ def persistent_monitor(
                     print_event(
                         _format_runtime_top(
                             processor_name=processor_name,
-                            processor_identified=current_native_processor is not None,
-                            workload_id=staged_workload_id,
-                            workload_state=staged_workload_state,
-                            workload_detail=staged_workload_detail,
-                            workload_clock_mode=staged_workload_clock_mode,
-                            workload_cycles=staged_workload_cycles,
-                            workload_processor_flags=staged_workload_processor_flags,
+                            processor_identified=(
+                                processor_observation.processor is not None
+                            ),
+                            workload_id=workload.workload_id,
+                            workload_state=workload.lifecycle,
+                            workload_detail=workload.detail,
+                            workload_clock_mode=workload.clock_mode,
+                            workload_cycles=workload.cycles,
+                            workload_processor_flags=workload.processor_flags,
                             manifest=staged_workload_manifest,
                         )
                     )
@@ -923,27 +782,27 @@ def persistent_monitor(
                     print_event("Runtime display: verbose")
                 elif name == "probe":
                     request_type = TYPE_HEARTBEAT
-                    request_payload = heartbeat_payload(current_sequence)
+                    request_payload = heartbeat_payload(request_sequence.value)
                     is_command = True
                 elif name == "load":
-                    native_result_pass_seen = False
+                    processor_observation.result_pass_seen = False
                     try:
                         transfer_id = secrets.randbits(32)
                         if arguments and is_device_path(arguments[0]):
-                            encoded, error = read_device_file(arguments[0])
+                            encoded, error = services.read_file(arguments[0])
                             if encoded is None:
                                 raise ValueError(error or "device read failed")
                             manifest, image, records = workload_from_bytes(
                                 encoded,
                                 arguments,
                                 transfer_id=transfer_id,
-                                first_sequence=current_sequence,
+                                first_sequence=request_sequence.value,
                             )
                         else:
                             manifest, image, records = workload_from_command(
                                 arguments,
                                 transfer_id=transfer_id,
-                                first_sequence=current_sequence,
+                                first_sequence=request_sequence.value,
                             )
                     except ValueError as exc:
                         print_event(f"load: {exc}")
@@ -960,13 +819,13 @@ def persistent_monitor(
                         f"  CRC32   {manifest.image_crc32:08X}"
                     )
                     if _workload_upload_requires_stop(
-                        staged_workload_state,
+                        workload.lifecycle,
                     ):
                         print_event("load: stopping active processor")
                         stop_record = control_record(
                             "stop",
-                            workload_id=staged_workload_id,
-                            sequence=current_sequence,
+                            workload_id=workload.workload_id,
+                            sequence=request_sequence.value,
                         )
                         if not perform_workload_transaction(
                             [stop_record], "workload stop"
@@ -979,7 +838,7 @@ def persistent_monitor(
                             manifest,
                             image,
                             transfer_id=transfer_id,
-                            first_sequence=current_sequence,
+                            first_sequence=request_sequence.value,
                         )
                     if perform_workload_transaction(records, "workload upload"):
                         staged_workload_manifest = manifest
@@ -989,13 +848,13 @@ def persistent_monitor(
                     continue
                 elif name in ("run", "stop", "restart"):
                     if name in ("run", "restart") and not (
-                        staged_workload_processor_flags &
+                        workload.processor_flags &
                         PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
                     ):
                         if not ensure_prepared_runtime_initialized():
                             continue
                     record = control_record(
-                        name, workload_id=0, sequence=current_sequence
+                        name, workload_id=0, sequence=request_sequence.value
                     )
                     accepted = perform_workload_transaction(
                         [record], f"workload {name}"
@@ -1044,7 +903,7 @@ def persistent_monitor(
                         except ValueError as exc:
                             print_event(f"ls: {exc}")
                         continue
-                    entries, error = read_device_directory(path)
+                    entries, error = services.read_directory(path)
                     if entries is None:
                         print_event(f"ls: {error}")
                         continue
@@ -1062,11 +921,11 @@ def persistent_monitor(
                         continue
                     path = arguments[0] if arguments else "flash:"
                     try:
-                        request = df_request(path, current_sequence)
+                        request = df_request(path, request_sequence.value)
                     except ValueError as exc:
                         print_event(f"df: {exc}")
                         continue
-                    reply, error = perform_filesystem_request(request)
+                    reply, error = services.filesystem_request(request)
                     if reply is None:
                         print_event(f"df: {error}")
                         continue
@@ -1091,7 +950,7 @@ def persistent_monitor(
                         print_event("Usage: cat <flash:/file>")
                         continue
                     path = arguments[0]
-                    content, error = read_device_file(path)
+                    content, error = services.read_file(path)
                     if content is None:
                         print_event(f"cat: {error}")
                         continue
@@ -1114,7 +973,7 @@ def persistent_monitor(
                         content = host_path.read_bytes()
                         records = write_records(
                             arguments[1], content, secrets.randbits(32),
-                            current_sequence,
+                            request_sequence.value,
                         )
                     except (OSError, ValueError) as exc:
                         print_event(
@@ -1125,7 +984,7 @@ def persistent_monitor(
                         continue
                     failed = None
                     for index, record in enumerate(records, 1):
-                        _reply, failed = perform_filesystem_request(record)
+                        _reply, failed = services.filesystem_request(record)
                         if failed is not None:
                             print_event(
                                 f"put: FAILED at record {index}/{len(records)}: "
@@ -1157,7 +1016,7 @@ def persistent_monitor(
                             length = int(arguments[2], 0) if len(arguments) == 3 else 16
                             if length <= 0:
                                 raise ValueError("length must be positive")
-                            content, error = read_memory(address, length)
+                            content, error = services.read_memory(address, length)
                             print_event(
                                 f"mem read: {error}" if content is None else
                                 format_memory_dump(address, content)
@@ -1172,7 +1031,7 @@ def persistent_monitor(
                                     raise ValueError(f"byte out of range: {token}")
                                 values.append(value)
                             data = bytes(values)
-                            error = write_memory(address, data)
+                            error = services.write_memory(address, data)
                             print_event(
                                 f"mem write: {error}" if error else
                                 f"mem write: PASS  {len(data)} bytes at 0x{address:05X}"
@@ -1181,7 +1040,7 @@ def persistent_monitor(
                             source = host_list_path(arguments[1], host_cwd)
                             address = int(arguments[2], 0)
                             data = source.read_bytes()
-                            error = write_memory(address, data)
+                            error = services.write_memory(address, data)
                             print_event(
                                 f"mem load: {error}" if error else
                                 f"mem load: PASS  {source} -> 0x{address:05X} "
@@ -1191,7 +1050,7 @@ def persistent_monitor(
                             address = int(arguments[1], 0)
                             length = int(arguments[2], 0)
                             destination = host_list_path(arguments[3], host_cwd)
-                            content, error = read_memory(address, length)
+                            content, error = services.read_memory(address, length)
                             if content is None:
                                 print_event(f"mem save: {error}")
                             else:
@@ -1215,7 +1074,7 @@ def persistent_monitor(
                             f"mailbox: request exceeds {MAILBOX_DATA_SIZE} bytes"
                         )
                         continue
-                    raw_header, error = read_memory(MAILBOX_BASE, 32)
+                    raw_header, error = services.read_memory(MAILBOX_BASE, 32)
                     if raw_header is None:
                         print_event(f"mailbox: {error}")
                         continue
@@ -1233,14 +1092,14 @@ def persistent_monitor(
                     generation = (header.generation + 1) & 0xFFFFFFFF or 1
                     try:
                         records = mailbox_commit_records(
-                            request_data, generation, current_sequence
+                            request_data, generation, request_sequence.value
                         )
                     except ValueError as exc:
                         print_event(f"mailbox: {exc}")
                         continue
                     failed = None
                     for record in records:
-                        reply, failed = perform_memory_request(record)
+                        reply, failed = services.memory_request(record)
                         if reply is None:
                             break
                     if failed is not None:
@@ -1249,7 +1108,7 @@ def persistent_monitor(
                     deadline = time.monotonic() + timeout
                     result_header = None
                     while time.monotonic() < deadline:
-                        raw_header, failed = read_memory(MAILBOX_BASE, 32)
+                        raw_header, failed = services.read_memory(MAILBOX_BASE, 32)
                         if raw_header is None:
                             break
                         try:
@@ -1269,7 +1128,7 @@ def persistent_monitor(
                             f"mailbox: processor returned status={result_header.status}"
                         )
                         continue
-                    result, failed = read_memory(
+                    result, failed = services.read_memory(
                         MAILBOX_BASE + 32, result_header.response_length
                     )
                     if result is None:
@@ -1291,7 +1150,7 @@ def persistent_monitor(
                 and prepared_native_probe_available
             ):
                 request_type = TYPE_HEARTBEAT
-                request_payload = heartbeat_payload(current_sequence)
+                request_payload = heartbeat_payload(request_sequence.value)
             elif request_type is None and now >= next_due:
                 # A general workload owns the physical processor and its bus.
                 # Keep HID available for explicit status/stop/restart commands,
@@ -1301,40 +1160,39 @@ def persistent_monitor(
                 time.sleep(0.02)
                 continue
 
-            request = Message(request_type, current_sequence, request_payload)
+            request = Message(request_type, request_sequence.value, request_payload)
             reply, latency_ms, error = exchange(request)
             event = {
-                "sequence": current_sequence,
+                "sequence": request_sequence.value,
                 "request_type": request_type,
                 "latency_ms": round(latency_ms, 3),
                 "passed": reply is not None,
                 "error": error,
             }
-            events.append(event)
+            evidence.record(event)
             if reply is not None:
                 witness = NativeServiceWitness.decode(reply.payload)
-                first_identity = current_native_processor is None
-                identity_changed = witness.processor != current_native_processor
+                previous_processor = processor_observation.processor
+                first_identity = previous_processor is None
+                identity_changed = witness.processor != previous_processor
                 if (
                     not identity_changed
                     and
-                    current_boot_id == witness.boot_id
-                    and current_cpu_sequence is not None
+                    processor_observation.boot_id == witness.boot_id
+                    and processor_observation.cpu_sequence is not None
                 ):
                     delta = (
-                        witness.cpu_sequence - current_cpu_sequence
+                        witness.cpu_sequence - processor_observation.cpu_sequence
                     ) & 0xFFFFFFFF
                     if delta == 0 or delta >= 0x80000000:
                         error = (
                             "stale native completion counter: "
-                            f"{witness.cpu_sequence} after {current_cpu_sequence}"
+                            f"{witness.cpu_sequence} after "
+                            f"{processor_observation.cpu_sequence}"
                         )
                         reply = None
                 if reply is not None:
-                    current_boot_id = witness.boot_id
-                    current_cpu_sequence = witness.cpu_sequence
-                    current_command_sequence = witness.command_sequence
-                    current_native_processor = witness.processor
+                    processor_observation.accept_witness(witness)
                     event.update(
                         {
                             "boot_id": witness.boot_id,
@@ -1344,7 +1202,6 @@ def persistent_monitor(
                         }
                     )
                     if identity_changed:
-                        previous_processor = current_native_processor
                         processor_name = PROCESSOR_NAMES[witness.processor]
                         console.set_processor(witness.processor)
                         if first_identity:
@@ -1364,7 +1221,7 @@ def persistent_monitor(
             if reply is not None:
                 if request_type == TYPE_HEARTBEAT:
                     probe_stats.accept(latency_ms)
-                    connected = True
+                    processor_observation.connected = True
                 if display == "verbose" or is_command:
                     if reply.message_type in (
                         TYPE_WORKLOAD_RESULT, TYPE_WORKLOAD_STATUS
@@ -1374,10 +1231,13 @@ def persistent_monitor(
                         reply_text = NativeServiceWitness.decode(
                             reply.payload
                         ).text.decode("ascii")
-                        if current_native_processor == "intel-8086" and reply_text.startswith("V30 "):
+                        if (
+                            processor_observation.processor == "intel-8086"
+                            and reply_text.startswith("V30 ")
+                        ):
                             reply_text = "8086 " + reply_text[4:]
                     print_event(
-                        f"[{current_sequence:03d}] {reply_text}  "
+                        f"[{request_sequence.value:03d}] {reply_text}  "
                         f"latency={latency_ms:.1f} ms"
                     )
             else:
@@ -1386,7 +1246,7 @@ def persistent_monitor(
                     and _native_probe_unavailable(error)
                 ):
                     prepared_native_probe_available = False
-                    connected = False
+                    processor_observation.mark_disconnected()
                     event["native_probe_unavailable"] = True
                     update_console_runtime()
                     if display == "verbose" or is_command:
@@ -1396,23 +1256,25 @@ def persistent_monitor(
                         )
                 elif request_type == TYPE_HEARTBEAT:
                     probe_stats.lost += 1
-                    connected = False
+                    processor_observation.mark_disconnected()
                     print_event(
-                        f"[{current_sequence:03d}] {processor_name} NATIVE PROBE FAILED  "
+                        f"[{request_sequence.value:03d}] {processor_name} NATIVE PROBE FAILED  "
                         f"latency={latency_ms:.1f} ms  error={error}"
                     )
                 else:
                     print_event(
-                        f"[{current_sequence:03d}] HOST REQUEST FAILED  "
+                        f"[{request_sequence.value:03d}] HOST REQUEST FAILED  "
                         f"latency={latency_ms:.1f} ms  error={error}"
                     )
             if interactive:
                 console.render(
-                    current_cpu_sequence, probe_stats, connected, command_buffer, command_cursor
+                    processor_observation.cpu_sequence,
+                    probe_stats,
+                    processor_observation.connected,
+                    command_buffer,
+                    command_cursor,
                 )
-            current_sequence = (current_sequence + 1) & 0xFFFFFFFF
-            if current_sequence == 0:
-                current_sequence = 1
+            request_sequence.advance_after(request_sequence.value)
             next_due = time.monotonic() + interval
             if owner_broker is not None:
                 owner_broker.publish(broker_snapshot())
@@ -1439,17 +1301,16 @@ def persistent_monitor(
                 connection.close()
             except (OSError, serial.SerialException):
                 pass
-        raw_path.write_bytes(captured)
         summary = {
             "schema": "rp86.runtime-session/v1",
             "started": started.isoformat(),
             "clock_hz": 1_000_000,
             "processor": processor,
             "processor_name": processor_name,
-            "boot_id": current_boot_id,
-            "cpu_sequence": current_cpu_sequence,
-            "command_sequence": current_command_sequence,
-            "native_processor": current_native_processor,
+            "boot_id": processor_observation.boot_id,
+            "cpu_sequence": processor_observation.cpu_sequence,
+            "command_sequence": processor_observation.command_sequence,
+            "native_processor": processor_observation.processor,
             "hid_identity": hid_identity,
             "native_probe": {
                 "completed": probe_stats.completed,
@@ -1461,23 +1322,18 @@ def persistent_monitor(
                 "maximum": probe_stats.maximum_ms,
                 },
             },
-            "events": events,
             "transport_error": transport_error,
             "physical_regression": {
                 "workload": regression_workload,
-                "result_marker": native_result_pass_seen,
-                "completed": staged_workload_state == 5,
+                "result_marker": processor_observation.result_pass_seen,
+                "completed": workload.completed,
                 "passed": regression_passed,
             } if regression_workload else None,
-            "raw_cdc_log": str(raw_path.resolve()),
             "passed": transport_error is None and (
                 not native_probe or (probe_stats.completed > 0 and probe_stats.lost == 0)
             ) and (not regression_workload or regression_passed is True),
         }
-        json_path.write_text(
-            json.dumps(summary, indent=2, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
+        evidence.write(summary)
         print(f"RP86 runtime session closed: processor={processor_name}")
         if native_probe:
             print(
@@ -1485,8 +1341,8 @@ def persistent_monitor(
                 f"completed={probe_stats.completed} lost={probe_stats.lost} "
                 f"avg={probe_stats.average_ms:.1f} ms"
             )
-        print(f"Raw CDC evidence = {raw_path}")
-        print(f"Session JSON     = {json_path}")
+        print(f"Raw CDC evidence = {evidence.raw_path}")
+        print(f"Session JSON     = {evidence.json_path}")
     if transport_error is not None:
         return TRANSPORT_EXIT
     if native_probe and not (probe_stats.completed > 0 and probe_stats.lost == 0):

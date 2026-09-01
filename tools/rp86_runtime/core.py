@@ -1,6 +1,36 @@
 """RP86 records, reply validation, and heartbeat statistics."""
 
-from .common import *
+from dataclasses import dataclass
+import secrets
+import struct
+
+from .constants import (
+    CANONICAL_GREETING,
+    CANONICAL_REPLY,
+    COMMAND_REPLY,
+    HEARTBEAT_REPLY,
+)
+from .protocol import (
+    MESSAGE_SIZE,
+    Message,
+    NativeServiceWitness,
+    STATUS_OK,
+    TYPE_COMMAND,
+    TYPE_FILESYSTEM_REQUEST,
+    TYPE_FILESYSTEM_RESULT,
+    TYPE_HEARTBEAT,
+    TYPE_HELLO,
+    TYPE_MEMORY_REQUEST,
+    TYPE_MEMORY_RESULT,
+    TYPE_RESULT,
+    TYPE_TEXT,
+    TYPE_WORKLOAD_BEGIN,
+    TYPE_WORKLOAD_COMMIT,
+    TYPE_WORKLOAD_CONTROL,
+    TYPE_WORKLOAD_DATA,
+    TYPE_WORKLOAD_RESULT,
+    TYPE_WORKLOAD_STATUS,
+)
 
 def heartbeat_payload(sequence: int, nonce: int | None = None) -> bytes:
     """Build the seven native V30 mailbox words for one fresh liveness proof."""

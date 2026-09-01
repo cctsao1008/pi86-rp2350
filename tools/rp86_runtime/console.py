@@ -1,7 +1,10 @@
 """Interactive terminal rendering and keyboard input."""
 
-from .common import *
-from .core import *
+import os
+import sys
+
+from .constants import PROCESSOR_NAMES
+from .core import HeartbeatStats
 
 try:
     from rich.console import Console as RichConsole

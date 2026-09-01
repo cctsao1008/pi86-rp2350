@@ -1,9 +1,30 @@
 """One-shot physical exchange and evidence presentation."""
 
-from .common import *
-from .core import *
-from .transport import *
+from datetime import datetime
+import hashlib
+import json
+from pathlib import Path
+import sys
+import time
+from typing import Any
+
+from .constants import (
+    CANONICAL_GREETING,
+    PASS_EXIT,
+    PROCESSOR_NAMES,
+    VALIDATION_EXIT,
+)
+from .core import (
+    hid_output_report,
+    normalize_hid_input,
+    validate_live_reply,
+)
+from .evidence import RP86_RUNTIME, explain_output, validate_output
+from .protocol import MESSAGE_SIZE, Message, NativeServiceWitness, TYPE_HELLO
 from .transport import _open_hid, _serial_module
+
+
+TERMINAL_MARKERS = (RP86_RUNTIME.end_marker.encode("ascii"),)
 
 def physical_exchange(
     port: str,

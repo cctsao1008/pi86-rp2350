@@ -22,6 +22,8 @@ import tempfile
 import threading
 from typing import Any
 
+from .device_ownership import DeviceOwnership
+
 
 BROKER_VERSION = 1
 MAX_RPC_BYTES = 16 * 1024
@@ -238,6 +240,8 @@ class DeviceBroker:
         self._udp_transport: asyncio.DatagramTransport | None = None
         self._thread: threading.Thread | None = None
         self._ready = threading.Event()
+        self._startup_error: BaseException | None = None
+        self._ownership = DeviceOwnership(device_id)
         self._stop_event: asyncio.Event | None = None
         self.record: BrokerRecord | None = None
         self.state = BrokerState.OPENING
@@ -350,17 +354,38 @@ class DeviceBroker:
             await self._stop_event.wait()
         udp_transport.close()
 
+    def _thread_main(self) -> None:
+        try:
+            asyncio.run(self._run())
+        except BaseException as exc:
+            self._startup_error = exc
+            self._ready.set()
+            if self.record is not None:
+                raise
+
     def start(self, timeout: float = 2.0) -> BrokerRecord:
         if self._thread is not None:
             raise RuntimeError("broker is already started")
+        self._ownership.acquire()
         self._thread = threading.Thread(
-            target=lambda: asyncio.run(self._run()),
+            target=self._thread_main,
             name=f"rp86-broker-{self.device_id}",
             daemon=True,
         )
-        self._thread.start()
-        if not self._ready.wait(timeout) or self.record is None:
-            raise RuntimeError("broker did not start")
+        try:
+            self._thread.start()
+        except BaseException:
+            self._ownership.release()
+            self._thread = None
+            raise
+        if not self._ready.wait(timeout):
+            raise RuntimeError("broker startup timed out; ownership retained")
+        if self._startup_error is not None or self.record is None:
+            error = self._startup_error
+            self._thread.join(timeout=timeout)
+            self._thread = None
+            self._ownership.release()
+            raise RuntimeError("broker did not start") from error
         return self.record
 
     def pending(self) -> list[BrokerExchangeRequest]:
@@ -405,3 +430,4 @@ class DeviceBroker:
             _registry_path(self.device_id).unlink(missing_ok=True)
         except OSError:
             pass
+        self._ownership.release()

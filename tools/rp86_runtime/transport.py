@@ -1,7 +1,33 @@
 """CDC, HID, device discovery, and runtime-control transport."""
 
-from .common import *
-from .core import *
+import os
+from pathlib import Path
+import sys
+import time
+from typing import Any
+
+from .constants import (
+    BOOTLOADER_ACK,
+    BOOTLOADER_REQUEST,
+    PASS_EXIT,
+    REBOOT_ACK,
+    REBOOT_REQUEST,
+    STATUS_BEGIN,
+    STATUS_END,
+    STATUS_REQUEST,
+    TRANSPORT_EXIT,
+    USB_PID,
+    USB_VID,
+)
+from .core import hid_output_report, normalize_hid_input
+from .protocol import (
+    MESSAGE_SIZE,
+    Message,
+    STATUS_OK,
+    TYPE_RUNTIME_CONTROL,
+    TYPE_RUNTIME_STATUS,
+)
+
 
 def _serial_module():
     try:

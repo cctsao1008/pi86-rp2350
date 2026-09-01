@@ -27,7 +27,8 @@ from rp86_runtime.protocol import (  # noqa: E402
     RUNTIME_CONTROL_REBOOT,
 )
 from rp86_runtime.console import _status_text  # noqa: E402
-from rp86_runtime.cli import (  # noqa: E402
+from rp86_runtime.cli import build_parser  # noqa: E402
+from rp86_runtime.constants import (  # noqa: E402
     BOOTLOADER_ACK,
     BOOTLOADER_REQUEST,
     REBOOT_ACK,
@@ -39,11 +40,18 @@ from rp86_runtime.cli import (  # noqa: E402
     CANONICAL_REPLY,
     COMMAND_REPLY,
     HEARTBEAT_REPLY,
+)
+from rp86_runtime.core import (  # noqa: E402
     HeartbeatStats,
-    build_parser,
     heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
+    simulate_v30,
+    validate_live_reply,
+    validate_device_reply,
+    validate_reply,
+)
+from rp86_runtime.transport import (  # noqa: E402
     cdc_serial_for_port,
     resolve_cdc_port,
     select_cdc_port,
@@ -51,10 +59,6 @@ from rp86_runtime.cli import (  # noqa: E402
     send_hid_runtime_control,
     send_reboot_request,
     send_status_request,
-    simulate_v30,
-    validate_live_reply,
-    validate_device_reply,
-    validate_reply,
 )
 
 

@@ -23,9 +23,11 @@ from rp86_runtime.session import (  # noqa: E402
     _broker_runtime_state,
     _native_probe_unavailable,
     _format_runtime_top,
-    _prepared_native_probe_is_available,
-    _processor_execution_state,
-    _workload_upload_requires_stop,
+)
+from rp86_runtime.runtime_state import (  # noqa: E402
+    prepared_runtime_is_available,
+    processor_execution_state,
+    workload_upload_requires_stop,
 )
 from rp86_runtime.shell_commands import (  # noqa: E402
     complete_shell_input,
@@ -251,17 +253,17 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertNotIn("detail=157", output)
 
     def test_processor_execution_state_distinguishes_hlt_and_reset(self) -> None:
-        self.assertEqual(_processor_execution_state(2, 1), "IDLE / HLT")
-        self.assertEqual(_processor_execution_state(3, 0), "STOPPED / RESET")
-        self.assertEqual(_processor_execution_state(2, 0), "ACTIVE")
+        self.assertEqual(processor_execution_state(2, 1), "IDLE / HLT")
+        self.assertEqual(processor_execution_state(3, 0), "STOPPED / RESET")
+        self.assertEqual(processor_execution_state(2, 0), "ACTIVE")
 
     def test_upload_stops_a_running_or_completed_workload(self) -> None:
-        self.assertFalse(_workload_upload_requires_stop(0))
-        self.assertFalse(_workload_upload_requires_stop(2))
-        self.assertTrue(_workload_upload_requires_stop(3))
-        self.assertFalse(_workload_upload_requires_stop(4))
-        self.assertTrue(_workload_upload_requires_stop(5))
-        self.assertFalse(_workload_upload_requires_stop(6))
+        self.assertFalse(workload_upload_requires_stop(0))
+        self.assertFalse(workload_upload_requires_stop(2))
+        self.assertTrue(workload_upload_requires_stop(3))
+        self.assertFalse(workload_upload_requires_stop(4))
+        self.assertTrue(workload_upload_requires_stop(5))
+        self.assertFalse(workload_upload_requires_stop(6))
 
     def test_broker_runtime_state_uses_transport_not_processor_liveness(self) -> None:
         self.assertEqual(_broker_runtime_state(None), "OWNER_ACTIVE")
@@ -287,14 +289,14 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertNotIn("ALIVE", output)
 
     def test_native_probe_requires_the_prepared_free_running_responder(self) -> None:
-        self.assertTrue(_prepared_native_probe_is_available(0))
-        self.assertTrue(_prepared_native_probe_is_available(1))
-        self.assertFalse(_prepared_native_probe_is_available(2))
-        self.assertFalse(_prepared_native_probe_is_available(3))
-        self.assertFalse(_prepared_native_probe_is_available(1, workload_state=2))
-        self.assertFalse(_prepared_native_probe_is_available(1, workload_state=3))
+        self.assertTrue(prepared_runtime_is_available(0))
+        self.assertTrue(prepared_runtime_is_available(1))
+        self.assertFalse(prepared_runtime_is_available(2))
+        self.assertFalse(prepared_runtime_is_available(3))
+        self.assertFalse(prepared_runtime_is_available(1, workload_state=2))
+        self.assertFalse(prepared_runtime_is_available(1, workload_state=3))
         self.assertFalse(
-            _prepared_native_probe_is_available(
+            prepared_runtime_is_available(
                 1, workload_state=0, processor_flags=0
             )
         )
