@@ -22,13 +22,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
-RP86 = ROOT / "rp86.py"
-
-# tools/ is already on sys.path when this file is launched as tools/rp86_web.py.
+from rp86_web_api import WebApi
 from rp86_runtime.broker import BrokerClient, discover_brokers, select_broker
 from rp86_runtime.core import Message, NativeServiceWitness, TYPE_COMMAND
 from rp86_runtime.memory import format_memory_dump, memory_read_request, parse_memory_read
 
+API = WebApi(ROOT)
+
+# Compatibility surface for callers predating WebApi.  Handler and main do not
+# use this state; item 7 removes these shims after downstream migration.
+RP86 = ROOT / "rp86.py"
 _owned_runtime: subprocess.Popen[str] | None = None
 _owner_mode = "not-started"
 _owner_error: str | None = None
@@ -471,45 +474,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             self._send_html()
             return
-        if path == "/api/processor":
-            result = _processor_snapshot()
-            self._send_json(result, 200 if result["ok"] else 503)
-            return
-        if path == "/api/status":
-            result = _run_rp86("--status", "--timeout", "3", timeout=5.0)
-            self._send_json(result, 200 if result["ok"] else 503)
-            return
-        if path == "/api/devices":
-            result = _run_rp86("--list-devices", "--json", timeout=5.0)
-            if not result["ok"]:
-                self._send_json(result, 503)
-                return
-            try:
-                devices = json.loads(str(result["stdout"]))
-            except json.JSONDecodeError as exc:
-                self._send_json({"ok": False, "error": f"invalid device JSON: {exc}"}, 500)
-                return
-            self._send_json({"ok": True, "devices": devices})
-            return
-        if path == "/api/simulate":
-            result = _run_rp86("--simulate", "--json", timeout=3.0)
-            if not result["ok"]:
-                self._send_json(result, 500)
-                return
-            try:
-                simulation = json.loads(str(result["stdout"]))
-            except json.JSONDecodeError as exc:
-                self._send_json({"ok": False, "error": f"invalid simulation JSON: {exc}"}, 500)
-                return
-            self._send_json({"ok": True, "result": simulation})
-            return
-        self._send_json({"ok": False, "error": "not found"}, 404)
+        result, status = API.get(path)
+        self._send_json(result, status)
 
     def do_POST(self) -> None:
         path = urlparse(self.path).path
-        if path not in {"/api/control", "/api/console", "/api/memory"}:
-            self._send_json({"ok": False, "error": "not found"}, 404)
-            return
         length = int(self.headers.get("Content-Length", "0") or "0")
         try:
             payload = json.loads(self.rfile.read(length) or b"{}")
@@ -517,29 +486,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json({"ok": False, "error": "invalid JSON body"}, 400)
             return
 
-        if path == "/api/console":
-            text = payload.get("text")
-            if not isinstance(text, str):
-                self._send_json({"ok": False, "error": "text must be a string"}, 400)
-                return
-            result = _processor_command(text)
-            self._send_json(result, 200 if result["ok"] else 503)
-            return
-
-        if path == "/api/memory":
-            result = _memory_read(payload.get("address"), payload.get("length"))
-            self._send_json(result, 200 if result["ok"] else 400 if "integer" in str(result.get("error")) or "1-40" in str(result.get("error")) or "Internal SRAM" in str(result.get("error")) else 503)
-            return
-
-        action = payload.get("action")
-        if action not in {"reboot", "bootloader"}:
-            self._send_json({"ok": False, "error": "unsupported control action"}, 400)
-            return
-        flag = "--reboot" if action == "reboot" else "--bootloader"
-        result = _run_rp86(flag, "--timeout", "5", timeout=8.0)
-        if action == "reboot" and result.get("ok"):
-            _start_runtime_recovery("RP2350 reboot acknowledged")
-        self._send_json(result, 200 if result["ok"] else 503)
+        result, status = API.post(path, payload)
+        self._send_json(result, status)
 
 
 def main() -> int:
@@ -550,7 +498,7 @@ def main() -> int:
     if args.host not in {"127.0.0.1", "localhost", "::1"}:
         parser.error("rp86-web is intentionally local-only; use 127.0.0.1")
 
-    ownership = _ensure_runtime_owner()
+    ownership = API.ensure_runtime_owner()
     if ownership.get("ok"):
         print(
             "RP86 runtime: "
@@ -570,7 +518,7 @@ def main() -> int:
         pass
     finally:
         server.server_close()
-        _stop_owned_runtime()
+        API.stop_owned_runtime()
     return 0
 
 

@@ -36,6 +36,7 @@ from rp86_runtime.shell_commands import (  # noqa: E402
 )
 from rp86_runtime.workload import WorkloadManifest  # noqa: E402
 import rp86_web  # noqa: E402
+import rp86_web_api  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
@@ -49,15 +50,13 @@ class Rp86RuntimeTests(unittest.TestCase):
         process = Mock()
         process.poll.return_value = None
         record = SimpleNamespace(device_id="TEST-RP86")
-        rp86_web._owned_runtime = None
-        rp86_web._owner_mode = "not-started"
-        rp86_web._owner_error = None
+        api = rp86_web_api.WebApi(TOOLS)
         with (
-            patch.object(rp86_web, "_active_broker", side_effect=[None, record]),
-            patch.object(rp86_web.subprocess, "Popen", return_value=process) as popen,
-            patch.object(rp86_web.time, "sleep"),
+            patch.object(api, "active_broker", side_effect=[None, record]),
+            patch.object(rp86_web_api.subprocess, "Popen", return_value=process) as popen,
+            patch.object(rp86_web_api.time, "sleep"),
         ):
-            result = rp86_web._ensure_runtime_owner(wait_seconds=0.5)
+            result = api.ensure_runtime_owner(wait_seconds=0.5)
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["mode"], "web-owned")
@@ -66,9 +65,6 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertIn("--attach", command)
         self.assertNotIn("--heartbeat", command)
         self.assertNotIn("--exchange", command)
-        rp86_web._owned_runtime = None
-        rp86_web._owner_mode = "not-started"
-        rp86_web._owner_error = None
 
     def test_web_owner_recovers_stopped_runtime_once_via_hid_reboot(self) -> None:
         stopped = Mock()
@@ -77,28 +73,26 @@ class Rp86RuntimeTests(unittest.TestCase):
         accepted = Mock()
         accepted.poll.return_value = None
         record = SimpleNamespace(device_id="TEST-RP86")
-        rp86_web._owned_runtime = None
-        rp86_web._owner_mode = "not-started"
-        rp86_web._owner_error = None
+        api = rp86_web_api.WebApi(TOOLS)
         with (
             patch.object(
-                rp86_web,
-                "_active_broker",
+                api,
+                "active_broker",
                 side_effect=[None, None, record],
             ),
             patch.object(
-                rp86_web.subprocess,
+                rp86_web_api.subprocess,
                 "Popen",
                 side_effect=[stopped, accepted],
             ) as popen,
             patch.object(
-                rp86_web,
-                "_run_rp86",
+                api,
+                "run_rp86",
                 return_value={"ok": True},
             ) as run_rp86,
-            patch.object(rp86_web.time, "sleep"),
+            patch.object(rp86_web_api.time, "sleep"),
         ):
-            result = rp86_web._ensure_runtime_owner(wait_seconds=0.5)
+            result = api.ensure_runtime_owner(wait_seconds=0.5)
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["mode"], "web-owned")
@@ -106,9 +100,6 @@ class Rp86RuntimeTests(unittest.TestCase):
         run_rp86.assert_called_once_with(
             "--reboot", "--timeout", "5", timeout=8.0
         )
-        rp86_web._owned_runtime = None
-        rp86_web._owner_mode = "not-started"
-        rp86_web._owner_error = None
 
     def test_calculator_encodes_syntax_without_host_evaluation(self) -> None:
         payload = calculator_payload(("0x1234", "*", "3"))
