@@ -71,6 +71,34 @@ class FirmwareSourceStructureTests(unittest.TestCase):
         self.assertIn("rp86_host_service_dispatch_t host_services", context_header)
         self.assertIn("rp86_shared_mailbox_init", context_source)
 
+    def test_general_workload_execution_has_one_owner(self):
+        runtime_source = (
+            FIRMWARE / "runtime" / "canonical_runtime.c"
+        ).read_text(encoding="utf-8")
+        executor_source = (
+            FIRMWARE / "runtime" / "workload_executor.c"
+        ).read_text(encoding="utf-8")
+        executor_header = (
+            FIRMWARE / "runtime" / "workload_executor.h"
+        ).read_text(encoding="utf-8")
+        cmake_source = (FIRMWARE / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("runtime/workload_executor.c", cmake_source)
+        for delegated_call in (
+            "rp86_workload_executor_start(",
+            "rp86_workload_executor_stop(",
+            "rp86_workload_executor_service(",
+        ):
+            self.assertIn(delegated_call, runtime_source)
+        for execution_detail in (
+            "build_reset_handoff",
+            "rp86_clock_stepped_service_cycle",
+            "GENERAL_BUS_STARVATION_TIMEOUT_US",
+        ):
+            self.assertNotIn(execution_detail, runtime_source)
+            self.assertIn(execution_detail, executor_source)
+        self.assertIn("rp86_workload_executor_t", executor_header)
+
     def test_superseded_parallel_runtime_is_absent(self):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())
