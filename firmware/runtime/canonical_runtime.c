@@ -36,6 +36,7 @@
 #include "bus/processor_bus.h"
 #include "bus/processor_bus_pins.h"
 #include "processor_service.pio.h"
+#include "runtime/cdc_command_parser.h"
 #include "runtime/clock_stepped_bus_controller.h"
 #include "runtime/evidence_queue.h"
 #include "runtime/host_service_dispatch.h"
@@ -177,6 +178,7 @@ static rp86_workload_manager_t g_workload_manager;
 static rp86_processor_bus_t g_processor_bus;
 static rp86_memory_t g_processor_memory;
 static rp86_evidence_queue_t g_runtime_evidence;
+static rp86_cdc_command_parser_t g_cdc_command_parser;
 static rp86_clock_stepped_stats_t g_workload_bus_stats;
 static uint8_t g_reset_handoff[RESET_HANDOFF_SIZE];
 static bool g_general_workload_active;
@@ -1787,45 +1789,23 @@ static bool handle_runtime_control(const rp86_host_protocol_message_t *record) {
 
 static void service_cdc_control(void) {
 #if RP86_CANONICAL_RUNTIME
-    enum { COMMAND_CAPACITY = 48 };
-    static char command[COMMAND_CAPACITY];
-    static size_t length;
-    static bool overflowed;
-
     while (tud_cdc_available()) {
         char ch;
         if (tud_cdc_read(&ch, 1u) != 1u) break;
-        if (ch == '\r' || ch == '\n') {
-            if (overflowed) {
-                length = 0u;
-                overflowed = false;
-                evidence_printf("RP86 COMMAND ERROR\n");
-                continue;
-            }
-            if (length == 0u) continue;
-            command[length] = '\0';
-            length = 0u;
-            if (strcmp(command, "RP86 STATUS") == 0 ||
-                strcmp(command, "status") == 0) {
+        rp86_cdc_command_t command;
+        if (rp86_cdc_command_parser_feed(
+                &g_cdc_command_parser, ch, &command)) {
+            if (command == RP86_CDC_COMMAND_STATUS) {
                 evidence_printf("RP86 STATUS BEGIN\n");
                 print_canonical_status();
                 evidence_printf("RP86 STATUS END\n");
-            } else if (strcmp(command, "RP86 BOOTLOADER") == 0 ||
-                       strcmp(command, "bootloader") == 0 ||
-                       strcmp(command, "bootsel") == 0) {
+            } else if (command == RP86_CDC_COMMAND_ENTER_BOOTLOADER) {
                 enter_canonical_bootloader();
-            } else if (strcmp(command, "RP86 REBOOT") == 0 ||
-                       strcmp(command, "reboot") == 0) {
+            } else if (command == RP86_CDC_COMMAND_REBOOT) {
                 reboot_canonical_runtime();
             } else {
                 evidence_printf("RP86 COMMAND ERROR\n");
             }
-            continue;
-        }
-        if (length + 1u < sizeof command) command[length++] = ch;
-        else {
-            length = 0u;
-            overflowed = true;
         }
     }
 #endif
@@ -1922,6 +1902,7 @@ int rp86_canonical_runtime_run(void) {
     rp86_prepared_control_outputs_init();
     rp86_prepared_route_ad_to_sio_high_z();
     rp86_evidence_queue_reset(&g_runtime_evidence);
+    rp86_cdc_command_parser_init(&g_cdc_command_parser);
     rp86_internal_sram_backing_init(&g_workload_memory);
     hard_assert(rp86_shared_mailbox_init(&g_workload_memory));
     rp86_memory_service_init(&g_memory_service, &g_workload_memory);

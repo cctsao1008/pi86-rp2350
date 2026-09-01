@@ -10,6 +10,7 @@ add_executable(rp86_rp2350
     bus/processor_bus.c
     runtime/clock_stepped_bus_controller.c
     runtime/canonical_runtime.c
+    runtime/cdc_command_parser.c
     runtime/evidence_queue.c
     runtime/execution_clock_controller.c
     runtime/host_service_dispatch.c
