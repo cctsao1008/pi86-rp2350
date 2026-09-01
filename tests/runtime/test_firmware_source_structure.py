@@ -99,6 +99,40 @@ class FirmwareSourceStructureTests(unittest.TestCase):
             self.assertIn(execution_detail, executor_source)
         self.assertIn("rp86_workload_executor_t", executor_header)
 
+    def test_prepared_runtime_lifecycle_and_identity_have_one_owner(self):
+        runtime_source = (
+            FIRMWARE / "runtime" / "canonical_runtime.c"
+        ).read_text(encoding="utf-8")
+        prepared_source = (
+            FIRMWARE / "runtime" / "prepared_runtime.c"
+        ).read_text(encoding="utf-8")
+        prepared_header = (
+            FIRMWARE / "runtime" / "prepared_runtime.h"
+        ).read_text(encoding="utf-8")
+        cmake_source = (FIRMWARE / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("runtime/prepared_runtime.c", cmake_source)
+        self.assertIn("rp86_prepared_runtime_t g_prepared_runtime", runtime_source)
+        self.assertNotIn("g_prepared_runtime_available", runtime_source)
+        self.assertNotIn("g_prepared_runtime_initialized", runtime_source)
+        for identity_policy in (
+            "RP86_PROCESSOR_SIGNATURE_INTEL_8086",
+            "RP86_PROCESSOR_SIGNATURE_NEC_V30",
+            "rp86_prepared_processor_identity_name",
+            "rp86_prepared_processor_witness_flags",
+        ):
+            self.assertIn(identity_policy, prepared_header + prepared_source)
+        self.assertIn("rp86_prepared_runtime_observe_processor", runtime_source)
+
+        # The PIO/DMA/ISR timing kernel deliberately stays contiguous.
+        for timing_path in (
+            "run_live_round",
+            "companion_dma_irq0",
+            "rearm_exact_stream",
+        ):
+            self.assertIn(timing_path, runtime_source)
+            self.assertNotIn(timing_path, prepared_source)
+
     def test_superseded_parallel_runtime_is_absent(self):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())

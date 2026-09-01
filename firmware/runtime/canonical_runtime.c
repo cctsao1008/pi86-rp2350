@@ -37,6 +37,7 @@
 #include "runtime/clock_stepped_bus_controller.h"
 #include "runtime/evidence_queue.h"
 #include "runtime/host_service_dispatch.h"
+#include "runtime/prepared_runtime.h"
 #include "runtime/processor_abi.h"
 #include "runtime/runtime_context.h"
 #include "runtime/workload_executor.h"
@@ -79,8 +80,6 @@
 #define NATIVE_PROCESSOR_WORDS            1u
 #define NATIVE_COUNTER_COPIES              3u
 #define NATIVE_REPLY_WORDS               13u
-#define PROCESSOR_SIGNATURE_INTEL_8086 0x0012u
-#define PROCESSOR_SIGNATURE_NEC_V30    0x000Cu
 #define CALCULATOR_MAGIC               0xCA1Cu
 #define CALCULATOR_SLOT_OFFSET         0x0170u
 #define CALCULATOR_RETURN_OFFSET       0x0176u
@@ -162,8 +161,7 @@ static rp86_processor_bus_t g_processor_bus;
 static rp86_evidence_queue_t g_runtime_evidence;
 static rp86_cdc_command_parser_t g_cdc_command_parser;
 static rp86_workload_executor_t g_workload_executor;
-static bool g_prepared_runtime_available = true;
-static bool g_prepared_runtime_initialized;
+static rp86_prepared_runtime_t g_prepared_runtime;
 static int g_foreground_dma = -1;
 static int g_irq_rom_dma = -1;
 static int g_irq_io_dma = -1;
@@ -743,8 +741,8 @@ static void classify_live_round(live_round_result_t *round,
                 round->irq_commit = true;
                 round->processor_signature = tx_data[NATIVE_TEXT_WORDS];
                 round->processor_identity_valid =
-                    round->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ||
-                    round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30;
+                    rp86_prepared_processor_signature_valid(
+                        round->processor_signature);
                 uint32_t counters[NATIVE_COUNTER_COPIES];
                 for (uint32_t copy = 0u; copy < NATIVE_COUNTER_COPIES; ++copy) {
                     const uint32_t word = NATIVE_TEXT_WORDS +
@@ -858,8 +856,11 @@ static bool run_live_round(const rp86_prepared_sm_t *foreground,
             round->native_counter_valid &&
             round->processor_identity_valid && round->eoi &&
             round->foreground_commit &&
-            (!round->calculator_requested || round->calculator_valid))
+            (!round->calculator_requested || round->calculator_valid)) {
+            rp86_prepared_runtime_observe_processor(
+                &g_prepared_runtime, round->processor_signature);
             return true;
+        }
         rp86_host_protocol_usb_task();
     }
     return false;
@@ -907,11 +908,8 @@ static void send_live_reply(const rp86_host_protocol_message_t *request,
     witness.magic[3] = RP86_NATIVE_WITNESS_MAGIC_3;
     witness.version = RP86_NATIVE_WITNESS_VERSION;
     witness.service_type = request->type;
-    witness.flags = round->processor_signature ==
-            PROCESSOR_SIGNATURE_INTEL_8086 ?
-        RP86_NATIVE_WITNESS_PROCESSOR_INTEL_8086 :
-        round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
-        RP86_NATIVE_WITNESS_PROCESSOR_NEC_V30 : 0u;
+    witness.flags = rp86_prepared_processor_witness_flags(
+        round->processor_signature);
     witness.boot_id = g_processor_boot_id;
     witness.cpu_sequence = round->cpu_sequence;
     witness.command_sequence = round->command_sequence;
@@ -936,10 +934,7 @@ static void send_live_reply(const rp86_host_protocol_message_t *request,
     evidence_printf(
         "[NATIVE PROCESSOR ID] signature=%04X identity=%s result=%s\n",
         round->processor_signature,
-        round->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ?
-            "INTEL 8086" :
-        round->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
-            "NEC V30" : "UNKNOWN",
+        rp86_prepared_processor_identity_name(round->processor_signature),
         round->processor_identity_valid ? "PASS" : "FAIL");
     if (round->calculator_requested) {
         evidence_printf(
@@ -992,21 +987,24 @@ static rp86_workload_clock_mode_t physical_workload_clock_mode(void) {
 }
 
 static bool prepared_runtime_physically_running(void) {
-    return g_prepared_runtime_available && g_bus_active &&
-        physical_workload_clock_mode() == RP86_WORKLOAD_CLOCK_FREE_RUNNING &&
-        !gpio_get(RP86_PROCESSOR_PIN_RESET);
+    return rp86_prepared_runtime_physically_running(
+        &g_prepared_runtime,
+        g_bus_active,
+        physical_workload_clock_mode() == RP86_WORKLOAD_CLOCK_FREE_RUNNING,
+        gpio_get(RP86_PROCESSOR_PIN_RESET));
 }
 
 static bool start_calculator_workload(void) {
     const bool calculator_valid = calculator_workload_valid();
-    if (!g_prepared_runtime_initialized ||
+    if (!rp86_prepared_runtime_initialized(&g_prepared_runtime) ||
         g_foreground_dma < 0 || g_irq_rom_dma < 0 ||
         g_irq_io_dma < 0 || g_observer_dma < 0 ||
         !calculator_valid) {
         evidence_printf(
             "[WORKLOAD START] calculator precondition failed "
             "initialized=%u dma=%d/%d/%d/%d valid=%u state=%u size=%lu\n",
-            g_prepared_runtime_initialized, g_foreground_dma,
+            rp86_prepared_runtime_initialized(&g_prepared_runtime),
+            g_foreground_dma,
             g_irq_rom_dma, g_irq_io_dma, g_observer_dma,
             calculator_valid, (unsigned)g_runtime.workload.state,
             (unsigned long)g_runtime.workload.manifest.image_size);
@@ -1094,7 +1092,7 @@ static bool start_calculator_workload(void) {
         return false;
     }
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
-    g_prepared_runtime_available = true;
+    rp86_prepared_runtime_activate(&g_prepared_runtime);
     g_bus_active = true;
 
     busy_wait_ms(20u);
@@ -1275,13 +1273,14 @@ static bool disable_prepared_runtime(void) {
         if (channels[i] >= 0) dma_channel_abort((uint)channels[i]);
     }
     rp86_prepared_route_ad_to_sio_high_z();
-    g_prepared_runtime_available = false;
+    rp86_prepared_runtime_retire(&g_prepared_runtime);
     return true;
 }
 
 static bool prepare_general_workload_bus(void *context) {
     (void)context;
-    if (g_prepared_runtime_available) return disable_prepared_runtime();
+    if (rp86_prepared_runtime_available(&g_prepared_runtime))
+        return disable_prepared_runtime();
     rp86_processor_bus_hold_reset(true);
     if (!rp86_processor_bus_set_execution_clock_mode(
             &g_processor_bus, RP86_EXECUTION_CLOCK_CLOCK_STEPPED,
@@ -1337,7 +1336,7 @@ static bool send_workload_reply(const rp86_host_protocol_message_t *request,
         .processor_flags =
             (rp86_workload_executor_processor_idle(&g_workload_executor) ?
                 RP86_WORKLOAD_PROCESSOR_IDLE : 0u) |
-            (g_prepared_runtime_initialized ?
+            (rp86_prepared_runtime_initialized(&g_prepared_runtime) ?
                 RP86_WORKLOAD_PREPARED_RUNTIME_INITIALIZED : 0u),
     };
     reply.version = RP86_HOST_PROTOCOL_VERSION;
@@ -1564,10 +1563,7 @@ static void print_companion_result(const companion_result_t *r) {
     evidence_printf("Heartbeat active           = %s\n",
                     r->heartbeat_active ? "PASS" : "FAIL");
     evidence_printf("Native processor identity  = %s (AAD16=%04X) %s\n",
-        r->processor_signature == PROCESSOR_SIGNATURE_INTEL_8086 ?
-            "INTEL 8086" :
-        r->processor_signature == PROCESSOR_SIGNATURE_NEC_V30 ?
-            "NEC V30" : "UNKNOWN",
+        rp86_prepared_processor_identity_name(r->processor_signature),
         r->processor_signature,
         r->processor_identity_valid ? "PASS" : "FAIL");
     evidence_printf("IRQ mailbox commits        = %lu\n",
@@ -1633,6 +1629,7 @@ int rp86_canonical_runtime_run(void) {
     rp86_prepared_route_ad_to_sio_high_z();
     rp86_evidence_queue_reset(&g_runtime_evidence);
     rp86_cdc_command_parser_init(&g_cdc_command_parser);
+    rp86_prepared_runtime_init(&g_prepared_runtime);
     hard_assert(rp86_runtime_context_init(&g_runtime, HOST_TIMEOUT_US));
     rp86_host_protocol_usb_init();
     stdio_init_all();
@@ -1705,7 +1702,7 @@ int rp86_canonical_runtime_run(void) {
         &g_observer_sm, g_observer_dma_words,
         RP86_PREPARED_OBSERVER_WORDS);
     g_observer_dma = observer_dma;
-    g_prepared_runtime_initialized = true;
+    rp86_prepared_runtime_mark_initialized(&g_prepared_runtime);
 
     rp86_prepared_route_ad_to_responder(&g_foreground_sm);
     result.non_ad_isolation =
@@ -1775,6 +1772,8 @@ int rp86_canonical_runtime_run(void) {
     initial_round.inta2 = result.second_inta_complete;
     result.processor_signature = initial_round.processor_signature;
     result.processor_identity_valid = initial_round.processor_identity_valid;
+    rp86_prepared_runtime_observe_processor(
+        &g_prepared_runtime, initial_round.processor_signature);
     result.heartbeat_active = result.irq_completions >= 2u &&
         result.irq_commits >= 1u && result.eoi_writes >= 1u &&
         initial_round.witness && initial_round.irq_commit &&
@@ -1809,13 +1808,14 @@ int rp86_canonical_runtime_run(void) {
         if (rp86_workload_executor_active(&g_workload_executor)) {
             (void)take_non_control_record(&request);
             service_general_workload();
-        } else if (g_prepared_runtime_available && take_live_record(&request)) {
+        } else if (rp86_prepared_runtime_available(&g_prepared_runtime) &&
+                   take_live_record(&request)) {
             live_round_result_t round;
             const bool passed = run_live_round(
                 &g_foreground_sm, &g_irq_rom_sm, &g_irq_io_sm, &g_inta_sm,
                 &g_observer_sm, observer_dma, &request, &round);
             send_live_reply(&request, &round, passed);
-        } else if (!g_prepared_runtime_available) {
+        } else if (!rp86_prepared_runtime_available(&g_prepared_runtime)) {
             (void)take_non_control_record(&request);
         }
         tight_loop_contents();
