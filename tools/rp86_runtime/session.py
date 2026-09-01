@@ -500,6 +500,15 @@ def persistent_monitor(
         )
         reply, latency_ms, error = exchange(request)
         if reply is None:
+            if _native_probe_unavailable(error):
+                prepared_native_probe_available = False
+                processor_observation.mark_disconnected()
+                update_console_runtime()
+                print_event(
+                    "[NATIVE PROBE SUSPENDED] prepared responder did not "
+                    "complete; workload control remains available"
+                )
+                return False
             print_event(f"processor identity probe: FAILED: {error}")
             return False
         try:
