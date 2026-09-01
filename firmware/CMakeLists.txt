@@ -14,6 +14,7 @@ add_executable(rp86_rp2350
     runtime/evidence_queue.c
     runtime/execution_clock_controller.c
     runtime/host_service_dispatch.c
+    runtime/runtime_context.c
     runtime/workload_manager.c
     storage/flash_disk.c
     storage/flash_service.c

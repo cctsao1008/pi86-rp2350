@@ -29,8 +29,6 @@
 #include "host_protocol/usb_transport.h"
 #include "processor_runtime_image.h"
 #include "memory/memory.h"
-#include "memory/internal_sram_backing.h"
-#include "memory/memory_service.h"
 #include "memory/shared_mailbox.h"
 #include "bus/prepared_responder.h"
 #include "bus/processor_bus.h"
@@ -41,9 +39,9 @@
 #include "runtime/evidence_queue.h"
 #include "runtime/host_service_dispatch.h"
 #include "runtime/processor_abi.h"
+#include "runtime/runtime_context.h"
 #include "runtime/workload_manager.h"
 #include "storage/flash_layout.h"
-#include "storage/flash_service.h"
 #include "storage/flash_volume.h"
 
 #define COMPANION_VECTOR             RP86_INTERRUPT_VECTOR_COMPANION
@@ -168,13 +166,7 @@ static uint32_t g_irq_io_words[STREAM_WORDS];
 static uint16_t g_host_words[HOST_WORDS];
 static rp86_host_protocol_message_t g_host_record;
 static rp86_host_protocol_message_t g_reply_record;
-static rp86_flash_volume_t g_flash_volume;
-static rp86_flash_service_t g_flash_service;
-static bool g_flash_volume_ready;
-static rp86_memory_backing_t g_workload_memory;
-static rp86_memory_service_t g_memory_service;
-static rp86_host_service_dispatch_t g_host_services;
-static rp86_workload_manager_t g_workload_manager;
+static rp86_runtime_context_t g_runtime;
 static rp86_processor_bus_t g_processor_bus;
 static rp86_memory_t g_processor_memory;
 static rp86_evidence_queue_t g_runtime_evidence;
@@ -343,7 +335,7 @@ static void add_image_range(exact_sequence_t *s, uint32_t first,
 static uint16_t image_word(uint32_t offset) {
     hard_assert((offset & 1u) == 0u);
     hard_assert(offset + 1u < processor_runtime_image_size);
-    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+    if (g_runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING) {
         if (offset == CALCULATOR_SLOT_OFFSET)
             return 0x9A90u;
         if (offset == CALCULATOR_SLOT_OFFSET + 2u)
@@ -358,17 +350,17 @@ static uint16_t image_word(uint32_t offset) {
 }
 
 static bool calculator_workload_valid(void) {
-    const rp86_workload_manifest_t *manifest = &g_workload_manager.manifest;
-    if ((g_workload_manager.state != RP86_WORKLOAD_STATE_STAGED &&
-         g_workload_manager.state != RP86_WORKLOAD_STATE_STOPPED &&
-         g_workload_manager.state != RP86_WORKLOAD_STATE_RUNNING) ||
+    const rp86_workload_manifest_t *manifest = &g_runtime.workload.manifest;
+    if ((g_runtime.workload.state != RP86_WORKLOAD_STATE_STAGED &&
+         g_runtime.workload.state != RP86_WORKLOAD_STATE_STOPPED &&
+         g_runtime.workload.state != RP86_WORKLOAD_STATE_RUNNING) ||
         manifest->image_size != CALCULATOR_WORKLOAD_SIZE ||
         (((uint32_t)manifest->entry_segment << 4u) +
          manifest->entry_offset) != manifest->load_address)
         return false;
 
     uint8_t image[CALCULATOR_WORKLOAD_SIZE];
-    return rp86_memory_backing_read(&g_workload_memory,
+    return rp86_memory_backing_read(&g_runtime.memory_backing,
                                     manifest->load_address,
                                     image, sizeof image) &&
            memcmp(image, g_calculator_workload_contract, sizeof image) == 0;
@@ -376,7 +368,7 @@ static bool calculator_workload_valid(void) {
 
 static uint16_t calculator_workload_word(uint32_t address) {
     uint8_t bytes[2];
-    hard_assert(rp86_memory_backing_read(&g_workload_memory, address,
+    hard_assert(rp86_memory_backing_read(&g_runtime.memory_backing, address,
                                          bytes, sizeof bytes));
     return (uint16_t)bytes[0] | ((uint16_t)bytes[1] << 8u);
 }
@@ -385,7 +377,7 @@ static void compile_irq_rom_sequence(void) {
     memset(&g_irq_rom, 0, sizeof g_irq_rom);
     add_memory(&g_irq_rom, IVT20_OFFSET_ADDRESS, IRQ_HANDLER_OFFSET);
     add_memory(&g_irq_rom, IVT20_SEGMENT_ADDRESS, 0xF000u);
-    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+    if (g_runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING) {
         add_image_range(&g_irq_rom, IRQ_HANDLER_OFFSET,
                         CALCULATOR_RETURN_OFFSET);
         add_memory(&g_irq_rom, g_calculator_entry_linear,
@@ -638,7 +630,7 @@ static uint16_t stage_live_payload(const rp86_host_protocol_message_t *record) {
 
 static bool select_calculator_opcode(const rp86_host_protocol_message_t *record) {
     g_calculator_opcode = CALCULATOR_OPCODE_ADD;
-    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
+    g_calculator_entry_linear = g_runtime.workload.manifest.load_address;
     if (record->type != RP86_HOST_PROTOCOL_MESSAGE_COMMAND ||
         g_host_words[0] != CALCULATOR_MAGIC)
         return false;
@@ -665,7 +657,7 @@ static bool select_calculator_opcode(const rp86_host_protocol_message_t *record)
         default:
             return false;
     }
-    if (g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING) {
+    if (g_runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING) {
         if (!calculator_workload_valid()) return false;
         g_calculator_entry_linear += operation_offset;
     }
@@ -837,7 +829,7 @@ static bool run_live_round(const rp86_prepared_sm_t *foreground,
      * including background heartbeat records.  Calculator commands may add
      * an operation offset below, but a non-command round must never inherit
      * the zero-initialized reset value as a far-call segment. */
-    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
+    g_calculator_entry_linear = g_runtime.workload.manifest.load_address;
     round->calculator_requested =
         record->type == RP86_HOST_PROTOCOL_MESSAGE_COMMAND &&
         g_host_words[0] == CALCULATOR_MAGIC;
@@ -1045,8 +1037,8 @@ static bool start_calculator_workload(void) {
             "initialized=%u dma=%d/%d/%d/%d valid=%u state=%u size=%lu\n",
             g_prepared_runtime_initialized, g_foreground_dma,
             g_irq_rom_dma, g_irq_io_dma, g_observer_dma,
-            calculator_valid, (unsigned)g_workload_manager.state,
-            (unsigned long)g_workload_manager.manifest.image_size);
+            calculator_valid, (unsigned)g_runtime.workload.state,
+            (unsigned long)g_runtime.workload.manifest.image_size);
         return false;
     }
 
@@ -1069,7 +1061,7 @@ static bool start_calculator_workload(void) {
     }
 
     g_calculator_opcode = CALCULATOR_OPCODE_ADD;
-    g_calculator_entry_linear = g_workload_manager.manifest.load_address;
+    g_calculator_entry_linear = g_runtime.workload.manifest.load_address;
     compile_sequences();
     uint32_t foreground_words = flatten_append(
         &g_boot, g_foreground_initial_words, 0u);
@@ -1152,9 +1144,9 @@ static bool start_calculator_workload(void) {
     }
     evidence_printf(
         "[WORKLOAD START] id=%lu entry=%04X:%04X clock=FREE_RUNNING native=PASS\n",
-        (unsigned long)g_workload_manager.workload_id,
-        g_workload_manager.manifest.entry_segment,
-        g_workload_manager.manifest.entry_offset);
+        (unsigned long)g_runtime.workload.workload_id,
+        g_runtime.workload.manifest.entry_segment,
+        g_runtime.workload.manifest.entry_offset);
     return prepared_runtime_physically_running();
 }
 
@@ -1195,44 +1187,44 @@ static void print_canonical_status(void) {
     evidence_printf("External PSRAM probe       = SKIPPED\n");
 #endif
     evidence_printf("Workload memory            = %s\n",
-                    g_workload_memory.name);
+                    g_runtime.memory_backing.name);
     evidence_printf("Processor memory range     = %05lX-%05lX (%lu KiB)\n",
-                    (unsigned long)g_workload_memory.processor_base,
-                    (unsigned long)(g_workload_memory.processor_base +
-                                    g_workload_memory.size - 1u),
-                    (unsigned long)(g_workload_memory.size / 1024u));
+                    (unsigned long)g_runtime.memory_backing.processor_base,
+                    (unsigned long)(g_runtime.memory_backing.processor_base +
+                                    g_runtime.memory_backing.size - 1u),
+                    (unsigned long)(g_runtime.memory_backing.size / 1024u));
     evidence_printf("External PSRAM role        = OPTIONAL CAPACITY TIER\n");
     evidence_printf("Onboard NOR flash          = W25Q128JV / 16 MiB\n");
     evidence_printf("Firmware reserved          = 0x000000-0x3FFFFF / 4 MiB\n");
     evidence_printf("flash:/ partition          = 0x400000-0xFFFFFF / 12 MiB\n");
-    if (g_flash_volume_ready) {
+    if (g_runtime.flash_available) {
         evidence_printf("flash:/ filesystem         = %s / %s\n",
                         rp86_flash_filesystem_name(
-                            g_flash_volume.filesystem_type),
-                        g_flash_volume.label);
+                            g_runtime.flash_volume.filesystem_type),
+                        g_runtime.flash_volume.label);
         evidence_printf("flash:/ free               = %lu KiB\n",
-                        (unsigned long)g_flash_volume.free_kib);
+                        (unsigned long)g_runtime.flash_volume.free_kib);
         evidence_printf("flash:/ boot state         = %s\n",
-                        g_flash_volume.formatted_on_boot ?
+                        g_runtime.flash_volume.formatted_on_boot ?
                             "FORMATTED" : "EXISTING");
         evidence_printf("flash:/ media self-test    = %s\n",
-                        g_flash_volume.self_test_passed ? "PASS" : "FAIL");
+                        g_runtime.flash_volume.self_test_passed ? "PASS" : "FAIL");
     } else {
         evidence_printf("flash:/ filesystem         = FAULT\n");
         evidence_printf("flash:/ FatFs result       = %u\n",
-                        (unsigned)g_flash_volume.result);
+                        (unsigned)g_runtime.flash_volume.result);
     }
     evidence_printf("Staged Host workload       = %s",
-                    rp86_workload_state_name(g_workload_manager.state));
-    if (g_workload_manager.state != RP86_WORKLOAD_STATE_EMPTY)
+                    rp86_workload_state_name(g_runtime.workload.state));
+    if (g_runtime.workload.state != RP86_WORKLOAD_STATE_EMPTY)
         evidence_printf(" (%lu bytes / id %lu)",
-                        (unsigned long)g_workload_manager.manifest.image_size,
-                        (unsigned long)g_workload_manager.workload_id);
+                        (unsigned long)g_runtime.workload.manifest.image_size,
+                        (unsigned long)g_runtime.workload.workload_id);
     evidence_printf("\n");
     evidence_printf("Active physical workload   = %s\n",
                     g_general_workload_active ? "GENERAL INTERNAL SRAM WORKLOAD" :
                     !g_bus_active ? "WAITING FOR HID RECORD" :
-                    g_workload_manager.state == RP86_WORKLOAD_STATE_RUNNING ?
+                    g_runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING ?
                         "INTERNAL SRAM CALCULATOR" :
                         "RP86 PROCESSOR RUNTIME");
     evidence_printf("Onboard GPIO safe state    = PASS\n");
@@ -1258,9 +1250,9 @@ static void print_canonical_status(void) {
     evidence_printf("processor stdin / stdout    = COMMAND MAILBOX AVAILABLE\n");
     evidence_printf("Host / processor shared memory = AVAILABLE / INTERNAL SRAM MAILBOX\n");
     evidence_printf("flash: FAT volume           = %s\n",
-                    g_flash_volume_ready ? "AVAILABLE" : "FAULT");
+                    g_runtime.flash_available ? "AVAILABLE" : "FAULT");
     evidence_printf("Host flash file service    = %s\n",
-                    g_flash_volume_ready ? "LS / DF / CAT / PUT" : "FAULT");
+                    g_runtime.flash_available ? "LS / DF / CAT / PUT" : "FAULT");
     evidence_printf("sd: FAT volume              = NOT IMPLEMENTED\n");
     evidence_printf("retained physical bus trace = AVAILABLE\n");
     evidence_printf("timeout / fault / restart   = GENERAL BUS SUPERVISION AVAILABLE\n");
@@ -1316,7 +1308,7 @@ static bool disable_prepared_runtime(void) {
 }
 
 static bool build_reset_handoff(void) {
-    const rp86_workload_manifest_t *manifest = &g_workload_manager.manifest;
+    const rp86_workload_manifest_t *manifest = &g_runtime.workload.manifest;
     memset(g_reset_handoff, 0x90, sizeof g_reset_handoff);
     uint32_t cursor = 0u;
     if (manifest->stack_segment != 0u || manifest->stack_offset != 0u) {
@@ -1395,7 +1387,7 @@ static bool general_io_write(void *context, uint16_t port,
 }
 
 static bool start_general_workload(void) {
-    const rp86_workload_manifest_t *manifest = &g_workload_manager.manifest;
+    const rp86_workload_manifest_t *manifest = &g_runtime.workload.manifest;
     if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u)
         return false;
     if (!build_reset_handoff()) return false;
@@ -1414,12 +1406,12 @@ static bool start_general_workload(void) {
     }
     rp86_processor_bus_clear_fault(&g_processor_bus);
     rp86_memory_init(&g_processor_memory,
-                     (uint8_t *)g_workload_memory.context,
-                     g_workload_memory.processor_base,
-                     (uint32_t)g_workload_memory.size,
+                     (uint8_t *)g_runtime.memory_backing.context,
+                     g_runtime.memory_backing.processor_base,
+                     (uint32_t)g_runtime.memory_backing.size,
                      g_reset_handoff, RESET_HANDOFF_BASE,
                      sizeof g_reset_handoff);
-    if (!rp86_shared_mailbox_init(&g_workload_memory)) {
+    if (!rp86_shared_mailbox_init(&g_runtime.memory_backing)) {
         rp86_processor_bus_force_safe_state(&g_processor_bus);
         return false;
     }
@@ -1445,7 +1437,7 @@ static bool start_general_workload(void) {
     rp86_processor_bus_reset_step_timing(&g_processor_bus);
     evidence_printf(
         "[WORKLOAD START] id=%lu entry=%04X:%04X clock=CLOCK_STEPPED\n",
-        (unsigned long)g_workload_manager.workload_id,
+        (unsigned long)g_runtime.workload.workload_id,
         manifest->entry_segment, manifest->entry_offset);
     return true;
 }
@@ -1519,12 +1511,12 @@ static void service_general_workload(void) {
         (g_workload_bus_stats.no_cycle || g_workload_bus_stats.unmapped ||
          g_workload_bus_stats.invalid_lane)) {
         g_workload_idle_armed = false;
-        if (!rp86_workload_complete(&g_workload_manager,
-                                    g_workload_manager.workload_id)) {
+        if (!rp86_workload_complete(&g_runtime.workload,
+                                    g_runtime.workload.workload_id)) {
             evidence_printf(
                 "[WORKLOAD FAULT] completion transition rejected\n");
             stop_general_workload();
-            g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
+            g_runtime.workload.state = RP86_WORKLOAD_STATE_FAULTED;
             return;
         }
         g_processor_idle = true;
@@ -1555,7 +1547,7 @@ static void service_general_workload(void) {
             (unsigned long)g_workload_bus_stats.cycles);
         print_retained_workload_trace();
         stop_general_workload();
-        g_workload_manager.state = RP86_WORKLOAD_STATE_TIMED_OUT;
+        g_runtime.workload.state = RP86_WORKLOAD_STATE_TIMED_OUT;
         return;
     }
 
@@ -1574,7 +1566,7 @@ static void service_general_workload(void) {
         g_workload_bus_stats.interrupt_ack);
     print_retained_workload_trace();
     stop_general_workload();
-    g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
+    g_runtime.workload.state = RP86_WORKLOAD_STATE_FAULTED;
 }
 
 static bool send_runtime_control_ack(
@@ -1595,9 +1587,9 @@ static bool send_workload_reply(const rp86_host_protocol_message_t *request,
                                 bool status_reply) {
     rp86_host_protocol_message_t reply = {0};
     const rp86_workload_status_payload_t payload = {
-        .workload_id = g_workload_manager.workload_id,
-        .state = (uint32_t)g_workload_manager.state,
-        .detail = g_workload_manager.received,
+        .workload_id = g_runtime.workload.workload_id,
+        .state = (uint32_t)g_runtime.workload.state,
+        .detail = g_runtime.workload.received,
         .clock_mode = (uint32_t)physical_workload_clock_mode(),
         .processor_cycles = g_workload_bus_stats.cycles,
         .processor_flags =
@@ -1629,7 +1621,7 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
                request->length == sizeof(rp86_workload_begin_payload_t)) {
         rp86_workload_begin_payload_t begin;
         memcpy(&begin, request->payload, sizeof begin);
-        status = rp86_workload_begin(&g_workload_manager,
+        status = rp86_workload_begin(&g_runtime.workload,
                                      begin.transfer_id,
                                      &begin.manifest) ?
             RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
@@ -1641,7 +1633,7 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
         memcpy(&offset, request->payload + sizeof transfer_id, sizeof offset);
         const uint8_t *data = request->payload + sizeof(uint32_t) * 2u;
         const size_t length = request->length - sizeof(uint32_t) * 2u;
-        status = rp86_workload_write(&g_workload_manager, transfer_id,
+        status = rp86_workload_write(&g_runtime.workload, transfer_id,
                                      offset, data, length) ?
             RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_SEQUENCE;
     } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_COMMIT &&
@@ -1649,13 +1641,13 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
         rp86_workload_commit_payload_t commit;
         memcpy(&commit, request->payload, sizeof commit);
         const bool was_receiving =
-            g_workload_manager.state == RP86_WORKLOAD_STATE_RECEIVING;
+            g_runtime.workload.state == RP86_WORKLOAD_STATE_RECEIVING;
         const bool committed = rp86_workload_commit(
-            &g_workload_manager, commit.transfer_id, commit.image_crc32);
+            &g_runtime.workload, commit.transfer_id, commit.image_crc32);
         if (committed) {
             memset(&g_workload_bus_stats, 0, sizeof g_workload_bus_stats);
             g_processor_idle = false;
-            const uint32_t flags = g_workload_manager.manifest.flags;
+            const uint32_t flags = g_runtime.workload.manifest.flags;
             g_workload_clock_mode =
                 (flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u ?
                     RP86_WORKLOAD_CLOCK_FREE_RUNNING :
@@ -1672,23 +1664,23 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
         status_reply = true;
         if (control.operation == RP86_WORKLOAD_CONTROL_STATUS &&
             (control.workload_id == 0u ||
-             control.workload_id == g_workload_manager.workload_id)) {
+             control.workload_id == g_runtime.workload.workload_id)) {
             status = RP86_HOST_PROTOCOL_STATUS_OK;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_RUN) {
             const bool calculator = calculator_workload_valid();
             const bool state_ok = rp86_workload_run(
-                &g_workload_manager, control.workload_id);
+                &g_runtime.workload, control.workload_id);
             const bool started = !state_ok ? false : calculator ?
                                  start_calculator_workload() :
                                  start_general_workload();
             if (state_ok && !started)
-                g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
+                g_runtime.workload.state = RP86_WORKLOAD_STATE_FAULTED;
             status = started ? RP86_HOST_PROTOCOL_STATUS_OK :
                                RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_STOP) {
             const bool calculator = calculator_workload_valid();
             const bool stopped = rp86_workload_stop(
-                &g_workload_manager, control.workload_id);
+                &g_runtime.workload, control.workload_id);
             if (stopped && g_general_workload_active) stop_general_workload();
             else if (stopped && calculator) park_physical_processor();
             status = stopped ? RP86_HOST_PROTOCOL_STATUS_OK :
@@ -1696,13 +1688,13 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
         } else if (control.operation == RP86_WORKLOAD_CONTROL_RESTART) {
             const bool calculator = calculator_workload_valid();
             const bool state_ok = rp86_workload_restart(
-                &g_workload_manager, control.workload_id);
+                &g_runtime.workload, control.workload_id);
             if (state_ok && g_general_workload_active) stop_general_workload();
             const bool started = !state_ok ? false : calculator ?
                                  start_calculator_workload() :
                                  start_general_workload();
             if (state_ok && !started)
-                g_workload_manager.state = RP86_WORKLOAD_STATE_FAULTED;
+                g_runtime.workload.state = RP86_WORKLOAD_STATE_FAULTED;
             status = started ? RP86_HOST_PROTOCOL_STATUS_OK :
                                RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
         } else {
@@ -1714,15 +1706,15 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
     evidence_printf(
         "WORKLOAD op=%u seq=%lu state=%s received=%lu status=%u %s\n",
         request->type, (unsigned long)request->sequence,
-        rp86_workload_state_name(g_workload_manager.state),
-        (unsigned long)g_workload_manager.received,
+        rp86_workload_state_name(g_runtime.workload.state),
+        (unsigned long)g_runtime.workload.received,
         (unsigned)status, sent ? "REPLIED" : "REPLY TIMEOUT");
     return sent;
 }
 
 static bool handle_filesystem_record(const rp86_host_protocol_message_t *request) {
     const rp86_host_service_result_t result =
-        rp86_host_service_dispatch_filesystem(&g_host_services, request);
+        rp86_host_service_dispatch_filesystem(&g_runtime.host_services, request);
     if (!result.handled) return false;
     evidence_printf("RP-FLASH op=%u seq=%lu status=%u %s\n",
                     result.operation,
@@ -1734,7 +1726,7 @@ static bool handle_filesystem_record(const rp86_host_protocol_message_t *request
 
 static bool handle_memory_record(const rp86_host_protocol_message_t *request) {
     const rp86_host_service_result_t result =
-        rp86_host_service_dispatch_memory(&g_host_services, request);
+        rp86_host_service_dispatch_memory(&g_runtime.host_services, request);
     if (!result.handled) return false;
     evidence_printf("MEMORY op=%u address=%05lX length=%lu seq=%lu status=%u %s\n",
                     result.operation,
@@ -1903,20 +1895,7 @@ int rp86_canonical_runtime_run(void) {
     rp86_prepared_route_ad_to_sio_high_z();
     rp86_evidence_queue_reset(&g_runtime_evidence);
     rp86_cdc_command_parser_init(&g_cdc_command_parser);
-    rp86_internal_sram_backing_init(&g_workload_memory);
-    hard_assert(rp86_shared_mailbox_init(&g_workload_memory));
-    rp86_memory_service_init(&g_memory_service, &g_workload_memory);
-    rp86_workload_manager_init(&g_workload_manager, &g_workload_memory);
-    g_flash_volume_ready = rp86_flash_volume_init(&g_flash_volume);
-    rp86_flash_service_init(&g_flash_service, &g_flash_volume,
-                            g_flash_volume_ready);
-    g_host_services = (rp86_host_service_dispatch_t){
-        .flash = &g_flash_service,
-        .memory = &g_memory_service,
-        .workload = &g_workload_manager,
-        .workload_memory = &g_workload_memory,
-        .reply_timeout_us = HOST_TIMEOUT_US,
-    };
+    hard_assert(rp86_runtime_context_init(&g_runtime, HOST_TIMEOUT_US));
     rp86_host_protocol_usb_init();
     stdio_init_all();
     while (!stdio_usb_connected()) {

@@ -45,6 +45,32 @@ class FirmwareSourceStructureTests(unittest.TestCase):
             self.assertNotIn(policy_call, runtime_source)
             self.assertIn(policy_call, dispatch_source)
 
+    def test_non_realtime_service_state_has_one_owner(self):
+        runtime_source = (
+            FIRMWARE / "runtime" / "canonical_runtime.c"
+        ).read_text(encoding="utf-8")
+        context_header = (
+            FIRMWARE / "runtime" / "runtime_context.h"
+        ).read_text(encoding="utf-8")
+        context_source = (
+            FIRMWARE / "runtime" / "runtime_context.c"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("rp86_runtime_context_t g_runtime", runtime_source)
+        self.assertIn("rp86_runtime_context_init(&g_runtime", runtime_source)
+        for former_global in (
+            "g_workload_manager",
+            "g_workload_memory",
+            "g_memory_service",
+            "g_flash_volume",
+            "g_flash_service",
+            "g_host_services",
+        ):
+            self.assertNotIn(former_global, runtime_source)
+        self.assertIn("rp86_workload_manager_t workload", context_header)
+        self.assertIn("rp86_host_service_dispatch_t host_services", context_header)
+        self.assertIn("rp86_shared_mailbox_init", context_source)
+
     def test_superseded_parallel_runtime_is_absent(self):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())
