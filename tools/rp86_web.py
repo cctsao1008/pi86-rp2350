@@ -59,7 +59,7 @@ pre{margin:0;white-space:pre-wrap;word-break:break-word;background:var(--pre);bo
 @media(max-width:1100px){header,.statebar{position:static}header{flex-wrap:wrap}.toolbar{width:100%}}
 @media(max-width:760px){.card,.card.third,.runtime-summary{grid-column:span 12}.metrics,.runtime-summary .metrics{grid-template-columns:1fr}.memory-line{grid-template-columns:1fr}.memory-line>button{width:100%}.control-note{margin-left:0;width:100%}}
 @media(max-width:520px){header{padding:14px 16px}.toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.tabs{display:contents}.toolbar button{width:100%}.statebar{gap:8px 14px;padding:8px 16px}main{padding:12px}.console-line{display:grid;grid-template-columns:minmax(0,1fr) auto auto}.input-meta{display:block}.input-meta span{display:block;margin-top:4px}}
-.memory-line>button{align-self:end}
+.memory-line{grid-template-columns:minmax(260px,520px) 90px auto;justify-content:start}.memory-line input{width:100%}.memory-line>button{align-self:end}@media(max-width:760px){.memory-line{grid-template-columns:1fr}}
 </style>
 </head>
 <body>

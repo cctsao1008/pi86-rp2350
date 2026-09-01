@@ -44,6 +44,8 @@ class WebLayoutTests(unittest.TestCase):
         self.assertIn('for="memoryAddress">Processor address</label>', html)
         self.assertIn('for="memoryLength">Bytes</label>', html)
         self.assertIn('id="memoryOut" class="memory-output" aria-live="polite"', html)
+        self.assertIn("grid-template-columns:minmax(260px,520px) 90px auto", html)
+        self.assertIn("@media(max-width:760px){.memory-line{grid-template-columns:1fr}}", html)
 
 
 if __name__ == "__main__":
