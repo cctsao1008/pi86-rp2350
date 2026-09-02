@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .processor_abi import (
+    PROCESSOR_SIGNATURE_INTEL_8086,
+    PROCESSOR_SIGNATURE_NEC_V30,
+)
 from .protocol import NativeServiceWitness
 
 from .workload import (
@@ -12,6 +16,7 @@ from .workload import (
     PROCESSOR_FLAG_IDLE,
     PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
     RESULT_FLAG_NATIVE_OUTPUT_TRUNCATED,
+    RESULT_FLAG_PROCESSOR_IDENTIFIED,
     RESULT_FLAG_PASS,
     COMPLETION_REASONS,
     decode_structured_status_payload,
@@ -158,6 +163,25 @@ class WorkloadRuntimeState:
     @property
     def passed(self) -> bool:
         return bool(self.result_flags & RESULT_FLAG_PASS)
+
+    @property
+    def processor_identified(self) -> bool:
+        return (
+            bool(self.result_flags & RESULT_FLAG_PROCESSOR_IDENTIFIED)
+            and self.processor_signature in (
+                PROCESSOR_SIGNATURE_INTEL_8086,
+                PROCESSOR_SIGNATURE_NEC_V30,
+            )
+        )
+
+    @property
+    def physical_regression_passed(self) -> bool:
+        return (
+            self.completed
+            and self.passed
+            and self.processor_identified
+            and self.completion_reason == 2
+        )
 
     @property
     def completion_reason_name(self) -> str:

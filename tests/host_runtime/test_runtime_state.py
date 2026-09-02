@@ -23,6 +23,7 @@ from rp86_runtime.workload import (  # noqa: E402
     PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
     RESULT_FLAG_NATIVE_OUTPUT,
     RESULT_FLAG_PASS,
+    RESULT_FLAG_PROCESSOR_IDENTIFIED,
 )
 
 
@@ -60,7 +61,8 @@ class RuntimeStateTests(unittest.TestCase):
             2,
             3748,
             PROCESSOR_FLAG_IDLE,
-            RESULT_FLAG_PASS | RESULT_FLAG_NATIVE_OUTPUT,
+            RESULT_FLAG_PASS | RESULT_FLAG_NATIVE_OUTPUT |
+            RESULT_FLAG_PROCESSOR_IDENTIFIED,
             2,
             0x12,
             12,
@@ -74,9 +76,20 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertTrue(state.completed)
         self.assertTrue(state.upload_requires_stop)
         self.assertTrue(state.passed)
+        self.assertTrue(state.processor_identified)
+        self.assertTrue(state.physical_regression_passed)
         self.assertEqual(state.completion_reason_name, "NATIVE_HLT")
         self.assertEqual(state.processor_signature, 0x12)
         self.assertEqual(state.native_output_text, "RESULT: PASS")
+
+    def test_processor_identity_requires_flag_and_known_signature(self) -> None:
+        state = WorkloadRuntimeState(processor_signature=0x12)
+        self.assertFalse(state.processor_identified)
+        state.result_flags = RESULT_FLAG_PROCESSOR_IDENTIFIED
+        self.assertTrue(state.processor_identified)
+        state.processor_signature = 0xFFFF
+        self.assertFalse(state.processor_identified)
+        self.assertFalse(state.physical_regression_passed)
 
     def test_prepared_runtime_requires_empty_active_runtime(self) -> None:
         state = WorkloadRuntimeState(

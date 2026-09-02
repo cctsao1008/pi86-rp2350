@@ -954,7 +954,8 @@ static int evidence_printf(const char *format, ...) {
     const int length = vsnprintf(line, sizeof line, format, args);
     va_end(args);
     if (length < 0 || (size_t)length >= sizeof line) return -1;
-    if (rp86_workload_executor_active(&g_workload_executor)) {
+    if (rp86_workload_executor_active(&g_workload_executor) &&
+        !rp86_workload_executor_processor_idle(&g_workload_executor)) {
         return rp86_evidence_queue_try_push(
                    &g_runtime_evidence, line, (size_t)length) ?
                    length : -1;

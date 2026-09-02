@@ -595,7 +595,7 @@ def persistent_monitor(
     )
     if not perform_workload_transaction([startup_status], "attached runtime"):
         prepared_native_probe_available = False
-    elif prepared_native_probe_available and not regression_workload:
+    elif prepared_native_probe_available:
         # Identify the installed processor once. This diagnostic witness is
         # not a generic workload liveness and is never used as RP2350 health.
         ensure_prepared_runtime_initialized()
@@ -639,11 +639,12 @@ def persistent_monitor(
                     [poll_status], "workload regression status", announce=False
                 )
             if regression_started and workload.completed:
-                regression_passed = workload.passed
+                regression_passed = workload.physical_regression_passed
                 print_event(
                     "PHYSICAL REGRESSION: PASS"
                     if regression_passed else
-                    "PHYSICAL REGRESSION: FAIL (missing RESULT: PASS)"
+                    "PHYSICAL REGRESSION: FAIL "
+                    "(missing RESULT: PASS or processor identity)"
                 )
                 stop = True
                 continue

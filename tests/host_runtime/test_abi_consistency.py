@@ -50,6 +50,7 @@ class AbiConsistencyTests(unittest.TestCase):
         cls.processor_asm = (ROOT / "processor/include/rp86_abi.inc").read_text()
         cls.protocol_c = (ROOT / "firmware/host_protocol/host_protocol.h").read_text()
         cls.workload_c = (ROOT / "firmware/runtime/workload_protocol.h").read_text()
+        cls.prepared_c = (ROOT / "firmware/runtime/prepared_runtime.h").read_text()
         cls.sram_c = (ROOT / "firmware/memory/internal_sram_backing.h").read_text()
         cls.mailbox_c = (ROOT / "firmware/memory/shared_mailbox.h").read_text()
 
@@ -93,6 +94,14 @@ class AbiConsistencyTests(unittest.TestCase):
             expected = getattr(processor_abi, name)
             with self.subTest(name=name):
                 self.assertEqual(_c_enum(source, c_name), expected)
+                self.assertEqual(_nasm_define(self.processor_asm, c_name), expected)
+
+    def test_processor_signatures_match_c_python_and_nasm(self) -> None:
+        for name in ("PROCESSOR_SIGNATURE_INTEL_8086", "PROCESSOR_SIGNATURE_NEC_V30"):
+            c_name = f"RP86_{name}"
+            expected = getattr(processor_abi, name)
+            with self.subTest(name=name):
+                self.assertEqual(_c_define(self.prepared_c, c_name), expected)
                 self.assertEqual(_nasm_define(self.processor_asm, c_name), expected)
 
     def test_host_message_types_and_status_codes_match(self) -> None:

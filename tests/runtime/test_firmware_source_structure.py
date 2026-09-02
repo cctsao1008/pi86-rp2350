@@ -163,6 +163,16 @@ class FirmwareSourceStructureTests(unittest.TestCase):
         self.assertIn("RP86_WORKLOAD_COMPLETION_NATIVE_HLT", executor)
         self.assertIn('strcmp(executor->diagnostic_line, "RESULT: PASS")', executor)
 
+    def test_idle_workload_status_bypasses_timing_evidence_queue(self):
+        runtime = (
+            FIRMWARE / "runtime" / "canonical_runtime.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "rp86_workload_executor_active(&g_workload_executor) &&\n"
+            "        !rp86_workload_executor_processor_idle(&g_workload_executor)",
+            runtime,
+        )
+
     def test_superseded_parallel_runtime_is_absent(self):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())
