@@ -58,6 +58,20 @@ class WebLayoutTests(unittest.TestCase):
         self.assertIn("API.stop_owned_runtime()", handler)
         self.assertNotIn("BrokerClient(", handler)
 
+    def test_web_entrypoint_has_no_superseded_backend(self) -> None:
+        source = (TOOLS / "rp86_web.py").read_text(encoding="utf-8")
+        for obsolete in (
+            "def _run_rp86(",
+            "def _active_broker(",
+            "def _ensure_runtime_owner(",
+            "def _processor_snapshot(",
+            "def _processor_command(",
+            "def _memory_read(",
+            "BrokerClient",
+            "_owned_runtime:",
+        ):
+            self.assertNotIn(obsolete, source)
+
     def test_processor_view_preserves_broker_snapshot(self) -> None:
         record = SimpleNamespace(
             device_id="TEST", processor="auto", tcp_port=1234, udp_port=5678
