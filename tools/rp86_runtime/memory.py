@@ -14,19 +14,25 @@ from .protocol import (
     TYPE_MEMORY_REQUEST,
     TYPE_MEMORY_RESULT,
 )
+from .processor_abi import (
+    INTERNAL_SRAM_PROCESSOR_BASE,
+    INTERNAL_SRAM_PROCESSOR_SIZE,
+)
 
 _HEADER = struct.Struct("<B3xII")
 
 
 def _address(value: int) -> int:
-    if not 0 <= value <= 0x3FFFF:
+    memory_end = INTERNAL_SRAM_PROCESSOR_BASE + INTERNAL_SRAM_PROCESSOR_SIZE
+    if not INTERNAL_SRAM_PROCESSOR_BASE <= value < memory_end:
         raise ValueError("Internal SRAM address must be within 0x00000-0x3FFFF")
     return value
 
 
 def memory_read_request(address: int, length: int, sequence: int) -> Message:
     _address(address)
-    if not 1 <= length <= MEMORY_DATA_BYTES or address + length > 0x40000:
+    memory_end = INTERNAL_SRAM_PROCESSOR_BASE + INTERNAL_SRAM_PROCESSOR_SIZE
+    if not 1 <= length <= MEMORY_DATA_BYTES or address + length > memory_end:
         raise ValueError(f"memory read must contain 1-{MEMORY_DATA_BYTES} bytes")
     return Message(TYPE_MEMORY_REQUEST, sequence,
                    _HEADER.pack(MEMORY_READ, address, length))
@@ -35,7 +41,8 @@ def memory_read_request(address: int, length: int, sequence: int) -> Message:
 def memory_write_records(address: int, data: bytes,
                          first_sequence: int) -> list[Message]:
     _address(address)
-    if not data or address + len(data) > 0x40000:
+    memory_end = INTERNAL_SRAM_PROCESSOR_BASE + INTERNAL_SRAM_PROCESSOR_SIZE
+    if not data or address + len(data) > memory_end:
         raise ValueError("memory write is empty or outside Internal SRAM")
     records: list[Message] = []
     offset = 0
