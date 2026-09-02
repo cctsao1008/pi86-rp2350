@@ -2,14 +2,10 @@
 
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
 >
-> **Host-Managed Bare-Metal Physical Processor Runtime**
+> **Host-Managed Bare-Metal Physical Processor Runtime**  
 > *A modern remote-processor runtime for a vintage physical CPU.*
 
-The physical processor is not emulated. An Intel 8086 or NEC V30 executes native
-x86-class machine code and owns its registers, control flow, interrupts, faults,
-and results. A modern Host
-loads and supervises that work. The RP2350 connects the two worlds by owning the
-physical bus and the shared resources around the processor.
+The physical processor is not emulated. An Intel 8086 or NEC V30 executes native x86-class machine code and owns its registers, control flow, interrupts, faults, and results. A modern Host loads and supervises that work. The RP2350 connects the two worlds by owning the physical bus and the shared resources around the processor.
 
 <p align="center">
   <img src="docs/images/nec-v30-pi86-hat-rp2350-pizero.jpg" width="500" alt="Physical NEC V30 on the original Pi86 V20/V30 HAT connected to a Waveshare RP2350-PiZero">
@@ -19,55 +15,23 @@ physical bus and the shared resources around the processor.
   <em>Physical NEC D70116C-8 on the original Pi86 V20/V30 HAT, connected to a Waveshare RP2350-PiZero.</em>
 </p>
 
-## 🧠 Why is this interesting?
+## 🧠 Core idea
 
-Most retro-computing projects either recreate the computer that once surrounded
-an old processor or emulate that processor in modern software. `pi86-rp2350`
-asks a different question:
+`pi86-rp2350` asks whether a real vintage CPU can become a physical processor that a modern Host can load, communicate with, supervise, and restart without rebuilding a traditional PC around it.
 
-> **Can a real vintage CPU become a physical processor that a modern Host can
-> load, communicate with, supervise, and restart—without first rebuilding a
-> traditional PC around it?**
+The physical processor knows only its native instruction set, interrupts, and physical bus. The Host provides loading, communication, files, supervision, and recovery. The RP2350 owns shared resources and the electrical bus discipline between them.
 
-The physical processor knows nothing about USB, Python, FAT filesystems, or AI.
-It only knows its native instruction set, interrupts, and physical bus. The Host
-does not pretend to be the processor or execute instructions for it. Instead,
-the RP2350 bridges those two worlds: modern control and shared resources on one
-side, real native execution on forty-year-old silicon on the other.
+This changes the role of the processor from the center of a reconstructed vintage computer into a **bare-metal physical execution target inside a modern runtime**.
 
-That changes the role of the processor. The physical processor is no longer
-confined to being the CPU of a reconstructed PC, and it is not reduced to a
-software model. It becomes a bare-metal physical execution target inside a
-modern runtime.
+## 📖 Origin
 
-> **This project is not only about making an old CPU boot again. It explores a
-> new way for that CPU to remain useful, observable, and alive.**
+The project began as hardware bring-up: connect the original Pi86 V20/V30 HAT to an RP2350-PiZero and determine whether a real NEC V30 could reliably leave RESET, fetch its first instruction, and execute native code.
 
-## 📖 Story and motivation
+The processor then progressed from reset fetch to memory access, Host communication, interrupt-driven liveness, and persistent runtime ownership. That shifted the architecture from reconstructing a fixed PC toward using the physical processor as a reusable execution engine.
 
-This project began as a hardware bring-up: connect the original Pi86 V20/V30
-HAT to an RP2350-PiZero and find out whether a real NEC V30 could reliably
-leave RESET, fetch its first instruction, and execute native code.
+The Intel 8086 later entered the same runtime, extending the architecture from one processor implementation to the 8086/V30 class.
 
-Then the processor said hello. It learned to read and write memory. It
-exchanged a physical message with a modern Host. Finally, instead of being
-stopped after a test, it remained alive in `STI`/`HLT`, waking through real
-interrupt acknowledge cycles, answering, and returning to sleep.
-
-Those experiments changed the question. Reconstructing another fixed PC was no
-longer the most interesting destination. The more compelling idea was to let
-the physical V30 leave that historical machine behind while keeping the part
-that matters: the real processor, executing its own native instructions.
-
-That is the motivation for the runtime described here. A modern Host provides
-loading, files, communication, supervision, and recovery. The RP2350 provides
-the physical resources and bus discipline. The V30 is free to do the one thing
-only it can do: execute as a real V30.
-
-The V30 revealed the idea. The Intel 8086 later entered the same runtime and
-confirmed that the architecture was not tied to one processor.
-
-## ⚙️ The runtime
+## ⚙️ Runtime architecture
 
 ```text
 Host
@@ -87,10 +51,9 @@ Intel 8086 / NEC V30
   native workload execution
 ```
 
-The responsibility split is fixed:
+The responsibility split is:
 
-> **The Host manages the runtime. The RP2350 owns shared resources and the
-> physical bus. The real Intel 8086 or NEC V30 executes bare-metal native workloads.**
+> **The Host manages the runtime. The RP2350 owns shared resources and the physical bus. The real Intel 8086 or NEC V30 executes bare-metal native workloads.**
 
 Operationally:
 
@@ -98,19 +61,13 @@ Operationally:
 load -> run -> communicate -> observe -> exit / fault / timeout -> restart
 ```
 
-This is not an x86 emulator, a PC/XT clone, or a BIOS/DOS-first computer. BIOS,
-DOS, ELKS, and PC-compatible devices may still be loaded as experiments, but
-they are not prerequisites and do not define the project.
+BIOS, DOS, ELKS, and PC-compatible devices can be loaded as workloads or experiments, but the runtime itself is organized around direct physical-processor execution rather than a BIOS/DOS-first machine model.
 
-## 🖥️ What the Host provides
+## 🖥️ Host runtime
 
-The reference Python runtime and shell are named **RP86**. `RP86` is
-processor-neutral: Intel 8086 and NEC V30 are explicit physical-processor
-profiles, while **RPBridge** names only the CDC/HID and local-broker transport
-layer. The repository keeps its `pi86-rp2350` name to preserve lineage.
+The reference Python runtime and shell are named **RP86**. `RP86` is processor-neutral: Intel 8086 and NEC V30 are explicit physical-processor profiles, while **RPBridge** names the CDC/HID and local-broker transport layer.
 
-The RP86 runtime is a small remote shell. Its stable command model
-includes:
+The RP86 runtime provides:
 
 - workload loading, launch, stop, and restart;
 - stdin/stdout and mailbox communication;
@@ -118,29 +75,24 @@ includes:
 - processor-visible memory inspection and transfer;
 - liveness, status, `top`, trace, timeout, and fault reporting.
 
-Python is the first reference client, not the architecture. Other Host Protocol
-implementations may be written in C or Rust and presented through CLI or Web
-tools. Higher-level clients—including ChatGPT, Codex, and other agents—may use
-those implementations without becoming part of the physical-processor runtime
-architecture.
+The single Host runtime entry point is:
 
-The single Host runtime entry point is `tools/rp86.py`.
+```text
+tools/rp86.py
+```
 
-The Host may disappear without becoming part of a current processor bus cycle.
-A workload can crash or stop responding; the runtime reports it, preserves
-available evidence, and lets the user restart it.
+Python is the reference client for the Host Protocol; the protocol boundary is language-independent.
 
 ## 💾 Resource model
 
-The RP2350 is the single low-level owner. Host and physical processor share
-content through it, not raw controllers or filesystem metadata.
+The RP2350 is the single low-level resource owner. Host and physical processor share content through it rather than directly sharing controllers or filesystem metadata.
 
-| Resource | Intended runtime role | Implementation / validation status |
-|---|---|---|
-| RP2350 Internal SRAM | firmware/realtime state plus the initial tier for workload images, processor-visible RAM, and Host/processor shared memory | 256 KiB processor range (`00000h-3FFFFh`) is reserved; bounded execution, Host `mem` access, and the `3F000h` shared mailbox are physically validated |
-| External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing | SDK-backed detection/access framework implemented; direct/general processor execution is not physically validated |
-| External NOR Flash | first 4 MiB reserved for firmware; final 12 MiB is the shared `flash:` volume | FAT16 `RP-FLASH` mount, persistence, and media self-test physically validated; Host `ls`, `df`, `cat`, and atomic `put` are implemented; processor file services and remaining mutations remain open |
-| SD Card | optional removable `sd:` FAT volume | GPIO safe-state initialization implemented; card/FAT service not implemented |
+| Resource | Runtime role |
+|---|---|
+| RP2350 Internal SRAM | firmware/realtime state, workload images, processor-visible RAM, and Host/processor shared memory |
+| External PSRAM | optional capacity tier for larger workloads, bulk shared memory, snapshots, and cache/refill backing |
+| External NOR Flash | firmware region plus shared `flash:` FAT volume |
+| SD Card | optional removable `sd:` FAT volume |
 
 Example shared paths:
 
@@ -151,27 +103,23 @@ sd:/datasets/input.dat
 sd:/traces/run001.log
 ```
 
-The physical processor sees assigned memory and runtime services; it never
-directly owns USB, PSRAM, NOR Flash, SD, FAT, PIO, or DMA controllers.
+The physical processor sees assigned memory and runtime services; USB, PSRAM, NOR Flash, SD, FAT, PIO, and DMA remain RP2350-owned resources.
 
 ## ⏱️ Physical timing boundary
 
-The original Pi86 HAT keeps the processor `READY` input asserted. The runtime now
-has two clock policies. **FREE_RUNNING** keeps the measured clock running while
-PIO/DMA and prepared state meet every deadline. **CLOCK_STEPPED** issues one complete
-clock pulse at a time and may remain at `CLK=LOW` between pulses while RP2350
-services general Internal-SRAM memory or I/O.
+The original Pi86 HAT keeps the processor `READY` input asserted. The runtime supports two clock policies.
 
-CLOCK_STEPPED execution is physically validated through reset fetch, taken branches,
-`LOOP`, `PUSH`/`POP`, byte/word RAM, and native I/O result publication. Cooperative
-switching is also physically validated: a native `INT 60h` handler publishes a
-mode request through I/O, RP2350 commits that complete bus cycle at `CLK=LOW`,
-then changes between CLOCK_STEPPED and FREE_RUNNING without truncating a pulse.
-Host software, USB, filesystem work, and arbitrary storage transactions still do
-not take over a partially completed electrical bus phase.
+### FREE_RUNNING
 
-External PSRAM then extends capacity through a measured staging/cache policy;
-it is not a prerequisite for the first useful runtime.
+The measured processor clock runs continuously while PIO/DMA and prepared state satisfy bus timing.
+
+### CLOCK_STEPPED
+
+The RP2350 issues one complete clock pulse at a time and may remain at `CLK=LOW` between pulses while servicing general Internal-SRAM memory or I/O.
+
+The mode boundary allows the runtime to separate the electrical timing of a processor bus cycle from slower Host, filesystem, storage, or control work.
+
+A native `INT 60h` path can request cooperative switching between the two clock policies at a complete bus-cycle boundary.
 
 ## 🔌 Hardware baseline
 
@@ -184,61 +132,31 @@ it is not a prerequisite for the first useful runtime.
 - native USB HID/CDC Host interface
 - optional SD Card
 
-The supported processors are nominally 5 V devices. Operation on the original
-Pi86 HAT at 3.3 V is a project-specific empirical condition, not the nominal
-Intel or NEC specification.
+The supported processors are nominally 5 V devices. Operation on the original Pi86 HAT at 3.3 V is a project-specific empirical operating condition rather than the nominal Intel or NEC specification.
 
-### Intel 8086 support
+## Intel 8086 and NEC V30
 
-On 2026-08-25, an Intel `P8086-2` replaced the NEC V30 in the same powered-down
-HAT assembly and entered the same runtime. The current retained evidence
-automatically identifies it through native `AAD 16` behavior and shows it
-executing all four calculator operations at 1 MHz. That clean session completed
-74 heartbeats with zero loss; every calculator round retained physical `INTA`,
-commit, EOI, and return-to-idle `PASS` witnesses.
+The runtime supports both physical NEC V30 and Intel 8086 processors on the same Pi86 HAT interface.
 
-Neither processor provides CPUID, so the Host obtains identity from a bounded
-native `AAD 16` diagnostic probe when the prepared responder is available.
-This probe is not a requirement placed on general workloads. The default is
-automatic identification. Optional
-`--processor intel-8086` or `--processor nec-v30` arguments turn that result
-into a strict assertion for a test setup that expects one specific processor.
+Neither processor provides CPUID, so the Host can identify the installed processor through the historical behavior difference of native `AAD 16` execution. The canonical `hello.bin` workload uses the same distinction and prints either:
 
-The canonical `hello.bin` workload adds an independent execution witness. It
-uses the historical `AAD 16` behavior difference and prints either `HELLO
-INTEL 8086` or `HELLO NEC V30` through the native diagnostic console. This
-uses the same physical identity mechanism and lets the installed processor
-demonstrate which instruction behavior it actually executed. The upload and
-lifecycle ABI now drives both physical execution policies. Bounded calculator
-execution remains the FREE_RUNNING proof; canonical
-`load → run → status → stop → restart` now also launches general images from
-Internal SRAM under CLOCK_STEPPED control. The native `hello.bin` prints its
-automatically identified processor, enters the explicit HLT-idle handshake,
-and can be safely stopped and restarted from the same Host session.
+```text
+HELLO INTEL 8086
+```
 
-> **The V30 was not an accident. A real Intel 8086 entered the same
-> runtime—and answered.**
+or:
 
-See the retained
-[`Intel 8086 interactive heartbeat observation`](docs/validation/intel_8086_interactive_heartbeat_1mhz_observation.md).
+```text
+HELLO NEC V30
+```
 
-The same 1 MHz runtime now exposes a bounded native `calc` service. Python
-parses the expression, but the installed Intel 8086 or NEC V30 executes the
-selected `ADD`, `SUB`, `MUL`, or `DIV` instruction and returns the result
-through the interrupt-driven mailbox. The first physical Intel 8086 run passed
-all four operations and continued with zero heartbeat loss; see the
-[`native calculator validation`](docs/validation/native_calculator_1mhz_validation.md).
-The subsequent Host-loaded extension uploaded a 16-byte image into Internal
-SRAM and physically validated `load`, `run`, `stop`, and `restart`; see the
-[`Host-loaded Internal-SRAM calculator validation`](docs/validation/host_loaded_internal_sram_calculator_1mhz_validation.md).
-General lifecycle and HLT-idle evidence is retained in the
-[`canonical CLOCK_STEPPED workload validation`](docs/validation/canonical_clock_stepped_workload_lifecycle_validation.md).
+The workload lifecycle uses the same Host-controlled model for both processors:
 
-Host `mem` access and an ownership-transfer mailbox at `3F000h` are physically
-validated end to end: the Host publishes text, a real Intel 8086 uppercases it,
-and the Host retrieves the result. See the
-[`Internal SRAM shared-mailbox validation`](docs/validation/internal_sram_shared_mailbox_validation.md).
+```text
+load → run → status → stop → restart
+```
 
+The runtime also exposes native examples such as interrupt-driven heartbeat, calculator execution, Host-loaded workloads, and shared-memory mailbox transformation. Detailed physical evidence is retained under [`docs/validation/`](docs/validation/).
 
 ## 📚 Documentation
 
@@ -246,23 +164,19 @@ and the Host retrieves the result. See the
 - [`docs/host_runtime_architecture.md`](docs/host_runtime_architecture.md) — detailed runtime and resource contract
 - [`docs/host_runtime_shell.md`](docs/host_runtime_shell.md) — Host shell command model
 - [`docs/memory_architecture.md`](docs/memory_architecture.md) — memory and shared-storage ownership
-- [`docs/processor_memory_map.md`](docs/processor_memory_map.md) — canonical Intel 8086 / NEC V30 physical address map
+- [`docs/processor_memory_map.md`](docs/processor_memory_map.md) — Intel 8086 / NEC V30 physical address map
 - [`docs/host_protocol.md`](docs/host_protocol.md) — language-independent Host Protocol
-- [`docs/hardware.md`](docs/hardware.md) — board resources, locked signal mapping, and physical interface contract
+- [`docs/hardware.md`](docs/hardware.md) — board resources, signal mapping, and physical interface contract
 - [`docs/development/codex_physical_development_loop.md`](docs/development/codex_physical_development_loop.md) — AI-written code through physical processor evidence
 - [`processor/`](processor/) — native runtime and workload source executed by the physical processor
-- [`docs/validation/`](docs/validation/) — accepted physical evidence
-- [`docs/README.md`](docs/README.md) — complete documentation map
+- [`docs/validation/`](docs/validation/) — physical execution evidence
+- [`docs/README.md`](docs/README.md) — documentation map
 
-The current architecture decisions are
-[`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md)
-and its processor-scope extension,
-[`ADR 0009`](docs/adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md).
+Architecture decisions are recorded in:
+
+- [`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md)
+- [`ADR 0009`](docs/adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md)
 
 ## 🙏 Lineage and acknowledgements
 
-`pi86-rp2350` builds on the
-[Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project)
-and its physical V20/V30 HAT. Pi86 established the physical-processor concept;
-this project moves bus timing into RP2350 PIO/DMA and turns the surrounding
-system into a modern Host-managed runtime.
+`pi86-rp2350` builds on the [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its physical V20/V30 HAT. Pi86 established the physical-processor concept; this project moves bus timing into RP2350 PIO/DMA and turns the surrounding system into a modern Host-managed runtime.
