@@ -57,6 +57,16 @@ static bool build_reset_handoff(rp86_workload_executor_t *executor) {
 static void flush_diagnostic_line(rp86_workload_executor_t *executor) {
     if (executor->diagnostic_length == 0u) return;
     executor->diagnostic_line[executor->diagnostic_length] = '\0';
+    const uint32_t source_length = executor->diagnostic_length;
+    const uint16_t retained = source_length < RP86_WORKLOAD_RESULT_TEXT_BYTES ?
+        (uint16_t)source_length : RP86_WORKLOAD_RESULT_TEXT_BYTES;
+    memcpy(executor->native_output, executor->diagnostic_line, retained);
+    executor->native_output_length = retained;
+    executor->result_flags |= RP86_WORKLOAD_RESULT_NATIVE_OUTPUT;
+    if (source_length > retained)
+        executor->result_flags |= RP86_WORKLOAD_RESULT_NATIVE_OUTPUT_TRUNCATED;
+    if (strcmp(executor->diagnostic_line, "RESULT: PASS") == 0)
+        executor->result_flags |= RP86_WORKLOAD_RESULT_PASS;
     emit(executor, "[NATIVE STDOUT] %s\n", executor->diagnostic_line);
     executor->diagnostic_length = 0u;
 }
@@ -159,12 +169,19 @@ void rp86_workload_executor_init(
 bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     const rp86_workload_manifest_t *manifest =
         &executor->runtime->workload.manifest;
-    if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u)
+    if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u) {
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_START_FAILURE;
         return false;
-    if (!build_reset_handoff(executor)) return false;
+    }
+    if (!build_reset_handoff(executor)) {
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_START_FAILURE;
+        return false;
+    }
     if (executor->prepare_bus == NULL ||
-        !executor->prepare_bus(executor->prepare_bus_context))
+        !executor->prepare_bus(executor->prepare_bus_context)) {
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_START_FAILURE;
         return false;
+    }
 
     rp86_processor_bus_clear_fault(executor->processor_bus);
     rp86_memory_init(&executor->processor_memory,
@@ -174,6 +191,7 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
                      executor->reset_handoff, RESET_HANDOFF_BASE,
                      sizeof executor->reset_handoff);
     if (!rp86_shared_mailbox_init(&executor->runtime->memory_backing)) {
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_START_FAILURE;
         rp86_processor_bus_force_safe_state(executor->processor_bus);
         return false;
     }
@@ -191,6 +209,7 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     if (*executor->processor_boot_id == 0u) ++*executor->processor_boot_id;
     if (!rp86_processor_bus_reset_sequence(
             executor->processor_bus, RP86_PROCESSOR_RESET_CLOCKS)) {
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_START_FAILURE;
         executor->active = false;
         *executor->physical_bus_active = false;
         executor->clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
@@ -208,6 +227,10 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
 void rp86_workload_executor_stage(rp86_workload_executor_t *executor) {
     memset(&executor->bus_stats, 0, sizeof executor->bus_stats);
     executor->processor_idle = false;
+    memset(executor->native_output, 0, sizeof executor->native_output);
+    executor->native_output_length = 0u;
+    executor->result_flags = 0u;
+    executor->completion_reason = RP86_WORKLOAD_COMPLETION_NONE;
     const uint32_t flags = executor->runtime->workload.manifest.flags;
     executor->clock_mode =
         (flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u ?
@@ -218,6 +241,8 @@ void rp86_workload_executor_stage(rp86_workload_executor_t *executor) {
 
 void rp86_workload_executor_stop(rp86_workload_executor_t *executor) {
     if (!executor->active) return;
+    if (executor->completion_reason == RP86_WORKLOAD_COMPLETION_NONE)
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_STOP_REQUESTED;
     rp86_processor_bus_safe_halt(
         executor->processor_bus, RP86_PROCESSOR_RESET_CLOCKS);
     flush_diagnostic_line(executor);
@@ -266,6 +291,7 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
             return;
         }
         executor->processor_idle = true;
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_NATIVE_HLT;
         executor->starvation_started_us = 0u;
         executor->bus_stats.unmapped = false;
         executor->bus_stats.invalid_lane = false;
@@ -292,6 +318,7 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
              (unsigned long)GENERAL_BUS_STARVATION_TIMEOUT_US,
              (unsigned long)executor->bus_stats.cycles);
         print_trace(executor);
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_NO_BUS_CYCLE;
         rp86_workload_executor_stop(executor);
         executor->runtime->workload.state = RP86_WORKLOAD_STATE_TIMED_OUT;
         return;
@@ -300,6 +327,7 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
     executor->starvation_started_us = 0u;
     if (!immediate_fault) return;
     if (!executor->bus_stats.no_cycle) retain_cycle(executor);
+    executor->completion_reason = RP86_WORKLOAD_COMPLETION_BUS_FAULT;
     emit(executor,
          "[WORKLOAD FAULT] cycle=%lu address=%05lX type=%s "
          "unmapped=%u lane=%u pad=%u clock=%u inta=%u\n",
@@ -333,4 +361,20 @@ rp86_workload_clock_mode_t rp86_workload_executor_clock_mode(
 const rp86_clock_stepped_stats_t *rp86_workload_executor_stats(
     const rp86_workload_executor_t *executor) {
     return &executor->bus_stats;
+}
+
+uint32_t rp86_workload_executor_result_flags(
+    const rp86_workload_executor_t *executor) {
+    return executor->result_flags;
+}
+
+rp86_workload_completion_reason_t rp86_workload_executor_completion_reason(
+    const rp86_workload_executor_t *executor) {
+    return executor->completion_reason;
+}
+
+const char *rp86_workload_executor_native_output(
+        const rp86_workload_executor_t *executor, uint16_t *length) {
+    if (length != NULL) *length = executor->native_output_length;
+    return executor->native_output;
 }

@@ -71,6 +71,18 @@ class WebLayoutTests(unittest.TestCase):
         self.assertEqual(view["snapshot"], snapshot)
         self.assertEqual(view["processor"], "intel-8086")
 
+    def test_workload_card_uses_structured_result_fields(self) -> None:
+        html = rp86_web.INDEX_HTML
+        for field in (
+            "workloadResult",
+            "workloadCompletion",
+            "workloadOutput",
+            "workload_result_structured",
+            "workload_completion_reason",
+            "workload_native_output",
+        ):
+            self.assertIn(field, html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -34,12 +34,23 @@ _BEGIN_PREFIX = struct.Struct("<I")
 _DATA_PREFIX = struct.Struct("<II")
 _COMMIT = struct.Struct("<II")
 _CONTROL = struct.Struct("<B3xI")
-_STATUS_V1 = struct.Struct("<III")
-_STATUS_V2 = struct.Struct("<IIIII")
-_STATUS = struct.Struct("<IIIIII")
+_STRUCTURED_STATUS = struct.Struct("<IIIIIIIIHH16s")
 
 PROCESSOR_FLAG_IDLE = 1 << 0
 PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED = 1 << 1
+RESULT_FLAG_PASS = 1 << 0
+RESULT_FLAG_NATIVE_OUTPUT = 1 << 1
+RESULT_FLAG_NATIVE_OUTPUT_TRUNCATED = 1 << 2
+RESULT_FLAG_PROCESSOR_IDENTIFIED = 1 << 3
+
+COMPLETION_REASONS = {
+    0: "NONE",
+    1: "STOP_REQUESTED",
+    2: "NATIVE_HLT",
+    3: "NO_BUS_CYCLE",
+    4: "BUS_FAULT",
+    5: "START_FAILURE",
+}
 
 CLOCK_MODES = {
     "auto": 0,
@@ -347,12 +358,21 @@ def control_record(operation: str, *, workload_id: int, sequence: int) -> Messag
 
 
 def decode_status_payload(payload: bytes) -> tuple[int, int, int, int, int, int]:
-    """Decode status while accepting the earlier 12- and 20-byte firmware."""
-    if len(payload) == _STATUS_V1.size:
-        workload_id, state, detail = _STATUS_V1.unpack(payload)
-        return workload_id, state, detail, CLOCK_MODES["auto"], 0, 0
-    if len(payload) == _STATUS_V2.size:
-        return (*_STATUS_V2.unpack(payload), 0)
-    if len(payload) != _STATUS.size:
-        raise ValueError("workload status payload has the wrong size")
-    return _STATUS.unpack(payload)
+    """Decode the status prefix from one canonical 52-byte payload."""
+    if len(payload) != _STRUCTURED_STATUS.size:
+        raise ValueError("workload status payload must be exactly 52 bytes")
+    return _STRUCTURED_STATUS.unpack(payload)[:6]
+
+
+def decode_structured_status_payload(
+    payload: bytes,
+) -> tuple[int, int, int, int, int, int, int, int, int, bytes, bool]:
+    """Decode one canonical 52-byte workload status/result payload."""
+    if len(payload) != _STRUCTURED_STATUS.size:
+        raise ValueError("workload status payload must be exactly 52 bytes")
+    (*status, result_flags, completion_reason, signature,
+     output_length, output) = _STRUCTURED_STATUS.unpack(payload)
+    if output_length > len(output):
+        raise ValueError("structured workload output length is invalid")
+    return (*status, result_flags, completion_reason, signature,
+            output[:output_length], True)

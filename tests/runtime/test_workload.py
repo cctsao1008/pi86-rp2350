@@ -1,4 +1,5 @@
 from pathlib import Path
+import struct
 import sys
 import unittest
 
@@ -175,21 +176,19 @@ class WorkloadTests(unittest.TestCase):
             path.unlink(missing_ok=True)
         self.assertTrue(manifest.flags & FLAG_CLOCK_STEPPED)
 
-    def test_legacy_extended_status_reports_clock_and_cycles(self) -> None:
-        payload = bytes.fromhex(
-            "01000000" "03000000" "9d000000" "02000000" "2a000000"
-        )
-        self.assertEqual(decode_status_payload(payload), (1, 3, 157, 2, 42, 0))
-
-    def test_current_status_reports_processor_idle(self) -> None:
-        payload = bytes.fromhex(
-            "01000000" "03000000" "9d000000" "02000000" "2a000000"
-            "01000000"
+    def test_canonical_status_reports_processor_idle(self) -> None:
+        payload = struct.pack(
+            "<IIIIIIIIHH16s", 1, 3, 157, 2, 42,
+            PROCESSOR_FLAG_IDLE, 0, 0, 0, 0, b"",
         )
         self.assertEqual(
             decode_status_payload(payload),
             (1, 3, 157, 2, 42, PROCESSOR_FLAG_IDLE),
         )
+
+    def test_legacy_status_payload_is_rejected(self) -> None:
+        with self.assertRaisesRegex(ValueError, "exactly 52 bytes"):
+            decode_status_payload(bytes(24))
 
 
 if __name__ == "__main__":

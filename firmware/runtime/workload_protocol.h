@@ -51,6 +51,22 @@ typedef enum {
     RP86_WORKLOAD_PREPARED_RUNTIME_INITIALIZED = 1u << 1,
 } rp86_workload_processor_flags_t;
 
+typedef enum {
+    RP86_WORKLOAD_RESULT_PASS = 1u << 0,
+    RP86_WORKLOAD_RESULT_NATIVE_OUTPUT = 1u << 1,
+    RP86_WORKLOAD_RESULT_NATIVE_OUTPUT_TRUNCATED = 1u << 2,
+    RP86_WORKLOAD_RESULT_PROCESSOR_IDENTIFIED = 1u << 3,
+} rp86_workload_result_flags_t;
+
+typedef enum {
+    RP86_WORKLOAD_COMPLETION_NONE = 0,
+    RP86_WORKLOAD_COMPLETION_STOP_REQUESTED = 1,
+    RP86_WORKLOAD_COMPLETION_NATIVE_HLT = 2,
+    RP86_WORKLOAD_COMPLETION_NO_BUS_CYCLE = 3,
+    RP86_WORKLOAD_COMPLETION_BUS_FAULT = 4,
+    RP86_WORKLOAD_COMPLETION_START_FAILURE = 5,
+} rp86_workload_completion_reason_t;
+
 typedef struct __attribute__((packed)) {
     uint32_t magic;
     uint16_t version;
@@ -98,6 +114,17 @@ typedef struct __attribute__((packed)) {
     uint32_t processor_flags;
 } rp86_workload_status_payload_t;
 
+enum { RP86_WORKLOAD_RESULT_TEXT_BYTES = 16u };
+
+typedef struct __attribute__((packed)) {
+    rp86_workload_status_payload_t status;
+    uint32_t result_flags;
+    uint32_t completion_reason;
+    uint16_t processor_signature;
+    uint16_t native_output_length;
+    uint8_t native_output[RP86_WORKLOAD_RESULT_TEXT_BYTES];
+} rp86_workload_result_payload_t;
+
 _Static_assert(sizeof(rp86_workload_manifest_t) == 40u,
                "workload manifest ABI changed");
 _Static_assert(sizeof(rp86_workload_begin_payload_t) == 44u,
@@ -108,5 +135,7 @@ _Static_assert(sizeof(rp86_workload_control_payload_t) == 8u,
                "workload control ABI changed");
 _Static_assert(sizeof(rp86_workload_status_payload_t) == 24u,
                "workload status ABI changed");
+_Static_assert(sizeof(rp86_workload_result_payload_t) == 52u,
+               "workload result must fill one Host payload");
 
 #endif

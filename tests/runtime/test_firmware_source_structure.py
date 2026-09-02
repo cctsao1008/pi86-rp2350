@@ -133,6 +133,36 @@ class FirmwareSourceStructureTests(unittest.TestCase):
             self.assertIn(timing_path, runtime_source)
             self.assertNotIn(timing_path, prepared_source)
 
+    def test_runtime_status_has_one_typed_snapshot(self):
+        runtime_source = (
+            FIRMWARE / "runtime" / "canonical_runtime.c"
+        ).read_text(encoding="utf-8")
+        status_source = (
+            FIRMWARE / "runtime" / "runtime_status.c"
+        ).read_text(encoding="utf-8")
+        status_header = (
+            FIRMWARE / "runtime" / "runtime_status.h"
+        ).read_text(encoding="utf-8")
+        cmake_source = (FIRMWARE / "CMakeLists.txt").read_text(encoding="utf-8")
+
+        self.assertIn("runtime/runtime_status.c", cmake_source)
+        self.assertIn("rp86_runtime_status_snapshot_t", status_header)
+        self.assertIn("rp86_runtime_status_capture", status_source)
+        self.assertIn("runtime_status_snapshot()", runtime_source)
+        self.assertIn("sizeof snapshot.workload", runtime_source)
+
+    def test_workload_result_fills_one_protocol_payload(self):
+        protocol = (
+            FIRMWARE / "runtime" / "workload_protocol.h"
+        ).read_text(encoding="utf-8")
+        executor = (
+            FIRMWARE / "runtime" / "workload_executor.c"
+        ).read_text(encoding="utf-8")
+        self.assertIn("rp86_workload_result_payload_t", protocol)
+        self.assertIn("sizeof(rp86_workload_result_payload_t) == 52u", protocol)
+        self.assertIn("RP86_WORKLOAD_COMPLETION_NATIVE_HLT", executor)
+        self.assertIn('strcmp(executor->diagnostic_line, "RESULT: PASS")', executor)
+
     def test_superseded_parallel_runtime_is_absent(self):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())

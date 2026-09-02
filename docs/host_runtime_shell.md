@@ -195,10 +195,11 @@ py tools\rp86.py --physical-regression "\\wsl.localhost\Ubuntu-22.04\home\build\
 
 From the WSL checkout itself, use `build/workloads/INVSQRT.P86W`.
 
-The command auto-selects the device, loads and runs the package, waits for the
-firmware-owned `COMPLETED` state, requires native `RESULT: PASS`, and saves the
-raw CDC log plus session JSON. Its process exit code is nonzero on transport,
-execution, result-marker, or timeout failure.
+The command auto-selects the device, loads and runs the package, and waits for
+the firmware-owned structured result. Acceptance requires `COMPLETED`, the
+formal PASS flag, and the recorded completion reason; CDC text remains evidence
+but cannot decide PASS or FAIL. The command saves the raw CDC log plus session
+JSON and returns nonzero on transport, execution, result, or timeout failure.
 
 ### General Internal-SRAM workload lifecycle
 

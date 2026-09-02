@@ -153,7 +153,21 @@ WORKLOAD_STOP
 WORKLOAD_RESTART
 ```
 
-The initial workload model is intentionally small: raw native V30 binary plus minimal launch metadata.
+The initial workload model is intentionally small: raw native 8086-class
+binary plus minimal launch metadata.
+
+`WORKLOAD_STATUS` and `WORKLOAD_RESULT` use one canonical fixed record only:
+
+```text
+64-byte Host Protocol record
+  12-byte header
+  52-byte typed workload status/result payload
+```
+
+The payload contains lifecycle state, execution clock, processor cycles,
+processor flags, result flags, completion reason, processor signature, and a
+bounded native-output field. Short historical workload payloads are invalid;
+the repository does not retain alternate live ABIs.
 
 `WORKLOAD_LOAD` verifies and stages the native image and launch metadata.
 `WORKLOAD_RUN` releases the physical V30 into execution. `WORKLOAD_STOP`

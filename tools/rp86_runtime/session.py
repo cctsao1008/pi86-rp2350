@@ -66,6 +66,7 @@ from .request_channel import exchange_hid_request
 from .runtime_state import (
     ProcessorObservationState,
     RequestSequence,
+    RuntimeStatusSnapshot,
     WorkloadRuntimeState,
     processor_execution_state as _processor_execution_state,
     workload_state_name as _workload_state_name,
@@ -207,6 +208,7 @@ def persistent_monitor(
     staged_workload_manifest: WorkloadManifest | None = None
     prepared_native_probe_available = True
     workload_completion_pending = False
+    structured_result_reported: tuple[int, int, int] | None = None
     regression_commands = (
         [f'load "{regression_workload}"', "run"]
         if regression_workload else []
@@ -267,8 +269,6 @@ def persistent_monitor(
                 chunk = connection.read(waiting)
                 evidence.capture(chunk)
                 for line in cdc_display.feed(chunk):
-                    if line == "RESULT: PASS":
-                        processor_observation.result_pass_seen = True
                     if line.startswith("[WORKLOAD COMPLETED]"):
                         # Native HLT evidence precedes the next HID status.
                         # Reflect completion now and refresh cycles in the loop.
@@ -321,29 +321,19 @@ def persistent_monitor(
         return result.reply, result.latency_ms, result.error
 
     def broker_snapshot() -> dict[str, Any]:
-        return {
-            "state": _broker_runtime_state(transport_error),
-            "processor": processor,
-            "request_sequence": request_sequence.value,
-            "boot_id": processor_observation.boot_id,
-            "cpu_sequence": processor_observation.cpu_sequence,
-            "command_sequence": processor_observation.command_sequence,
-            "native_processor": processor_observation.processor,
+        snapshot = RuntimeStatusSnapshot(
+            transport_state=_broker_runtime_state(transport_error),
+            processor_mode=processor,
+            request_sequence=request_sequence.value,
+            observation=processor_observation,
+            workload=workload,
+        ).as_dict()
+        snapshot.update({
             "probe_completed": probe_stats.completed,
             "probe_lost": probe_stats.lost,
             "probe_last_ms": probe_stats.last_ms,
-            "workload_id": workload.workload_id,
-            "workload_state": workload.lifecycle_name,
-            "workload_detail": workload.detail,
-            "workload_clock_mode": workload.clock_name,
-            "workload_cycles": workload.cycles,
-            "workload_processor_flags": workload.processor_flags,
-            "native_result_pass": processor_observation.result_pass_seen,
-            "workload_processor_state": _processor_execution_state(
-                workload.clock_mode,
-                workload.processor_flags,
-            ),
-        }
+        })
+        return snapshot
 
     def service_broker_requests() -> None:
         nonlocal stop
@@ -535,8 +525,27 @@ def persistent_monitor(
         next_due = time.monotonic() + interval
 
     def accept_workload_state() -> None:
-        nonlocal prepared_native_probe_available
+        nonlocal prepared_native_probe_available, structured_result_reported
         prepared_native_probe_available = workload.prepared_runtime_available
+        if workload.structured_result:
+            result_key = (
+                workload.workload_id,
+                workload.lifecycle,
+                workload.completion_reason,
+            )
+            if (workload.lifecycle in (5, 6, 7) and
+                    result_key != structured_result_reported):
+                print_event(
+                    "WORKLOAD RESULT: " + ("PASS" if workload.passed else "FAIL")
+                    + f" reason={workload.completion_reason_name}"
+                    + f" cycles={workload.cycles}"
+                    + f" processor_signature={workload.processor_signature:04X}"
+                )
+                if workload.native_output:
+                    print_event(
+                        f"Native result output: {workload.native_output_text}"
+                    )
+                structured_result_reported = result_key
         update_console_runtime()
 
     workload_client = WorkloadClient(
@@ -629,18 +638,8 @@ def persistent_monitor(
                 perform_workload_transaction(
                     [poll_status], "workload regression status", announce=False
                 )
-                if broker_client is not None:
-                    broker_state = broker_client.hello().get("snapshot", {})
-                    processor_observation.result_pass_seen = bool(
-                        broker_state.get("native_result_pass", False)
-                    )
             if regression_started and workload.completed:
-                if broker_client is not None:
-                    broker_state = broker_client.hello().get("snapshot", {})
-                    processor_observation.result_pass_seen = bool(
-                        broker_state.get("native_result_pass", False)
-                    )
-                regression_passed = processor_observation.result_pass_seen
+                regression_passed = workload.passed
                 print_event(
                     "PHYSICAL REGRESSION: PASS"
                     if regression_passed else
@@ -794,7 +793,6 @@ def persistent_monitor(
                     request_payload = heartbeat_payload(request_sequence.value)
                     is_command = True
                 elif name == "load":
-                    processor_observation.result_pass_seen = False
                     try:
                         transfer_id = secrets.randbits(32)
                         if arguments and is_device_path(arguments[0]):
@@ -1334,7 +1332,7 @@ def persistent_monitor(
             "transport_error": transport_error,
             "physical_regression": {
                 "workload": regression_workload,
-                "result_marker": processor_observation.result_pass_seen,
+                "result_marker": workload.passed,
                 "completed": workload.completed,
                 "passed": regression_passed,
             } if regression_workload else None,

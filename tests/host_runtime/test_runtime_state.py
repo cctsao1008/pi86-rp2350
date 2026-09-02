@@ -15,11 +15,14 @@ from rp86_runtime.protocol import (  # noqa: E402
 from rp86_runtime.runtime_state import (  # noqa: E402
     ProcessorObservationState,
     RequestSequence,
+    RuntimeStatusSnapshot,
     WorkloadRuntimeState,
 )
 from rp86_runtime.workload import (  # noqa: E402
     PROCESSOR_FLAG_IDLE,
     PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
+    RESULT_FLAG_NATIVE_OUTPUT,
+    RESULT_FLAG_PASS,
 )
 
 
@@ -50,13 +53,18 @@ class RuntimeStateTests(unittest.TestCase):
 
     def test_status_payload_updates_one_coherent_state(self) -> None:
         payload = struct.pack(
-            "<IIIIII",
+            "<IIIIIIIIHH16s",
             9,
             5,
             623,
             2,
             3748,
             PROCESSOR_FLAG_IDLE,
+            RESULT_FLAG_PASS | RESULT_FLAG_NATIVE_OUTPUT,
+            2,
+            0x12,
+            12,
+            b"RESULT: PASS".ljust(16, b"\0"),
         )
         state = WorkloadRuntimeState.from_payload(payload)
         self.assertEqual(state.workload_id, 9)
@@ -65,6 +73,10 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertEqual(state.processor_state, "IDLE / HLT")
         self.assertTrue(state.completed)
         self.assertTrue(state.upload_requires_stop)
+        self.assertTrue(state.passed)
+        self.assertEqual(state.completion_reason_name, "NATIVE_HLT")
+        self.assertEqual(state.processor_signature, 0x12)
+        self.assertEqual(state.native_output_text, "RESULT: PASS")
 
     def test_prepared_runtime_requires_empty_active_runtime(self) -> None:
         state = WorkloadRuntimeState(
@@ -75,6 +87,28 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertTrue(state.prepared_runtime_available)
         state.lifecycle = 3
         self.assertFalse(state.prepared_runtime_available)
+
+    def test_runtime_snapshot_publishes_structured_result(self) -> None:
+        workload = WorkloadRuntimeState(
+            workload_id=4,
+            lifecycle=5,
+            cycles=3212,
+            result_flags=RESULT_FLAG_PASS | RESULT_FLAG_NATIVE_OUTPUT,
+            completion_reason=2,
+            processor_signature=0x12,
+            native_output=b"RESULT: PASS",
+            structured_result=True,
+        )
+        snapshot = RuntimeStatusSnapshot(
+            transport_state="OWNER_ACTIVE",
+            processor_mode="auto",
+            request_sequence=9,
+            observation=ProcessorObservationState(processor="intel-8086"),
+            workload=workload,
+        ).as_dict()
+        self.assertTrue(snapshot["workload_result_pass"])
+        self.assertEqual(snapshot["workload_completion_reason"], "NATIVE_HLT")
+        self.assertEqual(snapshot["workload_native_output"], "RESULT: PASS")
 
 
 if __name__ == "__main__":

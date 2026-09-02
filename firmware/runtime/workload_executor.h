@@ -45,6 +45,10 @@ typedef struct {
     uint8_t reset_handoff[RP86_WORKLOAD_RESET_HANDOFF_SIZE];
     char diagnostic_line[96];
     uint32_t diagnostic_length;
+    char native_output[RP86_WORKLOAD_RESULT_TEXT_BYTES];
+    uint16_t native_output_length;
+    uint32_t result_flags;
+    rp86_workload_completion_reason_t completion_reason;
     bool active;
     bool idle_armed;
     bool processor_idle;
@@ -77,5 +81,11 @@ rp86_workload_clock_mode_t rp86_workload_executor_clock_mode(
     const rp86_workload_executor_t *executor);
 const rp86_clock_stepped_stats_t *rp86_workload_executor_stats(
     const rp86_workload_executor_t *executor);
+uint32_t rp86_workload_executor_result_flags(
+    const rp86_workload_executor_t *executor);
+rp86_workload_completion_reason_t rp86_workload_executor_completion_reason(
+    const rp86_workload_executor_t *executor);
+const char *rp86_workload_executor_native_output(
+    const rp86_workload_executor_t *executor, uint16_t *length);
 
 #endif

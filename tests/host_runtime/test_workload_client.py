@@ -25,7 +25,10 @@ class WorkloadClientTests(unittest.TestCase):
         reply = Message(
             TYPE_WORKLOAD_STATUS,
             4,
-            struct.pack("<IIIIII", 3, 2, 623, 2, 100, 0),
+            struct.pack(
+                "<IIIIIIIIHH16s",
+                3, 2, 623, 2, 100, 0, 0, 0, 0, 0, b"",
+            ),
         )
         client = WorkloadClient(
             lambda _request: (reply, 2.5, None),

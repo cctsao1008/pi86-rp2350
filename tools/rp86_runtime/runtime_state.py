@@ -11,7 +11,10 @@ from .workload import (
     CLOCK_MODE_NAMES,
     PROCESSOR_FLAG_IDLE,
     PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
-    decode_status_payload,
+    RESULT_FLAG_NATIVE_OUTPUT_TRUNCATED,
+    RESULT_FLAG_PASS,
+    COMPLETION_REASONS,
+    decode_structured_status_payload,
 )
 
 
@@ -50,7 +53,6 @@ class ProcessorObservationState:
     command_sequence: int | None = None
     processor: str | None = None
     connected: bool = False
-    result_pass_seen: bool = False
 
     def accept_witness(self, witness: NativeServiceWitness) -> None:
         self.boot_id = witness.boot_id
@@ -101,10 +103,15 @@ class WorkloadRuntimeState:
     clock_mode: int = 0
     cycles: int = 0
     processor_flags: int = 0
+    result_flags: int = 0
+    completion_reason: int = 0
+    processor_signature: int = 0
+    native_output: bytes = b""
+    structured_result: bool = False
 
     @classmethod
     def from_payload(cls, payload: bytes) -> "WorkloadRuntimeState":
-        return cls(*decode_status_payload(payload))
+        return cls(*decode_structured_status_payload(payload))
 
     def update_from_payload(self, payload: bytes) -> None:
         updated = self.from_payload(payload)
@@ -114,6 +121,11 @@ class WorkloadRuntimeState:
         self.clock_mode = updated.clock_mode
         self.cycles = updated.cycles
         self.processor_flags = updated.processor_flags
+        self.result_flags = updated.result_flags
+        self.completion_reason = updated.completion_reason
+        self.processor_signature = updated.processor_signature
+        self.native_output = updated.native_output
+        self.structured_result = updated.structured_result
 
     @property
     def lifecycle_name(self) -> str:
@@ -143,8 +155,62 @@ class WorkloadRuntimeState:
     def completed(self) -> bool:
         return self.lifecycle == 5
 
+    @property
+    def passed(self) -> bool:
+        return bool(self.result_flags & RESULT_FLAG_PASS)
+
+    @property
+    def completion_reason_name(self) -> str:
+        return COMPLETION_REASONS.get(
+            self.completion_reason, f"UNKNOWN({self.completion_reason})"
+        )
+
+    @property
+    def native_output_text(self) -> str:
+        text = self.native_output.decode("utf-8", errors="replace")
+        if self.result_flags & RESULT_FLAG_NATIVE_OUTPUT_TRUNCATED:
+            return text + "…"
+        return text
+
     def mark_idle(self) -> None:
         self.processor_flags |= PROCESSOR_FLAG_IDLE
 
     def mark_prepared_runtime_initialized(self) -> None:
         self.processor_flags |= PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
+
+
+@dataclass(frozen=True)
+class RuntimeStatusSnapshot:
+    """One coherent Host snapshot consumed by CLI, broker, and Web."""
+
+    transport_state: str
+    processor_mode: str
+    request_sequence: int
+    observation: ProcessorObservationState
+    workload: WorkloadRuntimeState
+
+    def as_dict(self) -> dict[str, object]:
+        result_pass = self.workload.passed
+        return {
+            "state": self.transport_state,
+            "processor": self.processor_mode,
+            "request_sequence": self.request_sequence,
+            "boot_id": self.observation.boot_id,
+            "cpu_sequence": self.observation.cpu_sequence,
+            "command_sequence": self.observation.command_sequence,
+            "native_processor": self.observation.processor,
+            "workload_id": self.workload.workload_id,
+            "workload_state": self.workload.lifecycle_name,
+            "workload_detail": self.workload.detail,
+            "workload_clock_mode": self.workload.clock_name,
+            "workload_cycles": self.workload.cycles,
+            "workload_processor_flags": self.workload.processor_flags,
+            "workload_processor_state": self.workload.processor_state,
+            "workload_result_structured": self.workload.structured_result,
+            "workload_result_pass": result_pass,
+            "workload_completion_reason": self.workload.completion_reason_name,
+            "workload_processor_signature": self.workload.processor_signature,
+            "workload_native_output": self.workload.native_output_text,
+            # Compatibility key for existing Web/automation consumers.
+            "native_result_pass": result_pass,
+        }

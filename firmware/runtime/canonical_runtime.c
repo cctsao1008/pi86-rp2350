@@ -40,6 +40,7 @@
 #include "runtime/prepared_runtime.h"
 #include "runtime/processor_abi.h"
 #include "runtime/runtime_context.h"
+#include "runtime/runtime_status.h"
 #include "runtime/workload_executor.h"
 #include "runtime/workload_manager.h"
 #include "storage/flash_layout.h"
@@ -986,6 +987,14 @@ static rp86_workload_clock_mode_t physical_workload_clock_mode(void) {
     }
 }
 
+static rp86_runtime_status_snapshot_t runtime_status_snapshot(void) {
+    rp86_runtime_status_snapshot_t snapshot;
+    rp86_runtime_status_capture(
+        &snapshot, &g_runtime, &g_workload_executor, &g_prepared_runtime,
+        physical_workload_clock_mode(), g_bus_active);
+    return snapshot;
+}
+
 static bool prepared_runtime_physically_running(void) {
     return rp86_prepared_runtime_physically_running(
         &g_prepared_runtime,
@@ -1118,11 +1127,12 @@ static bool start_calculator_workload(void) {
 }
 
 static void print_canonical_status(void) {
+    const rp86_runtime_status_snapshot_t snapshot = runtime_status_snapshot();
     evidence_printf("\n[RUNTIME STATUS]\n");
     evidence_printf("State                      = %s\n",
-                    g_bus_active ? "RUNNING" : "IDLE");
+                    snapshot.physical_bus_active ? "RUNNING" : "IDLE");
     const rp86_workload_clock_mode_t physical_clock =
-        physical_workload_clock_mode();
+        (rp86_workload_clock_mode_t)snapshot.workload.status.clock_mode;
     evidence_printf("Execution clock mode       = %s\n",
                     physical_clock == RP86_WORKLOAD_CLOCK_FREE_RUNNING ?
                         "FREE_RUNNING" :
@@ -1326,26 +1336,14 @@ static bool send_workload_reply(const rp86_host_protocol_message_t *request,
                                 rp86_host_protocol_status_t status,
                                 bool status_reply) {
     rp86_host_protocol_message_t reply = {0};
-    const rp86_workload_status_payload_t payload = {
-        .workload_id = g_runtime.workload.workload_id,
-        .state = (uint32_t)g_runtime.workload.state,
-        .detail = g_runtime.workload.received,
-        .clock_mode = (uint32_t)physical_workload_clock_mode(),
-        .processor_cycles = rp86_workload_executor_stats(
-            &g_workload_executor)->cycles,
-        .processor_flags =
-            (rp86_workload_executor_processor_idle(&g_workload_executor) ?
-                RP86_WORKLOAD_PROCESSOR_IDLE : 0u) |
-            (rp86_prepared_runtime_initialized(&g_prepared_runtime) ?
-                RP86_WORKLOAD_PREPARED_RUNTIME_INITIALIZED : 0u),
-    };
+    const rp86_runtime_status_snapshot_t snapshot = runtime_status_snapshot();
     reply.version = RP86_HOST_PROTOCOL_VERSION;
     reply.type = status_reply ? RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_STATUS :
                                 RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_RESULT;
     reply.sequence = request->sequence;
-    reply.length = sizeof payload;
+    reply.length = sizeof snapshot.workload;
     reply.status = status;
-    memcpy(reply.payload, &payload, sizeof payload);
+    memcpy(reply.payload, &snapshot.workload, sizeof snapshot.workload);
     return rp86_host_protocol_hid_send_record(
         (const uint8_t *)&reply, HOST_TIMEOUT_US);
 }

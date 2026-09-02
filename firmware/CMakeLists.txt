@@ -17,6 +17,7 @@ add_executable(rp86_rp2350
     runtime/runtime_context.c
     runtime/workload_executor.c
     runtime/prepared_runtime.c
+    runtime/runtime_status.c
     runtime/workload_manager.c
     storage/flash_disk.c
     storage/flash_service.c
