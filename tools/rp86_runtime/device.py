@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import base64
 import secrets
 from typing import Any
 
@@ -47,10 +46,10 @@ class DeviceClient:
         response = self._require_ok(
             self._client.exchange(record, request_id, timeout)
         )
-        encoded = response.get("record")
+        encoded = response.get("reply_hex")
         if not isinstance(encoded, str):
             raise RuntimeError("broker exchange did not return a record")
-        result = base64.b64decode(encoded, validate=True)
+        result = bytes.fromhex(encoded)
         if len(result) != 64:
             raise RuntimeError("broker returned an invalid RP86 record length")
         return result

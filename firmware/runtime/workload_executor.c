@@ -54,6 +54,13 @@ static bool build_reset_handoff(rp86_workload_executor_t *executor) {
     return true;
 }
 
+static void reset_native_result(rp86_workload_executor_t *executor) {
+    memset(executor->native_output, 0, sizeof executor->native_output);
+    executor->native_output_length = 0u;
+    executor->result_flags = 0u;
+    executor->completion_reason = RP86_WORKLOAD_COMPLETION_NONE;
+}
+
 static void flush_diagnostic_line(rp86_workload_executor_t *executor) {
     if (executor->diagnostic_length == 0u) return;
     executor->diagnostic_line[executor->diagnostic_length] = '\0';
@@ -171,6 +178,9 @@ void rp86_workload_executor_init(
 }
 
 bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
+    /* A new attempt must never inherit a previous PASS/output/reason, even
+     * when run follows stop or restart reuses the same staged image. */
+    reset_native_result(executor);
     const rp86_workload_manifest_t *manifest =
         &executor->runtime->workload.manifest;
     if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u) {
@@ -231,10 +241,7 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
 void rp86_workload_executor_stage(rp86_workload_executor_t *executor) {
     memset(&executor->bus_stats, 0, sizeof executor->bus_stats);
     executor->processor_idle = false;
-    memset(executor->native_output, 0, sizeof executor->native_output);
-    executor->native_output_length = 0u;
-    executor->result_flags = 0u;
-    executor->completion_reason = RP86_WORKLOAD_COMPLETION_NONE;
+    reset_native_result(executor);
     const uint32_t flags = executor->runtime->workload.manifest.flags;
     executor->clock_mode =
         (flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u ?

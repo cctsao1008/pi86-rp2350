@@ -208,6 +208,16 @@ class Rp86RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unsupported RP86"):
             client.control("erase-everything")
 
+    def test_device_client_reads_canonical_broker_reply_hex(self) -> None:
+        client = object.__new__(DeviceClient)
+        client._client = Mock()
+        payload = bytes(range(64))
+        client._client.exchange.return_value = {"ok": True, "reply_hex": payload.hex()}
+        self.assertEqual(client.exchange(payload), payload)
+        client._client.exchange.return_value = {"ok": True, "reply_hex": "00"}
+        with self.assertRaisesRegex(RuntimeError, "invalid RP86 record length"):
+            client.exchange(payload)
+
     def test_broker_uses_one_canonical_registry(self) -> None:
         self.assertEqual(
             tuple(path.name for path in broker_registry_dirs()),

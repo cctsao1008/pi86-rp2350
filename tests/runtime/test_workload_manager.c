@@ -138,5 +138,23 @@ int main(void) {
     assert(!rp86_workload_commit(&manager, 11u,
                                  manifest.image_crc32 ^ 1u));
     assert(manager.state == RP86_WORKLOAD_STATE_FAULTED);
+
+    /* Fault/timeout recovery uses a new verified upload, not blind restart. */
+    const rp86_workload_state_t failures[] = {
+        RP86_WORKLOAD_STATE_FAULTED, RP86_WORKLOAD_STATE_TIMED_OUT,
+    };
+    for (unsigned i = 0; i < sizeof failures / sizeof failures[0]; ++i) {
+        manager.state = failures[i];
+        assert(!rp86_workload_run(&manager, 0u));
+        assert(!rp86_workload_restart(&manager, 0u));
+        const uint32_t previous_id = manager.workload_id;
+        assert(rp86_workload_begin(&manager, 20u + i, &manifest));
+        assert(manager.received == 0u);
+        assert(rp86_workload_write(&manager, 20u + i, 0u, image, sizeof image));
+        assert(rp86_workload_commit(&manager, 20u + i, manifest.image_crc32));
+        assert(manager.workload_id != previous_id);
+        assert(rp86_workload_run(&manager, manager.workload_id));
+        assert(rp86_workload_stop(&manager, manager.workload_id));
+    }
     return 0;
 }

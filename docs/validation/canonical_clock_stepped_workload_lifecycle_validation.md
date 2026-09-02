@@ -1,5 +1,52 @@
 # Canonical CLOCK_STEPPED Workload Lifecycle Validation
 
+## Recovery regression — 2026-09-03
+
+The current Intel 8086 recovery checks passed after one firmware update, with
+no reboot between cases. General execution timing and the 64-byte wire ABI
+were unchanged.
+
+A real defect was reproduced first: `run` after `stop` returned RUNNING but
+retained the previous `STOP_REQUESTED` reason and native output. Every executor
+start now clears the previous result, including early start-failure paths;
+`restart` can no longer inherit an old PASS. The shared Python `DeviceClient`
+also now reads the broker's canonical `reply_hex` field.
+
+| Physical case | Observed result |
+| --- | --- |
+| Stop a running LIFECYCLE image | STOPPED / RESET; cycles stable at 4,145 |
+| Run the same stopped image | Fresh result at start; stopped again at 950 cycles |
+| Complete INVSQRT, then restart it | Both runs: COMPLETED / NATIVE_HLT, `RESULT: PASS`, 3,212 cycles |
+| Unannounced `CLI; HLT` | FAULTED / BUS_FAULT at 7 cycles; STOPPED / RESET |
+| Load/run INVSQRT after that fault | `RESULT: PASS`, 3,212 cycles |
+| Read unbacked physical address 40000h | FAULTED / BUS_FAULT at 9 cycles; STOPPED / RESET |
+| Load/run INVSQRT after the memory fault | `RESULT: PASS`, 3,212 cycles |
+
+The no-ALE timeout is **offline tested, not physically induced**. The C test
+links the production executor, workload manager, memory and mailbox code,
+substituting only bus operations and time. It verifies that completed cycles
+reset the starvation interval, 99,999 us does not time out, 100,000 us does,
+and a new CRC-verified upload runs after TIMED_OUT. This is a bus-starvation
+deadline, not a maximum workload execution duration.
+
+To repeat the physical checks with the built packages (this replaces any
+current workload; close other controllers first):
+
+```powershell
+py tests\physical\lifecycle_recovery.py --persistent build\workloads\LIFECYCLE.P86W --recovery build\workloads\INVSQRT.P86W --output-dir build\validation\lifecycle-after
+```
+
+The script shares the Host broker and never reboots or flashes automatically.
+It retains structured HID snapshots, image metadata and terminal results;
+it does not capture raw CDC bus evidence. Local reproduction/result JSON:
+
+```text
+build/validation/lifecycle-before/runtime_session_20260903_065639+0800.json
+build/validation/lifecycle-after/runtime_session_20260903_070330+0800.json
+```
+
+The sections below record earlier validation and its then-current semantics.
+
 Date: 2026-08-29  
 Physical processor: Intel P8086-2  
 Companion: Waveshare RP2350-PiZero on the original Pi86 HAT  
