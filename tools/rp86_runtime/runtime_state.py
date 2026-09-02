@@ -181,6 +181,7 @@ class WorkloadRuntimeState:
             and self.passed
             and self.processor_identified
             and self.completion_reason == 2
+            and self.native_output == b"RESULT: PASS"
         )
 
     @property
