@@ -586,19 +586,32 @@ def persistent_monitor(
         print("\n[RP86 PHYSICAL REGRESSION]")
         print(f"Workload = {regression_workload}")
 
-    # A previous Host session may have left a general workload RUNNING,
-    # IDLE/HLT, FAULTED, or STOPPED/RESET. Probe the RP2350-owned lifecycle
-    # before sending any prepared-runtime diagnostic probe. A status record is always
-    # safe and tells this new session whether the native ISR responder exists.
+    # A formal regression starts from a fresh canonical runtime.  Its first HID
+    # record must complete the prepared native round so the physical AAD16
+    # identity becomes part of every later structured workload result.  A
+    # general attach remains status-first because an unknown workload may
+    # already own the processor.
+    regression_identity_ready = True
+    if regression_workload:
+        regression_identity_ready = ensure_prepared_runtime_initialized()
+
     startup_status = control_record(
         "status", workload_id=0, sequence=request_sequence.value
     )
     if not perform_workload_transaction([startup_status], "attached runtime"):
         prepared_native_probe_available = False
-    elif regression_workload or prepared_native_probe_available:
+    elif not regression_workload and prepared_native_probe_available:
         # Identify the installed processor once. This diagnostic witness is
         # not a generic workload liveness and is never used as RP2350 health.
         ensure_prepared_runtime_initialized()
+    if regression_workload and not regression_identity_ready:
+        print_event(
+            "PHYSICAL REGRESSION: FAIL "
+            "(fresh prepared processor identity unavailable)"
+        )
+        regression_passed = False
+        regression_commands.clear()
+        stop = True
 
     posix_terminal_state = None
     if interactive and os.name != "nt" and sys.stdin.isatty():
