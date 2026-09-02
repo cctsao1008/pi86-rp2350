@@ -162,6 +162,12 @@ class FirmwareSourceStructureTests(unittest.TestCase):
         self.assertIn("sizeof(rp86_workload_result_payload_t) == 52u", protocol)
         self.assertIn("RP86_WORKLOAD_COMPLETION_NATIVE_HLT", executor)
         self.assertIn('strcmp(executor->diagnostic_line, "RESULT: PASS")', executor)
+        self.assertIn(
+            "~(RP86_WORKLOAD_RESULT_PASS |\n"
+            "          RP86_WORKLOAD_RESULT_NATIVE_OUTPUT |\n"
+            "          RP86_WORKLOAD_RESULT_NATIVE_OUTPUT_TRUNCATED)",
+            executor,
+        )
 
     def test_idle_workload_status_bypasses_timing_evidence_queue(self):
         runtime = (

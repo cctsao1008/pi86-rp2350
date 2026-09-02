@@ -60,6 +60,10 @@ static void flush_diagnostic_line(rp86_workload_executor_t *executor) {
     const uint32_t source_length = executor->diagnostic_length;
     const uint16_t retained = source_length < RP86_WORKLOAD_RESULT_TEXT_BYTES ?
         (uint16_t)source_length : RP86_WORKLOAD_RESULT_TEXT_BYTES;
+    executor->result_flags &=
+        ~(RP86_WORKLOAD_RESULT_PASS |
+          RP86_WORKLOAD_RESULT_NATIVE_OUTPUT |
+          RP86_WORKLOAD_RESULT_NATIVE_OUTPUT_TRUNCATED);
     memcpy(executor->native_output, executor->diagnostic_line, retained);
     executor->native_output_length = retained;
     executor->result_flags |= RP86_WORKLOAD_RESULT_NATIVE_OUTPUT;
