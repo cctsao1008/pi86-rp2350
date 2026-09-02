@@ -203,6 +203,35 @@ formal PASS flag, and the recorded completion reason; CDC text remains evidence
 but cannot decide PASS or FAIL. The command saves the raw CDC log plus session
 JSON and returns nonzero on transport, execution, result, or timeout failure.
 
+### Session JSON results
+
+The `rp86.runtime-session/v1` document includes:
+
+- `started`, `finished`, session `passed`, and `failure_reasons`.
+- `workload`: the latest observed structured status, with lifecycle, clock,
+  cycles, processor flags, completion reason/code, result flags and outcome.
+- `workload.image`: source/name and the accepted manifest (image size/CRC32,
+  load address, entry CS:IP, stack, shared region and flags). This is `null`
+  when the session did not upload that workload; attach never guesses metadata.
+- `processor_identity`: the signature, validated processor and
+  `firmware_boot_aad16` provenance. Retained identity is not fresh liveness.
+- `native_output`: exact result bytes in `hex`, byte length, UTF-8 text with
+  replacement decoding, and a separate `truncated` flag. The text contains no
+  renderer-added ellipsis. This is the firmware's retained 16-byte result
+  field, not the whole stdout stream; the raw CDC log remains available.
+- `workload_results`: timestamped terminal observations, including an already
+  completed workload found during attach. Repeated identical polling is
+  deduplicated; a subsequent run/restart can append another result for the same ID.
+- `errors`: timestamped operation failures, including upload record index/count,
+  load errors, CPU assertion failures and regression deadline failures.
+
+Numeric CRC/signature/address/flag fields are JSON integers. Only `hex` is a
+hexadecimal string. `workload.passed` is `null` for incomplete or unproven work;
+fault/timeout is FAIL, while STOPPED is incomplete. Session success does not
+mean an arbitrary workload passed: inspect `workload.outcome`, or the stricter
+`physical_regression.passed` for the regression acceptance decision. Command
+errors remain recorded even when a later retry succeeds. No wire ABI changed.
+
 ### General Internal-SRAM workload lifecycle
 
 Raw flat binaries default to an automatic clock policy. A workload may request

@@ -114,3 +114,18 @@ Local raw CDC/session JSON evidence remains under
 `runtime_session_20260903_003117+0800` (repeat regression).
 These local files are not repository-hosted evidence links. Retained identity
 proves the boot diagnostic result, not current workload liveness.
+
+### Session JSON capture follow-up
+
+On 2026-09-03 the Host-only result serializer was checked with the same UF2,
+without reboot or firmware changes. `INVSQRT.P86W` passed with 623 image bytes,
+CRC32 `52AECF49`, load `10000h`, entry `1000:0000`, 3,212 cycles,
+`NATIVE_HLT`, signature `0012`, and raw result hex `524553554c543a2050415353`.
+The saved JSON was read back and checked against these fields. A second
+session declaring `nec-v30` was rejected before upload; its JSON retained the
+assertion failure and left attached-image metadata unknown instead of borrowing
+the preceding session's manifest. Host tests: 140 passed.
+
+Local evidence pairs are `runtime_session_20260903_012720+0800` (success) and
+`runtime_session_20260903_012751+0800` (intentional rejection), under the tested
+checkout's `build/validation/session-json/` directory; they are not Git artifacts.

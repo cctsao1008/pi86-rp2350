@@ -73,7 +73,7 @@ from .runtime_state import (
     workload_upload_requires_stop as _workload_upload_requires_stop,
 )
 from .service_client import RuntimeServiceClient
-from .session_evidence import SessionEvidence
+from .session_evidence import SessionEvidence, regression_failure_reasons
 from .shell_commands import (
     CommandHistory,
     command_help,
@@ -446,6 +446,10 @@ def persistent_monitor(
     ) -> bool:
         result = workload_client.transact(records)
         if not result.success:
+            evidence.failure(
+                description, result.error or "workload transaction failed",
+                failed_record=result.failed_index, record_count=result.count,
+            )
             print_event(
                 f"{description}: FAILED at record "
                 f"{result.failed_index}/{result.count}: {result.error}"
@@ -527,6 +531,7 @@ def persistent_monitor(
     def accept_workload_state() -> None:
         nonlocal prepared_native_probe_available, structured_result_reported
         nonlocal processor_name
+        evidence.observe_workload(workload)
         prepared_native_probe_available = workload.prepared_runtime_available
         if workload.processor is not None:
             if processor_observation.processor != workload.processor:
@@ -608,6 +613,10 @@ def persistent_monitor(
         expected_processor is not None and workload.processor != expected_processor
     )
     if identity_assertion_failed:
+        evidence.failure(
+            "processor identity assertion",
+            f"expected {expected_processor}, observed {workload.processor or 'UNPROVEN'}",
+        )
         print_event(
             f"processor identity assertion: FAILED: expected {expected_processor}, "
             f"observed {workload.processor or 'UNPROVEN'}"
@@ -616,6 +625,7 @@ def persistent_monitor(
     if regression_workload and (
         not startup_ok or not workload.processor_identified or identity_assertion_failed
     ):
+        evidence.failure("physical regression", "startup status or firmware processor identity unavailable")
         print_event(
             "PHYSICAL REGRESSION: FAIL "
             "(startup status or firmware processor identity unavailable)"
@@ -664,6 +674,10 @@ def persistent_monitor(
                 )
             if regression_started and workload.completed:
                 regression_passed = workload.physical_regression_passed
+                if not regression_passed:
+                    evidence.failure(
+                        "physical regression", "; ".join(regression_failure_reasons(workload))
+                    )
                 print_event(
                     "PHYSICAL REGRESSION: PASS"
                     if regression_passed else
@@ -675,6 +689,7 @@ def persistent_monitor(
             if (regression_deadline is not None and
                     time.monotonic() >= regression_deadline):
                 regression_passed = False
+                evidence.failure("physical regression", "regression deadline expired")
                 print_event("PHYSICAL REGRESSION: FAIL (timeout)")
                 stop = True
                 continue
@@ -837,6 +852,7 @@ def persistent_monitor(
                                 first_sequence=request_sequence.value,
                             )
                     except ValueError as exc:
+                        evidence.failure("load", str(exc), source=arguments[0] if arguments else None)
                         print_event(f"load: {exc}")
                         if regression_workload:
                             regression_passed = False
@@ -874,6 +890,7 @@ def persistent_monitor(
                         )
                     if perform_workload_transaction(records, "workload upload"):
                         staged_workload_manifest = manifest
+                        evidence.bind_workload(workload.workload_id, arguments[0], manifest)
                     elif regression_workload:
                         regression_passed = False
                         stop = True
@@ -884,6 +901,7 @@ def persistent_monitor(
                         PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED
                     ):
                         if not ensure_prepared_runtime_initialized():
+                            evidence.failure(name, "prepared runtime initialization failed")
                             continue
                     record = control_record(
                         name, workload_id=0, sequence=request_sequence.value
@@ -1333,9 +1351,24 @@ def persistent_monitor(
                 connection.close()
             except (OSError, serial.SerialException):
                 pass
+        failure_reasons: list[str] = []
+        if transport_error is not None:
+            failure_reasons.append(transport_error)
+        if identity_assertion_failed:
+            failure_reasons.append("processor identity assertion failed")
+        if native_probe and not (probe_stats.completed > 0 and probe_stats.lost == 0):
+            failure_reasons.append("native probe acceptance failed")
+        if regression_workload and regression_passed is not True:
+            failure_reasons.append(
+                evidence.errors[-1]["reason"] if evidence.errors else
+                "physical regression did not complete successfully"
+            )
         summary = {
             "schema": "rp86.runtime-session/v1",
             "started": started.isoformat(),
+            "finished": datetime.now().astimezone().isoformat(),
+            "workload": evidence.workload_snapshot(workload),
+            "failure_reasons": failure_reasons,
             "clock_hz": 1_000_000,
             "processor": processor,
             "processor_name": processor_name,
@@ -1361,9 +1394,7 @@ def persistent_monitor(
                 "completed": workload.completed,
                 "passed": regression_passed,
             } if regression_workload else None,
-            "passed": transport_error is None and not identity_assertion_failed and (
-                not native_probe or (probe_stats.completed > 0 and probe_stats.lost == 0)
-            ) and (not regression_workload or regression_passed is True),
+            "passed": not failure_reasons,
         }
         evidence.write(summary)
         print(f"RP86 runtime session closed: processor={processor_name}")
