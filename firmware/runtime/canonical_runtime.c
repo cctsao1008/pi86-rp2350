@@ -110,7 +110,6 @@ typedef struct {
 } exact_sequence_t;
 
 typedef struct {
-    bool host_record_ok;
     bool reset_ok;
     bool pre_release_clean;
     bool first_inta_seen;
@@ -123,7 +122,6 @@ typedef struct {
     bool observer_complete;
     bool processor_identity_valid;
     uint16_t processor_signature;
-    uint32_t host_sequence;
     uint32_t irq_assertions;
     uint32_t irq_accepts;
     uint32_t irq_completions;
@@ -155,7 +153,7 @@ static uint32_t g_int60_words[STREAM_WORDS];
 static uint32_t g_irq_rom_words[STREAM_WORDS];
 static uint32_t g_irq_io_words[STREAM_WORDS];
 static uint16_t g_host_words[HOST_WORDS];
-static rp86_host_protocol_message_t g_host_record;
+static rp86_host_protocol_message_t g_bootstrap_record;
 static rp86_host_protocol_message_t g_reply_record;
 static rp86_runtime_context_t g_runtime;
 static rp86_processor_bus_t g_processor_bus;
@@ -215,7 +213,6 @@ static void workload_evidence(void *context, const char *text);
 #endif
 
 static bool g_bus_active;
-static bool g_startup_host_request_seen;
 
 static bool take_non_control_record(rp86_host_protocol_message_t *record) {
     if (!rp86_host_protocol_hid_take_record((uint8_t *)record)) return false;
@@ -226,8 +223,6 @@ static bool take_non_control_record(rp86_host_protocol_message_t *record) {
             handle_workload_record(record);
         return false;
     }
-    if (record->version == RP86_HOST_PROTOCOL_VERSION)
-        g_startup_host_request_seen = true;
     if (record->version == RP86_HOST_PROTOCOL_VERSION &&
         record->type == RP86_HOST_PROTOCOL_MESSAGE_RUNTIME_CONTROL) {
         handle_runtime_control(record);
@@ -538,41 +533,25 @@ static void __isr companion_dma_irq0(void) {
     }
 }
 
-static bool receive_host_record(companion_result_t *r) {
-#if RP86_CANONICAL_RUNTIME
-    g_startup_host_request_seen = false;
-    while (!take_non_control_record(&g_host_record)) {
-        if (g_startup_host_request_seen) {
-            /* A valid Host request may arrive before the first heartbeat.
-             * Its handler has already replied. Use an empty startup record so
-             * hardware initialization never depends on command ordering. */
-            memset(&g_host_record, 0, sizeof g_host_record);
-            g_host_record.version = RP86_HOST_PROTOCOL_VERSION;
-            g_host_record.type = RP86_HOST_PROTOCOL_MESSAGE_HEARTBEAT;
-            g_host_record.status = RP86_HOST_PROTOCOL_STATUS_OK;
-            break;
-        }
-        rp86_host_protocol_usb_task();
-        service_cdc_control();
-    }
-#else
-    const uint64_t deadline = time_us_64() + HOST_TIMEOUT_US;
-    while (!rp86_host_protocol_hid_take_record((uint8_t *)&g_host_record) &&
-           time_us_64() <= deadline)
-        rp86_host_protocol_usb_task();
-#endif
-    r->host_record_ok =
-        g_host_record.version == RP86_HOST_PROTOCOL_VERSION &&
-        g_host_record.status == RP86_HOST_PROTOCOL_STATUS_OK &&
-        g_host_record.length <= sizeof g_host_record.payload;
-    if (!r->host_record_ok) return false;
-    r->host_sequence = g_host_record.sequence;
+static void prepare_bootstrap_record(void) {
+    /* Internal stimulus only: the processor still computes AAD16 and commits
+     * the physical witness. Never consume a Host request or send a HID reply
+     * for this record. Host traffic queued during bootstrap is handled later. */
+    static const uint8_t payload[HOST_WORDS * 2u] = {
+        'H', 'B', 1u, 0u, 0u, 0u,
+        0x12u, 0x34u, 0x56u, 0x78u, 0x9au, 0xbcu, 0xdeu, 0xf0u,
+    };
+    memset(&g_bootstrap_record, 0, sizeof g_bootstrap_record);
+    g_bootstrap_record.version = RP86_HOST_PROTOCOL_VERSION;
+    g_bootstrap_record.type = RP86_HOST_PROTOCOL_MESSAGE_HEARTBEAT;
+    g_bootstrap_record.status = RP86_HOST_PROTOCOL_STATUS_OK;
+    g_bootstrap_record.length = sizeof payload;
+    memcpy(g_bootstrap_record.payload, payload, sizeof payload);
     uint8_t bytes[HOST_WORDS * 2u] = {0};
-    memcpy(bytes, g_host_record.payload, g_host_record.length);
+    memcpy(bytes, payload, sizeof payload);
     for (uint32_t i = 0u; i < HOST_WORDS; ++i)
         g_host_words[i] = (uint16_t)bytes[i * 2u] |
             ((uint16_t)bytes[i * 2u + 1u] << 8);
-    return true;
 }
 
 static bool take_live_record(rp86_host_protocol_message_t *record) {
@@ -1158,7 +1137,10 @@ static void print_canonical_status(void) {
     evidence_printf("Processor idle             = %s\n",
                     rp86_workload_executor_processor_idle(
                         &g_workload_executor) ? "YES / HLT" : "NO");
-    evidence_printf("Processor                  = HOST DECLARED: INTEL 8086 OR NEC V30\n");
+    evidence_printf("Processor                  = %s (AAD16=%04X) %s\n",
+        rp86_prepared_processor_identity_name(g_prepared_runtime.processor_signature),
+        g_prepared_runtime.processor_signature,
+        g_prepared_runtime.processor_identity_valid ? "IDENTIFIED" : "UNPROVEN");
     evidence_printf("External PSRAM configured  = %s\n",
                     RP86_HAS_EXTERNAL_PSRAM ? "YES" : "NO");
 #if RP86_HAS_EXTERNAL_PSRAM
@@ -1204,7 +1186,7 @@ static void print_canonical_status(void) {
     evidence_printf("Active physical workload   = %s\n",
                     rp86_workload_executor_active(&g_workload_executor) ?
                         "GENERAL INTERNAL SRAM WORKLOAD" :
-                    !g_bus_active ? "WAITING FOR HID RECORD" :
+                    !g_bus_active ? "STOPPED / RESET" :
                     g_runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING ?
                         "INTERNAL SRAM CALCULATOR" :
                         "RP86 PROCESSOR RUNTIME");
@@ -1595,7 +1577,7 @@ static void print_companion_result(const companion_result_t *r) {
     evidence_printf("Current-cycle M33          = NONE\n");
     evidence_printf("Processor runtime state    = STI/HLT idle; IRQ heartbeat remains armed\n");
     evidence_printf("RP86 RUNTIME RESULT   = %s\n",
-        r->host_record_ok && r->pre_release_clean &&
+        r->pre_release_clean &&
         r->int60_commit_seen && r->first_inta_seen &&
         r->second_inta_complete && r->irq_commit_seen &&
         r->eoi_seen && r->heartbeat_active &&
@@ -1632,19 +1614,8 @@ int rp86_canonical_runtime_run(void) {
     hard_assert(rp86_runtime_context_init(&g_runtime, HOST_TIMEOUT_US));
     rp86_host_protocol_usb_init();
     stdio_init_all();
-    while (!stdio_usb_connected()) {
-        rp86_host_protocol_usb_task();
-        sleep_ms(1);
-    }
-
     static companion_result_t result;
-    if (!receive_host_record(&result)) {
-        print_companion_result(&result);
-        while (true) {
-            rp86_host_protocol_usb_task();
-            service_cdc_control();
-        }
-    }
+    prepare_bootstrap_record();
     compile_sequences();
 
     hard_assert(rp86_processor_service_responder_program.length +
@@ -1766,7 +1737,7 @@ int rp86_canonical_runtime_run(void) {
     classify_trace_words(&result, observer_words);
     live_round_result_t initial_round = {0};
     classify_live_round(&initial_round, observer_words,
-                        stage_live_payload(&g_host_record));
+                        stage_live_payload(&g_bootstrap_record));
     initial_round.inta1 = result.first_inta_seen;
     initial_round.inta2 = result.second_inta_complete;
     result.processor_signature = initial_round.processor_signature;
@@ -1791,9 +1762,9 @@ int rp86_canonical_runtime_run(void) {
     result.irq_io_pc = pio_sm_get_pc(pio1, g_irq_io_sm.sm);
     result.inta_pc = pio_sm_get_pc(pio1, g_inta_sm.sm);
 
-    send_live_reply(&g_host_record, &initial_round,
-                    result.heartbeat_active);
-    print_companion_result(&result);
+    /* Identity is retained in structured status even without a CDC reader.
+     * Do not wait for USB or emit an unsolicited sequence-zero HID response. */
+    if (stdio_usb_connected()) print_companion_result(&result);
 
     /* Persistent service condition: one complete host record owns one V30
      * interrupt.  The reply is not published until passive PIO0 evidence has

@@ -86,3 +86,31 @@ benchmarks.
 This validation proves the integrated canonical control, transport, and
 physical companion path on the installed Intel 8086. It does not claim that
 the unimplemented general PSRAM/FAT/workload features are complete.
+
+## 2026-09-03: Host-independent boot identity
+
+This update supersedes the historical first-HID startup behavior above.
+Firmware now executes the prepared AAD16 diagnostic at boot, without waiting
+for a CDC reader or consuming the first Host request. The internal bootstrap
+record produces no unsolicited HID reply. The resulting physical identity is
+retained in structured status, including after general workload execution.
+
+Verified on Intel 8086, device `A1D538EA0A07378F` / COM27:
+
+- CDC status first reported `INTEL 8086 (AAD16=0012) IDENTIFIED`.
+- Status-first `INVSQRT.P86W` regression passed without an intervening reboot.
+- After one deliberate reboot for the Web-first case, a Web runtime owner
+  obtained Intel identity from structured status without sending a native probe.
+- Two subsequent CLI regressions shared that broker and both passed without
+  reboot: `NATIVE_HLT`, 3,212 cycles, signature `0012`, exact `RESULT: PASS`.
+- Post-workload broker status passed. A strict `nec-v30` assertion was rejected
+  before upload on the installed Intel CPU.
+- Host tests: 135 passed; runtime tests: 31 passed; firmware build passed.
+
+Local raw CDC/session JSON evidence remains under
+`C:/Users/CCTSAO/Documents/pi86-validation-logs/`, using the paired filenames
+`runtime_session_20260903_002944+0800` (status-first),
+`runtime_session_20260903_003114+0800` (Web-first regression), and
+`runtime_session_20260903_003117+0800` (repeat regression).
+These local files are not repository-hosted evidence links. Retained identity
+proves the boot diagnostic result, not current workload liveness.

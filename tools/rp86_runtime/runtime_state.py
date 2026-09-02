@@ -175,6 +175,16 @@ class WorkloadRuntimeState:
         )
 
     @property
+    def processor(self) -> str | None:
+        """Boot identity retained by firmware, not a fresh liveness probe."""
+        if not self.processor_identified:
+            return None
+        return {
+            PROCESSOR_SIGNATURE_INTEL_8086: "intel-8086",
+            PROCESSOR_SIGNATURE_NEC_V30: "nec-v30",
+        }[self.processor_signature]
+
+    @property
     def physical_regression_passed(self) -> bool:
         return (
             self.completed

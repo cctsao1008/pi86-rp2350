@@ -183,6 +183,20 @@ class FirmwareSourceStructureTests(unittest.TestCase):
         self.assertFalse((FIRMWARE / "runtime" / "runtime.c").exists())
         self.assertFalse((FIRMWARE / "runtime" / "runtime.h").exists())
 
+    def test_boot_identity_does_not_consume_or_reply_to_host_requests(self):
+        source = (FIRMWARE / "runtime" / "canonical_runtime.c").read_text(encoding="utf-8")
+        boot = source.split("int rp86_canonical_runtime_run(void)", 1)[1].split(
+            "/* Persistent service condition:", 1
+        )[0]
+        self.assertIn("prepare_bootstrap_record();", boot)
+        self.assertIn("stage_live_payload(&g_bootstrap_record)", boot)
+        self.assertIn("rp86_prepared_runtime_observe_processor(", boot)
+        self.assertNotIn("send_live_reply(", boot)
+        self.assertNotIn("take_non_control_record(", boot)
+        self.assertNotIn("while (!stdio_usb_connected())", boot)
+        self.assertNotIn("receive_host_record", source)
+        self.assertNotIn("g_startup_host_request_seen", source)
+
 
 if __name__ == "__main__":
     unittest.main()

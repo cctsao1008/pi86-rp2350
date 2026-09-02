@@ -2,7 +2,9 @@
 
 The 8086-class interface has no CPUID instruction. Instead, the canonical
 native runtime executes a branch-free `AAD 16` discriminator and returns the
-result in every committed 64-byte witness. RP86 uses that physical evidence to
+result in every committed 64-byte witness. Firmware runs this diagnostic at
+boot without waiting for CDC or a Host HID request, then retains the identity
+in the canonical 64-byte structured status/result record. RP86 uses that physical evidence to
 identify the processor automatically. An optional `--processor intel-8086` or
 `--processor nec-v30` argument is a strict assertion and is accepted only when
 it matches the native result.
@@ -389,9 +391,12 @@ script may become owner after the previous broker releases CDC/HID.
 
 The Host requires one complete `RP86 STATUS BEGIN` / `RP86 STATUS END` block,
 so USB startup text cannot be mistaken for the response to a new request. This
-operation only observes RP2350 state. Before the first HID record it reports
-`IDLE` and leaves the processor in RESET. After startup it reports `RUNNING`
-without disturbing the active physical bus or workload runtime.
+operation only observes RP2350 state. Firmware independently initializes the
+prepared runtime and captures the physical AAD16 identity at boot. Requests
+received during this bounded initialization are handled afterward; there is
+no unsolicited bootstrap HID reply. Status, Web, CLI, and physical regression
+may connect in any order without triggering initialization or disturbing the
+active workload. Retained identity is not a fresh processor liveness proof.
 
 ## Restarting or entering the RP2350 UF2 bootloader
 

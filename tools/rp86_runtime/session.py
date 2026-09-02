@@ -526,7 +526,17 @@ def persistent_monitor(
 
     def accept_workload_state() -> None:
         nonlocal prepared_native_probe_available, structured_result_reported
+        nonlocal processor_name
         prepared_native_probe_available = workload.prepared_runtime_available
+        if workload.processor is not None:
+            if processor_observation.processor != workload.processor:
+                processor_observation.processor = workload.processor
+                processor_name = PROCESSOR_NAMES[workload.processor]
+                console.set_processor(workload.processor)
+                print_event(
+                    f"[PROCESSOR IDENTITY] {processor_name} "
+                    "(firmware boot AAD16, retained identity)"
+                )
         if workload.structured_result:
             result_key = (
                 workload.workload_id,
@@ -586,28 +596,29 @@ def persistent_monitor(
         print("\n[RP86 PHYSICAL REGRESSION]")
         print(f"Workload = {regression_workload}")
 
-    # A formal regression starts from a fresh canonical runtime.  Its first HID
-    # record must complete the prepared native round so the physical AAD16
-    # identity becomes part of every later structured workload result.  A
-    # general attach remains status-first because an unknown workload may
-    # already own the processor.
-    regression_identity_ready = True
-    if regression_workload:
-        regression_identity_ready = ensure_prepared_runtime_initialized()
-
+    # Firmware owns boot-time identity. Every client starts with status;
+    # neither attaching nor regression requires a prepared native interrupt.
     startup_status = control_record(
         "status", workload_id=0, sequence=request_sequence.value
     )
-    if not perform_workload_transaction([startup_status], "attached runtime"):
+    startup_ok = perform_workload_transaction([startup_status], "attached runtime")
+    if not startup_ok:
         prepared_native_probe_available = False
-    elif not regression_workload and prepared_native_probe_available:
-        # Identify the installed processor once. This diagnostic witness is
-        # not a generic workload liveness and is never used as RP2350 health.
-        ensure_prepared_runtime_initialized()
-    if regression_workload and not regression_identity_ready:
+    identity_assertion_failed = (
+        expected_processor is not None and workload.processor != expected_processor
+    )
+    if identity_assertion_failed:
+        print_event(
+            f"processor identity assertion: FAILED: expected {expected_processor}, "
+            f"observed {workload.processor or 'UNPROVEN'}"
+        )
+        stop = True
+    if regression_workload and (
+        not startup_ok or not workload.processor_identified or identity_assertion_failed
+    ):
         print_event(
             "PHYSICAL REGRESSION: FAIL "
-            "(fresh prepared processor identity unavailable)"
+            "(startup status or firmware processor identity unavailable)"
         )
         regression_passed = False
         regression_commands.clear()
@@ -1350,7 +1361,7 @@ def persistent_monitor(
                 "completed": workload.completed,
                 "passed": regression_passed,
             } if regression_workload else None,
-            "passed": transport_error is None and (
+            "passed": transport_error is None and not identity_assertion_failed and (
                 not native_probe or (probe_stats.completed > 0 and probe_stats.lost == 0)
             ) and (not regression_workload or regression_passed is True),
         }
@@ -1366,6 +1377,8 @@ def persistent_monitor(
         print(f"Session JSON     = {evidence.json_path}")
     if transport_error is not None:
         return TRANSPORT_EXIT
+    if identity_assertion_failed:
+        return VALIDATION_EXIT
     if native_probe and not (probe_stats.completed > 0 and probe_stats.lost == 0):
         return VALIDATION_EXIT
     if regression_workload and regression_passed is not True:

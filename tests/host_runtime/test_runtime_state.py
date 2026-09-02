@@ -101,6 +101,29 @@ class RuntimeStateTests(unittest.TestCase):
         state.lifecycle = 3
         self.assertFalse(state.prepared_runtime_available)
 
+    def test_retained_identity_survives_workload_and_is_not_liveness(self) -> None:
+        state = WorkloadRuntimeState(
+            lifecycle=5, processor_flags=PROCESSOR_FLAG_IDLE,
+            result_flags=RESULT_FLAG_PROCESSOR_IDENTIFIED, processor_signature=0x12,
+        )
+        self.assertEqual(state.processor, "intel-8086")
+        state.processor_signature = 0x0C
+        self.assertEqual(state.processor, "nec-v30")
+        state.result_flags = 0
+        self.assertIsNone(state.processor)
+        state.result_flags = RESULT_FLAG_PROCESSOR_IDENTIFIED
+        state.processor_signature = 0xFFFF
+        self.assertIsNone(state.processor)
+
+    def test_every_session_starts_with_status_without_a_native_probe(self) -> None:
+        source = (TOOLS / "rp86_runtime" / "session.py").read_text(encoding="utf-8")
+        startup = source.split("# Firmware owns boot-time identity.", 1)[1].split(
+            "posix_terminal_state = None", 1
+        )[0]
+        self.assertIn('"status", workload_id=0', startup)
+        self.assertNotIn("ensure_prepared_runtime_initialized()", startup)
+        self.assertIn("not workload.processor_identified", startup)
+
     def test_runtime_snapshot_publishes_structured_result(self) -> None:
         workload = WorkloadRuntimeState(
             workload_id=4,
