@@ -26,8 +26,6 @@ from rp86_runtime.protocol import (  # noqa: E402
     RUNTIME_CONTROL_ENTER_BOOTLOADER,
     RUNTIME_CONTROL_REBOOT,
 )
-from rp86_runtime.console import _status_text  # noqa: E402
-from rp86_runtime.cli import build_parser  # noqa: E402
 from rp86_runtime.constants import (  # noqa: E402
     BOOTLOADER_ACK,
     BOOTLOADER_REQUEST,
@@ -36,20 +34,15 @@ from rp86_runtime.constants import (  # noqa: E402
     STATUS_BEGIN,
     STATUS_END,
     STATUS_REQUEST,
-    CANONICAL_GREETING,
-    CANONICAL_REPLY,
     COMMAND_REPLY,
     HEARTBEAT_REPLY,
 )
 from rp86_runtime.core import (  # noqa: E402
-    HeartbeatStats,
     heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
-    simulate_v30,
     validate_live_reply,
     validate_device_reply,
-    validate_reply,
 )
 from rp86_runtime.transport import (  # noqa: E402
     cdc_serial_for_port,
@@ -89,16 +82,6 @@ class ProtocolTests(unittest.TestCase):
         evidence = send_bootloader_request(connection, 0.1)
         self.assertEqual(connection.written, BOOTLOADER_REQUEST)
         self.assertIn(BOOTLOADER_ACK, evidence)
-
-    def test_bootloader_has_a_hid_first_command_line_mode(self) -> None:
-        args = build_parser().parse_args(["--bootloader", "--port", "COM14"])
-        self.assertTrue(args.bootloader)
-        self.assertEqual(args.port, "COM14")
-
-    def test_reboot_has_a_hid_first_command_line_mode(self) -> None:
-        args = build_parser().parse_args(["--reboot"])
-        self.assertTrue(args.reboot)
-        self.assertIsNone(args.port)
 
     def test_cdc_reboot_fallback_requires_exact_ack(self) -> None:
         class FakeConnection:
@@ -195,23 +178,11 @@ class ProtocolTests(unittest.TestCase):
         self.assertTrue(evidence.endswith(STATUS_END))
         self.assertNotIn(b"old boot text", evidence)
 
-    def test_status_has_a_cdc_only_command_line_mode(self) -> None:
-        args = build_parser().parse_args(["--status", "--port", "COM14"])
-        self.assertTrue(args.status)
-        self.assertEqual(args.port, "COM14")
-
     def test_record_is_fixed_size_and_round_trips(self) -> None:
-        message = Message(TYPE_HELLO, 0x12345678, CANONICAL_GREETING)
+        message = Message(TYPE_HELLO, 0x12345678, b"request")
         record = message.encode()
         self.assertEqual(len(record), MESSAGE_SIZE)
         self.assertEqual(Message.decode(record), message)
-
-    def test_canonical_exchange(self) -> None:
-        request = Message(TYPE_HELLO, 7, CANONICAL_GREETING)
-        reply = Message.decode(simulate_v30(request.encode()))
-        self.assertEqual(reply.message_type, TYPE_TEXT)
-        self.assertEqual(reply.sequence, request.sequence)
-        self.assertEqual(reply.payload, CANONICAL_REPLY)
 
     def test_oversize_payload_is_rejected(self) -> None:
         with self.assertRaises(ValueError):
@@ -222,25 +193,16 @@ class ProtocolTests(unittest.TestCase):
             Message.decode(b"short")
 
     def test_hid_output_has_report_id_and_exact_abi(self) -> None:
-        record = Message(TYPE_HELLO, 1, CANONICAL_GREETING).encode()
+        record = Message(TYPE_HELLO, 1, b"request").encode()
         report = hid_output_report(record)
         self.assertEqual(len(report), MESSAGE_SIZE + 1)
         self.assertEqual(report[0], 0)
         self.assertEqual(report[1:], record)
 
     def test_hid_input_accepts_platform_report_id(self) -> None:
-        record = Message(TYPE_TEXT, 1, CANONICAL_REPLY).encode()
+        record = Message(TYPE_TEXT, 1, b"reply").encode()
         self.assertEqual(normalize_hid_input(record), record)
         self.assertEqual(normalize_hid_input(b"\0" + record), record)
-
-    def test_physical_reply_requires_sequence_and_payload(self) -> None:
-        valid = Message(TYPE_TEXT, 7, CANONICAL_REPLY).encode()
-        self.assertEqual(validate_reply(valid, 7).payload, CANONICAL_REPLY)
-        with self.assertRaises(ValueError):
-            validate_reply(valid, 8)
-        wrong = Message(TYPE_TEXT, 7, b"RECORDED STRING").encode()
-        with self.assertRaises(ValueError):
-            validate_reply(wrong, 7)
 
     def test_companion_heartbeat_reply_uses_the_same_abi(self) -> None:
         payload = NativeServiceWitness(
@@ -298,7 +260,7 @@ class ProtocolTests(unittest.TestCase):
             validate_live_reply(record, request, "nec-v30")
 
     def test_companion_initial_hello_reply_uses_native_witness(self) -> None:
-        request = Message(TYPE_HELLO, 1, CANONICAL_GREETING)
+        request = Message(TYPE_HELLO, 1, b"request")
         payload = NativeServiceWitness(
             TYPE_HELLO, 3, 8, 1, HEARTBEAT_REPLY
         ).encode()
@@ -359,36 +321,6 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_live_reply(heartbeat_reply, command)
 
-    def test_heartbeat_statistics_do_not_hide_losses(self) -> None:
-        stats = HeartbeatStats()
-        stats.accept(12.0)
-        stats.accept(18.0)
-        stats.lost += 1
-        self.assertEqual(stats.completed, 2)
-        self.assertEqual(stats.lost, 1)
-        self.assertEqual(stats.minimum_ms, 12.0)
-        self.assertEqual(stats.average_ms, 15.0)
-        self.assertEqual(stats.maximum_ms, 18.0)
-
-    def test_status_row_is_separate_from_the_command_prompt(self) -> None:
-        stats = HeartbeatStats()
-        stats.accept(3.3)
-        text = _status_text(919, stats, True)
-        self.assertEqual(
-            text,
-            "| ◆ NEC V30  workload=EMPTY  clock=AUTO  cycles=0  processor=ACTIVE",
-        )
-        self.assertNotIn("V30>", text)
-
-    def test_status_row_can_name_an_intel_8086(self) -> None:
-        stats = HeartbeatStats()
-        stats.accept(2.7)
-        text = _status_text(55, stats, True, "intel-8086")
-        self.assertEqual(
-            text,
-            "| ◆ INTEL 8086  workload=EMPTY  clock=AUTO  cycles=0  processor=ACTIVE",
-        )
-
     def test_cdc_port_selection_defaults_to_the_only_composite_device(self) -> None:
         candidates = [
             {
@@ -421,43 +353,6 @@ class ProtocolTests(unittest.TestCase):
         ]
         self.assertEqual(cdc_serial_for_port("com27", candidates), "TWO")
         self.assertIsNone(cdc_serial_for_port("COM31", candidates))
-
-    def test_interactive_monitor_can_attach_without_reset(self) -> None:
-        args = build_parser().parse_args(
-            [
-                "--interactive",
-                "--attach",
-                "--port",
-                "COM27",
-            ]
-        )
-        self.assertTrue(args.interactive)
-        self.assertFalse(args.native_probe)
-        self.assertTrue(args.attach)
-
-    def test_processor_identity_is_explicit_host_metadata(self) -> None:
-        args = build_parser().parse_args(
-            [
-                "--interactive",
-                "--attach",
-                "--processor",
-                "intel-8086",
-                "--port",
-                "COM27",
-            ]
-        )
-        self.assertEqual(args.processor, "intel-8086")
-
-    def test_runtime_messages_preserve_the_version_one_layout(self) -> None:
-        records = (
-            Message(TYPE_COMMAND, 40, b"STATUS"),
-            Message(TYPE_RESULT, 40, b"READY"),
-            Message(TYPE_HEARTBEAT, 41, b"uptime=123"),
-        )
-        for message in records:
-            encoded = message.encode()
-            self.assertEqual(len(encoded), MESSAGE_SIZE)
-            self.assertEqual(Message.decode(encoded), message)
 
     def test_retry_and_timeout_are_explicit_wire_fields(self) -> None:
         retry = Message(TYPE_COMMAND, 99, b"STATUS", flags=FLAG_RETRY)

@@ -5,8 +5,6 @@ import secrets
 import struct
 
 from .constants import (
-    CANONICAL_GREETING,
-    CANONICAL_REPLY,
     COMMAND_REPLY,
     HEARTBEAT_REPLY,
 )
@@ -21,11 +19,9 @@ from .protocol import (
     TYPE_FILESYSTEM_REQUEST,
     TYPE_FILESYSTEM_RESULT,
     TYPE_HEARTBEAT,
-    TYPE_HELLO,
     TYPE_MEMORY_REQUEST,
     TYPE_MEMORY_RESULT,
     TYPE_RESULT,
-    TYPE_TEXT,
     TYPE_WORKLOAD_BEGIN,
     TYPE_WORKLOAD_COMMIT,
     TYPE_WORKLOAD_CONTROL,
@@ -64,13 +60,6 @@ class HeartbeatStats:
         return self.total_ms / self.completed if self.completed else 0.0
 
 
-def simulate_v30(record: bytes) -> bytes:
-    request = Message.decode(record)
-    if request.message_type != TYPE_HELLO or request.payload != CANONICAL_GREETING:
-        raise ValueError("simulated V30 rejected the greeting")
-    return Message(TYPE_TEXT, request.sequence, CANONICAL_REPLY).encode()
-
-
 def hid_output_report(record: bytes) -> bytes:
     """Add HIDAPI's required zero report-ID byte to one ABI record."""
     if len(record) != MESSAGE_SIZE:
@@ -87,22 +76,6 @@ def normalize_hid_input(report: bytes) -> bytes:
             f"HID reply must contain exactly {MESSAGE_SIZE} ABI bytes; got {len(report)}"
         )
     return report
-
-
-def validate_reply(
-    record: bytes,
-    sequence: int,
-    expected_type: int = TYPE_TEXT,
-    expected_payload: bytes = CANONICAL_REPLY,
-) -> Message:
-    reply = Message.decode(normalize_hid_input(record))
-    if reply.message_type != expected_type:
-        raise ValueError(f"unexpected V30 reply type: {reply.message_type}")
-    if reply.sequence != sequence:
-        raise ValueError(f"V30 reply sequence mismatch: {reply.sequence} != {sequence}")
-    if reply.payload != expected_payload:
-        raise ValueError(f"unexpected V30 reply payload: {reply.payload!r}")
-    return reply
 
 
 def validate_live_reply(

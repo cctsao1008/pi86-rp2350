@@ -22,6 +22,16 @@ protocol and it is not required to be implemented in Python forever.
 the 64-byte ABI, and the local multi-client broker. `tools/rp86.py` is the only
 command-line entry point.
 
+Interactive sessions, with or without `--attach`, connect to the current
+runtime and read structured status first. They reuse an existing broker and
+do not run a preliminary greeting/CDC qualification or reset the processor.
+For workload acceptance, use `--physical-regression <file.P86W>`: completion,
+result flags, processor identity and completion reason determine success.
+CDC capture remains supporting evidence, not a second textual PASS policy.
+The former `--simulate`, `--exchange`, `/api/simulate` and standalone
+`rp86_validate.py` entry points have been removed. Optional `--native-probe`
+still exercises the prepared diagnostic responder; it is not workload acceptance.
+
 The shell shape is defined before every backend is complete so later PSRAM,
 NOR Flash, SD Card, trace, and debugger work can attach to a stable interface.
 An unavailable operation must return `NOT AVAILABLE`; it must never report a

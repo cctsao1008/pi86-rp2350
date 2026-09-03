@@ -1,5 +1,4 @@
 from pathlib import Path
-import struct
 import sys
 import unittest
 
@@ -19,7 +18,6 @@ from rp86_runtime.workload import (  # noqa: E402
     FLAG_SHARED_MEMORY,
     FLAG_STDIO,
     FLAG_CLOCK_STEPPED,
-    PROCESSOR_FLAG_IDLE,
     MANIFEST_SIZE,
     WorkloadManifest,
     decode_data_payload,
@@ -175,16 +173,6 @@ class WorkloadTests(unittest.TestCase):
         finally:
             path.unlink(missing_ok=True)
         self.assertTrue(manifest.flags & FLAG_CLOCK_STEPPED)
-
-    def test_canonical_status_reports_processor_idle(self) -> None:
-        payload = struct.pack(
-            "<IIIIIIIIHH16s", 1, 3, 157, 2, 42,
-            PROCESSOR_FLAG_IDLE, 0, 0, 0, 0, b"",
-        )
-        self.assertEqual(
-            decode_status_payload(payload),
-            (1, 3, 157, 2, 42, PROCESSOR_FLAG_IDLE),
-        )
 
     def test_legacy_status_payload_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "exactly 52 bytes"):

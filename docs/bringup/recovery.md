@@ -29,12 +29,12 @@ USB composition can change between targets. A CDC-only image and a CDC+HID compo
 2. Run:
 
    ```powershell
-   py tools/rp86_validate.py --list-ports
+   py -m serial.tools.list_ports -v
    ```
 
 3. Do not assume the previous COM number.
 4. Check Windows Device Manager for the development VID/PID documented by the target.
-5. If the firmware emits output only once, arm the capture tool and then reset the RP2350.
+5. Query the current runtime with `py tools/rp86.py --status`; do not reset just to recapture startup text.
 
 The RP2350 firmware must not require a CDC connection before releasing or safely terminating the V30 experiment unless that dependency is the explicit test subject.
 
@@ -44,7 +44,7 @@ The RP2350 firmware must not require a CDC connection before releasing or safely
 - Use `rp86.py --list-devices` to verify the HID interface.
 - Rediscover the associated CDC COM port.
 - Start the bridge with both the HID device and explicit COM port available.
-- Reset after capture is armed if the report is emitted once per boot.
+- Query current status; missing startup text alone is not a reason to reset.
 
 Application traffic belongs on HID for the accepted composite bridge. Do not type the binary request into a terminal or send it over CDC.
 
@@ -52,21 +52,20 @@ Application traffic belongs on HID for the accepted composite bridge. Do not typ
 
 Likely causes include:
 
-- capture started after the one-shot firmware report;
 - wrong COM port;
 - HID request was not delivered;
 - host and firmware use different protocol versions;
 - the device re-enumerated during startup;
-- V30 execution did not reach the mailbox program.
+- the Host broker or USB request did not return current structured status.
 
 Recovery:
 
 1. preserve the partial log;
 2. stop the host command;
 3. rediscover COM and HID interfaces;
-4. arm the correct command;
-5. reset or reconnect once;
-6. inspect the first missing named acceptance field.
+4. query `status` and inspect the structured workload lifecycle and completion reason;
+5. for a stopped/faulted workload, retain `trace save fault.json` before restarting;
+6. use explicit reboot/reconnect only if management requests cannot recover the runtime.
 
 Increasing timeout is appropriate only when the expected operation is genuinely asynchronous. It must not hide a current-cycle response-deadline failure.
 
@@ -74,8 +73,7 @@ Increasing timeout is appropriate only when the expected operation is genuinely 
 
 This is a meaningful failure. The visible reply may coexist with:
 
-- missing reset-vector evidence;
-- wrong ROM identity;
+- wrong workload or processor identity;
 - stale or mismatched sequence;
 - partial publication;
 - response data mismatch;
@@ -83,14 +81,16 @@ This is a meaningful failure. The visible reply may coexist with:
 - unqualified AD drive;
 - missing terminal safe state.
 
-Do not weaken the profile to accept the greeting. Identify and fix the first failed physical contract.
+An ACK means the operation was accepted, not that execution succeeded. Use the
+structured workload result and retained diagnostics to identify the failure;
+a printed `PASS` or missing CDC line does not override that result.
 
 ## COM port changed after flashing
 
 Windows may allocate a new COM number when interface descriptors or USB identity change.
 
 ```powershell
-py tools/rp86_validate.py --list-ports
+py -m serial.tools.list_ports -v
 ```
 
 Match the USB identity rather than choosing the lowest or most familiar COM number. Bluetooth serial ports are unrelated.
@@ -111,7 +111,7 @@ Synchronize both clones through Git. Do not treat a WSL build result as physical
 1. Select an accepted validation record matching the hardware configuration.
 2. Build or retrieve the exact corresponding target and commit.
 3. Flash it using the normal bootloader procedure.
-4. run its original acceptance profile without modification;
+4. run the matching physical regression (use that historical commit's tools for an old image);
 5. compare the physical result before continuing the new experiment.
 
 Avoid destructive Git rollback. Use a separate worktree, detached build, or explicit historical commit when reproducing an old image, and return to `main` without discarding unrelated work.

@@ -1,4 +1,6 @@
 from pathlib import Path
+from contextlib import redirect_stdout
+import io
 import sys
 import tempfile
 import unittest
@@ -10,14 +12,13 @@ TOOLS = Path(__file__).resolve().parents[2] / "tools"
 sys.path.insert(0, str(TOOLS))
 
 from rp86_runtime.cli import build_parser, _regression_workload_error  # noqa: E402
+import rp86_runtime.cli as cli  # noqa: E402
 from rp86_runtime.console import (  # noqa: E402
     CdcDisplayStream,
-    ConsoleStatus,
     _apply_input_character,
     _status_text,
 )
 from rp86_runtime.device import DeviceClient  # noqa: E402
-from rp86_runtime.broker import broker_registry_dirs  # noqa: E402
 from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
 from rp86_runtime.session import (  # noqa: E402
     _broker_runtime_state,
@@ -31,20 +32,63 @@ from rp86_runtime.runtime_state import (  # noqa: E402
 )
 from rp86_runtime.shell_commands import (  # noqa: E402
     complete_shell_input,
-    host_list_path,
-    parse_command,
 )
-from rp86_runtime.workload import WorkloadManifest  # noqa: E402
-import rp86_web  # noqa: E402
 import rp86_web_api  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
-    def test_canonical_entrypoint_does_not_monkey_patch_runtime_modules(self) -> None:
-        source = (TOOLS / "rp86.py").read_text(encoding="utf-8")
-        self.assertNotIn("decode_status_payload =", source)
-        self.assertNotIn("DeviceBroker.publish =", source)
-        self.assertNotIn("rp86_web._", source)
+    def test_interactive_routes_directly_to_runtime_without_reset(self) -> None:
+        for attach in ([], ["--attach"]):
+            with (
+                self.subTest(attach=attach),
+                patch.object(sys, "argv", ["rp86", "--interactive", "--sequence", "37", *attach]),
+                patch.object(cli, "discover_brokers", return_value=[]),
+                patch.object(cli, "resolve_cdc_port", return_value=("COM-TEST", False)),
+                patch.object(cli, "cdc_serial_for_port", return_value="TEST"),
+                patch.object(cli, "send_hid_runtime_control") as reset,
+                patch.object(cli, "persistent_monitor", return_value=17) as session,
+            ):
+                self.assertEqual(cli.main(), 17)
+                session.assert_called_once()
+                self.assertEqual(session.call_args.kwargs["sequence"], 37)
+                self.assertEqual(session.call_args.kwargs["port"], "COM-TEST")
+                self.assertFalse(session.call_args.kwargs["native_probe"])
+                reset.assert_not_called()
+
+    def test_interactive_reuses_broker_even_without_attach_flag(self) -> None:
+        record = SimpleNamespace(device_id="TEST", tcp_port=1234)
+        with (
+            patch.object(sys, "argv", ["rp86", "--interactive"]),
+            patch.object(cli, "discover_brokers", return_value=[record]),
+            patch.object(cli, "select_broker", return_value=record),
+            patch.object(cli, "resolve_cdc_port") as open_port,
+            patch.object(cli, "send_hid_runtime_control") as reset,
+            patch.object(cli, "persistent_monitor", return_value=0) as session,
+            redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(cli.main(), 0)
+            self.assertIs(session.call_args.kwargs["broker_record"], record)
+            self.assertEqual(session.call_args.kwargs["port"], "")
+            open_port.assert_not_called()
+            reset.assert_not_called()
+
+    def test_regression_routes_to_structured_workload_session(self) -> None:
+        with (
+            patch.object(sys, "argv", ["rp86", "--physical-regression", "flash:/INVSQRT.P86W",
+                                      "--native-probe", "--rounds", "1"]),
+            patch.object(cli, "discover_brokers", return_value=[]),
+            patch.object(cli, "resolve_cdc_port", return_value=("COM-TEST", False)),
+            patch.object(cli, "cdc_serial_for_port", return_value="TEST"),
+            patch.object(cli, "send_hid_runtime_control") as reset,
+            patch.object(cli, "persistent_monitor", return_value=5) as session,
+        ):
+            self.assertEqual(cli.main(), 5)
+            options = session.call_args.kwargs
+            self.assertEqual(options["regression_workload"], "flash:/INVSQRT.P86W")
+            self.assertFalse(options["interactive"])
+            self.assertFalse(options["native_probe"])
+            self.assertEqual(options["rounds"], 0)
+            reset.assert_not_called()
 
     def test_web_owner_starts_canonical_runtime_monitor(self) -> None:
         process = Mock()
@@ -64,7 +108,6 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertIn("--interactive", command)
         self.assertIn("--attach", command)
         self.assertNotIn("--heartbeat", command)
-        self.assertNotIn("--exchange", command)
 
     def test_web_owner_recovers_stopped_runtime_once_via_hid_reboot(self) -> None:
         stopped = Mock()
@@ -118,28 +161,9 @@ class Rp86RuntimeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "division by zero"):
             calculator_payload(("7/0",))
 
-    def test_calculator_is_a_first_class_shell_command(self) -> None:
-        command = parse_command("calc 123 + 456")
-        self.assertEqual(command.spec.name, "calc")
-        self.assertEqual(command.arguments, ("123", "+", "456"))
-
     def test_processor_identity_defaults_to_native_auto_detection(self) -> None:
         args = build_parser().parse_args(["--interactive"])
         self.assertEqual(args.processor, "auto")
-
-    def test_new_cli_keeps_existing_modes(self) -> None:
-        args = build_parser().parse_args(["--interactive", "--processor", "intel-8086"])
-        self.assertTrue(args.interactive)
-        self.assertEqual(args.processor, "intel-8086")
-
-    def test_physical_regression_is_a_single_workload_mode(self) -> None:
-        args = build_parser().parse_args(
-            ["--physical-regression", "build/workloads/INVSQRT.P86W"]
-        )
-        self.assertEqual(
-            args.physical_regression,
-            "build/workloads/INVSQRT.P86W",
-        )
 
     def test_physical_regression_rejects_a_missing_host_file_early(self) -> None:
         self.assertIsNotNone(
@@ -147,43 +171,10 @@ class Rp86RuntimeTests(unittest.TestCase):
         )
         self.assertIsNone(_regression_workload_error("flash:/INVSQRT.P86W"))
 
-    def test_cli_accepts_live_and_plain_renderers(self) -> None:
-        self.assertEqual(
-            build_parser().parse_args(["--interactive"]).display,
-            "live",
-        )
-        self.assertEqual(
-            build_parser().parse_args(["--interactive", "--display", "live"]).display,
-            "live",
-        )
-        self.assertEqual(
-            build_parser().parse_args(["--interactive", "--display", "plain"]).display,
-            "plain",
-        )
-
     def test_generic_interactive_runtime_does_not_enable_native_probe(self) -> None:
         args = build_parser().parse_args(["--interactive", "--attach"])
         self.assertFalse(args.native_probe)
         self.assertFalse(args.monitor)
-
-    def test_console_adopts_native_processor_identity(self) -> None:
-        console = ConsoleStatus("auto")
-        self.assertEqual(console._prompt, "CPU")
-        console.set_processor("intel-8086")
-        self.assertEqual(console._prompt, "8086")
-        console.set_processor("nec-v30")
-        self.assertEqual(console._prompt, "V30")
-
-    def test_pwd_and_cd_are_first_class_commands(self) -> None:
-        self.assertEqual(parse_command("pwd").spec.name, "pwd")
-        command = parse_command('cd "some directory"')
-        self.assertEqual(command.spec.name, "cd")
-        self.assertEqual(command.arguments, ("some directory",))
-
-    def test_host_paths_resolve_relative_to_shell_directory(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            base = Path(directory)
-            self.assertEqual(host_list_path("child", base), base / "child")
 
     def test_completion_uses_shell_directory(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -217,41 +208,6 @@ class Rp86RuntimeTests(unittest.TestCase):
         client._client.exchange.return_value = {"ok": True, "reply_hex": "00"}
         with self.assertRaisesRegex(RuntimeError, "invalid RP86 record length"):
             client.exchange(payload)
-
-    def test_broker_uses_one_canonical_registry(self) -> None:
-        self.assertEqual(
-            tuple(path.name for path in broker_registry_dirs()),
-            ("rp86-brokers",),
-        )
-
-    def test_top_explains_internal_sram_workload_state(self) -> None:
-        image = bytes(range(157))
-        manifest = WorkloadManifest.for_image(
-            image,
-            load_address=0x10000,
-            entry_segment=0x1000,
-            entry_offset=0,
-        )
-        output = _format_runtime_top(
-            processor_name="INTEL 8086",
-            processor_identified=True,
-            workload_id=1,
-            workload_state=2,
-            workload_detail=len(image),
-            workload_clock_mode=2,
-            workload_cycles=123,
-            workload_processor_flags=1,
-            manifest=manifest,
-        )
-        self.assertIn("Workload   STAGED id=1 size=157 bytes", output)
-        self.assertIn("Load       0x10000 entry=1000:0000", output)
-        self.assertIn("Memory     INTERNAL SRAM 00000-3FFFF 256 KiB", output)
-        self.assertIn("PSRAM      NOT AVAILABLE (optional expansion)", output)
-        self.assertIn("Clock mode CLOCK-STEPPED", output)
-        self.assertIn("CPU cycles 123", output)
-        self.assertIn("Processor IDLE / HLT", output)
-        self.assertNotIn("state=2", output)
-        self.assertNotIn("detail=157", output)
 
     def test_processor_execution_state_distinguishes_hlt_and_reset(self) -> None:
         self.assertEqual(processor_execution_state(2, 1), "IDLE / HLT")

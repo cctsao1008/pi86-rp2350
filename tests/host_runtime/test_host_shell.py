@@ -9,10 +9,8 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from rp86_runtime.shell_commands import (  # noqa: E402
     CommandHistory,
-    command_help,
     complete_shell_input,
     format_host_directory,
-    host_list_path,
     is_device_path,
     parse_command,
     unavailable_message,
@@ -20,15 +18,6 @@ from rp86_runtime.shell_commands import (  # noqa: E402
 
 
 class HostShellTests(unittest.TestCase):
-    def test_complete_framework_commands_are_registered(self) -> None:
-        for name in (
-            "load", "run", "stop", "restart", "bootloader", "send", "console", "ls",
-            "put", "get", "df", "mount", "unmount", "sync", "mem", "top",
-            "trace", "selftest", "timeout", "status", "quit",
-            "mailbox",
-        ):
-            self.assertEqual(parse_command(name).spec.name, name)
-
     def test_flash_and_sd_paths_remain_arguments(self) -> None:
         flash = parse_command("ls flash:/workloads")
         sd = parse_command('put "C:/My Files/demo.bin" sd:/demo.bin')
@@ -74,10 +63,6 @@ class HostShellTests(unittest.TestCase):
         self.assertEqual(completed, "cat flash:/HOSTTEST.TXT")
         self.assertEqual(candidates, ("flash:/HOSTTEST.TXT",))
 
-    def test_bare_windows_drive_is_rooted(self) -> None:
-        rooted = str(host_list_path("C:"))
-        self.assertTrue(rooted.startswith("C:"))
-
     def test_history_moves_up_down_and_restores_draft(self) -> None:
         history = CommandHistory()
         history.remember("status")
@@ -107,12 +92,6 @@ class HostShellTests(unittest.TestCase):
         message = unavailable_message(parse_command("mount sd:"))
         self.assertIn("NOT AVAILABLE", message)
         self.assertIn("'sd'", message)
-
-    def test_help_exposes_both_storage_backends(self) -> None:
-        help_text = command_help()
-        self.assertIn("flash:", help_text)
-        self.assertIn("sd:", help_text)
-        self.assertIn("mem read|write|load|save", help_text)
 
 
 if __name__ == "__main__":

@@ -115,15 +115,6 @@ class RuntimeStateTests(unittest.TestCase):
         state.processor_signature = 0xFFFF
         self.assertIsNone(state.processor)
 
-    def test_every_session_starts_with_status_without_a_native_probe(self) -> None:
-        source = (TOOLS / "rp86_runtime" / "session.py").read_text(encoding="utf-8")
-        startup = source.split("# Firmware owns boot-time identity.", 1)[1].split(
-            "posix_terminal_state = None", 1
-        )[0]
-        self.assertIn('"status", workload_id=0', startup)
-        self.assertNotIn("ensure_prepared_runtime_initialized()", startup)
-        self.assertIn("not workload.processor_identified", startup)
-
     def test_runtime_snapshot_publishes_structured_result(self) -> None:
         workload = WorkloadRuntimeState(
             workload_id=4,

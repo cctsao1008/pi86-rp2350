@@ -264,8 +264,7 @@ class WebApi:
             result = self.processor_snapshot()
             return result, 200 if result["ok"] else 503
         args = {"/api/status": (("--status", "--timeout", "3"), 5.0),
-                "/api/devices": (("--list-devices", "--json"), 5.0),
-                "/api/simulate": (("--simulate", "--json"), 3.0)}
+                "/api/devices": (("--list-devices", "--json"), 5.0)}
         if path not in args:
             return {"ok": False, "error": "not found"}, 404
         command, timeout = args[path]
@@ -276,8 +275,7 @@ class WebApi:
             value = json.loads(str(result["stdout"]))
         except json.JSONDecodeError as exc:
             return {"ok": False, "error": f"invalid JSON: {exc}"}, 500
-        return ({"ok": True, "devices": value} if path == "/api/devices" else
-                {"ok": True, "result": value}), 200
+        return {"ok": True, "devices": value}, 200
 
     def post(self, path: str, payload: dict[str, object]) -> tuple[dict[str, object], int]:
         if path == "/api/console":

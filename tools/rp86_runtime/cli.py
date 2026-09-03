@@ -8,7 +8,6 @@ import sys
 
 from .broker import BrokerClient, BrokerRecord, discover_brokers, select_broker
 from .constants import (
-    CANONICAL_GREETING,
     DEPENDENCY_EXIT,
     PASS_EXIT,
     PROCESSOR_NAMES,
@@ -17,13 +16,9 @@ from .constants import (
     USB_VID,
     VALIDATION_EXIT,
 )
-from .core import simulate_v30
-from .exchange import physical_exchange, print_human_result
 from .protocol import (
-    Message,
     RUNTIME_CONTROL_ENTER_BOOTLOADER,
     RUNTIME_CONTROL_REBOOT,
-    TYPE_HELLO,
 )
 from .session import persistent_monitor
 from .shell_commands import is_device_path
@@ -44,8 +39,6 @@ def build_parser() -> argparse.ArgumentParser:
         description="exchange fixed 64-byte records with a physical 8086-class processor"
     )
     mode = parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument("--simulate", action="store_true")
-    mode.add_argument("--exchange", action="store_true")
     mode.add_argument("--interactive", action="store_true")
     mode.add_argument(
         "--physical-regression", metavar="P86W",
@@ -91,7 +84,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--attach", action="store_true",
-        help="attach to an already-running RP86 processor runtime without RESET evidence",
+        help="explicitly attach to the current runtime (interactive sessions always attach)",
     )
     parser.add_argument("--interval", type=float, default=1.0)
     parser.add_argument("--probe-timeout", type=float, default=2.0)
@@ -126,23 +119,6 @@ def main() -> int:
     if regression_error is not None:
         print(f"ERROR: {regression_error}", file=sys.stderr)
         return VALIDATION_EXIT
-    if args.simulate:
-        request = Message(TYPE_HELLO, args.sequence, CANONICAL_GREETING)
-        response = Message.decode(simulate_v30(request.encode()))
-        if args.json:
-            print(json.dumps({
-                "schema": "rp86.host-protocol-simulation/v1",
-                "request": request.payload.decode("ascii"),
-                "reply": response.payload.decode("ascii"),
-                "sequence": response.sequence,
-                "passed": True,
-            }, separators=(",", ":")))
-        else:
-            print(f"OpenAI Codex > {request.payload.decode('ascii')}")
-            print(f"NEC V30      > {response.payload.decode('ascii')}")
-            print("Protocol simulation: PASS")
-        return PASS_EXIT
-
     if args.list_devices:
         try:
             devices = list_hid_devices()
@@ -177,20 +153,17 @@ def main() -> int:
         parser.error("--attach requires --interactive, --monitor, or --native-probe")
 
     broker_record: BrokerRecord | None = None
-    if args.status or args.bootloader or args.reboot or (
-        args.attach and (args.interactive or args.monitor or args.native_probe)
-    ) or args.physical_regression:
-        device_hint = args.hid_serial
-        if device_hint is None and args.port:
-            try:
-                device_hint = cdc_serial_for_port(args.port)
-            except RuntimeError:
-                device_hint = None
+    device_hint = args.hid_serial
+    if device_hint is None and args.port:
         try:
-            broker_record = select_broker(discover_brokers(), device_hint)
-        except RuntimeError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return TRANSPORT_EXIT
+            device_hint = cdc_serial_for_port(args.port)
+        except RuntimeError:
+            device_hint = None
+    try:
+        broker_record = select_broker(discover_brokers(), device_hint)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return TRANSPORT_EXIT
 
     if args.status and broker_record is not None:
         try:
@@ -292,10 +265,10 @@ def main() -> int:
             serial_number=broker_record.device_id,
             display=args.display,
             interactive=args.interactive,
-            rounds=args.rounds,
+            rounds=0 if args.physical_regression else args.rounds,
             processor=session_processor,
             broker_record=broker_record,
-            native_probe=args.native_probe,
+            native_probe=False if args.physical_regression else args.native_probe,
             regression_workload=args.physical_regression,
             regression_timeout=args.timeout,
         )
@@ -349,78 +322,27 @@ def main() -> int:
         return request_bootloader(args.port, args.timeout)
     if args.reboot:
         return request_reboot_cdc(args.port, args.timeout)
-    if args.physical_regression:
-        try:
-            return persistent_monitor(
-                port=args.port,
-                sequence=args.sequence or 1,
-                timeout=args.probe_timeout,
-                interval=args.interval,
-                output_dir=args.output_dir,
-                serial_number=args.hid_serial,
-                display=args.display,
-                interactive=False,
-                rounds=0,
-                processor=args.processor,
-                native_probe=False,
-                regression_workload=args.physical_regression,
-                regression_timeout=args.timeout,
-            )
-        except RuntimeError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return DEPENDENCY_EXIT
-    if args.attach:
-        try:
-            return persistent_monitor(
-                port=args.port,
-                sequence=args.sequence or 1,
-                timeout=args.probe_timeout,
-                interval=args.interval,
-                output_dir=args.output_dir,
-                serial_number=args.hid_serial,
-                display=args.display,
-                interactive=args.interactive,
-                rounds=args.rounds,
-                processor=args.processor,
-                native_probe=args.native_probe,
-            )
-        except RuntimeError as exc:
-            print(f"ERROR: {exc}", file=sys.stderr)
-            return DEPENDENCY_EXIT
+    # Firmware owns initialization. Every session starts with structured status;
+    # no preliminary HELLO exchange, CDC text qualification, or processor reset.
     try:
-        result, exit_code = physical_exchange(
-            port=args.port,
-            sequence=args.sequence,
-            timeout=args.timeout,
-            output_dir=args.output_dir,
-            processor=args.processor,
-            serial_number=args.hid_serial,
-            echo_cdc=not args.json and not args.interactive,
-        )
-    except RuntimeError as exc:
-        print(f"ERROR: {exc}", file=sys.stderr)
-        return DEPENDENCY_EXIT
-    if args.json:
-        print(json.dumps(result, separators=(",", ":"), ensure_ascii=False))
-    else:
-        print_human_result(result)
-    if exit_code != PASS_EXIT:
-        return exit_code
-    if args.interactive or args.monitor or args.native_probe:
         return persistent_monitor(
             port=args.port,
-            sequence=(args.sequence + 1) & 0xFFFFFFFF or 1,
+            sequence=args.sequence or 1,
             timeout=args.probe_timeout,
             interval=args.interval,
             output_dir=args.output_dir,
             serial_number=args.hid_serial,
             display=args.display,
             interactive=args.interactive,
-            rounds=args.rounds,
+            rounds=0 if args.physical_regression else args.rounds,
             processor=args.processor,
-            native_probe=args.native_probe,
+            native_probe=False if args.physical_regression else args.native_probe,
+            regression_workload=args.physical_regression,
+            regression_timeout=args.timeout,
         )
-    return exit_code
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return DEPENDENCY_EXIT
 
 
 if __name__ == "__main__":
