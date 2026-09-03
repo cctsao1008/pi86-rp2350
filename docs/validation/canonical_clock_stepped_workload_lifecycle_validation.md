@@ -1,5 +1,38 @@
 # Canonical CLOCK_STEPPED Workload Lifecycle Validation
 
+## Stopped fault diagnostics — 2026-09-03
+
+Updated firmware was flashed once to the same Intel 8086 system. The opt-in
+physical lifecycle test with `--diagnostics` verified:
+
+- reading while executing returns BAD_STATE without stopping execution;
+- accepted upload clears the preceding diagnostics;
+- fault reads are repeatable and do not change cycles;
+- the unbacked read fixture reports `BUS_FAULT`, 9 cycles,
+  `MEM_READ`, physical address `0x40000`, lanes 3, `UNMAPPED`, and unavailable data;
+- new INVSQRT execution after the fault completes with `RESULT: PASS`,
+  NATIVE_HLT and 3,212 cycles, without reboot.
+
+The real CLI additionally captured the fault automatically into session JSON.
+`trace save` was exercised through the actual interactive command dispatch,
+with only keyboard input automated; the saved address/type/reason matched the
+physical snapshot. A faulted physical regression now exits immediately with
+BUS_FAULT, rather than waiting and mislabeling it as a Host deadline timeout.
+
+Evidence relative to the validation checkout:
+
+```text
+build/validation/fault-diagnostics/runtime_session_20260903_113248+0800.json
+build/validation/fault-diagnostics/shell/runtime_session_20260903_113540+0800.json
+build/validation/fault-diagnostics/automatic-final/runtime_session_20260903_113541+0800.json
+build/validation/fault-diagnostics/recovered/runtime_session_20260903_113622+0800.json
+```
+
+The CLI directories also retain raw CDC logs. The standalone lifecycle test
+retains structured HID snapshots only. Firmware timing code was unchanged;
+no-ALE timeout diagnostics remain covered by the deterministic C executor test,
+not by a physical starvation claim.
+
 ## Recovery regression — 2026-09-03
 
 The current Intel 8086 recovery checks passed after one firmware update, with

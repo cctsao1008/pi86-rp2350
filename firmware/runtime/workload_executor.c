@@ -181,6 +181,9 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     /* A new attempt must never inherit a previous PASS/output/reason, even
      * when run follows stop or restart reuses the same staged image. */
     reset_native_result(executor);
+    memset(&executor->bus_stats, 0, sizeof executor->bus_stats);
+    executor->diagnostic_workload_id = executor->runtime->workload.workload_id;
+    executor->diagnostic_boot_id = 0u;
     const rp86_workload_manifest_t *manifest =
         &executor->runtime->workload.manifest;
     if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u) {
@@ -209,7 +212,6 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
         rp86_processor_bus_force_safe_state(executor->processor_bus);
         return false;
     }
-    memset(&executor->bus_stats, 0, sizeof executor->bus_stats);
     memset(executor->trace, 0, sizeof executor->trace);
     executor->trace_count = 0u;
     executor->diagnostic_length = 0u;
@@ -221,6 +223,7 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     *executor->physical_bus_active = true;
     ++*executor->processor_boot_id;
     if (*executor->processor_boot_id == 0u) ++*executor->processor_boot_id;
+    executor->diagnostic_boot_id = *executor->processor_boot_id;
     if (!rp86_processor_bus_reset_sequence(
             executor->processor_bus, RP86_PROCESSOR_RESET_CLOCKS)) {
         executor->completion_reason = RP86_WORKLOAD_COMPLETION_START_FAILURE;
@@ -238,7 +241,13 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     return true;
 }
 
+void rp86_workload_executor_clear_diagnostics(rp86_workload_executor_t *executor) {
+    executor->diagnostic_workload_id = 0u;
+    executor->diagnostic_boot_id = 0u;
+}
+
 void rp86_workload_executor_stage(rp86_workload_executor_t *executor) {
+    rp86_workload_executor_clear_diagnostics(executor);
     memset(&executor->bus_stats, 0, sizeof executor->bus_stats);
     executor->processor_idle = false;
     reset_native_result(executor);
@@ -357,6 +366,68 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
 
 bool rp86_workload_executor_active(const rp86_workload_executor_t *executor) {
     return executor->active;
+}
+
+bool rp86_workload_executor_diagnostics(
+    const rp86_workload_executor_t *executor,
+    const rp86_host_protocol_message_t *request,
+    rp86_host_protocol_message_t *reply) {
+    if (request->type != RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST)
+        return false;
+    memset(reply, 0, sizeof *reply);
+    reply->version = RP86_HOST_PROTOCOL_VERSION;
+    reply->type = RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_RESULT;
+    reply->sequence = request->sequence;
+    if (request->version != RP86_HOST_PROTOCOL_VERSION) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_VERSION;
+        return true;
+    }
+    if (request->length != sizeof(uint32_t) || request->flags != 0u ||
+        request->status != RP86_HOST_PROTOCOL_STATUS_OK) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
+        return true;
+    }
+    const rp86_workload_manager_t *workload = &executor->runtime->workload;
+    uint32_t requested_id;
+    memcpy(&requested_id, request->payload, sizeof requested_id);
+    if (requested_id != 0u && requested_id != workload->workload_id) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+        return true;
+    }
+    if ((executor->active && !executor->processor_idle) ||
+        workload->state == RP86_WORKLOAD_STATE_RUNNING) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
+        return true;
+    }
+    if (workload->state < RP86_WORKLOAD_STATE_STOPPED ||
+        executor->diagnostic_workload_id == 0u ||
+        executor->diagnostic_workload_id != workload->workload_id) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE;
+        return true;
+    }
+    const rp86_clock_stepped_stats_t *stats = &executor->bus_stats;
+    const rp86_diagnostics_payload_t snapshot = {
+        .workload_id = executor->diagnostic_workload_id,
+        .boot_id = executor->diagnostic_boot_id,
+        .lifecycle = workload->state,
+        .completion_reason = executor->completion_reason,
+        .cycles = stats->cycles,
+        .last_address = stats->first_cycle_seen ? stats->last_address : 0u,
+        .last_data = stats->first_cycle_seen && stats->last_data_valid ? stats->last_data : 0u,
+        .cycle_type = stats->first_cycle_seen ? (uint32_t)stats->last_type : 0u,
+        .lanes = stats->first_cycle_seen ? (uint32_t)stats->last_lanes : 0u,
+        .flags = (stats->first_cycle_seen ? RP86_DIAGNOSTICS_CYCLE_VALID : 0u) |
+                 (stats->first_cycle_seen && stats->last_data_valid ? RP86_DIAGNOSTICS_DATA_VALID : 0u) |
+                 (stats->no_cycle ? RP86_DIAGNOSTICS_NO_CYCLE : 0u) |
+                 (stats->unmapped ? RP86_DIAGNOSTICS_UNMAPPED : 0u) |
+                 (stats->invalid_lane ? RP86_DIAGNOSTICS_INVALID_LANE : 0u) |
+                 (stats->pad_mismatch ? RP86_DIAGNOSTICS_PAD_MISMATCH : 0u) |
+                 (stats->clock_failure ? RP86_DIAGNOSTICS_CLOCK_FAILURE : 0u) |
+                 (stats->interrupt_ack ? RP86_DIAGNOSTICS_INTERRUPT_ACK : 0u),
+    };
+    reply->length = sizeof snapshot;
+    memcpy(reply->payload, &snapshot, sizeof snapshot);
+    return true;
 }
 
 bool rp86_workload_executor_processor_idle(

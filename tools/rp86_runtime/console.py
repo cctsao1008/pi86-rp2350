@@ -249,6 +249,9 @@ class CdcDisplayStream:
                   line.startswith("[WORKLOAD IDLE]")):
                 events.append("[WORKLOAD COMPLETED] processor=IDLE / HLT")
                 self._native_group_open = False
+            elif line.startswith(("[WORKLOAD FAULT]", "[WORKLOAD TIMEOUT]")):
+                events.append(line)
+                self._native_group_open = False
         return tuple(events)
 
 

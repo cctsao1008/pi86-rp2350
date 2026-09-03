@@ -216,6 +216,12 @@ static bool g_bus_active;
 
 static bool take_non_control_record(rp86_host_protocol_message_t *record) {
     if (!rp86_host_protocol_hid_take_record((uint8_t *)record)) return false;
+    if (record->type == RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST) {
+        rp86_host_protocol_message_t reply;
+        rp86_workload_executor_diagnostics(&g_workload_executor, record, &reply);
+        rp86_host_protocol_hid_send_record((const uint8_t *)&reply, HOST_TIMEOUT_US);
+        return false;
+    }
     if (!rp86_host_protocol_payload_length_valid(record)) {
         if (record->version == RP86_HOST_PROTOCOL_VERSION &&
             record->type >= RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_BEGIN &&
@@ -1348,6 +1354,8 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
                                      begin.transfer_id,
                                      &begin.manifest) ?
             RP86_HOST_PROTOCOL_STATUS_OK : RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
+        if (status == RP86_HOST_PROTOCOL_STATUS_OK)
+            rp86_workload_executor_clear_diagnostics(&g_workload_executor);
     } else if (request->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_DATA &&
                request->length > sizeof(uint32_t) * 2u) {
         uint32_t transfer_id;

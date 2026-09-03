@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from .diagnostics import BusDiagnostics, diagnostics_request
+
 from .filesystem import (
     ListEntry,
     list_request,
@@ -48,6 +50,18 @@ class RuntimeServiceClient:
         except ValueError as exc:
             return None, str(exc)
         return reply, None
+
+    def read_diagnostics(self, workload_id: int) -> tuple[BusDiagnostics | None, str | None]:
+        request = diagnostics_request(workload_id, self._sequence.value)
+        reply, _latency_ms, error = self._exchange(request)
+        self._sequence.advance_after(request.sequence)
+        self._on_activity()
+        if reply is None:
+            return None, error or "diagnostics exchange failed"
+        try:
+            return BusDiagnostics.from_reply(reply, request), None
+        except ValueError as exc:
+            return None, str(exc)
 
     def memory_request(
         self, request: Message

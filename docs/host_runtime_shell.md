@@ -230,7 +230,37 @@ hexadecimal string. `workload.passed` is `null` for incomplete or unproven work;
 fault/timeout is FAIL, while STOPPED is incomplete. Session success does not
 mean an arbitrary workload passed: inspect `workload.outcome`, or the stricter
 `physical_regression.passed` for the regression acceptance decision. Command
-errors remain recorded even when a later retry succeeds. No wire ABI changed.
+errors remain recorded even when a later retry succeeds.
+
+### Stopped-executor diagnostics
+
+```text
+CPU> trace
+CPU> trace save fault.json
+```
+
+`trace` reads a single diagnostic snapshot, not a full bus-trace export.
+It is available after general execution stops, completes, faults or times out.
+It never stops a running processor on the user's behalf; running requests are
+rejected. `trace on/off` and prepared-responder trace export are not implemented.
+
+The snapshot includes workload ID, processor boot/attempt ID, reason, cycle
+count, last observed bus address/type/lanes, valid data, and fault flags.
+Unavailable address/data are explicitly marked, not displayed as a fake zero.
+For `NO_CYCLE`, the last observed cycle is not necessarily the fault location.
+Boot ID zero means the failed attempt never reached processor reset/release.
+
+When a session observes FAULTED/TIMED_OUT, it automatically requests the
+snapshot once and retains it in the session JSON `bus_diagnostics` array.
+Failed diagnostic reads are recorded in `errors`, without replacing the
+original workload outcome. Manual `trace` reads are also retained; `trace save`
+additionally writes a Host JSON file (overwriting that named file).
+
+Starting a new execution or accepting a new upload invalidates the old
+firmware snapshot; saved Host evidence remains. Another client's state change
+can therefore make an old snapshot unavailable. This requires the updated
+firmware's `DIAGNOSTICS_REQUEST/RESULT` service; all wire records remain 64 bytes.
+See [wire layout](host_protocol.md#11-stopped-executor-diagnostics).
 
 ### General Internal-SRAM workload lifecycle
 

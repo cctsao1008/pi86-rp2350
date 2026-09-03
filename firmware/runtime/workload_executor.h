@@ -56,6 +56,8 @@ typedef struct {
     rp86_workload_clock_mode_t clock_mode;
     rp86_workload_trace_entry_t trace[RP86_WORKLOAD_TRACE_DEPTH];
     uint32_t trace_count;
+    uint32_t diagnostic_workload_id;
+    uint32_t diagnostic_boot_id;
 } rp86_workload_executor_t;
 
 void rp86_workload_executor_init(
@@ -71,8 +73,13 @@ void rp86_workload_executor_init(
 
 bool rp86_workload_executor_start(rp86_workload_executor_t *executor);
 void rp86_workload_executor_stage(rp86_workload_executor_t *executor);
+void rp86_workload_executor_clear_diagnostics(rp86_workload_executor_t *executor);
 void rp86_workload_executor_stop(rp86_workload_executor_t *executor);
 void rp86_workload_executor_service(rp86_workload_executor_t *executor);
+bool rp86_workload_executor_diagnostics(
+    const rp86_workload_executor_t *executor,
+    const rp86_host_protocol_message_t *request,
+    rp86_host_protocol_message_t *reply);
 
 bool rp86_workload_executor_active(const rp86_workload_executor_t *executor);
 bool rp86_workload_executor_processor_idle(

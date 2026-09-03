@@ -309,7 +309,40 @@ The record framing remains useful and may be reused by this Host Protocol. The V
 
 Historical validation records using those mechanisms remain authoritative for the tests they describe.
 
-## 11. Related documents
+## 11. Stopped-executor diagnostics
+
+`DIAGNOSTICS_REQUEST = 0x60`, `DIAGNOSTICS_RESULT = 0x61`. Both use the
+existing version-1 64-byte record. Request length is 4, containing a little-endian
+`uint32` workload ID; zero selects the current workload. Request flags/status
+must be zero. The response echoes the sequence. On success, length is 52:
+
+| Payload offset | uint32 field | Meaning |
+| ---: | --- | --- |
+| 0 | workload_id | Executed image ID |
+| 4 | boot_id | Processor reset/attempt ID; zero if start failed before reset |
+| 8 | lifecycle | STOPPED, COMPLETED, FAULTED or TIMED_OUT |
+| 12 | completion_reason | Existing workload completion-reason enum |
+| 16 | cycles | Completed bus-cycle count |
+| 20 | last_address | Last observed 20-bit bus address, if valid |
+| 24 | last_data | Low 16 bits contain valid bus data; otherwise zero |
+| 28 | cycle_type | 0 MEM_READ, 1 MEM_WRITE, 2 IO_READ, 3 IO_WRITE, 4 INTERRUPT_ACK, 5 UNSUPPORTED |
+| 32 | lanes | Bit 0 low byte, bit 1 high byte |
+| 36 | flags | Validity and failure flags below |
+| 40–48 | reserved[3] | Zero |
+
+Flag bits 0–7 are CYCLE_VALID, DATA_VALID, NO_CYCLE, UNMAPPED, INVALID_LANE,
+PAD_MISMATCH, CLOCK_FAILURE and INTERRUPT_ACK, respectively. DATA_VALID does
+not imply the bus transaction completed successfully. NO_CYCLE can accompany
+a valid *previous* cycle; it does not invent the missing cycle's address.
+
+Read-only: no bus access or execution-clock change is performed. Executing
+requests receive BAD_STATE; wrong nonzero ID receives BAD_WORKLOAD. Missing,
+replaced, unexecuted or prepared-only diagnostics receive SERVICE_UNAVAILABLE.
+Errors have zero payload length. Reads are repeatable until new execution or
+an accepted upload invalidates the executor's retained data. This service does
+not export the full ring buffer and does not alter existing message layouts.
+
+## 12. Related documents
 
 - [`architecture.md`](architecture.md) - overall system architecture
 - [`memory_architecture.md`](memory_architecture.md) - memory terminology, V30 Memory Map, and backing resources

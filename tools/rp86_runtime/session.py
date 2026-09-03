@@ -1,6 +1,7 @@
 """Persistent RP86 physical-processor session."""
 
 from datetime import datetime
+import json
 import os
 from pathlib import Path
 import queue
@@ -209,6 +210,7 @@ def persistent_monitor(
     prepared_native_probe_available = True
     workload_completion_pending = False
     structured_result_reported: tuple[int, int, int] | None = None
+    diagnostics_observed: tuple[int, int, int, int] | None = None
     regression_commands = (
         [f'load "{regression_workload}"', "run"]
         if regression_workload else []
@@ -276,6 +278,9 @@ def persistent_monitor(
                         prepared_native_probe_available = False
                         workload_completion_pending = True
                         update_console_runtime()
+                    elif line.startswith(("[WORKLOAD FAULT]", "[WORKLOAD TIMEOUT]")):
+                        # CDC only requests a refresh; HID supplies the actual state.
+                        workload_completion_pending = True
                     if interactive and display != "quiet":
                         print_event(line)
         except (OSError, serial.SerialException) as exc:
@@ -354,10 +359,11 @@ def persistent_monitor(
                         TYPE_WORKLOAD_CONTROL,
                     ):
                         workload.update_from_payload(reply.payload)
+                        request_sequence.advance_after(request.sequence)
                         prepared_native_probe_available = (
                             workload.prepared_runtime_available
                         )
-                        update_console_runtime()
+                        accept_workload_state()
                     result = {
                         "ok": True,
                         "reply_hex": reply.encode().hex(),
@@ -530,8 +536,26 @@ def persistent_monitor(
 
     def accept_workload_state() -> None:
         nonlocal prepared_native_probe_available, structured_result_reported
-        nonlocal processor_name
+        nonlocal processor_name, diagnostics_observed
         evidence.observe_workload(workload)
+        if workload.lifecycle not in (6, 7):
+            diagnostics_observed = None
+        else:
+            diagnostic_key = (workload.workload_id, workload.lifecycle,
+                              workload.cycles, workload.completion_reason)
+            if diagnostic_key != diagnostics_observed:
+                diagnostics_observed = diagnostic_key
+                diagnostic, error = services.read_diagnostics(workload.workload_id)
+                if diagnostic is not None:
+                    if (diagnostic.lifecycle, diagnostic.cycles, diagnostic.completion_reason) == (
+                            workload.lifecycle, workload.cycles, workload.completion_reason):
+                        evidence.retain_diagnostics(diagnostic)
+                        print_event(diagnostic.format())
+                    else:
+                        evidence.failure("diagnostics", "executor changed after fault status")
+                else:
+                    evidence.failure("diagnostics", error or "diagnostics unavailable")
+                    print_event(f"diagnostics: {error}")
         prepared_native_probe_available = workload.prepared_runtime_available
         if workload.processor is not None:
             if processor_observation.processor != workload.processor:
@@ -686,6 +710,12 @@ def persistent_monitor(
                 )
                 stop = True
                 continue
+            if regression_started and workload.lifecycle in (6, 7):
+                regression_passed = False
+                evidence.failure("physical regression", workload.completion_reason_name)
+                print_event(f"PHYSICAL REGRESSION: FAIL ({workload.completion_reason_name})")
+                stop = True
+                continue
             if (regression_deadline is not None and
                     time.monotonic() >= regression_deadline):
                 regression_passed = False
@@ -820,8 +850,29 @@ def persistent_monitor(
                         "  filesystem RP-FLASH ls / df / cat / put\n"
                         "  storage    flash: FAT16 AVAILABLE\n"
                         "  sd         NOT AVAILABLE\n"
-                        "  trace      NOT AVAILABLE"
+                        "  trace      STOPPED GENERAL-EXECUTOR SNAPSHOT"
                     )
+                elif name == "trace":
+                    if arguments and (arguments[0] != "save" or len(arguments) != 2):
+                        print_event("usage: trace [save <host-file>]; live capture controls are unavailable")
+                        continue
+                    diagnostic, error = services.read_diagnostics(0)
+                    if diagnostic is None:
+                        evidence.failure("trace", error or "diagnostics unavailable")
+                        print_event(f"trace: {error}")
+                        continue
+                    evidence.retain_diagnostics(diagnostic)
+                    print_event(diagnostic.format())
+                    if arguments:
+                        try:
+                            destination = host_list_path(arguments[1], host_cwd)
+                            destination.write_text(
+                                json.dumps(diagnostic.as_dict(), indent=2) + "\n", encoding="utf-8"
+                            )
+                            print_event(f"trace saved: {destination}")
+                        except OSError as exc:
+                            evidence.failure("trace save", str(exc))
+                            print_event(f"trace save: {exc}")
                 elif name == "quiet":
                     display = "quiet"
                     print_event("Runtime display: quiet (errors and command results only)")

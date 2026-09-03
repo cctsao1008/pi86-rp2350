@@ -34,6 +34,8 @@ typedef enum {
     RP86_HOST_PROTOCOL_MESSAGE_FILESYSTEM_RESULT = 0x41,
     RP86_HOST_PROTOCOL_MESSAGE_MEMORY_REQUEST = 0x50,
     RP86_HOST_PROTOCOL_MESSAGE_MEMORY_RESULT = 0x51,
+    RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST = 0x60,
+    RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_RESULT = 0x61,
     RP86_HOST_PROTOCOL_MESSAGE_ERROR = 0x7F,
 } rp86_host_protocol_message_type_t;
 
@@ -85,6 +87,36 @@ typedef enum {
 } rp86_memory_operation_t;
 
 enum { RP86_MEMORY_DATA_BYTES = 40u };
+
+/* Read-only stopped-executor snapshot. Request payload: exact workload_id
+ * (uint32_t, zero selects current). No clock or bus operation is performed. */
+enum {
+    RP86_DIAGNOSTICS_CYCLE_VALID = 1u << 0,
+    RP86_DIAGNOSTICS_DATA_VALID = 1u << 1,
+    RP86_DIAGNOSTICS_NO_CYCLE = 1u << 2,
+    RP86_DIAGNOSTICS_UNMAPPED = 1u << 3,
+    RP86_DIAGNOSTICS_INVALID_LANE = 1u << 4,
+    RP86_DIAGNOSTICS_PAD_MISMATCH = 1u << 5,
+    RP86_DIAGNOSTICS_CLOCK_FAILURE = 1u << 6,
+    RP86_DIAGNOSTICS_INTERRUPT_ACK = 1u << 7,
+};
+
+typedef struct {
+    uint32_t workload_id;
+    uint32_t boot_id;
+    uint32_t lifecycle;
+    uint32_t completion_reason;
+    uint32_t cycles;
+    uint32_t last_address;
+    uint32_t last_data;
+    uint32_t cycle_type; /* processor_bus_cycle_type_t; valid only with CYCLE_VALID */
+    uint32_t lanes;
+    uint32_t flags;
+    uint32_t reserved[3];
+} rp86_diagnostics_payload_t;
+
+_Static_assert(sizeof(rp86_diagnostics_payload_t) == 52u,
+               "diagnostics must fit one 64-byte Host record");
 
 enum {
     RP86_FILESYSTEM_FLAG_EOF = 1u << 0,

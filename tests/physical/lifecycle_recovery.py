@@ -17,6 +17,7 @@ from rp86_runtime.core import validate_device_reply
 from rp86_runtime.device import DeviceClient
 from rp86_runtime.runtime_state import RequestSequence, WorkloadRuntimeState
 from rp86_runtime.session_evidence import SessionEvidence
+from rp86_runtime.service_client import RuntimeServiceClient
 from rp86_runtime.workload import (
     CLOCK_MODES, FLAG_CLOCK_STEPPED, WorkloadManifest, control_record, upload_records,
     workload_from_bytes,
@@ -30,6 +31,8 @@ def main():
     parser.add_argument("--persistent", type=Path, required=True)
     parser.add_argument("--recovery", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument("--diagnostics", action="store_true",
+                        help="also verify stopped-executor diagnostics (requires updated firmware)")
     args = parser.parse_args()
     persistent = args.persistent.read_bytes()
     recovery = args.recovery.read_bytes()
@@ -56,6 +59,24 @@ def main():
 
         client = WorkloadClient(exchange, sequence, state,
                                 lambda: evidence.observe_workload(state), lambda: None)
+        services = RuntimeServiceClient(exchange, sequence, lambda: None)
+
+        def diagnose(expected_address=None):
+            if not args.diagnostics:
+                return
+            snapshot, error = services.read_diagnostics(state.workload_id)
+            assert snapshot is not None, error
+            assert snapshot.lifecycle == state.lifecycle and snapshot.cycles == state.cycles
+            assert snapshot.completion_reason == state.completion_reason
+            if expected_address is not None:
+                assert snapshot.as_dict()["last_address"] == expected_address, snapshot
+                assert snapshot.as_dict()["cycle_name"] == "MEM_READ", snapshot
+                assert snapshot.as_dict()["fault_flags"] == ["UNMAPPED"], snapshot
+                assert snapshot.as_dict()["last_data"] is None, snapshot
+            again, error = services.read_diagnostics(state.workload_id)
+            assert again == snapshot, error
+            evidence.retain_diagnostics(snapshot)
+            print(snapshot.format(), flush=True)
 
         def transact(records):
             result = client.transact(records)
@@ -83,6 +104,9 @@ def main():
                 )
             transact(records)
             evidence.bind_workload(state.workload_id, source, manifest)
+            if args.diagnostics:
+                snapshot, error = services.read_diagnostics(state.workload_id)
+                assert snapshot is None and "no stopped" in error, (snapshot, error)
 
         def fresh_start(operation):
             control(operation)
@@ -121,6 +145,9 @@ def main():
         time.sleep(0.05)
         control("status")
         assert state.lifecycle == 3 and state.cycles > first_cycles, state
+        if args.diagnostics:
+            snapshot, error = services.read_diagnostics(state.workload_id)
+            assert snapshot is None and "processor is executing" in error, (snapshot, error)
         control("stop")
         assert state.lifecycle == 4 and state.clock_mode == CLOCK_MODES["stopped"], state
         assert state.processor_state == "STOPPED / RESET", state
@@ -147,6 +174,7 @@ def main():
         assert state.completion_reason == 4 and state.clock_mode == CLOCK_MODES["stopped"], state
         assert state.processor_state == "STOPPED / RESET", state
         passed("unannounced HLT fault parks processor")
+        diagnose()
         recover("load/run after unannounced HLT fault")
 
         # MOV AX,4000h; MOV DS,AX; MOV AX,[0000h]; HLT.
@@ -157,6 +185,7 @@ def main():
         assert state.completion_reason == 4 and state.clock_mode == CLOCK_MODES["stopped"], state
         assert state.processor_state == "STOPPED / RESET", state
         passed("unmapped memory fault parks processor")
+        diagnose(0x40000)
         recover("load/run after fault")
     except Exception as exc:
         failure = str(exc)

@@ -16,6 +16,8 @@ from .protocol import (
     NativeServiceWitness,
     STATUS_OK,
     TYPE_COMMAND,
+    TYPE_DIAGNOSTICS_REQUEST,
+    TYPE_DIAGNOSTICS_RESULT,
     TYPE_FILESYSTEM_REQUEST,
     TYPE_FILESYSTEM_RESULT,
     TYPE_HEARTBEAT,
@@ -148,6 +150,13 @@ def validate_device_reply(
     """Validate either the deployed heartbeat ABI or the workload ABI."""
     if request.message_type in (TYPE_COMMAND, TYPE_HEARTBEAT):
         return validate_live_reply(record, request, expected_processor)
+
+    if request.message_type == TYPE_DIAGNOSTICS_REQUEST:
+        reply = Message.decode(normalize_hid_input(record))
+        if reply.message_type != TYPE_DIAGNOSTICS_RESULT or reply.sequence != request.sequence:
+            raise ValueError("diagnostics reply type/sequence mismatch")
+        # Matching negative replies are errors, not stale traffic to wait past.
+        return reply
 
     if request.message_type == TYPE_FILESYSTEM_REQUEST:
         reply = Message.decode(normalize_hid_input(record))

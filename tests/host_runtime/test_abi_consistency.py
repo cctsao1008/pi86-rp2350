@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
 
-from rp86_runtime import processor_abi, protocol, runtime_state, workload  # noqa: E402
+from rp86_runtime import diagnostics, processor_abi, protocol, runtime_state, workload  # noqa: E402
 
 
 def _integer(expression: str) -> int:
@@ -111,6 +111,7 @@ class AbiConsistencyTests(unittest.TestCase):
             "WORKLOAD_CONTROL", "WORKLOAD_STATUS", "WORKLOAD_RESULT",
             "RUNTIME_CONTROL", "RUNTIME_STATUS", "FILESYSTEM_REQUEST",
             "FILESYSTEM_RESULT", "MEMORY_REQUEST", "MEMORY_RESULT", "ERROR",
+            "DIAGNOSTICS_REQUEST", "DIAGNOSTICS_RESULT",
         )
         for name in message_names:
             self.assertEqual(
@@ -166,7 +167,17 @@ class AbiConsistencyTests(unittest.TestCase):
         self.assertEqual(protocol.MESSAGE_SIZE, 64)
         self.assertEqual(protocol.PAYLOAD_SIZE, 52)
         self.assertEqual(workload._STRUCTURED_STATUS.size, protocol.PAYLOAD_SIZE)
+        self.assertEqual(diagnostics._SNAPSHOT.size, protocol.PAYLOAD_SIZE)
         self.assertEqual(len(protocol.Message(protocol.TYPE_ACK, 1).encode()), 64)
+
+    def test_diagnostics_flags_and_bus_cycle_types_match(self):
+        for name in ("CYCLE_VALID", "DATA_VALID", "NO_CYCLE", "UNMAPPED",
+                     "INVALID_LANE", "PAD_MISMATCH", "CLOCK_FAILURE", "INTERRUPT_ACK"):
+            self.assertEqual(_c_enum(self.protocol_c, "RP86_DIAGNOSTICS_" + name),
+                             getattr(diagnostics, "DIAGNOSTICS_" + name))
+        source = (ROOT / "firmware/bus/processor_bus.h").read_text()
+        for value, name in diagnostics.CYCLE_NAMES.items():
+            self.assertEqual(_c_enum(source, "RP86_PROCESSOR_BUS_CYCLE_" + name), value)
 
 
 if __name__ == "__main__":

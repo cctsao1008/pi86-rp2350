@@ -97,7 +97,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("sync", "sync [flash:|sd:]", "storage", "flush persistent filesystem state", "storage"),
     CommandSpec("mem", "mem read|write|load|save ...", "memory", "inspect or change processor-visible memory", "memory"),
     CommandSpec("mailbox", "mailbox <text>", "memory", "exchange one message through shared Internal SRAM", "memory"),
-    CommandSpec("trace", "trace on|off|save [file]", "observe", "control and save bus trace", "trace"),
+    CommandSpec("trace", "trace [save <host-file>]", "observe", "read/save the stopped executor's last bus cycle and fault flags", "trace"),
     CommandSpec("selftest", "selftest [psram|all]", "observe", "run a canonical runtime resource self-test", "selftest"),
     CommandSpec("timeout", "timeout [seconds|off]", "control", "show or set the workload watchdog", "watchdog"),
     CommandSpec("regs", "regs", "observe", "show workload-published processor registers", "registers"),

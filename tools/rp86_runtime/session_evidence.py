@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .runtime_state import WorkloadRuntimeState
+from .diagnostics import BusDiagnostics
 from .workload import RESULT_FLAG_NATIVE_OUTPUT_TRUNCATED, WorkloadManifest
 
 
@@ -31,6 +32,7 @@ class SessionEvidence:
     events: list[dict[str, Any]] = field(default_factory=list)
     workload_results: list[dict[str, Any]] = field(default_factory=list)
     errors: list[dict[str, Any]] = field(default_factory=list)
+    bus_diagnostics: list[dict[str, Any]] = field(default_factory=list)
     _image: dict[str, Any] | None = None
     _image_workload_id: int | None = None
     _last_terminal: dict[str, Any] | None = None
@@ -135,9 +137,19 @@ class SessionEvidence:
         document["events"] = self.events
         document["workload_results"] = self.workload_results
         document["errors"] = self.errors
+        document["bus_diagnostics"] = self.bus_diagnostics
         document["raw_cdc_log"] = str(self.raw_path.resolve())
         self.raw_path.write_bytes(self.captured)
         self.json_path.write_text(
             json.dumps(document, indent=2, ensure_ascii=False) + "\n",
             encoding="utf-8",
         )
+
+    def retain_diagnostics(self, snapshot: BusDiagnostics) -> None:
+        document = snapshot.as_dict()
+        if self.bus_diagnostics and all(
+                self.bus_diagnostics[-1].get(key) == value for key, value in document.items()):
+            return
+        self.bus_diagnostics.append({
+            "observed_at": datetime.now().astimezone().isoformat(), **document,
+        })

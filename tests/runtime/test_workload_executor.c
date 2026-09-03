@@ -47,6 +47,21 @@ const char *rp86_clock_stepped_cycle_name(rp86_processor_bus_cycle_type_t type) 
 }
 static bool handoff(void *context) { (void)context; return true; }
 
+static rp86_host_protocol_message_t read_diagnostics(
+    const rp86_workload_executor_t *executor, uint32_t id) {
+    rp86_host_protocol_message_t request = {
+        .version = RP86_HOST_PROTOCOL_VERSION,
+        .type = RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST,
+        .sequence = 37u, .length = 4u,
+    };
+    memcpy(request.payload, &id, sizeof id);
+    rp86_host_protocol_message_t reply;
+    assert(rp86_workload_executor_diagnostics(executor, &request, &reply));
+    assert(reply.type == RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_RESULT);
+    assert(reply.sequence == 37u && reply.version == RP86_HOST_PROTOCOL_VERSION);
+    return reply;
+}
+
 static void upload(rp86_runtime_context_t *runtime) {
     const uint8_t image[] = {0x90u};
     const rp86_workload_manifest_t manifest = {
@@ -78,6 +93,7 @@ int main(void) {
                                &boot_id, handoff, NULL, NULL, NULL);
     upload(&runtime);
     rp86_workload_executor_stage(&executor);
+    assert(read_diagnostics(&executor, 0u).status == RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE);
 
     /* run/restart without a new upload must discard the previous result. */
     executor.completion_reason = RP86_WORKLOAD_COMPLETION_STOP_REQUESTED;
@@ -88,6 +104,9 @@ int main(void) {
     assert(rp86_workload_executor_start(&executor));
     assert(executor.completion_reason == RP86_WORKLOAD_COMPLETION_NONE);
     assert(executor.result_flags == 0u && executor.native_output_length == 0u);
+
+    assert(read_diagnostics(&executor, 0u).status == RP86_HOST_PROTOCOL_STATUS_BAD_STATE);
+    assert(executor.active && bus_active && safe_halts == 0u);
 
     /* A completed cycle cancels the starvation interval. */
     now_us = 1u;
@@ -112,6 +131,13 @@ int main(void) {
     assert(executor.starvation_started_us == 0u);
 
     /* The actual timed-out manager accepts a fresh verified image. */
+    rp86_host_protocol_message_t reply = read_diagnostics(&executor, 0u);
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_OK && reply.length == 52u);
+    rp86_diagnostics_payload_t snapshot;
+    memcpy(&snapshot, reply.payload, sizeof snapshot);
+    assert(snapshot.completion_reason == RP86_WORKLOAD_COMPLETION_NO_BUS_CYCLE);
+    assert(snapshot.flags == RP86_DIAGNOSTICS_NO_CYCLE);
+    assert(snapshot.boot_id == 1u && snapshot.last_address == 0u);
     assert(!rp86_workload_restart(&runtime.workload, 0u));
     upload(&runtime);
     rp86_workload_executor_stage(&executor);
@@ -127,10 +153,33 @@ int main(void) {
     /* Immediate faults must not be delayed or mislabeled as timeouts. */
     completed_cycle = false;
     unmapped_cycle = true;
+    executor.bus_stats.first_cycle_seen = true;
+    executor.bus_stats.last_address = 0x40000u;
+    executor.bus_stats.last_type = RP86_PROCESSOR_BUS_CYCLE_MEM_READ;
+    executor.bus_stats.last_lanes = RP86_PROCESSOR_BUS_LANES_WORD;
+    executor.bus_stats.last_data = 0xbeefu;
+    executor.bus_stats.last_data_valid = false;
     rp86_workload_executor_service(&executor);
     assert(runtime.workload.state == RP86_WORKLOAD_STATE_FAULTED);
     assert(executor.completion_reason == RP86_WORKLOAD_COMPLETION_BUS_FAULT);
     assert(!executor.active && !bus_active && safe_halts == 2u);
+
+    reply = read_diagnostics(&executor, runtime.workload.workload_id);
+    memcpy(&snapshot, reply.payload, sizeof snapshot);
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_OK);
+    assert(snapshot.boot_id == 2u && snapshot.last_address == 0x40000u);
+    assert(snapshot.cycle_type == RP86_PROCESSOR_BUS_CYCLE_MEM_READ);
+    assert(snapshot.flags == (RP86_DIAGNOSTICS_CYCLE_VALID | RP86_DIAGNOSTICS_UNMAPPED));
+    assert(snapshot.last_data == 0u); /* stale data is not exported as valid */
+    assert(snapshot.reserved[0] == 0u && snapshot.reserved[1] == 0u && snapshot.reserved[2] == 0u);
+    rp86_host_protocol_message_t again = read_diagnostics(&executor, 0u);
+    assert(memcmp(&reply, &again, sizeof reply) == 0 && safe_halts == 2u);
+    assert(read_diagnostics(&executor, runtime.workload.workload_id + 1u).status ==
+           RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD);
+
+    /* Beginning a new upload invalidates the old snapshot even if CRC fails. */
+    rp86_workload_executor_clear_diagnostics(&executor);
+    assert(read_diagnostics(&executor, 0u).status == RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE);
 
     /* Even an early rejected start cannot retain a previous PASS. */
     executor.result_flags = RP86_WORKLOAD_RESULT_PASS;
@@ -140,5 +189,22 @@ int main(void) {
     assert(executor.completion_reason == RP86_WORKLOAD_COMPLETION_START_FAILURE);
     assert(executor.result_flags == 0u && executor.native_output_length == 0u);
     assert(!executor.active && !bus_active);
+    reply = read_diagnostics(&executor, 0u);
+    memcpy(&snapshot, reply.payload, sizeof snapshot);
+    assert(snapshot.completion_reason == RP86_WORKLOAD_COMPLETION_START_FAILURE);
+    assert(snapshot.flags == 0u && snapshot.last_address == 0u && snapshot.boot_id == 0u);
+
+    /* Malformed diagnostics requests always receive bounded error records. */
+    rp86_host_protocol_message_t bad = {
+        .version = RP86_HOST_PROTOCOL_VERSION,
+        .type = RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST,
+        .length = 53u,
+    };
+    assert(rp86_workload_executor_diagnostics(&executor, &bad, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH && reply.length == 0u);
+    bad.length = 4u;
+    bad.version = 99u;
+    assert(rp86_workload_executor_diagnostics(&executor, &bad, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_VERSION);
     return 0;
 }
