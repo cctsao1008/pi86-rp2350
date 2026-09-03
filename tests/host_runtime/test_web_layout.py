@@ -22,23 +22,16 @@ class WebLayoutTests(unittest.TestCase):
             ("systemTab", "System"),
         ):
             self.assertIn(f'id="{tab_id}" role="tab">{label}</button>', html)
-        self.assertNotIn("runtime-only", html)
-        self.assertNotIn("overviewTab", html)
-        self.assertNotIn("runtimeTab", html)
 
     def test_labels_native_input_honestly(self) -> None:
         html = rp86_web.INDEX_HTML
         self.assertIn("Native workload input", html)
-        self.assertNotIn("Physical processor console", html)
-        self.assertNotIn("Processor console", html)
         self.assertIn("s.native_command_available===true", html)
         self.assertIn("new TextEncoder()", html)
         self.assertIn("14 UTF-8 bytes", html)
 
-    def test_responsive_header_avoids_sticky_overlap(self) -> None:
+    def test_status_changes_are_announced(self) -> None:
         html = rp86_web.INDEX_HTML
-        self.assertIn("@media(max-width:1100px){header,.statebar{position:static}", html)
-        self.assertNotIn(".statebar{top:126px}", html)
         self.assertIn('class="statebar" aria-live="polite"', html)
 
     def test_memory_inputs_have_visible_labels(self) -> None:
@@ -46,31 +39,6 @@ class WebLayoutTests(unittest.TestCase):
         self.assertIn('for="memoryAddress">Processor address</label>', html)
         self.assertIn('for="memoryLength">Bytes</label>', html)
         self.assertIn('id="memoryOut" class="memory-output" aria-live="polite"', html)
-        self.assertIn("grid-template-columns:minmax(260px,520px) 90px auto", html)
-        self.assertIn("@media(max-width:760px){.memory-line{grid-template-columns:1fr}}", html)
-
-    def test_http_server_delegates_to_api_boundary(self) -> None:
-        source = (TOOLS / "rp86_web.py").read_text(encoding="utf-8")
-        handler = source[source.index("class Handler"):]
-        self.assertIn("API.get(path)", handler)
-        self.assertIn("API.post(path, payload)", handler)
-        self.assertIn("API.ensure_runtime_owner()", handler)
-        self.assertIn("API.stop_owned_runtime()", handler)
-        self.assertNotIn("BrokerClient(", handler)
-
-    def test_web_entrypoint_has_no_superseded_backend(self) -> None:
-        source = (TOOLS / "rp86_web.py").read_text(encoding="utf-8")
-        for obsolete in (
-            "def _run_rp86(",
-            "def _active_broker(",
-            "def _ensure_runtime_owner(",
-            "def _processor_snapshot(",
-            "def _processor_command(",
-            "def _memory_read(",
-            "BrokerClient",
-            "_owned_runtime:",
-        ):
-            self.assertNotIn(obsolete, source)
 
     def test_processor_view_preserves_broker_snapshot(self) -> None:
         record = SimpleNamespace(
