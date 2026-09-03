@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 TOOLS = ROOT / "tools"
 sys.path.insert(0, str(TOOLS))
 
-from rp86_runtime import diagnostics, processor_abi, protocol, runtime_state, workload  # noqa: E402
+from rp86_runtime import diagnostics, processor_abi, protocol, runtime_state, workload, workload_timeout  # noqa: E402
 
 
 def _integer(expression: str) -> int:
@@ -112,6 +112,7 @@ class AbiConsistencyTests(unittest.TestCase):
             "RUNTIME_CONTROL", "RUNTIME_STATUS", "FILESYSTEM_REQUEST",
             "FILESYSTEM_RESULT", "MEMORY_REQUEST", "MEMORY_RESULT", "ERROR",
             "DIAGNOSTICS_REQUEST", "DIAGNOSTICS_RESULT",
+            "WORKLOAD_TIMEOUT_REQUEST", "WORKLOAD_TIMEOUT_RESULT",
         )
         for name in message_names:
             self.assertEqual(
@@ -168,9 +169,13 @@ class AbiConsistencyTests(unittest.TestCase):
         self.assertEqual(protocol.PAYLOAD_SIZE, 52)
         self.assertEqual(workload._STRUCTURED_STATUS.size, protocol.PAYLOAD_SIZE)
         self.assertEqual(diagnostics._SNAPSHOT.size, protocol.PAYLOAD_SIZE)
+        self.assertEqual(workload_timeout._STATUS.size, protocol.PAYLOAD_SIZE)
         self.assertEqual(len(protocol.Message(protocol.TYPE_ACK, 1).encode()), 64)
 
     def test_diagnostics_flags_and_bus_cycle_types_match(self):
+        for name in ("GET", "SET", "MAX_MS"):
+            self.assertEqual(_c_enum(self.protocol_c, "RP86_WORKLOAD_TIMEOUT_" + name),
+                             getattr(protocol, "WORKLOAD_TIMEOUT_" + name))
         for name in ("CYCLE_VALID", "DATA_VALID", "NO_CYCLE", "UNMAPPED",
                      "INVALID_LANE", "PAD_MISMATCH", "CLOCK_FAILURE", "INTERRUPT_ACK"):
             self.assertEqual(_c_enum(self.protocol_c, "RP86_DIAGNOSTICS_" + name),

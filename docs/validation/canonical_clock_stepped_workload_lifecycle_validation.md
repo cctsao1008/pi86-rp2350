@@ -1,5 +1,43 @@
 # Canonical CLOCK_STEPPED Workload Lifecycle Validation
 
+## Execution deadline — 2026-09-03
+
+The candidate UF2 was flashed once through HID bootloader control, then tested
+on the physical Intel 8086 using:
+
+```powershell
+py tests\physical\lifecycle_recovery.py --persistent build\workloads\LIFECYCLE.P86W --recovery build\workloads\INVSQRT.P86W --diagnostics --execution-deadline --output-dir build\validation\execution-deadline
+```
+
+All 13 lifecycle cases passed, including the original stop/restart/fault
+recovery cases. New deadline results:
+
+- A busy loop with a 400 ms limit reached `TIMED_OUT / EXECUTION_DEADLINE`,
+  stopped/reset after 5,126 serviced cycles, and retained its diagnostic snapshot.
+  The Host made no requests during a 700 ms sleep after run acceptance. USB
+  remained connected; this was not a physical cable-disconnect test.
+- After timeout, INVSQRT loaded and completed with `RESULT: PASS` at 3,748
+  cycles. With a five-second limit it also restarted and completed normally;
+  completion disarmed the timer.
+- With the limit OFF, the loop remained RUNNING after the same 700 ms wait.
+  Explicit stop succeeded at 11,248 cycles; INVSQRT then completed again.
+- The shell's actual `timeout`, `timeout 5`, query, and `timeout off` HID paths
+  returned the expected settings. Only keyboard input was supplied by a test
+  driver; the shell, broker, USB and firmware were real.
+
+Local machine-readable evidence (not committed build artifacts):
+
+```text
+build/validation/execution-deadline/runtime_session_20260903_123544+0800.json
+build/validation/execution-deadline/shell/runtime_session_20260903_123917+0800.json
+```
+
+The final device setting was restored to OFF, with INVSQRT completed. Host
+tests cover framing, validation and shell-value parsing; executor unit tests
+cover exact boundaries, unchanged deadlines on query, original-start semantics
+on SET, restart, completion, OFF and unsupported prepared execution. No PIO,
+ISR or bus-cycle timing implementation was changed.
+
 ## Stopped fault diagnostics — 2026-09-03
 
 Updated firmware was flashed once to the same Intel 8086 system. The opt-in

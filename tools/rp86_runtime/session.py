@@ -1,6 +1,7 @@
 """Persistent RP86 physical-processor session."""
 
 from datetime import datetime
+from dataclasses import asdict
 import json
 import os
 from pathlib import Path
@@ -102,6 +103,7 @@ from .workload import (
     workload_from_command,
 )
 from .workload_client import WorkloadClient
+from .workload_timeout import parse_timeout
 
 
 def _broker_runtime_state(transport_error: str | None) -> str:
@@ -852,6 +854,21 @@ def persistent_monitor(
                         "  sd         NOT AVAILABLE\n"
                         "  trace      STOPPED GENERAL-EXECUTOR SNAPSHOT"
                     )
+                elif name == "timeout":
+                    try:
+                        timeout_ms = parse_timeout(arguments)
+                    except ValueError as exc:
+                        print_event(f"timeout: {exc}")
+                        continue
+                    setting, error = services.execution_timeout(timeout_ms)
+                    if setting is None:
+                        evidence.failure("execution timeout", error or "unavailable")
+                        print_event(f"timeout: {error}")
+                    else:
+                        evidence.record({"event": "execution_timeout",
+                                         "operation": "get" if timeout_ms is None else "set",
+                                         **asdict(setting)})
+                        print_event(setting.format())
                 elif name == "trace":
                     if arguments and (arguments[0] != "save" or len(arguments) != 2):
                         print_event("usage: trace [save <host-file>]; live capture controls are unavailable")

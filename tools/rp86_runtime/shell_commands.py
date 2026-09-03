@@ -99,7 +99,7 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("mailbox", "mailbox <text>", "memory", "exchange one message through shared Internal SRAM", "memory"),
     CommandSpec("trace", "trace [save <host-file>]", "observe", "read/save the stopped executor's last bus cycle and fault flags", "trace"),
     CommandSpec("selftest", "selftest [psram|all]", "observe", "run a canonical runtime resource self-test", "selftest"),
-    CommandSpec("timeout", "timeout [seconds|off]", "control", "show or set the workload watchdog", "watchdog"),
+    CommandSpec("timeout", "timeout [seconds|off]", "control", "query/set the RP2350 general-workload execution limit", "watchdog"),
     CommandSpec("regs", "regs", "observe", "show workload-published processor registers", "registers"),
     CommandSpec("quiet", "quiet", "shell", "show errors and command results only"),
     CommandSpec("verbose", "verbose", "shell", "show every native diagnostic probe result"),

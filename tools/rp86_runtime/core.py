@@ -32,6 +32,8 @@ from .protocol import (
     TYPE_WORKLOAD_DATA,
     TYPE_WORKLOAD_RESULT,
     TYPE_WORKLOAD_STATUS,
+    TYPE_WORKLOAD_TIMEOUT_REQUEST,
+    TYPE_WORKLOAD_TIMEOUT_RESULT,
 )
 
 def heartbeat_payload(sequence: int, nonce: int | None = None) -> bytes:
@@ -150,6 +152,12 @@ def validate_device_reply(
     """Validate either the deployed heartbeat ABI or the workload ABI."""
     if request.message_type in (TYPE_COMMAND, TYPE_HEARTBEAT):
         return validate_live_reply(record, request, expected_processor)
+
+    if request.message_type == TYPE_WORKLOAD_TIMEOUT_REQUEST:
+        reply = Message.decode(normalize_hid_input(record))
+        if reply.message_type != TYPE_WORKLOAD_TIMEOUT_RESULT or reply.sequence != request.sequence:
+            raise ValueError("workload timeout reply type/sequence mismatch")
+        return reply
 
     if request.message_type == TYPE_DIAGNOSTICS_REQUEST:
         reply = Message.decode(normalize_hid_input(record))

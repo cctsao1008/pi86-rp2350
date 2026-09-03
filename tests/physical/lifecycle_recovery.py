@@ -33,6 +33,8 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--diagnostics", action="store_true",
                         help="also verify stopped-executor diagnostics (requires updated firmware)")
+    parser.add_argument("--execution-deadline", action="store_true",
+                        help="also verify firmware-owned execution limits; restores the initial setting")
     args = parser.parse_args()
     persistent = args.persistent.read_bytes()
     recovery = args.recovery.read_bytes()
@@ -42,6 +44,7 @@ def main():
     cases = []
     failure = None
     client = None
+    initial_timeout_ms = None
     try:
         owner = api.ensure_runtime_owner(wait_seconds=15, allow_reboot_recovery=False)
         if not owner.get("ok"):
@@ -60,6 +63,16 @@ def main():
         client = WorkloadClient(exchange, sequence, state,
                                 lambda: evidence.observe_workload(state), lambda: None)
         services = RuntimeServiceClient(exchange, sequence, lambda: None)
+
+        def execution_limit(milliseconds=None):
+            setting, error = services.execution_timeout(milliseconds)
+            assert setting is not None, error
+            evidence.record({"event": "execution_timeout", **setting.__dict__})
+            return setting
+
+        if args.execution_deadline:
+            initial_timeout_ms = execution_limit().timeout_ms
+            execution_limit(0)
 
         def diagnose(expected_address=None):
             if not args.diagnostics:
@@ -187,6 +200,39 @@ def main():
         passed("unmapped memory fault parks processor")
         diagnose(0x40000)
         recover("load/run after fault")
+        if args.execution_deadline:
+            load(str(args.persistent), persistent)
+            execution_limit(400)
+            fresh_start("run")
+            # No requests/polls during this interval: enforcement belongs to RP2350.
+            time.sleep(0.7)
+            await_state(7)
+            assert state.completion_reason == 6 and state.cycles > 0, state
+            assert state.processor_state == "STOPPED / RESET", state
+            assert execution_limit().armed == 0
+            snapshot, error = services.read_diagnostics(state.workload_id)
+            assert snapshot is not None and snapshot.completion_reason == 6, error
+            evidence.retain_diagnostics(snapshot)
+            passed("busy loop expires without Host polling")
+
+            execution_limit(5000)
+            recover("load/run after execution deadline")
+            assert execution_limit().armed == 0
+            fresh_start("restart")
+            await_state(5)
+            assert state.physical_regression_passed, state
+            passed("restart gets a new deadline and completes")
+
+            load(str(args.persistent), persistent)
+            execution_limit(0)
+            fresh_start("run")
+            time.sleep(0.7)
+            control("status")
+            assert state.lifecycle == 3 and state.cycles > 0, state
+            control("stop")
+            assert execution_limit().armed == 0
+            passed("timeout off allows persistent execution until stop")
+            recover("normal workload after disabling limit")
     except Exception as exc:
         failure = str(exc)
         evidence.failure("physical lifecycle", failure)
@@ -198,6 +244,12 @@ def main():
                 control("stop")
             except Exception as exc:
                 evidence.failure("cleanup stop", str(exc))
+        if initial_timeout_ms is not None:
+            try:
+                execution_limit(initial_timeout_ms)
+            except Exception as exc:
+                failure = failure or f"cannot restore execution limit: {exc}"
+                evidence.failure("restore execution limit", str(exc))
         evidence.write({"schema": "rp86.lifecycle-recovery/v1", "passed": failure is None,
                         "failure_reason": failure, "cases": cases,
                         "workload": evidence.workload_snapshot(state)})

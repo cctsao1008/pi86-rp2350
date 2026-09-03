@@ -79,6 +79,119 @@ static void upload(rp86_runtime_context_t *runtime) {
     assert(rp86_workload_commit(&runtime->workload, 1u, manifest.image_crc32));
 }
 
+static rp86_workload_timeout_payload_t timeout_setting(
+    rp86_workload_executor_t *executor, uint32_t operation, uint32_t milliseconds) {
+    rp86_host_protocol_message_t request = {
+        .version = RP86_HOST_PROTOCOL_VERSION,
+        .type = RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_REQUEST,
+        .sequence = 71u, .length = 8u,
+    }, reply;
+    const uint32_t fields[] = {operation, milliseconds};
+    memcpy(request.payload, fields, sizeof fields);
+    assert(rp86_workload_executor_timeout_request(executor, &request, &reply));
+    assert(reply.status == 0u && reply.length == 52u && reply.sequence == 71u);
+    assert(reply.type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_RESULT);
+    rp86_workload_timeout_payload_t result;
+    memcpy(&result, reply.payload, sizeof result);
+    return result;
+}
+
+static void test_execution_deadline(void) {
+    static uint8_t storage[0x40000u];
+    rp86_runtime_context_t runtime = {0};
+    rp86_processor_bus_t bus = {0};
+    bool bus_active = false;
+    uint32_t boot_id = 0u;
+    rp86_workload_executor_t executor;
+    now_us = 1000u;
+    completed_cycle = true;
+    unmapped_cycle = false;
+    rp86_memory_backing_init_direct(&runtime.memory_backing, "TEST", 0u,
+                                   storage, sizeof storage);
+    rp86_workload_manager_init(&runtime.workload, &runtime.memory_backing);
+    rp86_workload_executor_init(&executor, &runtime, &bus, &bus_active,
+                               &boot_id, handoff, NULL, NULL, NULL);
+    assert(timeout_setting(&executor, 0u, 0u).timeout_ms == 0u);
+    upload(&runtime);
+    rp86_workload_executor_stage(&executor);
+    assert(timeout_setting(&executor, 1u, 1000u).armed == 0u);
+    assert(rp86_workload_run(&runtime.workload, 0u));
+    assert(rp86_workload_executor_start(&executor));
+    now_us = 1000999u;
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING);
+    assert(executor.bus_stats.cycles == 1u);
+    const uint64_t deadline = executor.execution_deadline_us;
+    assert(timeout_setting(&executor, 0u, 0u).remaining_ms == 1u);
+    assert(executor.execution_deadline_us == deadline); /* GET is not a keepalive. */
+    now_us = 1001000u;
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_TIMED_OUT);
+    assert(executor.completion_reason == RP86_WORKLOAD_COMPLETION_EXECUTION_DEADLINE);
+    assert(executor.bus_stats.cycles == 1u && !bus_active && !executor.active);
+    assert(executor.clock_mode == RP86_WORKLOAD_CLOCK_STOPPED);
+    assert(timeout_setting(&executor, 0u, 0u).armed == 0u);
+    const rp86_host_protocol_message_t diagnostic = read_diagnostics(&executor, 0u);
+    rp86_diagnostics_payload_t snapshot;
+    memcpy(&snapshot, diagnostic.payload, sizeof snapshot);
+    assert(snapshot.completion_reason == RP86_WORKLOAD_COMPLETION_EXECUTION_DEADLINE);
+
+    /* New upload keeps policy, but gets a fresh deadline and clean result. */
+    upload(&runtime);
+    rp86_workload_executor_stage(&executor);
+    assert(rp86_workload_run(&runtime.workload, 0u));
+    assert(rp86_workload_executor_start(&executor));
+    assert(timeout_setting(&executor, 0u, 0u).remaining_ms == 1000u);
+    assert(executor.completion_reason == RP86_WORKLOAD_COMPLETION_NONE);
+    assert(timeout_setting(&executor, 1u, 0u).armed == 0u);
+    now_us += 3000000u;
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_RUNNING); /* OFF */
+    assert(timeout_setting(&executor, 1u, 5000u).remaining_ms == 2000u);
+    assert(timeout_setting(&executor, 1u, 1000u).remaining_ms == 0u);
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_TIMED_OUT);
+
+    upload(&runtime);
+    rp86_workload_executor_stage(&executor);
+    assert(rp86_workload_run(&runtime.workload, 0u));
+    assert(rp86_workload_executor_start(&executor));
+    executor.idle_armed = true;
+    completed_cycle = false;
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_COMPLETED);
+    assert(timeout_setting(&executor, 0u, 0u).armed == 0u);
+    now_us += 10000000u;
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_COMPLETED);
+    assert(rp86_workload_restart(&runtime.workload, 0u));
+    rp86_workload_executor_stop(&executor);
+    assert(rp86_workload_executor_start(&executor));
+    assert(timeout_setting(&executor, 0u, 0u).remaining_ms == 1000u);
+    assert(rp86_workload_stop(&runtime.workload, 0u));
+    rp86_workload_executor_stop(&executor);
+    now_us += 10000000u;
+    rp86_workload_executor_service(&executor);
+    assert(runtime.workload.state == RP86_WORKLOAD_STATE_STOPPED);
+
+    rp86_host_protocol_message_t bad = {
+        .version = RP86_HOST_PROTOCOL_VERSION,
+        .type = RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_REQUEST,
+        .length = 8u,
+    }, reply;
+    uint32_t fields[] = {1u, RP86_WORKLOAD_TIMEOUT_MAX_MS + 1u};
+    memcpy(bad.payload, fields, sizeof fields);
+    assert(rp86_workload_executor_timeout_request(&executor, &bad, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH);
+    assert(executor.timeout_ms == 1000u);
+    fields[1] = 1000u;
+    memcpy(bad.payload, fields, sizeof fields);
+    runtime.workload.state = RP86_WORKLOAD_STATE_RUNNING; /* Prepared path */
+    assert(rp86_workload_executor_timeout_request(&executor, &bad, &reply));
+    assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_STATE);
+    assert(timeout_setting(&executor, 1u, 0u).timeout_ms == 0u);
+}
+
 int main(void) {
     static uint8_t storage[0x40000u];
     rp86_runtime_context_t runtime = {0};
@@ -206,5 +319,6 @@ int main(void) {
     bad.version = 99u;
     assert(rp86_workload_executor_diagnostics(&executor, &bad, &reply));
     assert(reply.status == RP86_HOST_PROTOCOL_STATUS_BAD_VERSION);
+    test_execution_deadline();
     return 0;
 }

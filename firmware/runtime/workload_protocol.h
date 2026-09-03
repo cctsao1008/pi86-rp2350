@@ -65,6 +65,7 @@ typedef enum {
     RP86_WORKLOAD_COMPLETION_NO_BUS_CYCLE = 3,
     RP86_WORKLOAD_COMPLETION_BUS_FAULT = 4,
     RP86_WORKLOAD_COMPLETION_START_FAILURE = 5,
+    RP86_WORKLOAD_COMPLETION_EXECUTION_DEADLINE = 6,
 } rp86_workload_completion_reason_t;
 
 typedef struct __attribute__((packed)) {

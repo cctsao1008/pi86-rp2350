@@ -23,6 +23,7 @@ from .memory import (
 from .protocol import Message
 from .request_channel import RequestExchange
 from .runtime_state import RequestSequence
+from .workload_timeout import WorkloadTimeout, timeout_request
 
 class RuntimeServiceClient:
     """Sequence-safe access to RP2350 memory and filesystem services."""
@@ -60,6 +61,18 @@ class RuntimeServiceClient:
             return None, error or "diagnostics exchange failed"
         try:
             return BusDiagnostics.from_reply(reply, request), None
+        except ValueError as exc:
+            return None, str(exc)
+
+    def execution_timeout(self, timeout_ms: int | None = None) -> tuple[WorkloadTimeout | None, str | None]:
+        request = timeout_request(timeout_ms, self._sequence.value)
+        reply, _latency_ms, error = self._exchange(request)
+        self._sequence.advance_after(request.sequence)
+        self._on_activity()
+        if reply is None:
+            return None, error or "workload timeout exchange failed"
+        try:
+            return WorkloadTimeout.from_reply(reply, request), None
         except ValueError as exc:
             return None, str(exc)
 

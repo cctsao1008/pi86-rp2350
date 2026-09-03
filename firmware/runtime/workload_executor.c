@@ -181,6 +181,7 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     /* A new attempt must never inherit a previous PASS/output/reason, even
      * when run follows stop or restart reuses the same staged image. */
     reset_native_result(executor);
+    executor->execution_deadline_us = 0u;
     memset(&executor->bus_stats, 0, sizeof executor->bus_stats);
     executor->diagnostic_workload_id = executor->runtime->workload.workload_id;
     executor->diagnostic_boot_id = 0u;
@@ -234,6 +235,10 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
         return false;
     }
     rp86_processor_bus_reset_step_timing(executor->processor_bus);
+    executor->execution_started_us = time_us_64();
+    if (executor->timeout_ms != 0u)
+        executor->execution_deadline_us = executor->execution_started_us +
+            (uint64_t)executor->timeout_ms * 1000u;
     emit(executor,
          "[WORKLOAD START] id=%lu entry=%04X:%04X clock=CLOCK_STEPPED\n",
          (unsigned long)executor->runtime->workload.workload_id,
@@ -260,6 +265,7 @@ void rp86_workload_executor_stage(rp86_workload_executor_t *executor) {
 }
 
 void rp86_workload_executor_stop(rp86_workload_executor_t *executor) {
+    executor->execution_deadline_us = 0u;
     if (!executor->active) return;
     if (executor->completion_reason == RP86_WORKLOAD_COMPLETION_NONE)
         executor->completion_reason = RP86_WORKLOAD_COMPLETION_STOP_REQUESTED;
@@ -281,6 +287,19 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
         executor->clock_mode != RP86_WORKLOAD_CLOCK_STEPPED ||
         executor->processor_idle)
         return;
+    /* Supervision is between complete bus cycles, never inside PIO/ISR timing.
+     * Ordinary activity does not feed or extend this wall-clock deadline. */
+    if (executor->execution_deadline_us != 0u &&
+        time_us_64() >= executor->execution_deadline_us) {
+        executor->completion_reason = RP86_WORKLOAD_COMPLETION_EXECUTION_DEADLINE;
+        rp86_workload_executor_stop(executor);
+        executor->runtime->workload.state = RP86_WORKLOAD_STATE_TIMED_OUT;
+        emit(executor, "[WORKLOAD TIMEOUT] execution deadline=%lu ms cycles=%lu\n",
+             (unsigned long)executor->timeout_ms,
+             (unsigned long)executor->bus_stats.cycles);
+        print_trace(executor);
+        return;
+    }
     const rp86_clock_stepped_io_t io = {
         .context = executor,
         .read = io_read,
@@ -311,6 +330,7 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
             return;
         }
         executor->processor_idle = true;
+        executor->execution_deadline_us = 0u;
         executor->completion_reason = RP86_WORKLOAD_COMPLETION_NATIVE_HLT;
         executor->starvation_started_us = 0u;
         executor->bus_stats.unmapped = false;
@@ -366,6 +386,63 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
 
 bool rp86_workload_executor_active(const rp86_workload_executor_t *executor) {
     return executor->active;
+}
+
+bool rp86_workload_executor_timeout_enabled(const rp86_workload_executor_t *executor) {
+    return executor->timeout_ms != 0u;
+}
+
+bool rp86_workload_executor_timeout_request(
+    rp86_workload_executor_t *executor,
+    const rp86_host_protocol_message_t *request,
+    rp86_host_protocol_message_t *reply) {
+    if (request->type != RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_REQUEST)
+        return false;
+    memset(reply, 0, sizeof *reply);
+    reply->version = RP86_HOST_PROTOCOL_VERSION;
+    reply->type = RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_RESULT;
+    reply->sequence = request->sequence;
+    if (request->version != RP86_HOST_PROTOCOL_VERSION) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_VERSION;
+        return true;
+    }
+    if (request->length != 8u || request->status != 0u || request->flags != 0u) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
+        return true;
+    }
+    uint32_t fields[2];
+    memcpy(fields, request->payload, sizeof fields);
+    if (fields[0] > RP86_WORKLOAD_TIMEOUT_SET ||
+        fields[1] > RP86_WORKLOAD_TIMEOUT_MAX_MS ||
+        (fields[0] == RP86_WORKLOAD_TIMEOUT_GET && fields[1] != 0u)) {
+        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
+        return true;
+    }
+    if (fields[0] == RP86_WORKLOAD_TIMEOUT_SET) {
+        if (fields[1] != 0u &&
+            executor->runtime->workload.state == RP86_WORKLOAD_STATE_RUNNING &&
+            !executor->active) {
+            reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
+            return true;
+        }
+        executor->timeout_ms = fields[1];
+        executor->execution_deadline_us = fields[1] != 0u &&
+            executor->active && !executor->processor_idle ?
+            executor->execution_started_us + (uint64_t)fields[1] * 1000u : 0u;
+    }
+    const uint64_t now = time_us_64();
+    const uint64_t remaining_us = executor->execution_deadline_us > now ?
+        executor->execution_deadline_us - now : 0u;
+    const rp86_workload_timeout_payload_t snapshot = {
+        .timeout_ms = executor->timeout_ms,
+        .remaining_ms = (uint32_t)((remaining_us + 999u) / 1000u),
+        .workload_id = executor->runtime->workload.workload_id,
+        .boot_id = executor->diagnostic_boot_id,
+        .armed = executor->execution_deadline_us != 0u,
+    };
+    reply->length = sizeof snapshot;
+    memcpy(reply->payload, &snapshot, sizeof snapshot);
+    return true;
 }
 
 bool rp86_workload_executor_diagnostics(

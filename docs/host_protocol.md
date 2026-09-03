@@ -342,7 +342,39 @@ Errors have zero payload length. Reads are repeatable until new execution or
 an accepted upload invalidates the executor's retained data. This service does
 not export the full ring buffer and does not alter existing message layouts.
 
-## 12. Related documents
+## 12. Workload execution deadline
+
+`WORKLOAD_TIMEOUT_REQUEST = 0x26`, `WORKLOAD_TIMEOUT_RESULT = 0x27` use the
+same version-1 64-byte records. Requests have length 8 and two little-endian
+`uint32` fields: operation (0 GET, 1 SET), then limit in milliseconds. GET
+requires zero for the second field. SET accepts 0 (OFF) through 86400000
+(24 hours). Request flags/status must be zero. Responses echo the sequence;
+errors have zero payload length. Successful replies have length 52:
+
+| Payload offset | uint32 field | Meaning |
+| ---: | --- | --- |
+| 0 | timeout_ms | Configured per-run limit; zero disables it |
+| 4 | remaining_ms | Remaining time rounded up; zero if unarmed or due |
+| 8 | workload_id | Current workload ID |
+| 12 | boot_id | Last general-executor reset/attempt ID |
+| 16 | armed | 1 while a deadline is active, otherwise 0 |
+| 20–48 | reserved[8] | Zero |
+
+Default OFF; the setting is device-wide RAM state and persists across Host
+reconnect and image replacement until SET or RP2350 reset. A successful
+general-executor reset handoff starts a new deadline for run/restart. GET never
+feeds it. SET while executing recomputes it from the original start, not SET
+time. Stop/completion disarm it without clearing the setting. Due deadlines
+are enforced between bus cycles using the existing safe-stop path, producing
+`TIMED_OUT` with completion reason `EXECUTION_DEADLINE = 6`. This is a
+wall-clock supervisory limit; bus/USB service latency can delay enforcement.
+
+Positive SET while a prepared workload is RUNNING returns BAD_STATE. Prepared
+calculator run/restart with a positive configured limit also returns BAD_STATE
+before changing lifecycle state. GET and SET OFF remain available. The new
+service does not change existing record layouts or bus timing.
+
+## 13. Related documents
 
 - [`architecture.md`](architecture.md) - overall system architecture
 - [`memory_architecture.md`](memory_architecture.md) - memory terminology, V30 Memory Map, and backing resources

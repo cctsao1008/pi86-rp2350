@@ -216,6 +216,12 @@ static bool g_bus_active;
 
 static bool take_non_control_record(rp86_host_protocol_message_t *record) {
     if (!rp86_host_protocol_hid_take_record((uint8_t *)record)) return false;
+    if (record->type == RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_REQUEST) {
+        rp86_host_protocol_message_t reply;
+        rp86_workload_executor_timeout_request(&g_workload_executor, record, &reply);
+        rp86_host_protocol_hid_send_record((const uint8_t *)&reply, HOST_TIMEOUT_US);
+        return false;
+    }
     if (record->type == RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST) {
         rp86_host_protocol_message_t reply;
         rp86_workload_executor_diagnostics(&g_workload_executor, record, &reply);
@@ -1390,6 +1396,12 @@ static bool handle_workload_record(const rp86_host_protocol_message_t *request) 
             (control.workload_id == 0u ||
              control.workload_id == g_runtime.workload.workload_id)) {
             status = RP86_HOST_PROTOCOL_STATUS_OK;
+        } else if ((control.operation == RP86_WORKLOAD_CONTROL_RUN ||
+                    control.operation == RP86_WORKLOAD_CONTROL_RESTART) &&
+                   calculator_workload_valid() &&
+                   rp86_workload_executor_timeout_enabled(&g_workload_executor)) {
+            /* The prepared calculator is not supervised by the general executor. */
+            status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
         } else if (control.operation == RP86_WORKLOAD_CONTROL_RUN) {
             const bool calculator = calculator_workload_valid();
             const bool state_ok = rp86_workload_run(

@@ -457,6 +457,39 @@ no unsolicited bootstrap HID reply. Status, Web, CLI, and physical regression
 may connect in any order without triggering initialization or disturbing the
 active workload. Retained identity is not a fresh processor liveness proof.
 
+## Workload execution deadline
+
+```text
+timeout          # Query the RP2350 setting and remaining time
+timeout 5        # Limit each general-workload run/restart to five seconds
+timeout 0.4      # Fractional seconds, in whole milliseconds
+timeout off      # Disable the limit, including any active deadline
+```
+
+The default is OFF. Valid positive limits are 0.001–86400 seconds. The setting
+is device-wide RP2350 RAM state: shared by broker clients, retained across
+load/run/restart and Host reconnect, and cleared by an RP2350 reset. It is
+separate from the command-line `--timeout` used by Host operations.
+
+Each successful general-executor reset handoff starts a fresh deadline. Queries
+and bus activity never extend it. Changing the limit during execution applies
+to the original run start; shortening it past elapsed time expires at the next
+service boundary. Completion and explicit stop disarm the current deadline,
+while preserving the setting for the next run/restart.
+
+RP2350 checks the wall-clock deadline between bus cycles. It does not depend
+on a Host timer or continued polling. This is supervisory protection, not an
+exact hard-real-time deadline: bounded bus/USB service can delay enforcement.
+PIO, ISR and bus timing are unchanged. On expiry, the existing safe-stop path
+asserts RESET and stops the clock; status becomes `TIMED_OUT` with reason
+`EXECUTION_DEADLINE` (6). The last-cycle snapshot remains available through
+`trace` and automatic fault evidence, distinct from `NO_BUS_CYCLE` starvation.
+
+This limit covers the general CLOCK-STEPPED executor, not the prepared
+calculator/responder. A positive setting while a prepared workload is running,
+or starting the prepared calculator with a positive setting, returns BAD_STATE.
+Use `timeout off` for that path; it is not silently advertised as protected.
+
 ## Restarting or entering the RP2350 UF2 bootloader
 
 Both operations use one sequence-bound 64-byte HID runtime-control record:

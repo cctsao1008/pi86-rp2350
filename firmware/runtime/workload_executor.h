@@ -53,6 +53,9 @@ typedef struct {
     bool idle_armed;
     bool processor_idle;
     uint64_t starvation_started_us;
+    uint32_t timeout_ms;
+    uint64_t execution_started_us;
+    uint64_t execution_deadline_us;
     rp86_workload_clock_mode_t clock_mode;
     rp86_workload_trace_entry_t trace[RP86_WORKLOAD_TRACE_DEPTH];
     uint32_t trace_count;
@@ -80,6 +83,11 @@ bool rp86_workload_executor_diagnostics(
     const rp86_workload_executor_t *executor,
     const rp86_host_protocol_message_t *request,
     rp86_host_protocol_message_t *reply);
+bool rp86_workload_executor_timeout_request(
+    rp86_workload_executor_t *executor,
+    const rp86_host_protocol_message_t *request,
+    rp86_host_protocol_message_t *reply);
+bool rp86_workload_executor_timeout_enabled(const rp86_workload_executor_t *executor);
 
 bool rp86_workload_executor_active(const rp86_workload_executor_t *executor);
 bool rp86_workload_executor_processor_idle(

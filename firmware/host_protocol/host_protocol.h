@@ -28,6 +28,8 @@ typedef enum {
     RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_CONTROL = 0x23,
     RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_STATUS = 0x24,
     RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_RESULT = 0x25,
+    RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_REQUEST = 0x26,
+    RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_RESULT = 0x27,
     RP86_HOST_PROTOCOL_MESSAGE_RUNTIME_CONTROL = 0x30,
     RP86_HOST_PROTOCOL_MESSAGE_RUNTIME_STATUS = 0x31,
     RP86_HOST_PROTOCOL_MESSAGE_FILESYSTEM_REQUEST = 0x40,
@@ -87,6 +89,26 @@ typedef enum {
 } rp86_memory_operation_t;
 
 enum { RP86_MEMORY_DATA_BYTES = 40u };
+
+enum {
+    RP86_WORKLOAD_TIMEOUT_GET = 0u,
+    RP86_WORKLOAD_TIMEOUT_SET = 1u,
+    RP86_WORKLOAD_TIMEOUT_MAX_MS = 86400000u,
+};
+
+/* Request: two little-endian uint32 values (operation, timeout_ms).
+ * SET zero disables; GET requires zero value. All records remain 64 bytes. */
+typedef struct {
+    uint32_t timeout_ms;
+    uint32_t remaining_ms;
+    uint32_t workload_id;
+    uint32_t boot_id;
+    uint32_t armed;
+    uint32_t reserved[8];
+} rp86_workload_timeout_payload_t;
+
+_Static_assert(sizeof(rp86_workload_timeout_payload_t) == 52u,
+               "timeout result must fit one Host record");
 
 /* Read-only stopped-executor snapshot. Request payload: exact workload_id
  * (uint32_t, zero selects current). No clock or bus operation is performed. */
