@@ -88,6 +88,12 @@ endif()
 pico_enable_stdio_usb(rp86_rp2350 1)
 pico_enable_stdio_uart(rp86_rp2350 0)
 
+# The physical processor runtime is timing-sensitive: DMA IRQ reloads,
+# prepared-runtime classification, and clock-stepped bus service must not
+# depend on XIP cache state or on the firmware's placement in NOR flash.
+# The image still boots from flash, then executes entirely from RP2350 SRAM.
+pico_set_binary_type(rp86_rp2350 copy_to_ram)
+
 pico_generate_pio_header(rp86_rp2350
     ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
 )
