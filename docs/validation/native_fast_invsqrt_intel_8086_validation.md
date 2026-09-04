@@ -53,7 +53,7 @@ Final Host-visible state before the controlled stop:
 ```text
 Workload   RUNNING id=4 detail=623
 Clock mode CLOCK-STEPPED
-CPU cycles 3212
+Bus cycles 3212
 Processor  IDLE / HLT
 Load       0x10000 entry=1000:0000
 ```

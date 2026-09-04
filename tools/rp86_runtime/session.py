@@ -157,7 +157,7 @@ def _format_runtime_top(
         ),
         f"  Workload   {workload_text}",
         f"  Clock mode {clock_name}",
-        f"  CPU cycles {workload_cycles}",
+        f"  Bus cycles {workload_cycles}",
         f"  Processor {execution_state}",
     ]
     if manifest is not None:

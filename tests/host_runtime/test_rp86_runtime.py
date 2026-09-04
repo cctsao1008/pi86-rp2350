@@ -241,7 +241,7 @@ class Rp86RuntimeTests(unittest.TestCase):
         self.assertIn("Processor  INTEL 8086 · IDLE / HLT", output)
         self.assertIn("Workload   COMPLETED", output)
         self.assertIn("Identity   NATIVE AAD 16 IDENTIFIED", output)
-        self.assertIn("CPU cycles 3212", output)
+        self.assertIn("Bus cycles 3212", output)
         self.assertNotIn("Heartbeat", output)
         self.assertNotIn("ALIVE", output)
 

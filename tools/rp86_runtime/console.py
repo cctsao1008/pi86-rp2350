@@ -133,7 +133,7 @@ class ConsoleStatus:
         )
         grid.add_row(
             Text(f"Workload {self._workload_state}"),
-            Text(f"Cycles {self._workload_cycles:,}"),
+            Text(f"Bus cycles {self._workload_cycles:,}"),
             Text(detail, style="dim"),
         )
         panel = Panel(
