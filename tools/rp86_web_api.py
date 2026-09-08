@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
+import secrets
 import subprocess
 import sys
 import threading
@@ -17,6 +20,8 @@ from rp86_runtime.memory import (
     memory_read_request,
     parse_memory_read,
 )
+from rp86_runtime.runtime_state import WorkloadRuntimeState
+from rp86_runtime.workload import control_record, workload_from_bytes
 from rp86_web_view import processor_view
 
 
@@ -32,6 +37,7 @@ class WebApi:
         self.owner_error: str | None = None
         self.recovery_lock = threading.Lock()
         self.recovery_active = threading.Event()
+        self.request_lock = threading.Lock()
 
     def run_rp86(self, *args: str, timeout: float = 8.0) -> dict[str, object]:
         command = [sys.executable, str(self.rp86), *args]
@@ -183,43 +189,91 @@ class WebApi:
             return None, None
         return record, BrokerClient(record, f"{prefix}-{os.getpid()}")
 
+    @staticmethod
+    def _sequence_from_hello(hello: dict[str, object]) -> int:
+        sequence = int(dict(hello.get("snapshot") or {}).get("request_sequence") or 1)
+        return sequence & 0xFFFFFFFF or 1
+
+    @staticmethod
+    def _next_sequence(sequence: int) -> int:
+        return (sequence + 1) & 0xFFFFFFFF or 1
+
+    @staticmethod
+    def _workload_state(reply: Message) -> dict[str, object]:
+        state = WorkloadRuntimeState.from_payload(reply.payload)
+        return {
+            "workload_id": state.workload_id,
+            "state": state.lifecycle_name,
+            "detail": state.detail,
+            "clock": state.clock_name,
+            "cycles": state.cycles,
+            "processor_state": state.processor_state,
+            "processor_flags": state.processor_flags,
+            "result_structured": state.structured_result,
+            "result_pass": state.passed,
+            "completion_reason": state.completion_reason_name,
+            "processor": state.processor,
+            "native_output": state.native_output_text,
+        }
+
+    def _exchange_workload_record(
+        self, client: BrokerClient, request: Message, operation: str,
+        timeout: float = 5.0,
+    ) -> tuple[Message | None, str | None]:
+        try:
+            result = client.exchange(
+                request.encode(),
+                f"web-workload-{operation}-{os.getpid()}-{time.time_ns()}",
+                timeout,
+            )
+            if not result.get("ok"):
+                return None, str(result.get("error") or f"{operation} failed")
+            return Message.decode(bytes.fromhex(str(result["reply_hex"]))), None
+        except (OSError, RuntimeError, ValueError, KeyError) as exc:
+            return None, str(exc)
+
     def processor_command(self, text: str, timeout: float = 3.0) -> dict[str, object]:
         payload = text.encode("utf-8")
         if not payload:
             return {"ok": False, "error": "command is empty"}
         if len(payload) > 14:
             return {"ok": False, "error": "command exceeds the 14-byte native mailbox limit"}
-        try:
-            record, client = self.broker_client("web-console")
-        except RuntimeError as exc:
-            return {"ok": False, "error": str(exc)}
-        if record is None or client is None:
-            return {"ok": False, "error": "No active RP86 Host Broker."}
-        last_error = "processor command failed"
-        for attempt in range(2):
+        with self.request_lock:
             try:
-                hello = client.hello()
-                if not hello.get("ok"):
-                    raise RuntimeError(str(hello.get("error") or "broker hello failed"))
-                sequence = int(dict(hello.get("snapshot") or {}).get("request_sequence") or 1) & 0xFFFFFFFF or 1
-                request = Message(TYPE_COMMAND, sequence, payload)
-                result = client.exchange(request.encode(), f"web-console-{os.getpid()}-{time.time_ns()}-{attempt}", timeout)
-                if not result.get("ok"):
-                    last_error = str(result.get("error") or last_error)
-                    continue
-                reply = Message.decode(bytes.fromhex(str(result["reply_hex"])))
-                witness = NativeServiceWitness.decode(reply.payload)
-                return {"ok": True, "processor": witness.processor,
-                        "reply": witness.text.decode("ascii", errors="replace"),
-                        "request_sequence": sequence, "boot_id": witness.boot_id,
-                        "cpu_sequence": witness.cpu_sequence,
-                        "command_sequence": witness.command_sequence,
-                        "latency_ms": float(result.get("latency_ms") or 0.0)}
-            except (OSError, RuntimeError, ValueError, KeyError) as exc:
-                last_error = str(exc)
-                if attempt == 0:
-                    time.sleep(0.03)
-        return {"ok": False, "error": last_error}
+                record, client = self.broker_client("web-console")
+            except RuntimeError as exc:
+                return {"ok": False, "error": str(exc)}
+            if record is None or client is None:
+                return {"ok": False, "error": "No active RP86 Host Broker."}
+            last_error = "processor command failed"
+            for attempt in range(2):
+                try:
+                    hello = client.hello()
+                    if not hello.get("ok"):
+                        raise RuntimeError(str(hello.get("error") or "broker hello failed"))
+                    sequence = self._sequence_from_hello(hello)
+                    request = Message(TYPE_COMMAND, sequence, payload)
+                    result = client.exchange(
+                        request.encode(),
+                        f"web-console-{os.getpid()}-{time.time_ns()}-{attempt}",
+                        timeout,
+                    )
+                    if not result.get("ok"):
+                        last_error = str(result.get("error") or last_error)
+                        continue
+                    reply = Message.decode(bytes.fromhex(str(result["reply_hex"])))
+                    witness = NativeServiceWitness.decode(reply.payload)
+                    return {"ok": True, "processor": witness.processor,
+                            "reply": witness.text.decode("ascii", errors="replace"),
+                            "request_sequence": sequence, "boot_id": witness.boot_id,
+                            "cpu_sequence": witness.cpu_sequence,
+                            "command_sequence": witness.command_sequence,
+                            "latency_ms": float(result.get("latency_ms") or 0.0)}
+                except (OSError, RuntimeError, ValueError, KeyError) as exc:
+                    last_error = str(exc)
+                    if attempt == 0:
+                        time.sleep(0.03)
+            return {"ok": False, "error": last_error}
 
     def memory_read(self, address_value: object, length_value: object,
                     timeout: float = 3.0) -> dict[str, object]:
@@ -229,35 +283,166 @@ class WebApi:
             return {"ok": False, "error": "address and length must be integers"}
         if not 1 <= length <= 40:
             return {"ok": False, "error": "memory viewer length must be 1-40 bytes"}
+        with self.request_lock:
+            try:
+                record, client = self.broker_client("web-memory")
+            except RuntimeError as exc:
+                return {"ok": False, "error": str(exc)}
+            if record is None or client is None:
+                return {"ok": False, "error": "No active RP86 Host Broker."}
+            last_error = "memory read failed"
+            for attempt in range(2):
+                try:
+                    hello = client.hello()
+                    if not hello.get("ok"):
+                        raise RuntimeError(str(hello.get("error") or "broker hello failed"))
+                    sequence = self._sequence_from_hello(hello)
+                    request = memory_read_request(address, length, sequence)
+                    result = client.exchange(
+                        request.encode(),
+                        f"web-memory-{os.getpid()}-{time.time_ns()}-{attempt}",
+                        timeout,
+                    )
+                    if not result.get("ok"):
+                        last_error = str(result.get("error") or last_error)
+                        continue
+                    reply = Message.decode(bytes.fromhex(str(result["reply_hex"])))
+                    data = parse_memory_read(reply, request)
+                    return {"ok": True, "address": address, "length": len(data),
+                            "hex": data.hex(), "dump": format_memory_dump(address, data),
+                            "request_sequence": sequence,
+                            "latency_ms": float(result.get("latency_ms") or 0.0)}
+                except (OSError, RuntimeError, ValueError, KeyError) as exc:
+                    last_error = str(exc)
+                    if attempt == 0:
+                        time.sleep(0.03)
+            return {"ok": False, "error": last_error}
+
+    def workload_upload(self, payload: dict[str, object]) -> dict[str, object]:
+        filename = payload.get("name")
+        encoded = payload.get("data")
+        if not isinstance(filename, str) or not filename:
+            return {"ok": False, "error": "workload name is required",
+                    "validation_error": True}
+        if not isinstance(encoded, str) or not encoded:
+            return {"ok": False, "error": "workload data is required",
+                    "validation_error": True}
         try:
-            record, client = self.broker_client("web-memory")
-        except RuntimeError as exc:
-            return {"ok": False, "error": str(exc)}
-        if record is None or client is None:
-            return {"ok": False, "error": "No active RP86 Host Broker."}
-        last_error = "memory read failed"
-        for attempt in range(2):
+            data = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError):
+            return {"ok": False, "error": "workload data must be valid base64",
+                    "validation_error": True}
+
+        arguments: list[str] = [filename]
+        if not filename.lower().endswith(".p86w"):
+            for key, option in (
+                ("address", "--address"),
+                ("entry", "--entry"),
+                ("stack", "--stack"),
+                ("clock", "--clock"),
+            ):
+                value = payload.get(key)
+                if value is not None and str(value).strip():
+                    arguments.extend((option, str(value).strip()))
+
+        with self.request_lock:
+            try:
+                record, client = self.broker_client("web-workload")
+            except RuntimeError as exc:
+                return {"ok": False, "error": str(exc)}
+            if record is None or client is None:
+                return {"ok": False, "error": "No active RP86 Host Broker."}
             try:
                 hello = client.hello()
                 if not hello.get("ok"):
                     raise RuntimeError(str(hello.get("error") or "broker hello failed"))
-                sequence = int(dict(hello.get("snapshot") or {}).get("request_sequence") or 1) & 0xFFFFFFFF or 1
-                request = memory_read_request(address, length, sequence)
-                result = client.exchange(request.encode(), f"web-memory-{os.getpid()}-{time.time_ns()}-{attempt}", timeout)
-                if not result.get("ok"):
-                    last_error = str(result.get("error") or last_error)
-                    continue
-                reply = Message.decode(bytes.fromhex(str(result["reply_hex"])))
-                data = parse_memory_read(reply, request)
-                return {"ok": True, "address": address, "length": len(data),
-                        "hex": data.hex(), "dump": format_memory_dump(address, data),
-                        "request_sequence": sequence,
-                        "latency_ms": float(result.get("latency_ms") or 0.0)}
-            except (OSError, RuntimeError, ValueError, KeyError) as exc:
-                last_error = str(exc)
-                if attempt == 0:
-                    time.sleep(0.03)
-        return {"ok": False, "error": last_error}
+                snapshot = dict(hello.get("snapshot") or {})
+                sequence = self._sequence_from_hello(hello)
+                workload_id = int(snapshot.get("workload_id") or 0)
+
+                if str(snapshot.get("workload_state") or "") in {"RUNNING", "COMPLETED"}:
+                    stop = control_record(
+                        "stop", workload_id=workload_id, sequence=sequence
+                    )
+                    reply, error = self._exchange_workload_record(
+                        client, stop, "stop-before-load"
+                    )
+                    if reply is None:
+                        return {"ok": False, "error": error or "workload stop failed"}
+                    sequence = self._next_sequence(stop.sequence)
+
+                manifest, image, records = workload_from_bytes(
+                    data,
+                    tuple(arguments),
+                    transfer_id=secrets.randbits(32),
+                    first_sequence=sequence,
+                )
+                final_reply: Message | None = None
+                for index, request in enumerate(records, 1):
+                    final_reply, error = self._exchange_workload_record(
+                        client, request, f"load-{index}"
+                    )
+                    if final_reply is None:
+                        return {
+                            "ok": False,
+                            "error": error or "workload upload failed",
+                            "failed_record": index,
+                            "record_count": len(records),
+                        }
+                assert final_reply is not None
+                return {
+                    "ok": True,
+                    "name": filename,
+                    "image_size": len(image),
+                    "load_address": manifest.load_address,
+                    "entry": f"{manifest.entry_segment:04X}:{manifest.entry_offset:04X}",
+                    "stack": f"{manifest.stack_segment:04X}:{manifest.stack_offset:04X}",
+                    "flags": manifest.flags,
+                    "crc32": f"{manifest.image_crc32:08X}",
+                    "record_count": len(records),
+                    "workload": self._workload_state(final_reply),
+                }
+            except (OSError, RuntimeError) as exc:
+                return {"ok": False, "error": str(exc)}
+            except ValueError as exc:
+                return {"ok": False, "error": str(exc),
+                        "validation_error": True}
+
+    def workload_control(self, action: object) -> dict[str, object]:
+        if action not in {"run", "stop", "restart", "status"}:
+            return {"ok": False, "error": "unsupported workload action",
+                    "validation_error": True}
+        with self.request_lock:
+            try:
+                record, client = self.broker_client("web-workload")
+            except RuntimeError as exc:
+                return {"ok": False, "error": str(exc)}
+            if record is None or client is None:
+                return {"ok": False, "error": "No active RP86 Host Broker."}
+            try:
+                hello = client.hello()
+                if not hello.get("ok"):
+                    raise RuntimeError(str(hello.get("error") or "broker hello failed"))
+                snapshot = dict(hello.get("snapshot") or {})
+                sequence = self._sequence_from_hello(hello)
+                workload_id = int(snapshot.get("workload_id") or 0)
+                request = control_record(
+                    str(action),
+                    workload_id=0 if action in {"run", "restart"} else workload_id,
+                    sequence=sequence,
+                )
+                reply, error = self._exchange_workload_record(
+                    client, request, str(action)
+                )
+                if reply is None:
+                    return {"ok": False, "error": error or f"workload {action} failed"}
+                return {
+                    "ok": True,
+                    "action": action,
+                    "workload": self._workload_state(reply),
+                }
+            except (OSError, RuntimeError, ValueError) as exc:
+                return {"ok": False, "error": str(exc)}
 
     def get(self, path: str) -> tuple[dict[str, object], int]:
         if path == "/api/processor":
@@ -288,6 +473,12 @@ class WebApi:
             result = self.memory_read(payload.get("address"), payload.get("length"))
             validation = any(x in str(result.get("error")) for x in ("integer", "1-40", "Internal SRAM"))
             return result, 200 if result["ok"] else 400 if validation else 503
+        if path == "/api/workload":
+            result = self.workload_upload(payload)
+            return result, 200 if result["ok"] else 400 if result.get("validation_error") else 503
+        if path == "/api/workload/control":
+            result = self.workload_control(payload.get("action"))
+            return result, 200 if result["ok"] else 400 if result.get("validation_error") else 503
         if path != "/api/control":
             return {"ok": False, "error": "not found"}, 404
         action = payload.get("action")
