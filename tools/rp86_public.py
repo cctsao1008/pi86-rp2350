@@ -23,6 +23,7 @@ ROOT = Path(__file__).resolve().parent
 from rp86_web_api import WebApi
 
 API = WebApi(ROOT)
+MAX_REQUEST_BYTES = 2 * 1024 * 1024
 
 
 class PublicSession:
@@ -133,7 +134,7 @@ main{max-width:920px;margin:0 auto;padding:28px 18px}
 h1{font-size:20px;margin:0 0 6px}.sub{color:#91a0ad;margin-bottom:24px}
 .card{border:1px solid #26323e;background:#111820;border-radius:10px;padding:16px;margin:12px 0}
 .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
-button,input{border:1px solid #3a4c60;background:#182330;color:#e7edf3;border-radius:7px;padding:8px 11px;font:inherit}
+button,input,select{border:1px solid #3a4c60;background:#182330;color:#e7edf3;border-radius:7px;padding:8px 11px;font:inherit}
 button{cursor:pointer}button:hover{border-color:#7aa2f7}
 pre{white-space:pre-wrap;word-break:break-word;background:#080c10;border:1px solid #1d2730;border-radius:7px;padding:12px;min-height:80px}
 .k{color:#91a0ad}.good{color:#6fdc8c}.bad{color:#ff7b72}
@@ -161,7 +162,38 @@ pre{white-space:pre-wrap;word-break:break-word;background:#080c10;border:1px sol
 </section>
 
 <section class="card">
-  <strong>Native workload input</strong>
+  <strong>Native workload</strong>
+  <div class="row" style="margin-top:10px">
+    <input id="workloadFile" type="file" accept=".bin,.p86w">
+    <input id="loadAddress" value="0x10000" title="Load address for raw .bin">
+    <input id="entry" placeholder="entry CS:IP (auto)">
+    <input id="stack" placeholder="stack SS:SP (default 0000:0000)">
+    <select id="clock">
+      <option value="auto">AUTO</option>
+      <option value="free-running">FREE-RUNNING</option>
+      <option value="clock-stepped">CLOCK-STEPPED</option>
+    </select>
+    <button id="load">Load</button>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button id="run">Run</button>
+    <button id="stop">Stop</button>
+    <button id="restart">Restart</button>
+    <button id="workloadStatus">Status</button>
+  </div>
+  <div class="grid" style="margin-top:14px">
+    <div><span class="k">Workload</span> <strong id="workloadId">--</strong></div>
+    <div><span class="k">State</span> <strong id="workloadState">--</strong></div>
+    <div><span class="k">Clock</span> <strong id="workloadClock">--</strong></div>
+    <div><span class="k">Cycles</span> <strong id="workloadCycles">--</strong></div>
+    <div><span class="k">Result</span> <strong id="workloadResult">--</strong></div>
+    <div><span class="k">Completion</span> <strong id="workloadCompletion">--</strong></div>
+  </div>
+  <pre id="workloadOut">No workload loaded.</pre>
+</section>
+
+<section class="card">
+  <strong>Native command</strong>
   <div class="row" style="margin-top:10px">
     <input id="console" placeholder="TYPE_COMMAND payload" maxlength="14">
     <button id="send">Send</button>
@@ -193,6 +225,7 @@ pre{white-space:pre-wrap;word-break:break-word;background:#080c10;border:1px sol
 const TOKEN_KEY='rp86-public-session';
 const $=id=>document.getElementById(id);
 function token(){return localStorage.getItem(TOKEN_KEY)||''}
+function cpuName(value){return {'intel-8086':'Intel 8086','nec-v30':'NEC V30'}[value]||value||'UNKNOWN'}
 async function api(path, options={}){
   const headers={'Content-Type':'application/json',...(options.headers||{})};
   if(token()) headers['X-RP86-Session']=token();
@@ -202,14 +235,33 @@ async function api(path, options={}){
   return body;
 }
 function show(id, value){$(id).textContent=typeof value==='string'?value:JSON.stringify(value,null,2)}
+function showWorkload(snapshot={}){
+  $('workloadId').textContent=snapshot.workload_id||'--';
+  $('workloadState').textContent=snapshot.workload_state||'--';
+  $('workloadClock').textContent=snapshot.workload_clock_mode||'--';
+  $('workloadCycles').textContent=snapshot.workload_cycles??'--';
+  $('workloadResult').textContent=snapshot.workload_result_structured
+    ?(snapshot.workload_result_pass?'PASS':'FAIL'):'--';
+  $('workloadCompletion').textContent=snapshot.workload_completion_reason||'--';
+  if(snapshot.workload_native_output) $('workloadOut').textContent=snapshot.workload_native_output;
+}
 async function refresh(){
   try{
     const [session, processor]=await Promise.all([api('/api/session'),api('/api/processor')]);
     $('session').textContent=session.mine?'OWNED BY THIS BROWSER':session.owned?'BUSY':'AVAILABLE';
-    $('processor').textContent=processor.processor||processor.native_processor||'UNKNOWN';
+    $('processor').textContent=cpuName(processor.processor);
     $('rp2350').textContent=processor.ok?'CONNECTED':'OFFLINE';
     $('runtime').textContent=processor.state||processor.broker_state||processor.owner_mode||'--';
+    showWorkload(processor.snapshot||{});
   }catch(error){$('rp2350').textContent='OFFLINE';$('runtime').textContent=error.message}
+}
+function fileBase64(file){
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve(String(reader.result).split(',',2)[1]||'');
+    reader.onerror=()=>reject(reader.error||new Error('file read failed'));
+    reader.readAsDataURL(file);
+  });
 }
 $('acquire').onclick=async()=>{
   try{
@@ -226,6 +278,33 @@ $('release').onclick=async()=>{
   }catch(error){alert(error.message)}
 };
 $('refresh').onclick=refresh;
+$('load').onclick=async()=>{
+  const file=$('workloadFile').files[0];
+  if(!file){show('workloadOut','Select a .bin or .p86w workload.');return}
+  try{
+    const body={
+      name:file.name,
+      data:await fileBase64(file),
+      address:$('loadAddress').value,
+      entry:$('entry').value,
+      stack:$('stack').value,
+      clock:$('clock').value
+    };
+    show('workloadOut',await api('/api/workload',{method:'POST',body:JSON.stringify(body)}));
+    await refresh();
+  }catch(error){show('workloadOut',error.message)}
+};
+async function workloadControl(action){
+  try{
+    const body=await api('/api/workload/control',{method:'POST',body:JSON.stringify({action})});
+    show('workloadOut',body);
+    await refresh();
+  }catch(error){show('workloadOut',error.message)}
+}
+$('run').onclick=()=>workloadControl('run');
+$('stop').onclick=()=>workloadControl('stop');
+$('restart').onclick=()=>workloadControl('restart');
+$('workloadStatus').onclick=()=>workloadControl('status');
 $('send').onclick=async()=>{
   try{show('consoleOut',await api('/api/console',{method:'POST',body:JSON.stringify({text:$('console').value})}))}
   catch(error){show('consoleOut',error.message)}
@@ -248,7 +327,7 @@ refresh(); setInterval(refresh,1000);
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "RP86Public/0.1"
+    server_version = "RP86Public/0.2"
 
     def _security_headers(self) -> None:
         self.send_header("Cache-Control", "no-store")
@@ -284,7 +363,7 @@ class Handler(BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", "0"))
         except ValueError as exc:
             raise ValueError("invalid Content-Length") from exc
-        if length < 0 or length > 1024 * 1024:
+        if length < 0 or length > MAX_REQUEST_BYTES:
             raise ValueError("request body is too large")
         raw = self.rfile.read(length) if length else b"{}"
         try:
