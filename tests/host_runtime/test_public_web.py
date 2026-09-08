@@ -38,6 +38,15 @@ class PublicSessionTests(unittest.TestCase):
         self.assertTrue(released["released"])
         self.assertFalse(session.snapshot()["owned"])
 
+    def test_snapshot_reports_requester_ownership(self) -> None:
+        session = rp86_public.PublicSession()
+        acquired, _ = session.acquire(owner="browser-a")
+        token = str(acquired["token"])
+
+        self.assertTrue(session.snapshot(token)["mine"])
+        self.assertFalse(session.snapshot("stale-token")["mine"])
+        self.assertTrue(session.snapshot("stale-token")["owned"])
+
     def test_session_has_no_implicit_time_limit(self) -> None:
         session = rp86_public.PublicSession()
         with patch.object(rp86_public.time, "time", return_value=10.0):
