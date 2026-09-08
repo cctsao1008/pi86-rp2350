@@ -236,11 +236,13 @@ async function api(path, options={}){
 }
 function show(id, value){$(id).textContent=typeof value==='string'?value:JSON.stringify(value,null,2)}
 function showWorkload(snapshot={}){
+  const state=snapshot.workload_state||'--';
   $('workloadId').textContent=snapshot.workload_id||'--';
-  $('workloadState').textContent=snapshot.workload_state||'--';
+  $('workloadState').textContent=state;
   $('workloadClock').textContent=snapshot.workload_clock_mode||'--';
   $('workloadCycles').textContent=snapshot.workload_cycles??'--';
-  $('workloadResult').textContent=snapshot.workload_result_structured
+  const terminal=['COMPLETED','FAULTED','TIMED_OUT'].includes(state);
+  $('workloadResult').textContent=terminal&&snapshot.workload_result_structured
     ?(snapshot.workload_result_pass?'PASS':'FAIL'):'--';
   $('workloadCompletion').textContent=snapshot.workload_completion_reason||'--';
   if(snapshot.workload_native_output) $('workloadOut').textContent=snapshot.workload_native_output;
