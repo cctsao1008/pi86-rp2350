@@ -85,6 +85,14 @@ class PublicSessionTests(unittest.TestCase):
         ):
             self.assertIn(marker, html)
 
+    def test_running_workload_does_not_render_failure(self) -> None:
+        html = rp86_public.INDEX_HTML
+        self.assertIn(
+            "const terminal=['COMPLETED','FAULTED','TIMED_OUT'].includes(state);",
+            html,
+        )
+        self.assertIn("terminal&&snapshot.workload_result_structured", html)
+
     def test_request_body_budget_covers_one_megabyte_processor_image(self) -> None:
         encoded = ((0x100000 + 2) // 3) * 4
         self.assertGreater(rp86_public.MAX_REQUEST_BYTES, encoded)
