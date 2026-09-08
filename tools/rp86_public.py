@@ -35,14 +35,15 @@ class PublicSession:
         self._acquired_at: float | None = None
         self._last_seen: float | None = None
 
-    def snapshot(self) -> dict[str, object]:
+    def snapshot(self, token: str | None = None) -> dict[str, object]:
         with self._lock:
-            return {
-                "owned": self._token is not None,
-                "owner": self._owner,
-                "acquired_at": self._acquired_at,
-                "last_seen": self._last_seen,
-            }
+            value = self._snapshot_unlocked()
+            value["mine"] = bool(
+                self._token is not None
+                and token
+                and secrets.compare_digest(token, self._token)
+            )
+            return value
 
     def acquire(
         self, token: str | None = None, owner: str | None = None
@@ -204,7 +205,7 @@ function show(id, value){$(id).textContent=typeof value==='string'?value:JSON.st
 async function refresh(){
   try{
     const [session, processor]=await Promise.all([api('/api/session'),api('/api/processor')]);
-    $('session').textContent=session.owned?(token()?'OWNED BY THIS BROWSER':'BUSY'):'AVAILABLE';
+    $('session').textContent=session.mine?'OWNED BY THIS BROWSER':session.owned?'BUSY':'AVAILABLE';
     $('processor').textContent=processor.processor||processor.native_processor||'UNKNOWN';
     $('rp2350').textContent=processor.ok?'CONNECTED':'OFFLINE';
     $('runtime').textContent=processor.state||processor.broker_state||processor.owner_mode||'--';
@@ -310,7 +311,7 @@ class Handler(BaseHTTPRequestHandler):
             self._send_html(INDEX_HTML)
             return
         if path == "/api/session":
-            self._send_json(SESSIONS.snapshot())
+            self._send_json(SESSIONS.snapshot(self._session_token()))
             return
         if path in {"/api/processor", "/api/status", "/api/devices"}:
             result, status = API.get(path)
