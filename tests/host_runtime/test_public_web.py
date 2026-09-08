@@ -91,6 +91,7 @@ class PublicSessionTests(unittest.TestCase):
 
 
 _STATUS = struct.Struct("<IIIIIIIIHH16s")
+_CONTROL = struct.Struct("<B3xI")
 
 
 def status_payload(
@@ -121,17 +122,24 @@ def status_payload(
     )
 
 
+def control_workload_id(request: Message) -> int:
+    _operation, workload_id = _CONTROL.unpack(request.payload)
+    return workload_id
+
+
 class FakeWorkloadBroker:
-    def __init__(self) -> None:
+    def __init__(self, *, workload_id: int = 0, workload_state: str = "EMPTY") -> None:
         self.requests: list[Message] = []
+        self.workload_id = workload_id
+        self.workload_state = workload_state
 
     def hello(self):
         return {
             "ok": True,
             "snapshot": {
                 "request_sequence": 10,
-                "workload_id": 0,
-                "workload_state": "EMPTY",
+                "workload_id": self.workload_id,
+                "workload_state": self.workload_state,
             },
         }
 
@@ -169,15 +177,42 @@ class PublicWorkloadApiTests(unittest.TestCase):
         self.assertEqual(result["workload"]["state"], "STAGED")
         self.assertGreaterEqual(result["record_count"], 3)
 
-    def test_run_uses_workload_control_record(self) -> None:
+    def test_run_uses_current_workload_wildcard(self) -> None:
         api = WebApi(TOOLS)
-        broker = FakeWorkloadBroker()
+        broker = FakeWorkloadBroker(workload_id=99, workload_state="STAGED")
         with patch.object(api, "broker_client", return_value=(object(), broker)):
             result = api.workload_control("run")
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["workload"]["state"], "RUNNING")
         self.assertEqual(broker.requests[-1].message_type, 0x23)
+        self.assertEqual(control_workload_id(broker.requests[-1]), 0)
+
+    def test_status_ignores_stale_broker_workload_id(self) -> None:
+        api = WebApi(TOOLS)
+        broker = FakeWorkloadBroker(workload_id=99, workload_state="RUNNING")
+        with patch.object(api, "broker_client", return_value=(object(), broker)):
+            result = api.workload_control("status")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(control_workload_id(broker.requests[-1]), 0)
+
+    def test_replacement_stop_uses_current_workload_wildcard(self) -> None:
+        api = WebApi(TOOLS)
+        broker = FakeWorkloadBroker(workload_id=99, workload_state="RUNNING")
+        with patch.object(api, "broker_client", return_value=(object(), broker)):
+            result = api.workload_upload({
+                "name": "hello.bin",
+                "data": base64.b64encode(b"\x90\xf4").decode("ascii"),
+                "address": "0x10000",
+                "entry": "",
+                "stack": "",
+                "clock": "auto",
+            })
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(broker.requests[0].message_type, 0x23)
+        self.assertEqual(control_workload_id(broker.requests[0]), 0)
 
 
 if __name__ == "__main__":
