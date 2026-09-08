@@ -44,14 +44,19 @@ class WebLayoutTests(unittest.TestCase):
         record = SimpleNamespace(
             device_id="TEST", processor="auto", tcp_port=1234, udp_port=5678
         )
-        snapshot = {"workload_state": "RUNNING", "processor_state": "ACTIVE"}
+        snapshot = {
+            "workload_state": "RUNNING",
+            "processor_state": "ACTIVE",
+            "native_processor": "nec-v30",
+        }
         view = processor_view(
             owner_mode="existing",
             record=record,
-            reply={"ok": True, "processor": "intel-8086", "snapshot": snapshot},
+            reply={"ok": True, "processor": "auto", "snapshot": snapshot},
         )
         self.assertEqual(view["snapshot"], snapshot)
-        self.assertEqual(view["processor"], "intel-8086")
+        self.assertEqual(view["processor"], "nec-v30")
+        self.assertEqual(view["identity_policy"], "auto")
 
     def test_workload_card_uses_structured_result_fields(self) -> None:
         html = rp86_web.INDEX_HTML
