@@ -4,7 +4,10 @@
 import sys
 
 
-if "--web" in sys.argv:
+if "--public" in sys.argv:
+    sys.argv.remove("--public")
+    from rp86_public import main
+elif "--web" in sys.argv:
     sys.argv.remove("--web")
     from rp86_web import main
 else:
