@@ -17,22 +17,33 @@ if(NOT DEFINED OBJECTS OR OBJECTS STREQUAL "")
     message(FATAL_ERROR "OBJECTS is required")
 endif()
 
+math(EXPR load_segment "${LOAD_ADDRESS} / 16")
+math(EXPR load_offset "${LOAD_ADDRESS} % 16")
+if(NOT load_offset EQUAL 0)
+    message(FATAL_ERROR
+        "C/16 LOAD_ADDRESS must be paragraph aligned; got ${LOAD_ADDRESS}"
+    )
+endif()
+
 get_filename_component(output_dir "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${output_dir}")
 
-# WLINK treats newlines as whitespace while parsing directive files.  RAW has
-# an optional BIN/HEX selector, so state BIN explicitly to terminate the
-# FORMAT directive before the following OPTION token.  WLINK's own driver
-# emits single-quoted path operands, so follow that syntax here rather than
-# embedding double quotes in file names.
+# Do not use FORMAT RAW for 16-bit segmented workloads.  In WLINK, MK_RAW is
+# a flat-memory format and rejects FIX_BASE (segment) relocations.  Instead,
+# establish the normal 16-bit DOS segmented address model, place the CODE
+# class at the RP86 physical workload segment, then use OUTPUT RAW to override
+# only the emitted file representation.  OUTPUT RAW OFFSET removes the leading
+# physical-address padding without changing linker address calculations.
 #
-# RP86 loads byte zero of OUTPUT at LOAD_ADDRESS; OPTION OFFSET fixes linker
-# address calculation at that physical base, while OUTPUT RAW OFFSET skips the
-# corresponding leading padding in the emitted binary.
+# ORDER is the WLINK mechanism intended for fixed-address/ROMable targets.  It
+# keeps _TEXT first at LOAD_ADDRESS while allowing the C compiler's DGROUP
+# classes to follow with normal 8086 segment fixups resolved by the linker.
 file(WRITE "${LINK_SCRIPT}"
-    "format raw bin\n"
+    "format dos\n"
     "option quiet\n"
-    "option offset=${LOAD_ADDRESS}\n"
+    "option nodefaultlibs\n"
+    "option start=rp86_c16_entry\n"
+    "order clname CODE segaddr=${load_segment} segment _TEXT clname DATA clname BSS\n"
     "output raw offset=${LOAD_ADDRESS}\n"
     "option map='${MAP}'\n"
     "name '${OUTPUT}'\n"
