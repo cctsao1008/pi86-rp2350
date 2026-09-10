@@ -66,6 +66,7 @@ function(rp86_add_processor_c16_image target_name)
             COMMAND "${RP86_WCC_EXECUTABLE}"
                 -0
                 "${RP86_C16_MEMORY_MODEL}"
+                -ecc
                 -zu
                 -s
                 -zl
