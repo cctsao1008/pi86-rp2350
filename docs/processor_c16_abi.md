@@ -1,6 +1,6 @@
 # Processor C/16 ABI
 
-Status: **provisional for Issue #58**. The compile/link/package ABI is now CI-proven; this document becomes fully accepted only after physical Intel 8086 execution validates the generated image.
+Status: **provisional for Issue #58**. The compile/link/package ABI is CI-proven; this document becomes fully accepted only after physical Intel 8086 execution validates the generated image.
 
 ## Scope
 
@@ -8,25 +8,34 @@ This contract defines the first C toolchain boundary for programs executed nativ
 
 The first objective is deliberately narrow: freestanding 16-bit C and NASM must link into one native image, package through the existing `.P86W` path, load at the normal processor workload base, and execute without DOS or a BIOS.
 
-## Toolchain baseline
+## Issue #58 ABI decision record
 
-| Item | Issue #58 baseline |
+This table is the authoritative C/16 ABI handoff required by Issue #58 and consumed by the later FreeRTOS port.
+
+| Required decision | RP86 C/16 contract |
 |---|---|
-| C compiler | Open Watcom C/16 (`wcc`) |
-| Linker | Open Watcom Linker (`wlink`) |
-| Assembly | NASM, 16-bit OMF `obj` output |
-| CPU baseline | Intel 8086 common baseline |
-| C CPU switch | `-0` |
-| Initial memory model | `-ms` small code / small data |
-| Stack assumption | `SS` may differ from `DGROUP` (`-zu`) |
-| Stack checking | disabled (`-s`) until an RP86-owned check exists |
-| Default-library records | suppressed (`-zl`) |
-| Compiler target selector | `-bt=dos`; selects the 16-bit compiler/object convention only |
-| C object format | 16-bit OMF |
-| NASM object format | `-f obj` |
-| Link relocation model | WLINK 16-bit segmented DOS format, with default libraries disabled |
-| Emitted image | `OUTPUT RAW OFFSET=0x10000` |
-| Package | existing `.P86W` packager |
+| Compiler | Open Watcom C/16, `wcc` |
+| Compiler version | Open Watcom C x86 16-bit Optimizing Compiler 2.0 beta, Sep 1 2026 05:44:21 |
+| Linker | Open Watcom Linker 2.0 beta, Sep 1 2026 05:40:41 |
+| CPU target / code-generation switches | `-0 -ms -ecc -zu -s -zl -zq -bt=dos`; `-0` is the Intel 8086 baseline and `-ecc` makes `__cdecl` the default calling convention |
+| Memory model | `-ms`, small code / small data |
+| Code pointer width / near-far rule | ordinary code pointers are near 16-bit offsets in the single code segment; explicit far code pointers/calls are outside the v1 contract |
+| Data pointer width / near-far rule | ordinary data pointers are near 16-bit offsets relative to `DS` / `DGROUP`; explicit far data pointers are outside the v1 contract |
+| Function pointer representation | near 16-bit code offset under the selected small model |
+| Calling convention | project default is 16-bit `__cdecl`: arguments on the stack, caller removes arguments, ordinary 16-bit scalar return in `AX`; assembly-visible entry points are still annotated explicitly |
+| Register preservation rules | `AX`, `BX`, `CX`, `DX` are caller-clobbered; `BP`, `SI`, `DI` are callee-preserved. RP86 additionally requires C callees to preserve the established `DS=DGROUP` and the startup-established `ES=DGROUP` convention. `SS` is not changed by an ordinary C call; `SP` returns to the call-site value before caller argument cleanup |
+| DS convention | `DS=DGROUP` before entering C and for the lifetime of ordinary small-model C execution |
+| ES convention | startup initializes `ES=DGROUP`; processor-side C/assembly glue treats it as preserved unless a narrowly documented primitive says otherwise |
+| SS relation to DS | independent; compiled with `-zu`, so no `SS==DS` assumption is permitted |
+| Stack model and maximum practical task stack | 16-bit `SS:SP`. A single stack has at most 64 KiB offset addressability. For the initial FreeRTOS small-model path, C-owned task stack buffers must remain representable by near pointers and therefore share the 64 KiB `DGROUP` budget unless #60 explicitly adds segment-aware stack metadata. No larger/far task-stack model is authorized by #58 |
+| Heap addressability / segment ownership | the initial C heap is a near-data region owned inside `DGROUP`; kernel data, heap, TCBs, and C-addressable task stack storage share the 64 KiB data-group budget. The wider 256 KiB processor backing and future PSRAM are not automatically C heap space |
+| Object format | 16-bit OMF |
+| NASM interoperability path | NASM `-f obj` emits 16-bit OMF; NASM startup/port objects and Open Watcom C objects are linked together by WLINK |
+| Linked-image format | WLINK 16-bit segmented image model with `_TEXT` fixed at physical `0x10000` / `1000:0000` |
+| Flat-binary conversion path | WLINK `OUTPUT RAW OFFSET=0x10000`; byte zero of the emitted file corresponds to physical `0x10000` while segment fixups retain physical link addresses |
+| 8086 ISA verification method | compile with `-0`; retain WLINK map; disassemble only the linked `_TEXT` range; reject an explicit set of obvious post-8086 opcodes in CI; final acceptance requires execution on a physical Intel 8086 |
+
+Open Watcom's 16-bit `__cdecl` convention declares `AX/BX/CX/DX` as modified, uses stack arguments with caller cleanup, and returns ordinary scalar values through `AX`. The smoke workload deliberately leaves its helper function unannotated so CI exercises the project-wide `-ecc` default rather than only explicit per-function modifiers.
 
 The historical FreeRTOS Open Watcom donor used the large memory model. RP86 starts with the small model because the first port should minimize segmentation surface area while the kernel, heap, TCBs, task stacks, and C data fit inside one 64 KiB data group. Large/far-data models remain a later option rather than an assumption inherited from the DOS port.
 
@@ -51,7 +60,7 @@ The first C/16 ABI uses the Open Watcom small model:
 - code is limited to one 64 KiB code segment;
 - ordinary data pointers are 16-bit offsets relative to `DS` / `DGROUP`;
 - ordinary function pointers are near 16-bit code offsets;
-- C static data, the initial FreeRTOS heap, TCBs, and task stacks must fit inside the selected 64 KiB C data group;
+- C static data, the initial FreeRTOS heap, TCBs, and C-addressable task stack storage share the selected 64 KiB C data group;
 - `SS` is not assumed equal to `DS`;
 - the 256 KiB processor-visible Internal-SRAM backing is **not** treated as one flat C address space.
 
@@ -59,9 +68,11 @@ This is an implementation constraint, not an RP86 memory-map change. Native asse
 
 ## Entry and register contract
 
-The `.P86W` reset handoff enters a project-owned NASM startup stub at the workload entry point. The startup stub preserves the RP86-provided `SS:SP`, executes `CLI` and `CLD`, loads `DS` and `ES` with the linked C `DGROUP`, deterministically clears C BSS, and then calls the explicitly declared `__cdecl` C entry point. The 16-bit C return value is consumed in `AX`, reported through the existing RP86 processor I/O ABI, and the validation workload terminates through the existing `IDLE_PREPARE` + `HLT` contract.
+The `.P86W` reset handoff enters a project-owned NASM startup stub at the workload entry point. The startup stub preserves the RP86-provided `SS:SP`, executes `CLI` and `CLD`, loads `DS` and `ES` with the linked C `DGROUP`, deterministically clears C BSS, and then calls the C entry point. The 16-bit C return value is consumed in `AX`, reported through the existing RP86 processor I/O ABI, and the validation workload terminates through the existing `IDLE_PREPARE` + `HLT` contract.
 
-The C/assembly boundary does not depend on a compiler-generated interrupt frame. FreeRTOS context switching remains project-owned assembly work under #60.
+All processor C translation units use `-ecc`, making `__cdecl` the default. Assembly-facing functions should still spell out `__cdecl` in their declarations as executable interface documentation. The C/assembly boundary does not depend on a compiler-generated interrupt frame. FreeRTOS context switching remains project-owned assembly work under #60.
+
+The boot workload may enter with an `SS` that differs from `DGROUP`; the smoke manifest uses `2000:FFF0`. That is valid because of `-zu`. It does **not** imply that an ordinary near C pointer can identify arbitrary future stack segments. The FreeRTOS port must respect the near-pointer limit when representing task stack storage, or explicitly extend the port with segment-aware metadata.
 
 ## Link and load-address model
 
@@ -79,7 +90,7 @@ OUTPUT RAW OFFSET=0x10000
 
 `ORDER ... SEGADDR=0x1000` fixes the code class at the RP86 physical workload segment. `OUTPUT RAW OFFSET=0x10000` omits physical-address padding from the emitted binary without changing the linker's address calculations. `FORMAT DOS` is therefore a **link-time segmented relocation model**, not a DOS runtime dependency; no DOS executable loader, BIOS service, DOS interrupt, or default C runtime library is present in the RP86 execution path.
 
-CI evidence currently resolves the smoke workload as:
+The current smoke image resolves as:
 
 ```text
 entry:              1000:0000
@@ -112,30 +123,33 @@ This is structural/link-time proof of the initialization mechanism. Physical exe
 
 Processor-side C in this stage has no hosted C startup and may not assume DOS services. In particular, there are no `_dos_*` APIs, 8254/8259 programming, hosted `main()` startup, or standard-library calls unless a specific implementation is deliberately provided and audited for the Intel 8086 baseline. Compiler-generated helper calls are also part of the audit surface.
 
-The first smoke workload deliberately uses simple 16-bit integer operations, globals, a BSS object, a pointer, a C function call, local stack use, and a 16-bit return value so the generated instruction surface remains auditable.
+The first smoke workload deliberately uses simple 16-bit integer operations, initialized data, BSS, globals, a near pointer, an unannotated default-`__cdecl` C function call, local stack use, and a 16-bit return value so the generated instruction surface remains auditable.
 
 ## Current CI evidence
 
-The C16 validation workflow currently proves all of the following in one processor-only build: Open Watcom C/16 compilation, NASM OMF assembly, mixed OMF linking, fixed physical entry `1000:0000`, relocated `DGROUP`, linker-derived BSS clearing, raw binary generation, `.P86W` packaging, and rejection of an explicit set of obvious post-8086 context opcodes.
+The C16 validation workflow proves in one processor-only build: pinned Open Watcom C/16 acquisition with SHA-256 verification, NASM OMF assembly, mixed OMF linking, fixed physical entry `1000:0000`, relocated `DGROUP`, linker-derived BSS clearing, raw binary generation, `.P86W` packaging, and an opcode scan constrained to the executable `_TEXT` range rather than interpreting DATA/BSS bytes as code.
 
 The WLINK warning `W1014: stack segment not found` is expected for this workload. RP86 owns initial `SS:SP` through the workload manifest/reset handoff, and the C compiler is built with `-zu`; the linker is not asked to allocate a DOS stack segment.
 
 ## Required verification before closing #58
 
 - [x] reproducible Open Watcom C/16 binary input is pinned and digest-checked;
+- [x] complete C/16 ABI decision record is populated;
+- [x] `__cdecl` is the project-wide compiler default and exercised by an unannotated C helper;
 - [x] mixed Open Watcom C OMF + NASM OMF links without DOS/CRT libraries;
 - [x] WLINK map proves code/data/group placement compatible with the RP86 physical load base;
 - [x] raw binary byte zero corresponds to physical `0x10000` while segment fixups retain physical addressing;
 - [x] deterministic BSS clearing is defined from linker-derived bounds and checked against the linked image;
 - [x] initialized data, locals, calls, globals, pointers, and stack use are represented by the smoke workload;
 - [x] the image is packaged by the existing `.P86W` path;
+- [x] CI ISA auditing is restricted to the linked executable `_TEXT` bytes;
 - [ ] execute the validation workload on a physical Intel 8086 and observe result `0x147A`;
 - [ ] confirm NEC V30 compatibility on the same C/16 ABI path.
 
-The CI opcode scan is a useful guard, not a mathematical proof that every emitted byte is valid 8086 code. Physical Intel 8086 execution remains the decisive CPU-baseline gate.
+The CI opcode scan is a useful guard, not a mathematical proof that every emitted instruction is valid on every 8086 implementation. Physical Intel 8086 execution remains the decisive CPU-baseline gate.
 
 ## Open items after #58
 
-The initial `-ms` memory model remains subject to FreeRTOS kernel/heap sizing. The RTOS interrupt/tick ABI and exact task context are intentionally outside this toolchain issue and remain follow-on processor-port work.
+The initial `-ms` memory model remains subject to FreeRTOS kernel/heap sizing. The RTOS interrupt/tick ABI and exact task context are intentionally outside this toolchain issue and remain follow-on processor-port work. In particular, #60 must choose the task-stack segment representation without weakening the near-pointer rules established here.
 
 Related: #57, #58, #60, #62.
