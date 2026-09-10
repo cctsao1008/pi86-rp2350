@@ -23,7 +23,7 @@ This table is the authoritative C/16 ABI handoff required by Issue #58 and consu
 | Data pointer width / near-far rule | ordinary data pointers are near 16-bit offsets relative to `DS` / `DGROUP`; explicit far data pointers are outside the v1 contract |
 | Function pointer representation | near 16-bit code offset under the selected small model |
 | Calling convention | project default is 16-bit `__cdecl`: arguments on the stack, caller removes arguments, ordinary 16-bit scalar return in `AX`; assembly-visible entry points are still annotated explicitly |
-| Register preservation rules | `AX`, `BX`, `CX`, `DX` are caller-clobbered; `BP`, `SI`, `DI` are callee-preserved. RP86 additionally requires C callees to preserve the established `DS=DGROUP` and the startup-established `ES=DGROUP` convention. `SS` is not changed by an ordinary C call; `SP` returns to the call-site value before caller argument cleanup |
+| Register preservation rules | `AX`, `BX`, `CX`, `DX` are caller-clobbered; `BP`, `SI`, `DI` are callee-preserved. RP86 additionally requires C callees to preserve the established `DS=DGROUP` and startup-established `ES=DGROUP` convention. `SS` is not changed by an ordinary C call; `SP` returns to the call-site value before caller argument cleanup |
 | DS convention | `DS=DGROUP` before entering C and for the lifetime of ordinary small-model C execution |
 | ES convention | startup initializes `ES=DGROUP`; processor-side C/assembly glue treats it as preserved unless a narrowly documented primitive says otherwise |
 | SS relation to DS | independent; compiled with `-zu`, so no `SS==DS` assumption is permitted |
@@ -68,7 +68,7 @@ This is an implementation constraint, not an RP86 memory-map change. Native asse
 
 ## Entry and register contract
 
-The `.P86W` reset handoff enters a project-owned NASM startup stub at the workload entry point. The startup stub preserves the RP86-provided `SS:SP`, executes `CLI` and `CLD`, loads `DS` and `ES` with the linked C `DGROUP`, deterministically clears C BSS, and then calls the C entry point. The 16-bit C return value is consumed in `AX`, reported through the existing RP86 processor I/O ABI, and the validation workload terminates through the existing `IDLE_PREPARE` + `HLT` contract.
+The `.P86W` reset handoff enters a project-owned NASM startup stub at the workload entry point. The startup stub preserves the RP86-provided `SS:SP`, executes `CLI` and `CLD`, loads `DS` and `ES` with the linked C `DGROUP`, deterministically clears C BSS, and then calls the C entry point. The 16-bit C return value is published through `RP86_IO_PORT_RESULT` before the startup converts the expected-checksum contract into RP86's formal diagnostic PASS/FAIL line and terminates through the existing `IDLE_PREPARE` + `HLT` contract.
 
 All processor C translation units use `-ecc`, making `__cdecl` the default. Assembly-facing functions should still spell out `__cdecl` in their declarations as executable interface documentation. The C/assembly boundary does not depend on a compiler-generated interrupt frame. FreeRTOS context switching remains project-owned assembly work under #60.
 
@@ -90,18 +90,22 @@ OUTPUT RAW OFFSET=0x10000
 
 `ORDER ... SEGADDR=0x1000` fixes the code class at the RP86 physical workload segment. `OUTPUT RAW OFFSET=0x10000` omits physical-address padding from the emitted binary without changing the linker's address calculations. `FORMAT DOS` is therefore a **link-time segmented relocation model**, not a DOS runtime dependency; no DOS executable loader, BIOS service, DOS interrupt, or default C runtime library is present in the RP86 execution path.
 
-The current smoke image resolves as:
+CI run #16 resolves the current smoke image as:
 
 ```text
 entry:              1000:0000
-_TEXT:              1000:0000
-DGROUP:             1007:0000
-_rp86_data_anchor:  1007:0000
-_rp86_bss_probe:    1007:0010
-_BSS physical:      1008:0000, size 0x0002
+_TEXT:              1000:0000, size 0x00B5
+DGROUP:             100C:0000
+_rp86_c16_add:      1000:0087
+_rp86_c16_main:     1000:0092
+_rp86_data_anchor:  100C:0000
+_rp86_bss_probe:    100C:0010
+_BSS physical:      100D:0000, size 0x0002
+raw image:          194 bytes
+C16SMOKE.P86W:      234 bytes
 ```
 
-The generated startup correspondingly loads `DS=ES=0x1007`, demonstrating that OMF segment relocation and the RP86 physical load base agree.
+The generated startup correspondingly loads `DS=ES=0x100C`, demonstrating that OMF segment relocation and the RP86 physical load base agree.
 
 ## BSS policy
 
@@ -115,9 +119,19 @@ xor ax, ax
 rep stosb
 ```
 
-CI cross-checks the resolved immediates in the raw startup against the WLINK map-derived BSS range. In the current smoke image the linker resolves the range to `DGROUP:+0x0010 .. +0x0012`, exactly two bytes. The C validation entry checks `rp86_bss_probe == 0` before first use; it returns `0xB551` if that contract is violated. The normal expected result remains `0x147A`.
+CI cross-checks the resolved immediates in the raw startup against the WLINK map-derived BSS range. In the current smoke image the linker resolves the range to `DGROUP:+0x0010 .. +0x0012`, exactly two bytes. The C validation entry checks `rp86_bss_probe == 0` before first use; it returns `0xB551` if that contract is violated.
 
-This is structural/link-time proof of the initialization mechanism. Physical execution is still required before Issue #58 can claim the runtime behavior is validated on Intel 8086 hardware.
+## Native validation result contract
+
+Normal C execution computes:
+
+```text
+0x1357 + 0x0022 + 0x0101 = 0x147A
+```
+
+The startup always publishes the returned `AX` value to `RP86_IO_PORT_RESULT`. It emits the exact RP86 acceptance line `RESULT: PASS` only when `AX == 0x147A`; every other value, including the BSS-failure sentinel `0xB551`, emits `RESULT: FAIL`. It then arms terminal idle and reaches `HLT`.
+
+This makes `tools/rp86.py --physical-regression C16SMOKE.P86W` suitable as the physical acceptance path: successful lifecycle completion alone is not enough; the firmware-owned formal PASS flag must also have been produced by the native checksum comparison.
 
 ## Freestanding rule
 
@@ -127,7 +141,9 @@ The first smoke workload deliberately uses simple 16-bit integer operations, ini
 
 ## Current CI evidence
 
-The C16 validation workflow proves in one processor-only build: pinned Open Watcom C/16 acquisition with SHA-256 verification, NASM OMF assembly, mixed OMF linking, fixed physical entry `1000:0000`, relocated `DGROUP`, linker-derived BSS clearing, raw binary generation, `.P86W` packaging, and an opcode scan constrained to the executable `_TEXT` range rather than interpreting DATA/BSS bytes as code.
+Processor C16 ABI run #16 is green. The processor-only workflow proves pinned Open Watcom C/16 acquisition with SHA-256 verification, NASM OMF assembly, mixed OMF linking, fixed physical entry `1000:0000`, relocated `DGROUP`, linker-derived BSS clearing, raw binary generation, `.P86W` packaging, and an opcode scan constrained to the executable `_TEXT` range rather than interpreting DATA/BSS bytes as code.
+
+The linked executable visibly contains `cmp ax,0x147a` and separate native `RESULT: PASS` / `RESULT: FAIL` output paths before terminal completion. The unannotated C helper is called with two pushed 16-bit arguments followed by caller-side `add sp,4`, matching the project-wide `-ecc` / `__cdecl` decision.
 
 The WLINK warning `W1014: stack segment not found` is expected for this workload. RP86 owns initial `SS:SP` through the workload manifest/reset handoff, and the C compiler is built with `-zu`; the linker is not asked to allocate a DOS stack segment.
 
@@ -143,7 +159,8 @@ The WLINK warning `W1014: stack segment not found` is expected for this workload
 - [x] initialized data, locals, calls, globals, pointers, and stack use are represented by the smoke workload;
 - [x] the image is packaged by the existing `.P86W` path;
 - [x] CI ISA auditing is restricted to the linked executable `_TEXT` bytes;
-- [ ] execute the validation workload on a physical Intel 8086 and observe result `0x147A`;
+- [x] native checksum success is converted into RP86's formal `RESULT: PASS` acceptance signal;
+- [ ] execute the validation workload on a physical Intel 8086 and observe native result `0x147A` with formal PASS;
 - [ ] confirm NEC V30 compatibility on the same C/16 ABI path.
 
 The CI opcode scan is a useful guard, not a mathematical proof that every emitted instruction is valid on every 8086 implementation. Physical Intel 8086 execution remains the decisive CPU-baseline gate.
