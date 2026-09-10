@@ -24,6 +24,47 @@ extern _rp86_data_anchor
 extern _edata
 extern _end
 
+%define EXPECTED_RESULT 0x147A
+
+%macro putc 1
+    mov al, %1
+    out dx, al
+%endmacro
+
+%macro report_pass 0
+    putc 'R'
+    putc 'E'
+    putc 'S'
+    putc 'U'
+    putc 'L'
+    putc 'T'
+    putc ':'
+    putc ' '
+    putc 'P'
+    putc 'A'
+    putc 'S'
+    putc 'S'
+    putc 13
+    putc 10
+%endmacro
+
+%macro report_fail 0
+    putc 'R'
+    putc 'E'
+    putc 'S'
+    putc 'U'
+    putc 'L'
+    putc 'T'
+    putc ':'
+    putc ' '
+    putc 'F'
+    putc 'A'
+    putc 'I'
+    putc 'L'
+    putc 13
+    putc 10
+%endmacro
+
 rp86_c16_entry:
     cli
     cld
@@ -47,23 +88,23 @@ rp86_c16_entry:
     ; __cdecl small-model entry: near call, 16-bit return value in AX.
     call _rp86_c16_main
 
-    ; Publish the checksum as structured native evidence before completion.
+    ; Publish the exact C result through the native result port first.  Then
+    ; convert the checksum contract into RP86's formal diagnostic PASS/FAIL
+    ; line so --physical-regression can make the acceptance decision.
     mov dx, RP86_IO_PORT_RESULT
     out dx, ax
+    cmp ax, EXPECTED_RESULT
+    jne .failed
 
-    ; Also leave a minimal human-visible marker on the diagnostic stream.
     mov dx, RP86_IO_PORT_DIAGNOSTIC
-    mov al, 'C'
-    out dx, al
-    mov al, '1'
-    out dx, al
-    mov al, '6'
-    out dx, al
-    mov al, 13
-    out dx, al
-    mov al, 10
-    out dx, al
+    report_pass
+    jmp short .complete
 
+.failed:
+    mov dx, RP86_IO_PORT_DIAGNOSTIC
+    report_fail
+
+.complete:
     ; This is terminal workload completion, not an RTOS idle HLT.
     mov dx, RP86_IO_PORT_CONTROL
     mov ax, RP86_CONTROL_IDLE_PREPARE
