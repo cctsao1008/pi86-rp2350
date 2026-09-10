@@ -21,8 +21,13 @@ rp86_u16 __cdecl rp86_c16_main( void )
     rp86_u16 local_value = 0x0101u;
     volatile rp86_u16 *anchor = &rp86_data_anchor;
 
-    /* BSS zeroing is a separate Issue #58 gate.  Do not depend on the
-     * power-on/loader value here until startup has an explicit zeroing rule. */
+    /* Startup must clear the linker-defined BSS range before C entry.  Keep
+     * this check as native execution evidence rather than trusting SRAM or
+     * loader state. */
+    if( rp86_bss_probe != 0u ) {
+        return 0xB551u;
+    }
+
     rp86_bss_probe = 0x0022u;
 
     return ( rp86_u16 )
