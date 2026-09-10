@@ -20,13 +20,14 @@ endif()
 get_filename_component(output_dir "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${output_dir}")
 
-# WLINK format selection must precede format-specific options.  RP86 loads
-# byte zero of OUTPUT at LOAD_ADDRESS, so link at the physical base while
-# asking raw output to begin at the same offset rather than emitting leading
-# padding.  Issue #58 keeps this contract provisional until map/binary evidence
-# proves the intended semantics.
+# WLINK treats newlines as whitespace while parsing directive files.  RAW has
+# an optional BIN/HEX selector, so state BIN explicitly to terminate the
+# FORMAT directive before the following OPTION token.  RP86 loads byte zero
+# of OUTPUT at LOAD_ADDRESS; OPTION OFFSET fixes linker address calculation at
+# that physical base, while OUTPUT RAW OFFSET skips the corresponding leading
+# padding in the emitted binary.
 file(WRITE "${LINK_SCRIPT}"
-    "format raw\n"
+    "format raw bin\n"
     "option quiet\n"
     "option offset=${LOAD_ADDRESS}\n"
     "output raw offset=${LOAD_ADDRESS}\n"
