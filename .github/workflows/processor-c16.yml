@@ -1,0 +1,89 @@
+name: Processor C16 ABI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/processor-c16.yml"
+      - "cmake/ProcessorC16Image.cmake"
+      - "cmake/LinkProcessorC16.cmake"
+      - "docs/processor_c16_abi.md"
+      - "processor/CMakeLists.txt"
+      - "processor/workloads/validation/c16_abi_smoke/**"
+      - "tools/package_workload.py"
+      - "tools/rp86_runtime/workload.py"
+  workflow_dispatch:
+
+jobs:
+  build-c16-smoke:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      # Pin the setup action implementation.  The Open Watcom snapshot itself
+      # is still provisional for Issue #58 and must be replaced by an immutable
+      # toolchain pin before the issue is closed.
+      - name: Setup Open Watcom C/16
+        uses: open-watcom/setup-watcom@f0c24a936512429598af01e37fb4a96e8faece74
+        with:
+          version: "2.0"
+          tag: "last"
+          target: "dos"
+
+      - name: Install NASM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm
+          nasm -v
+
+      - name: Report Open Watcom tools
+        run: |
+          command -v wcc
+          command -v wlink
+          wcc -? 2>&1 | head -40 || true
+
+      - name: Configure RP86 C16 validation
+        run: |
+          cmake -S . -B build \
+            -DRP86_ENABLE_PROCESSOR_C16=ON \
+            -DRP86_NASM_EXECUTABLE="$(command -v nasm)" \
+            -DRP86_WCC_EXECUTABLE="$(command -v wcc)" \
+            -DRP86_WLINK_EXECUTABLE="$(command -v wlink)"
+
+      - name: Build mixed C and NASM workload
+        run: cmake --build build --target c16_abi_smoke_package --verbose
+
+      - name: Inspect C16 evidence
+        run: |
+          echo "=== generated files ==="
+          find build/processor/generated/c16_abi_smoke -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          echo "=== linker map ==="
+          cat build/processor/generated/c16_abi_smoke/c16_abi_smoke.map
+          echo "=== first 128 bytes ==="
+          xxd -g1 -l128 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin
+          echo "=== initial disassembly ==="
+          ndisasm -b16 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin | head -120
+          echo "=== package ==="
+          ls -l build/workloads/C16SMOKE.P86W
+
+      - name: Reject obvious post-8086 context opcodes
+        run: |
+          ndisasm -b16 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin > build/c16_abi_smoke.ndisasm
+          if grep -Eiw 'pusha|popa|pushad|popad|enter|leave|bound|insb|insw|outsb|outsw' build/c16_abi_smoke.ndisasm; then
+            echo "Found an instruction outside the intended Intel 8086 baseline"
+            exit 1
+          fi
+
+      - name: Upload C16 build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: c16-abi-smoke
+          path: |
+            build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin
+            build/processor/generated/c16_abi_smoke/c16_abi_smoke.map
+            build/processor/generated/c16_abi_smoke/c16_abi_smoke.lnk
+            build/c16_abi_smoke.ndisasm
+            build/workloads/C16SMOKE.P86W
