@@ -20,14 +20,14 @@ endif()
 get_filename_component(output_dir "${OUTPUT}" DIRECTORY)
 file(MAKE_DIRECTORY "${output_dir}")
 
-# WLINK's raw format still performs normal segment/fixup calculation.  RP86
-# loads byte zero of OUTPUT at LOAD_ADDRESS, so link at the physical base while
-# asking raw output to start at the same offset rather than emitting leading
+# WLINK format selection must precede format-specific options.  RP86 loads
+# byte zero of OUTPUT at LOAD_ADDRESS, so link at the physical base while
+# asking raw output to begin at the same offset rather than emitting leading
 # padding.  Issue #58 keeps this contract provisional until map/binary evidence
 # proves the intended semantics.
 file(WRITE "${LINK_SCRIPT}"
-    "option quiet\n"
     "format raw\n"
+    "option quiet\n"
     "option offset=${LOAD_ADDRESS}\n"
     "output raw offset=${LOAD_ADDRESS}\n"
     "option map=\"${MAP}\"\n"
@@ -46,10 +46,10 @@ execute_process(
 )
 
 if(NOT link_result EQUAL 0)
+    file(READ "${LINK_SCRIPT}" link_script_text)
     message(FATAL_ERROR
         "Open Watcom WLINK failed with exit code ${link_result}\n"
-        "--- linker script ---\n"
-        "${LINK_SCRIPT}\n"
+        "--- linker script ---\n${link_script_text}\n"
         "--- stdout ---\n${link_stdout}\n"
         "--- stderr ---\n${link_stderr}\n"
     )
