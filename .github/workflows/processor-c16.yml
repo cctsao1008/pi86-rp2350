@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/processor-c16.yml"
+      - "CMakeLists.txt"
       - "cmake/ProcessorC16Image.cmake"
       - "cmake/LinkProcessorC16.cmake"
       - "docs/processor_c16_abi.md"
@@ -20,8 +21,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-        with:
-          submodules: recursive
 
       # Pin the setup action implementation.  The Open Watcom snapshot itself
       # is still provisional for Issue #58 and must be replaced by an immutable
@@ -33,11 +32,12 @@ jobs:
           tag: "last"
           target: "dos"
 
-      - name: Install NASM
+      - name: Install native workload build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y nasm
+          sudo apt-get install -y nasm ninja-build
           nasm -v
+          ninja --version
 
       - name: Report Open Watcom tools
         run: |
@@ -47,7 +47,8 @@ jobs:
 
       - name: Configure RP86 C16 validation
         run: |
-          cmake -S . -B build \
+          cmake -S . -B build -G Ninja \
+            -DRP86_PROCESSOR_ONLY=ON \
             -DRP86_ENABLE_PROCESSOR_C16=ON \
             -DRP86_NASM_EXECUTABLE="$(command -v nasm)" \
             -DRP86_WCC_EXECUTABLE="$(command -v wcc)" \
