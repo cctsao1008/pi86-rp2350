@@ -18,6 +18,12 @@ global rp86_c16_entry
 extern _rp86_c16_main
 extern _rp86_data_anchor
 
+; WLINK creates these symbols at the beginning and end of class BSS.  They are
+; offsets in DGROUP for the 16-bit small model and give the freestanding RP86
+; startup an explicit, linker-derived zero-initialization range.
+extern _edata
+extern _end
+
 rp86_c16_entry:
     cli
     cld
@@ -28,6 +34,15 @@ rp86_c16_entry:
     mov ax, seg _rp86_data_anchor
     mov ds, ax
     mov es, ax
+
+    ; Freestanding C still requires deterministic zero-initialized storage.
+    ; WLINK resolves _edata/_end to the BSS class bounds.  Zero exactly that
+    ; byte range before any C code executes; do not rely on SRAM/loader state.
+    mov di, _edata
+    mov cx, _end
+    sub cx, di
+    xor ax, ax
+    rep stosb
 
     ; __cdecl small-model entry: near call, 16-bit return value in AX.
     call _rp86_c16_main
