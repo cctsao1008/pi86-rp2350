@@ -22,21 +22,24 @@ file(MAKE_DIRECTORY "${output_dir}")
 
 # WLINK treats newlines as whitespace while parsing directive files.  RAW has
 # an optional BIN/HEX selector, so state BIN explicitly to terminate the
-# FORMAT directive before the following OPTION token.  RP86 loads byte zero
-# of OUTPUT at LOAD_ADDRESS; OPTION OFFSET fixes linker address calculation at
-# that physical base, while OUTPUT RAW OFFSET skips the corresponding leading
-# padding in the emitted binary.
+# FORMAT directive before the following OPTION token.  WLINK's own driver
+# emits single-quoted path operands, so follow that syntax here rather than
+# embedding double quotes in file names.
+#
+# RP86 loads byte zero of OUTPUT at LOAD_ADDRESS; OPTION OFFSET fixes linker
+# address calculation at that physical base, while OUTPUT RAW OFFSET skips the
+# corresponding leading padding in the emitted binary.
 file(WRITE "${LINK_SCRIPT}"
     "format raw bin\n"
     "option quiet\n"
     "option offset=${LOAD_ADDRESS}\n"
     "output raw offset=${LOAD_ADDRESS}\n"
-    "option map=\"${MAP}\"\n"
-    "name \"${OUTPUT}\"\n"
+    "option map='${MAP}'\n"
+    "name '${OUTPUT}'\n"
 )
 
 foreach(object_path IN LISTS OBJECTS)
-    file(APPEND "${LINK_SCRIPT}" "file \"${object_path}\"\n")
+    file(APPEND "${LINK_SCRIPT}" "file '${object_path}'\n")
 endforeach()
 
 execute_process(
