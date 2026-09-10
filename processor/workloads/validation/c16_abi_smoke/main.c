@@ -11,11 +11,17 @@ typedef unsigned short rp86_u16;
 volatile rp86_u16 rp86_data_anchor = 0x1357u;
 volatile rp86_u16 rp86_bss_probe;
 
-rp86_u16 __cdecl rp86_c16_add( rp86_u16 left, rp86_u16 right )
+/* Deliberately omit an explicit modifier here.  The C/16 build contract uses
+ * -ecc, so this helper must still compile with the project-wide __cdecl ABI.
+ * The caller-side stack cleanup in the linked image is CI evidence for that
+ * default convention. */
+rp86_u16 rp86_c16_add( rp86_u16 left, rp86_u16 right )
 {
     return ( rp86_u16 ) ( left + right );
 }
 
+/* Keep the assembly-visible entry explicit as documentation at the language
+ * boundary, even though -ecc makes __cdecl the translation-unit default. */
 rp86_u16 __cdecl rp86_c16_main( void )
 {
     rp86_u16 local_value = 0x0101u;
