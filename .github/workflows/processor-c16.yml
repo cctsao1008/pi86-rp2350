@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v6
 
       # Issue #58 requires a reproducible C/16 compiler, not a moving
-      # Current-build/Last-CI-build alias.  Pin both the named Open Watcom
+      # Current-build/Last-CI-build alias. Pin both the named Open Watcom
       # release and the exact release-asset digest.
       - name: Setup pinned Open Watcom C/16
         shell: bash
@@ -76,7 +76,7 @@ jobs:
           cat build/processor/generated/c16_abi_smoke/c16_abi_smoke.map
           echo "=== first 128 bytes ==="
           xxd -g1 -l128 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin
-          echo "=== initial disassembly ==="
+          echo "=== initial raw-image disassembly ==="
           ndisasm -b16 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin | head -120
           echo "=== package ==="
           ls -l build/workloads/C16SMOKE.P86W
@@ -97,21 +97,33 @@ jobs:
               map_text,
               re.MULTILINE,
           )
+          text = re.search(
+              r"^_TEXT\s+CODE\s+\S+\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
+              map_text,
+              re.MULTILINE,
+          )
           bss = re.search(
               r"^_BSS\s+BSS\s+DGROUP\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
               map_text,
               re.MULTILINE,
           )
           entry = re.search(r"^\s*Entry point address:\s+1000:0000\s*$", map_text, re.MULTILINE)
-          if not group or not bss or not entry:
-              raise SystemExit("missing DGROUP, _BSS, or 1000:0000 entry evidence in WLINK map")
+          if not group or not text or not bss or not entry:
+              raise SystemExit("missing DGROUP, _TEXT, _BSS, or 1000:0000 entry evidence in WLINK map")
 
+          text_phys = int(text.group(1), 16) * 16 + int(text.group(2), 16)
+          text_size = int(text.group(3), 16)
           dg_phys = int(group.group(1), 16) * 16 + int(group.group(2), 16)
           bss_phys = int(bss.group(1), 16) * 16 + int(bss.group(2), 16)
           bss_size = int(bss.group(3), 16)
           bss_start = bss_phys - dg_phys
           bss_end = bss_start + bss_size
 
+          if text_phys != 0x10000 or text_size <= 0 or text_size > len(image):
+              raise SystemExit(
+                  f"invalid _TEXT placement/size: physical=0x{text_phys:05x} "
+                  f"size=0x{text_size:x} image={len(image)}"
+              )
           if bss_size <= 0 or not (0 <= bss_start <= bss_end <= 0x10000):
               raise SystemExit(
                   f"invalid small-model BSS range: start=0x{bss_start:04x} "
@@ -119,28 +131,36 @@ jobs:
               )
 
           # startup.asm must load WLINK's _edata/_end offsets and then execute
-          # `sub cx,di; xor ax,ax; rep stosb`.  Matching these resolved values
+          # `sub cx,di; xor ax,ax; rep stosb`. Matching these resolved values
           # against the map proves the linker-derived BSS clearing range.
           clear_sequence = (
               b"\xbf" + bss_start.to_bytes(2, "little") +
               b"\xb9" + bss_end.to_bytes(2, "little") +
               b"\x29\xf9\x31\xc0\xf3\xaa"
           )
-          if clear_sequence not in image[:128]:
+          if clear_sequence not in image[:text_size]:
               raise SystemExit(
                   "startup does not contain linker-derived BSS clear sequence "
                   f"for [0x{bss_start:04x},0x{bss_end:04x})"
               )
 
+          # Keep ISA auditing strictly inside the executable _TEXT bytes. The
+          # raw image also contains DATA/BSS representation, which must never
+          # be interpreted as instructions by the opcode gate.
+          text_image = Path("build/c16_abi_smoke.text.bin")
+          text_image.write_bytes(image[:text_size])
+
           print(
-              f"BSS contract OK: DGROUP=0x{dg_phys:05x}, "
+              f"C16 layout OK: _TEXT=0x{text_phys:05x}+0x{text_size:x}, "
+              f"DGROUP=0x{dg_phys:05x}, "
               f"BSS=[+0x{bss_start:04x},+0x{bss_end:04x}) ({bss_size} bytes)"
           )
           PY
 
-      - name: Reject obvious post-8086 context opcodes
+      - name: Reject obvious post-8086 code opcodes
         run: |
-          ndisasm -b16 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin > build/c16_abi_smoke.ndisasm
+          ndisasm -b16 build/c16_abi_smoke.text.bin > build/c16_abi_smoke.ndisasm
+          cat build/c16_abi_smoke.ndisasm
           if grep -Eiw 'pusha|popa|pushad|popad|enter|leave|bound|insb|insw|outsb|outsw' build/c16_abi_smoke.ndisasm; then
             echo "Found an instruction outside the intended Intel 8086 baseline"
             exit 1
@@ -154,5 +174,6 @@ jobs:
             build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin
             build/processor/generated/c16_abi_smoke/c16_abi_smoke.map
             build/processor/generated/c16_abi_smoke/c16_abi_smoke.lnk
+            build/c16_abi_smoke.text.bin
             build/c16_abi_smoke.ndisasm
             build/workloads/C16SMOKE.P86W
