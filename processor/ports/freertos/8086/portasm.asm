@@ -197,9 +197,10 @@ rp86_freertos_tick_isr:
     ; copy SP to BP temporarily; the selected task's real BP is still present
     ; at [SS:BP+0] and will be restored immediately afterwards.
     ;
-    ; Frame offsets:
-    ;   +00 BP, +02 DI, +04 SI, +06 DS, +08 ES, +10 DX, +12 CX, +14 BX,
-    ;   +16 AX, +18 IP, +20 CS, +22 FLAGS.
+    ; Each 623x marker is followed by its raw 16-bit value on the result port:
+    ;   6230 -> SP, 6231 -> IP, 6232 -> CS, 6233 -> FLAGS, 6234 -> SS.
+    ; Frame offsets are +00 BP, +02 DI, +04 SI, +06 DS, +08 ES, +10 DX,
+    ; +12 CX, +14 BX, +16 AX, +18 IP, +20 CS, +22 FLAGS.
     RP86_TRACE_VALUE 0x6230, sp
     mov bp, sp
     mov ax, [ss:bp + 18]
