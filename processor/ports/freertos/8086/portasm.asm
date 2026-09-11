@@ -43,11 +43,16 @@ extern _xTaskIncrementTick
     pop ax
 %endmacro
 
+; Capture the value before loading the marker into AX.  This matters when the
+; source value itself is AX (or a memory value first loaded into AX).
+; CX may be clobbered here because every use is before the selected frame is
+; restored; the real task CX is still saved on that frame.
 %macro RP86_TRACE_VALUE 2
+    mov cx, %2
     mov dx, RP86_IO_PORT_RESULT
     mov ax, %1
     out dx, ax
-    mov ax, %2
+    mov ax, cx
     out dx, ax
 %endmacro
 
@@ -111,6 +116,15 @@ _rp86PortStartFirstTask:
 
     mov ss, ax
     mov sp, dx
+
+    ; Snapshot the exact fabricated frame selected by vTaskStartScheduler().
+    ; 6250 -> SP, 6251 -> IP, 6252 -> CS, 6253 -> FLAGS, 6254 -> SS.
+    mov bp, sp
+    RP86_TRACE_VALUE 0x6250, sp
+    RP86_TRACE_VALUE 0x6251, [ss:bp + 18]
+    RP86_TRACE_VALUE 0x6252, [ss:bp + 20]
+    RP86_TRACE_VALUE 0x6253, [ss:bp + 22]
+    RP86_TRACE_VALUE 0x6254, ss
     RP86_TRACE_WORD 0x6204
 
     pop bp
@@ -133,6 +147,20 @@ rp86_freertos_tick_isr:
     mov ax, seg _pxCurrentTCB
     mov ds, ax
     mov es, ax
+
+    ; After the first switching IRET has completed, capture the next interrupted
+    ; architectural frame.  This shows where the physical 8086 actually ran
+    ; between ticks even if the task-level progress marker was never reached.
+    cmp word [rp86_tick_trace_state], 5
+    jne .tick_live_frame_done
+    mov word [rp86_tick_trace_state], 6
+    mov bp, sp
+    RP86_TRACE_VALUE 0x6240, sp
+    RP86_TRACE_VALUE 0x6241, [ss:bp + 18]
+    RP86_TRACE_VALUE 0x6242, [ss:bp + 20]
+    RP86_TRACE_VALUE 0x6243, [ss:bp + 22]
+    RP86_TRACE_VALUE 0x6244, ss
+.tick_live_frame_done:
 
     cmp word [rp86_tick_trace_state], 0
     jne .tick_trace_entered
@@ -165,19 +193,14 @@ rp86_freertos_tick_isr:
     jne .tick_eoi
     mov word [rp86_tick_trace_state], 2
 
-    ; First switching tick: marker/value pairs are SP, IP, CS, FLAGS, SS.
-    ; BP is used only as a temporary 8086-addressable copy of SP; the selected
-    ; task's BP remains in its saved frame and is restored below.
-    RP86_TRACE_VALUE 0x6230, sp
+    ; First switching tick: 6230 -> SP, 6231 -> IP, 6232 -> CS,
+    ; 6233 -> FLAGS, 6234 -> SS.
     mov bp, sp
-    mov ax, [ss:bp + 18]
-    RP86_TRACE_VALUE 0x6231, ax
-    mov ax, [ss:bp + 20]
-    RP86_TRACE_VALUE 0x6232, ax
-    mov ax, [ss:bp + 22]
-    RP86_TRACE_VALUE 0x6233, ax
-    mov ax, ss
-    RP86_TRACE_VALUE 0x6234, ax
+    RP86_TRACE_VALUE 0x6230, sp
+    RP86_TRACE_VALUE 0x6231, [ss:bp + 18]
+    RP86_TRACE_VALUE 0x6232, [ss:bp + 20]
+    RP86_TRACE_VALUE 0x6233, [ss:bp + 22]
+    RP86_TRACE_VALUE 0x6234, ss
     RP86_TRACE_WORD 0x6213
     jmp short .tick_eoi
 
@@ -208,10 +231,12 @@ rp86_restore_context:
     pop bx
     pop ax
 
-    ; First switching tick only: prove the software frame is fully consumed and
-    ; IRET is immediately next, without touching the architectural IRET frame.
+    ; First switching tick only: prove the software frame was fully consumed.
+    ; Advance the state before returning so later tick/yield restores do not
+    ; flood the result port with 6236.
     cmp word [rp86_tick_trace_state], 3
     jne .restore_iret
+    mov word [rp86_tick_trace_state], 5
     mov [rp86_trace_saved_ax], ax
     mov [rp86_trace_saved_dx], dx
     mov dx, RP86_IO_PORT_RESULT
