@@ -228,8 +228,40 @@ rp86_freertos_tick_isr:
     mov al, RP86_PIC_COMMAND_EOI
     out dx, al
 
+    ; Only the first tick path uses state value 2.  Prove that the RP2350 EOI
+    ; write completed and execution returned to the processor before consuming
+    ; the selected task frame.
+    cmp word [rp86_tick_trace_state], 2
+    jne rp86_restore_context
+    mov word [rp86_tick_trace_state], 3
+    RP86_TRACE_WORD 0x6235
+
 rp86_restore_context:
-    RP86_RESTORE_CONTEXT
+    pop bp
+    pop di
+    pop si
+    pop ds
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
+
+    ; On the first tick only, execution has consumed all software-saved words;
+    ; SP now points directly at IP,CS,FLAGS.  Avoid stack pushes here.  AX/DX
+    ; are already restored, so save them in the consumed frame slots below SP,
+    ; emit the marker, then restore them before IRET.
+    cmp word [rp86_tick_trace_state], 3
+    jne .restore_iret
+    mov [ss:sp - 2], ax
+    mov [ss:sp - 4], dx
+    mov dx, RP86_IO_PORT_RESULT
+    mov ax, 0x6236
+    out dx, ax
+    mov dx, [ss:sp - 4]
+    mov ax, [ss:sp - 2]
+.restore_iret:
+    iret
 
 ; Voluntary taskYIELD() path.  INT 80h creates the same FLAGS/CS/IP hardware
 ; frame as the physical interrupt; no RP2350 EOI is required for software INT.
