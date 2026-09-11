@@ -13,6 +13,7 @@ enum {
     RESET_HANDOFF_BASE = 0xFFFF0u,
     GENERAL_BUS_STARVATION_TIMEOUT_US = 100000u,
     PERIODIC_TICK_US = 10000u,
+    PERIODIC_TICK_RECOVERY_CYCLES = 64u,
 };
 
 static void emit(rp86_workload_executor_t *executor,
@@ -72,6 +73,7 @@ static void reset_tick_attempt(rp86_workload_executor_t *executor,
     executor->tick_ack_phase = 0u;
     executor->tick_next_us = 0u;
     executor->tick_delivery_not_before_us = 0u;
+    executor->tick_delivery_not_before_cycle = 0u;
     executor->tick_generated = 0u;
     executor->tick_delivered = 0u;
     executor->tick_acknowledged = 0u;
@@ -93,6 +95,10 @@ static void emit_tick_stats(rp86_workload_executor_t *executor) {
          (unsigned long)executor->tick_eoi,
          (unsigned long)executor->tick_delayed,
          (unsigned long)executor->tick_coalesced);
+}
+
+static bool cycle_deadline_reached(uint32_t current, uint32_t deadline) {
+    return deadline == 0u || (int32_t)(current - deadline) >= 0;
 }
 
 static void update_periodic_tick(rp86_workload_executor_t *executor) {
@@ -125,18 +131,22 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
         }
     }
 
-    /* Generation remains phase-locked to the 100 Hz wall clock above, but
-     * physical delivery is also rate-limited after EOI. A source deadline can
-     * therefore create one pending request during the recovery window without
-     * immediately reasserting INTR. This guarantees a full source period of
-     * foreground opportunity after a long CLOCK_STEPPED ISR even when EOI
-     * happens just before the next wall-clock deadline. */
-    const bool delivery_recovered =
+    /* Generation remains phase-locked to the 100 Hz wall clock above.  A
+     * pending request becomes physically deliverable only after both the
+     * wall-clock recovery deadline and a minimum amount of completed processor
+     * bus progress since EOI.  The cycle gate is what prevents a very slow
+     * CLOCK_STEPPED processor from spending the entire 10 ms recovery interval
+     * merely finishing IRET/prefetch and taking the next tick before any task
+     * instruction can retire. */
+    const bool delivery_time_recovered =
         executor->tick_delivery_not_before_us == 0u ||
         now >= executor->tick_delivery_not_before_us;
+    const bool delivery_progress_recovered = cycle_deadline_reached(
+        executor->bus_stats.cycles,
+        executor->tick_delivery_not_before_cycle);
     if (executor->tick_pending && !executor->tick_intr_asserted &&
         executor->tick_ack_phase == 0u && !executor->tick_in_service &&
-        delivery_recovered) {
+        delivery_time_recovered && delivery_progress_recovered) {
         rp86_processor_bus_set_intr(true);
         executor->tick_intr_asserted = true;
     }
@@ -239,6 +249,12 @@ static bool io_write(void *context, uint16_t port,
             executor->tick_in_service = false;
             executor->tick_delivery_not_before_us =
                 time_us_64() + PERIODIC_TICK_US;
+            /* io_write runs before the EOI bus cycle is committed to stats.
+             * Add one for that current cycle, then require 64 further complete
+             * bus cycles before another physical tick can be asserted. */
+            executor->tick_delivery_not_before_cycle =
+                executor->bus_stats.cycles +
+                PERIODIC_TICK_RECOVERY_CYCLES + 1u;
             ++executor->tick_eoi;
         }
         return true;
@@ -256,6 +272,7 @@ static bool io_write(void *context, uint16_t port,
             executor->tick_intr_asserted = false;
             executor->tick_ack_phase = 0u;
             executor->tick_delivery_not_before_us = 0u;
+            executor->tick_delivery_not_before_cycle = 0u;
         }
         return true;
     }
@@ -424,6 +441,7 @@ void rp86_workload_executor_stop(rp86_workload_executor_t *executor) {
     executor->tick_in_service = false;
     executor->tick_ack_phase = 0u;
     executor->tick_delivery_not_before_us = 0u;
+    executor->tick_delivery_not_before_cycle = 0u;
     executor->clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
     emit(executor, "[WORKLOAD STOP] cycles=%lu\n",
          (unsigned long)executor->bus_stats.cycles);
