@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from rp86_runtime.workload import (  # noqa: E402
     FLAG_CLOCK_FREE_RUNNING,
     FLAG_CLOCK_STEPPED,
+    FLAG_PERIODIC_TICK,
     FLAG_PERSISTENT,
     FLAG_SHARED_MEMORY,
     FLAG_STDIO,
@@ -28,6 +29,7 @@ FLAG_NAMES = {
     "persistent": FLAG_PERSISTENT,
     "stdio": FLAG_STDIO,
     "shared-memory": FLAG_SHARED_MEMORY,
+    "periodic-tick": FLAG_PERIODIC_TICK,
 }
 CLOCK_FLAGS = {
     "auto": 0,
