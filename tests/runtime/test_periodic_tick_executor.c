@@ -172,8 +172,9 @@ int main(void) {
     assert(executor.tick_ack_phase == 0u && executor.tick_in_service);
     simulate_inta = false;
 
-    /* EOI releases the in-service state and starts both a full-period wall-time
-     * recovery interval and a 64-completed-cycle processor-progress interval. */
+    /* A real hardware-tick EOI releases the in-service state and starts both a
+     * full-period wall-time recovery interval and a 64-completed-cycle
+     * processor-progress interval. */
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
@@ -183,14 +184,30 @@ int main(void) {
         executor.tick_delivery_not_before_cycle;
     assert(first_progress_deadline == executor.bus_stats.cycles + 64u);
 
-    /* At the next source period, the request may become pending, but wall time
-     * alone is insufficient: physical INTR remains suppressed until the CPU
-     * has completed the required foreground bus progress. */
+    /* At the next source period, a request becomes pending but cannot assert
+     * yet because the processor-progress gate is still closed. */
     now_us = 21000u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 2u);
     assert(executor.tick_pending && !executor.tick_intr_asserted && !intr_level);
-    advance_to_cycle(&executor, first_progress_deadline);
+
+    /* Model the common restore after an INT 80h voluntary context switch.
+     * No hardware tick is in service, so the write must not count as a real
+     * EOI and must not restart the wall-clock gate.  It does refresh the
+     * processor-progress fence so the newly selected peer task gets its own
+     * execution opportunity before the pending tick can assert. */
+    simulate_eoi = true;
+    rp86_workload_executor_service(&executor);
+    simulate_eoi = false;
+    assert(executor.tick_eoi == 1u && !executor.tick_in_service);
+    assert(executor.tick_delivery_not_before_us == 21000u);
+    const uint32_t yield_progress_deadline =
+        executor.tick_delivery_not_before_cycle;
+    assert(yield_progress_deadline == executor.bus_stats.cycles + 64u);
+    assert(yield_progress_deadline > first_progress_deadline);
+    assert(executor.tick_pending && !intr_level);
+
+    advance_to_cycle(&executor, yield_progress_deadline);
     assert(executor.tick_pending && !intr_level);
     rp86_workload_executor_service(&executor);
     assert(executor.tick_pending && executor.tick_intr_asserted && intr_level);
