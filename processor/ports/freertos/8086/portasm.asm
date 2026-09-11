@@ -246,10 +246,10 @@ rp86_restore_context:
 .restore_eoi:
     ; Every scheduler restore emits the same PIC command immediately before
     ; IRET.  For a hardware tick it is the real EOI.  For an INT 80h voluntary
-    ; yield no tick is in service, so the RP2350 interprets the write only as a
-    ; processor-progress resume fence for the newly selected task.  This keeps
-    ; one common 8086 restore path while preventing the next physical tick from
-    ; arriving at the peer task's untouched entry frame.
+    ; yield no tick is in service, so RP2350 treats the write as a scheduler
+    ; resume fence: it refreshes the processor-progress gate and may retract an
+    ; already-asserted but not-yet-accepted pending INTR, preserving the request
+    ; for reassertion after the newly selected task gets foreground progress.
     push ax
     mov al, RP86_PIC_COMMAND_EOI
     out RP86_IO_PORT_PIC_COMMAND, al
