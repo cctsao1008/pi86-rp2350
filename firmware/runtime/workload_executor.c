@@ -64,7 +64,7 @@ static void reset_native_result(rp86_workload_executor_t *executor) {
 
 static void reset_tick_attempt(rp86_workload_executor_t *executor,
                                bool enabled) {
-    rp86_processor_bus_set_intr(executor->processor_bus, false);
+    rp86_processor_bus_set_intr(false);
     executor->tick_enabled = enabled;
     executor->tick_pending = false;
     executor->tick_in_service = false;
@@ -123,7 +123,7 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
      * elapsed periods are coalesced into the one pending request. */
     if (executor->tick_pending && !executor->tick_intr_asserted &&
         executor->tick_ack_phase == 0u && !executor->tick_in_service) {
-        rp86_processor_bus_set_intr(executor->processor_bus, true);
+        rp86_processor_bus_set_intr(true);
         executor->tick_intr_asserted = true;
     }
 }
@@ -137,7 +137,7 @@ static bool interrupt_ack(void *context, bool *drive_vector,
     if (executor->tick_ack_phase == 0u) {
         if (!executor->tick_intr_asserted) return false;
         /* Intel 8086 INTA #1 accepts the request but carries no vector. */
-        rp86_processor_bus_set_intr(executor->processor_bus, false);
+        rp86_processor_bus_set_intr(false);
         executor->tick_intr_asserted = false;
         executor->tick_pending = false;
         executor->tick_ack_phase = 1u;
@@ -233,7 +233,7 @@ static bool io_write(void *context, uint16_t port,
         /* Terminal completion quiesces the periodic source. RTOS idle never
          * uses IDLE_PREPARE, so this cannot be confused with a sleeping task. */
         if (executor->tick_enabled) {
-            rp86_processor_bus_set_intr(executor->processor_bus, false);
+            rp86_processor_bus_set_intr(false);
             executor->tick_enabled = false;
             executor->tick_pending = false;
             executor->tick_in_service = false;
@@ -392,7 +392,7 @@ void rp86_workload_executor_stop(rp86_workload_executor_t *executor) {
     if (!executor->active) return;
     if (executor->completion_reason == RP86_WORKLOAD_COMPLETION_NONE)
         executor->completion_reason = RP86_WORKLOAD_COMPLETION_STOP_REQUESTED;
-    rp86_processor_bus_set_intr(executor->processor_bus, false);
+    rp86_processor_bus_set_intr(false);
     executor->tick_intr_asserted = false;
     rp86_processor_bus_safe_halt(
         executor->processor_bus, RP86_PROCESSOR_RESET_CLOCKS);
