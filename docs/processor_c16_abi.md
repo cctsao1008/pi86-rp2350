@@ -1,6 +1,6 @@
 # Processor C/16 ABI
 
-Status: **provisional for Issue #58**. The compile/link/package ABI is CI-proven; this document becomes fully accepted only after physical Intel 8086 execution validates the generated image.
+Status: **Intel 8086 physically validated for Issue #58; NEC V30 compatibility remains pending**. The compile/link/package ABI is CI-proven and the generated validation image has passed the RP86 physical-regression path on a real Intel 8086.
 
 ## Scope
 
@@ -33,7 +33,7 @@ This table is the authoritative C/16 ABI handoff required by Issue #58 and consu
 | NASM interoperability path | NASM `-f obj` emits 16-bit OMF; NASM startup/port objects and Open Watcom C objects are linked together by WLINK |
 | Linked-image format | WLINK 16-bit segmented image model with `_TEXT` fixed at physical `0x10000` / `1000:0000` |
 | Flat-binary conversion path | WLINK `OUTPUT RAW OFFSET=0x10000`; byte zero of the emitted file corresponds to physical `0x10000` while segment fixups retain physical link addresses |
-| 8086 ISA verification method | compile with `-0`; retain WLINK map; disassemble only the linked `_TEXT` range; reject an explicit set of obvious post-8086 opcodes in CI; final acceptance requires execution on a physical Intel 8086 |
+| 8086 ISA verification method | compile with `-0`; retain WLINK map; disassemble only the linked `_TEXT` range; reject an explicit set of obvious post-8086 opcodes in CI; final CPU-baseline acceptance is execution on a physical Intel 8086 |
 
 Open Watcom's 16-bit `__cdecl` convention declares `AX/BX/CX/DX` as modified, uses stack arguments with caller cleanup, and returns ordinary scalar values through `AX`. The smoke workload deliberately leaves its helper function unannotated so CI exercises the project-wide `-ecc` default rather than only explicit per-function modifiers.
 
@@ -133,6 +133,29 @@ The startup always publishes the returned `AX` value to `RP86_IO_PORT_RESULT`. I
 
 This makes `tools/rp86.py --physical-regression C16SMOKE.P86W` suitable as the physical acceptance path: successful lifecycle completion alone is not enough; the firmware-owned formal PASS flag must also have been produced by the native checksum comparison.
 
+## Physical Intel 8086 evidence
+
+On 2026-09-11, the validation workload passed the physical RP86 regression path on an Intel 8086 using the Issue #58 branch image without a processor-specific rebuild:
+
+```text
+processor:           INTEL 8086
+image size:          194 bytes
+load address:        0x10000
+entry:               1000:0000
+clock:               CLOCK-STEPPED
+CRC32:               89E30ABB
+result:              PASS
+completion reason:   NATIVE_HLT
+cycles:              121
+processor signature: 0012
+native output:       RESULT: PASS
+physical regression: PASS
+```
+
+Because startup emits `RESULT: PASS` only after the native return value satisfies `AX == 0x147A`, this run physically validates the complete C/16 execution path exercised by the smoke workload: reset handoff, `SS:SP`, `DGROUP`, BSS initialization, initialized and writable data, near C calls, default `__cdecl` caller cleanup, return value in `AX`, RP86 result publication, and terminal lifecycle completion.
+
+The remaining compatibility gate is to execute the **same `C16SMOKE.P86W` package** on a physical NEC V30. It must not be rebuilt with a V30-specific target.
+
 ## Freestanding rule
 
 Processor-side C in this stage has no hosted C startup and may not assume DOS services. In particular, there are no `_dos_*` APIs, 8254/8259 programming, hosted `main()` startup, or standard-library calls unless a specific implementation is deliberately provided and audited for the Intel 8086 baseline. Compiler-generated helper calls are also part of the audit surface.
@@ -160,10 +183,10 @@ The WLINK warning `W1014: stack segment not found` is expected for this workload
 - [x] the image is packaged by the existing `.P86W` path;
 - [x] CI ISA auditing is restricted to the linked executable `_TEXT` bytes;
 - [x] native checksum success is converted into RP86's formal `RESULT: PASS` acceptance signal;
-- [ ] execute the validation workload on a physical Intel 8086 and observe native result `0x147A` with formal PASS;
+- [x] execute the validation workload on a physical Intel 8086 and observe the `AX == 0x147A` acceptance predicate with formal PASS;
 - [ ] confirm NEC V30 compatibility on the same C/16 ABI path.
 
-The CI opcode scan is a useful guard, not a mathematical proof that every emitted instruction is valid on every 8086 implementation. Physical Intel 8086 execution remains the decisive CPU-baseline gate.
+The CI opcode scan is a useful guard, not a mathematical proof that every emitted instruction is valid on every 8086 implementation. The physical Intel 8086 regression above is the decisive CPU-baseline evidence for this workload.
 
 ## Open items after #58
 
