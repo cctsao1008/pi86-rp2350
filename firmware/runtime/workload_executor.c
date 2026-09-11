@@ -100,27 +100,28 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
         return;
 
     const uint64_t now = time_us_64();
-    if (now < executor->tick_next_us) return;
+    if (now >= executor->tick_next_us) {
+        const uint64_t elapsed =
+            1u + (now - executor->tick_next_us) / PERIODIC_TICK_US;
+        executor->tick_next_us += elapsed * PERIODIC_TICK_US;
+        executor->tick_generated += (uint32_t)elapsed;
 
-    const uint64_t elapsed =
-        1u + (now - executor->tick_next_us) / PERIODIC_TICK_US;
-    executor->tick_next_us += elapsed * PERIODIC_TICK_US;
-    executor->tick_generated += (uint32_t)elapsed;
-
-    if (!executor->tick_pending) {
-        executor->tick_pending = true;
-        if (executor->tick_intr_asserted || executor->tick_ack_phase != 0u ||
-            executor->tick_in_service)
-            ++executor->tick_delayed;
-        if (elapsed > 1u)
-            executor->tick_coalesced += (uint32_t)(elapsed - 1u);
-    } else {
-        executor->tick_coalesced += (uint32_t)elapsed;
+        if (!executor->tick_pending) {
+            executor->tick_pending = true;
+            if (executor->tick_intr_asserted || executor->tick_ack_phase != 0u ||
+                executor->tick_in_service)
+                ++executor->tick_delayed;
+            if (elapsed > 1u)
+                executor->tick_coalesced += (uint32_t)(elapsed - 1u);
+        } else {
+            executor->tick_coalesced += (uint32_t)elapsed;
+        }
     }
 
-    /* Assert only between complete bus cycles. If IF is clear, the physical
-     * processor simply continues executing while INTR remains asserted; later
-     * elapsed periods are coalesced into the one pending request. */
+    /* Assert only between complete bus cycles. This check is deliberately
+     * independent of whether a new period elapsed in this service call: a
+     * request retained while another tick was in service must reassert at the
+     * first complete boundary after EOI, not wait for another 10 ms period. */
     if (executor->tick_pending && !executor->tick_intr_asserted &&
         executor->tick_ack_phase == 0u && !executor->tick_in_service) {
         rp86_processor_bus_set_intr(true);
