@@ -1,0 +1,9 @@
+{
+  "format": "p86w-v1",
+  "name": "freertos-port-validation",
+  "load_address": "0x10000",
+  "entry": "1000:0000",
+  "stack": "2000:FFF0",
+  "clock": "clock-stepped",
+  "flags": ["stdio", "periodic-tick"]
+}

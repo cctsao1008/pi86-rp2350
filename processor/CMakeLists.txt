@@ -4,8 +4,10 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 option(RP86_ENABLE_PROCESSOR_C16
        "Enable experimental Open Watcom C/16 processor workloads" OFF)
+option(RP86_ENABLE_FREERTOS_8086
+       "Enable the native FreeRTOS Intel 8086 validation workload" OFF)
 
-if(RP86_ENABLE_PROCESSOR_C16)
+if(RP86_ENABLE_PROCESSOR_C16 OR RP86_ENABLE_FREERTOS_8086)
     include("${PROJECT_SOURCE_DIR}/cmake/ProcessorC16Image.cmake")
 endif()
 
@@ -87,6 +89,41 @@ if(RP86_ENABLE_PROCESSOR_C16)
         METADATA
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/c16_abi_smoke/workload.json"
         PACKAGE_NAME "C16SMOKE.P86W"
+        LOAD_ADDRESS "0x10000"
+    )
+endif()
+
+if(RP86_ENABLE_FREERTOS_8086)
+    set(RP86_FREERTOS_KERNEL_DIR "${PROJECT_SOURCE_DIR}/third_party/FreeRTOS-Kernel")
+    if(NOT EXISTS "${RP86_FREERTOS_KERNEL_DIR}/include/FreeRTOS.h")
+        message(FATAL_ERROR
+            "FreeRTOS-Kernel submodule is missing. Initialize it with:\n"
+            "  git submodule update --init third_party/FreeRTOS-Kernel"
+        )
+    endif()
+
+    # ProcessorC16Image currently prepends each ASM object.  Listing portasm
+    # before startup therefore leaves startup first in the final object order,
+    # keeping rp86_c16_entry at 1000:0000.
+    rp86_add_processor_c16_image(freertos_port_validation
+        C_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/main.c"
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/libc_shim.c"
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/port.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/list.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/queue.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/tasks.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/portable/MemMang/heap_1.c"
+        ASM_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/portasm.asm"
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/startup.asm"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port"
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086"
+            "${RP86_FREERTOS_KERNEL_DIR}/include"
+        METADATA
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/workload.json"
+        PACKAGE_NAME "FREERTOS.P86W"
         LOAD_ADDRESS "0x10000"
     )
 endif()

@@ -1,0 +1,140 @@
+name: FreeRTOS 8086 port
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/freertos-8086.yml"
+      - ".gitmodules"
+      - "cmake/ProcessorC16Image.cmake"
+      - "cmake/LinkProcessorC16.cmake"
+      - "processor/CMakeLists.txt"
+      - "processor/include/rp86_abi.inc"
+      - "processor/ports/freertos/8086/**"
+      - "processor/workloads/validation/freertos_port/**"
+      - "third_party/FreeRTOS-Kernel"
+      - "tools/package_workload.py"
+      - "tools/rp86_runtime/workload.py"
+  workflow_dispatch:
+
+jobs:
+  build-freertos-8086:
+    runs-on: ubuntu-24.04
+
+    env:
+      OW_TAG: "2026-09-01-Build"
+      OW_SNAPSHOT_SHA256: "bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Checkout pinned FreeRTOS kernel
+        run: |
+          git submodule update --init third_party/FreeRTOS-Kernel
+          test "$(git -C third_party/FreeRTOS-Kernel rev-parse HEAD)" = "8be86d4a24fd4091f8f4192018423ab590f408db"
+
+      - name: Setup pinned Open Watcom C/16
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/ow-snapshot.tar.xz"
+          url="https://github.com/open-watcom/open-watcom-v2/releases/download/${OW_TAG}/ow-snapshot.tar.xz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+          echo "${OW_SNAPSHOT_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "$HOME/watcom"
+          tar -xJf "$archive" -C "$HOME/watcom"
+          echo "WATCOM=$HOME/watcom" >> "$GITHUB_ENV"
+          echo "INCLUDE=$HOME/watcom/h" >> "$GITHUB_ENV"
+          echo "$HOME/watcom/binl" >> "$GITHUB_PATH"
+
+      - name: Bootstrap pinned NASM 3.02
+        run: |
+          bash scripts/bootstrap_nasm.sh
+          .tools/nasm-3.02/bin/nasm -v
+          ninja --version
+
+      - name: Configure processor-only FreeRTOS build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DRP86_PROCESSOR_ONLY=ON \
+            -DRP86_ENABLE_FREERTOS_8086=ON \
+            -DRP86_NASM_EXECUTABLE="$GITHUB_WORKSPACE/.tools/nasm-3.02/bin/nasm" \
+            -DRP86_WCC_EXECUTABLE="$(command -v wcc)" \
+            -DRP86_WLINK_EXECUTABLE="$(command -v wlink)"
+
+      - name: Build native FreeRTOS validation workload
+        run: cmake --build build --target freertos_port_validation_package --verbose
+
+      - name: Validate image and Intel 8086 opcode baseline
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          sys.path.insert(0, "tools")
+          from rp86_runtime.workload import (
+              FLAG_CLOCK_STEPPED,
+              FLAG_PERIODIC_TICK,
+              FLAG_STDIO,
+              decode_workload_file,
+          )
+
+          generated = Path("build/processor/generated/freertos_port_validation")
+          image = (generated / "freertos_port_validation.bin").read_bytes()
+          map_text = (generated / "freertos_port_validation.map").read_text(errors="replace")
+          package = Path("build/workloads/FREERTOS.P86W")
+          manifest, packaged_image = decode_workload_file(package.read_bytes())
+
+          expected_flags = FLAG_CLOCK_STEPPED | FLAG_PERIODIC_TICK | FLAG_STDIO
+          assert manifest.load_address == 0x10000
+          assert (manifest.entry_segment, manifest.entry_offset) == (0x1000, 0x0000)
+          assert (manifest.stack_segment, manifest.stack_offset) == (0x2000, 0xFFF0)
+          assert manifest.flags == expected_flags
+          assert packaged_image == image
+
+          text = re.search(
+              r"^_TEXT\s+CODE\s+\S+\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
+              map_text,
+              re.MULTILINE,
+          )
+          entry = re.search(r"^\s*Entry point address:\s+1000:0000\s*$", map_text, re.MULTILINE)
+          if not text or not entry:
+              raise SystemExit("missing _TEXT or 1000:0000 entry evidence")
+
+          text_phys = int(text.group(1), 16) * 16 + int(text.group(2), 16)
+          text_size = int(text.group(3), 16)
+          if text_phys != 0x10000 or text_size <= 0 or text_size > len(image):
+              raise SystemExit(f"invalid _TEXT placement/size: 0x{text_phys:05X}+0x{text_size:X}")
+
+          Path("build/freertos_8086.text.bin").write_bytes(image[:text_size])
+          print(f"FREERTOS.P86W image={len(image)} bytes crc32=0x{manifest.image_crc32:08X}")
+          print(f"_TEXT=0x{text_phys:05X}+0x{text_size:X} flags=0x{manifest.flags:08X}")
+          PY
+
+          .tools/nasm-3.02/bin/ndisasm -b16 build/freertos_8086.text.bin > build/freertos_8086.ndisasm
+          if grep -Eiw 'pusha|popa|pushad|popad|enter|leave|bound|insb|insw|outsb|outsw' build/freertos_8086.ndisasm; then
+            echo "Found an instruction outside the intended Intel 8086 baseline"
+            exit 1
+          fi
+
+          echo "=== first 180 instructions ==="
+          head -180 build/freertos_8086.ndisasm
+          echo "=== package ==="
+          ls -lh build/workloads/FREERTOS.P86W
+
+      - name: Upload FreeRTOS 8086 build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-8086-port-validation
+          path: |
+            build/processor/generated/freertos_port_validation/freertos_port_validation.bin
+            build/processor/generated/freertos_port_validation/freertos_port_validation.map
+            build/processor/generated/freertos_port_validation/freertos_port_validation.lnk
+            build/freertos_8086.text.bin
+            build/freertos_8086.ndisasm
+            build/workloads/FREERTOS.P86W

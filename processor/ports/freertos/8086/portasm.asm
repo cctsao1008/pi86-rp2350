@@ -66,10 +66,10 @@ _rp86PortInstallVectors:
     mov es, ax
 
     mov ax, rp86_freertos_tick_isr
-    mov [es:(RP86_INTERRUPT_VECTOR_PERIODIC_TICK * 4)], ax
+    mov [es:RP86_IVT_TICK_OFFSET_ADDRESS], ax
     push cs
     pop ax
-    mov [es:(RP86_INTERRUPT_VECTOR_PERIODIC_TICK * 4 + 2)], ax
+    mov [es:RP86_IVT_TICK_SEGMENT_ADDRESS], ax
 
     mov ax, rp86_freertos_yield_isr
     mov [es:RP86_FREERTOS_YIELD_IVT], ax
