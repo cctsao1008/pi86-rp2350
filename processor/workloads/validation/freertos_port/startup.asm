@@ -8,6 +8,14 @@ segment _DATA public align=16 class=DATA use16
 segment DATA public align=16 class=DATA use16
 segment _BSS public align=16 class=BSS use16
 
+; FreeRTOS is compiled with -zu, so Open Watcom correctly models addresses of
+; stack locals as SS-relative far pointers.  The kernel's public APIs use near
+; data pointers.  The RP86 v1 port makes those conversions valid by enforcing
+; SS=DS=DGROUP for *all* FreeRTOS C execution, including pre-scheduler setup.
+rp86_freertos_bootstrap_stack:
+    resw 256
+rp86_freertos_bootstrap_stack_top:
+
 group DGROUP CONST CONST2 _DATA DATA _BSS
 
 segment _TEXT public align=16 class=CODE use16
@@ -68,11 +76,18 @@ rp86_c16_entry:
     mov ds, ax
     mov es, ax
 
+    ; Clear DGROUP BSS while still using the manifest-provided bootstrap stack.
     mov di, _edata
     mov cx, _end
     sub cx, di
     xor ax, ax
     rep stosb
+
+    ; From this point onward every FreeRTOS C frame is in DGROUP.  This is the
+    ; v1 near-pointer invariant used by the unmodified upstream kernel.
+    mov ax, ds
+    mov ss, ax
+    mov sp, rp86_freertos_bootstrap_stack_top
 
     call _rp86_freertos_main
     ; Returning means scheduler creation/start failed. AX carries the reason.

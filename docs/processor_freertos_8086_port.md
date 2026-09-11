@@ -16,9 +16,13 @@ The kernel is pinned as the upstream `FreeRTOS/FreeRTOS-Kernel` submodule at com
 
 Issue #58 fixed the processor C ABI to Open Watcom C/16 with `-0 -ms -ecc -zu`: pure Intel-8086 code generation, small code/small data, near ordinary pointers, `__cdecl`, `DS=DGROUP`, and no compiler assumption that `SS==DS`.
 
-The v1 RTOS port makes one additional scheduler-level decision: **all task stacks live in DGROUP and execute with `SS=DGROUP`**. Each TCB therefore stores the ordinary FreeRTOS near `pxTopOfStack`, which is exactly the task's 16-bit `SP`. This avoids inventing out-of-band segment metadata and stays inside the near-pointer contract from #58. `-zu` remains enabled; the compiler still does not assume `SS==DS` as an ABI rule.
+The v1 RTOS port adds a stronger runtime invariant: **every execution context that enters FreeRTOS C runs with `SS=DS=DGROUP`**. This includes the pre-scheduler bootstrap stack, the kernel idle task, and every application task. Each TCB therefore stores the ordinary FreeRTOS near `pxTopOfStack`, which is exactly the task's 16-bit `SP`.
 
-This is intentionally narrower than the full 256 KiB RP86 processor-visible memory map. Kernel data, heap, TCBs, queue/semaphore objects, and initial task stacks must fit inside the 64 KiB DGROUP budget.
+This invariant is required because Open Watcom `-zu` correctly represents addresses of automatic stack objects as SS-relative far pointers, while unmodified FreeRTOS APIs use ordinary near data pointers. The compiler can warn when such a pointer is truncated. Under the port invariant the segment component is exactly DGROUP, so the retained offset names the same object. The port does not rely on an arbitrary SS being silently truncated to DS.
+
+The manifest-provided initial stack is used only long enough to establish DS/ES and clear BSS. Startup then switches to a dedicated bootstrap stack inside DGROUP before calling any FreeRTOS C function. Scheduler-created task stacks are allocated from the DGROUP heap and execute with the same SS=DS invariant.
+
+This is intentionally narrower than the full 256 KiB RP86 processor-visible memory map. Kernel data, heap, TCBs, queue/semaphore objects, bootstrap stack, and task stacks must fit inside the 64 KiB DGROUP budget.
 
 ## Saved context
 
@@ -41,6 +45,17 @@ An initial task stack appends an ordinary near-C entry frame above that interrup
 ```
 
 `portasm.asm` restores `BP, DI, SI, DS, ES, DX, CX, BX, AX` and finishes with `IRET`. Initial FLAGS are `0202h`, enabling maskable interrupts while retaining the architectural reserved bit.
+
+## Compiler helpers
+
+The build intentionally uses `option nodefaultlibs`, so no DOS C runtime is linked. Open Watcom's 16-bit code generator can lower near `memcpy`/`memset` operations to its internal `memcpy_` and `memset_` helper ABI. RP86 supplies small project-owned 8086 implementations in `compiler_helpers.asm` using the compiler-documented register contract:
+
+```text
+memcpy_: DI=dst, SI=src, CX=len -> DI=original dst; clobbers ES,SI,CX
+memset_: DI=dst, AL=value, CX=len -> DI=original dst; clobbers ES,CX
+```
+
+These helpers operate entirely inside DGROUP and do not introduce a DOS or BIOS dependency.
 
 ## Interrupt and yield mapping
 

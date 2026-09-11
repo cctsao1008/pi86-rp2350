@@ -103,19 +103,19 @@ if(RP86_ENABLE_FREERTOS_8086)
         )
     endif()
 
-    # ProcessorC16Image currently prepends each ASM object.  Listing portasm
-    # before startup therefore leaves startup first in the final object order,
-    # keeping rp86_c16_entry at 1000:0000.
+    # ProcessorC16Image prepends each ASM object.  This list is deliberately
+    # ordered so startup remains first in the final link and rp86_c16_entry is
+    # still exactly 1000:0000.
     rp86_add_processor_c16_image(freertos_port_validation
         C_SOURCES
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/main.c"
-            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/libc_shim.c"
             "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/port.c"
             "${RP86_FREERTOS_KERNEL_DIR}/list.c"
             "${RP86_FREERTOS_KERNEL_DIR}/queue.c"
             "${RP86_FREERTOS_KERNEL_DIR}/tasks.c"
             "${RP86_FREERTOS_KERNEL_DIR}/portable/MemMang/heap_1.c"
         ASM_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/compiler_helpers.asm"
             "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/portasm.asm"
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/startup.asm"
         INCLUDE_DIRS

@@ -2,6 +2,10 @@
 
 This workload is the Issue #60 integration witness for the project-owned FreeRTOS portable layer. It links the pinned upstream FreeRTOS kernel with Open Watcom C/16 and NASM without DOS, BIOS, PIT, or 8259 dependencies.
 
+The v1 port has one deliberate small-model invariant: every FreeRTOS C frame executes with `SS=DS=DGROUP`. Startup clears BSS using the manifest stack, switches to a dedicated DGROUP bootstrap stack before entering kernel C, and scheduler-created task stacks come from the DGROUP heap. This makes the unmodified kernel's near data-pointer API compatible with Open Watcom `-zu` stack-local addressing without assuming an arbitrary external stack segment equals DS.
+
+Open Watcom may lower `memcpy` and `memset` operations to register-ABI compiler helpers. The workload supplies pure-8086 `memcpy_`/`memset_` implementations rather than linking the DOS C runtime.
+
 On the physical Intel 8086 the workload must prove, in one run:
 
 1. `vTaskStartScheduler()` enters the first task through the fabricated IRET frame;
