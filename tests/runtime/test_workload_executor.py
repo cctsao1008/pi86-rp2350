@@ -17,6 +17,7 @@ class WorkloadExecutorTests(unittest.TestCase):
             executable = Path(temporary) / "test_workload_executor"
             sources = [
                 "tests/runtime/test_workload_executor.c",
+                "tests/runtime/workload_executor_tick_stubs.c",
                 "firmware/runtime/workload_executor.c",
                 "firmware/runtime/workload_manager.c",
                 "firmware/memory/backing.c",
