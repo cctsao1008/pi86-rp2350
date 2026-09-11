@@ -48,20 +48,24 @@ An initial task stack appends an ordinary near-C entry frame above that interrup
 
 ## Compiler helpers
 
-The build intentionally uses `option nodefaultlibs`, so no DOS C runtime is linked. Open Watcom's 16-bit code generator can lower near `memcpy`/`memset` operations to its internal `memcpy_` and `memset_` helper ABI. RP86 supplies small project-owned 8086 implementations in `compiler_helpers.asm` using the compiler-documented register contract:
+The build intentionally uses `option nodefaultlibs`, so no DOS C runtime is linked. Open Watcom's 16-bit code generator can lower near `memcpy`/`memset` operations to internal `memcpy_` and `memset_` helper calls.
+
+The helper ABI is treated as a property of the **pinned Open Watcom build plus the exact RP86 compiler flags**, not as a generic C ABI assumption. Physical #60 queue validation exposed this distinction: queue control flow, blocking/wake behavior, and send/receive return codes were correct, but the received 16-bit payload was wrong (`60B5`). Disassembly of the CI-built image showed the generated helper call sites using:
 
 ```text
-memcpy_: DI=dst, SI=src, CX=len -> DI=original dst; clobbers ES,SI,CX
-memset_: DI=dst, AL=value, CX=len -> DI=original dst; clobbers ES,CX
+memcpy_: AX=dst, DX=src, BX=len
+memset_: DI=dst, DX=value, BX=len
 ```
 
-These helpers operate entirely inside DGROUP and do not introduce a DOS or BIOS dependency.
+For example, the queue copy-to-storage path loads `pcWriteTo` into `AX`, the item pointer into `DX`, and `uxItemSize` into `BX` before calling `memcpy_`; the copy-from-storage path uses the same `AX/DX/BX` convention. The earlier project-owned helper implementation expected `DI/SI/CX`, so it copied from the wrong registers even though the queue metadata remained valid.
+
+`compiler_helpers.asm` now implements the emitted register contracts directly, preserves caller-visible registers conservatively, and performs the copies entirely inside DGROUP. The helpers use only Intel 8086 instructions and do not introduce a DOS or BIOS dependency.
 
 ## Interrupt and yield mapping
 
 The RP2350-owned periodic source from #59 remains 100 Hz wall-clock time and enters the workload through physical `INTR`, two-cycle `INTA`, and vector `21h`. The tick wrapper saves the explicit frame, calls `xTaskIncrementTick()`, calls `vTaskSwitchContext()` when required, emits RP86 EOI with `OUT 20h,20h`, restores the selected task, and executes `IRET`.
 
-Voluntary yield uses workload-owned software vector `80h`. `INT 80h` creates the same `FLAGS/CS/IP` shape, but the software path does not emit RP2350 EOI.
+Voluntary yield uses workload-owned software vector `80h`. `INT 80h` creates the same `FLAGS/CS/IP` shape. The shared restore path emits `OUT 20h,20h` immediately before `IRET`; for a real hardware tick this is the EOI, while for a voluntary yield the RP2350 runtime treats the write as a scheduler-resume fence without incrementing the hardware-tick EOI count.
 
 `CLD` is executed before entering kernel C from either ISR path. A task's original direction flag remains in its interrupt-return FLAGS and is restored by `IRET`.
 
