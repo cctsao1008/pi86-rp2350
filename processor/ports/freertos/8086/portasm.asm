@@ -68,18 +68,6 @@ extern _xTaskIncrementTick
     push bp
 %endmacro
 
-%macro RP86_POP_CONTEXT 0
-    pop bp
-    pop di
-    pop si
-    pop ds
-    pop es
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-%endmacro
-
 _rp86PortGetCodeSegment:
     mov ax, cs
     ret
@@ -139,7 +127,15 @@ _rp86PortStartFirstTask:
     RP86_TRACE_VALUE 0x6254, ss
     RP86_TRACE_WORD 0x6204
 
-    RP86_POP_CONTEXT
+    pop bp
+    pop di
+    pop si
+    pop ds
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
 
     RP86_TRACE_WORD_PRESERVE 0x6205
     iret
@@ -215,22 +211,30 @@ rp86_freertos_tick_isr:
     RP86_TRACE_WORD 0x6214
 
 .tick_restore:
-    ; Keep the external tick in-service until the selected task context is
-    ; completely restored.  The RP2350 starts its post-EOI delivery recovery
-    ; window on the PIC EOI write, so acknowledging earlier would spend that
-    ; window inside this ISR epilogue and can still starve foreground work.
+    ; Keep the external tick in service through the common restore path.  The
+    ; PIC EOI is emitted only after the selected task registers are restored,
+    ; so the RP2350 post-EOI recovery window protects foreground execution.
     cmp word [rp86_tick_trace_state], 2
-    jne .tick_restore_regs
+    jne rp86_restore_context
     mov word [rp86_tick_trace_state], 3
     RP86_TRACE_WORD 0x6235
-.tick_restore_regs:
 
-    RP86_POP_CONTEXT
+rp86_restore_context:
+    pop bp
+    pop di
+    pop si
+    pop ds
+    pop es
+    pop dx
+    pop cx
+    pop bx
+    pop ax
 
     ; First switching tick only: prove the software frame was fully consumed.
-    ; Advance the state before returning so later ticks do not repeat 6236.
+    ; Advance the state before returning so later tick/yield restores do not
+    ; flood the result port with 6236.
     cmp word [rp86_tick_trace_state], 3
-    jne .tick_eoi_late
+    jne .restore_eoi
     mov word [rp86_tick_trace_state], 5
     mov [rp86_trace_saved_ax], ax
     mov [rp86_trace_saved_dx], dx
@@ -239,18 +243,14 @@ rp86_freertos_tick_isr:
     out dx, ax
     mov ax, [rp86_trace_saved_ax]
     mov dx, [rp86_trace_saved_dx]
-
-.tick_eoi_late:
-    ; EOI is deliberately the last externally visible ISR action before IRET.
-    ; Preserve the selected task AX while using the 8086 immediate-port form.
+.restore_eoi:
+    ; This common restore is used by both the hardware tick and INT 80h yield.
+    ; The RP2350 accepts EOI only while a tick is actually in service, so the
+    ; yield-path write is an intentional no-op.  Preserve the selected task AX.
     push ax
     mov al, RP86_PIC_COMMAND_EOI
     out RP86_IO_PORT_PIC_COMMAND, al
     pop ax
-    iret
-
-rp86_restore_context:
-    RP86_POP_CONTEXT
     iret
 
 rp86_freertos_yield_isr:
