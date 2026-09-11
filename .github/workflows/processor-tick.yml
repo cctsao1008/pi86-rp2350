@@ -6,6 +6,7 @@ on:
       - ".github/workflows/processor-tick.yml"
       - "CMakeLists.txt"
       - "cmake/ProcessorImage.cmake"
+      - "scripts/bootstrap_nasm.sh"
       - "processor/CMakeLists.txt"
       - "processor/include/rp86_abi.inc"
       - "processor/workloads/validation/periodic_tick.asm"
@@ -22,18 +23,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install native workload build tools
+      - name: Bootstrap pinned NASM 3.02
         run: |
-          sudo apt-get update
-          sudo apt-get install -y nasm ninja-build
-          nasm -v
+          bash scripts/bootstrap_nasm.sh
+          .tools/nasm-3.02/bin/nasm -v
           ninja --version
 
       - name: Configure processor-only build
         run: |
           cmake -S . -B build -G Ninja \
             -DRP86_PROCESSOR_ONLY=ON \
-            -DRP86_NASM_EXECUTABLE="$(command -v nasm)"
+            -DRP86_NASM_EXECUTABLE="$GITHUB_WORKSPACE/.tools/nasm-3.02/bin/nasm"
 
       - name: Build periodic tick package
         run: cmake --build build --target periodic_tick_package --verbose
@@ -68,7 +68,8 @@ jobs:
           PY
 
           echo "=== periodic tick disassembly ==="
-          ndisasm -b16 build/processor/generated/periodic_tick/periodic_tick.bin | head -220
+          .tools/nasm-3.02/bin/ndisasm -b16 \
+            build/processor/generated/periodic_tick/periodic_tick.bin | head -220
 
       - name: Upload physical validation package
         uses: actions/upload-artifact@v4
