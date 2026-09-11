@@ -26,6 +26,9 @@ typedef enum {
     RP86_WORKLOAD_FLAG_SHARED_MEMORY = 1u << 2,
     RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING = 1u << 3,
     RP86_WORKLOAD_FLAG_CLOCK_STEPPED = 1u << 4,
+    /* Request the RP2350-owned periodic processor tick source.  The initial
+     * contract is 100 Hz wall-clock delivery in CLOCK_STEPPED mode. */
+    RP86_WORKLOAD_FLAG_PERIODIC_TICK = 1u << 5,
 } rp86_workload_flags_t;
 
 typedef enum {
