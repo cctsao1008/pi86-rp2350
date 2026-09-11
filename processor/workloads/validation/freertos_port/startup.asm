@@ -23,6 +23,7 @@ segment _TEXT public align=16 class=CODE use16
 global rp86_c16_entry
 global _rp86ValidationPass
 global _rp86ValidationFail
+global _rp86ValidationTrace
 
 extern _rp86_freertos_main
 extern _rp86_data_anchor
@@ -92,6 +93,18 @@ rp86_c16_entry:
     call _rp86_freertos_main
     ; Returning means scheduler creation/start failed. AX carries the reason.
     jmp short rp86_terminal_fail_ax
+
+; One-shot physical-progress marker used only by the #60 validation workload.
+; Open Watcom near __cdecl: return IP at [SP], first 16-bit argument at [SP+2].
+; Preserve BP because it is callee-saved; AX/DX are caller-clobbered by the ABI.
+_rp86ValidationTrace:
+    push bp
+    mov bp, sp
+    mov ax, [ss:bp + 4]
+    mov dx, RP86_IO_PORT_RESULT
+    out dx, ax
+    pop bp
+    ret
 
 _rp86ValidationPass:
     cli
