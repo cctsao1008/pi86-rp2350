@@ -17,6 +17,11 @@ org 0
 ; Exact tick counts are intentionally not part of the native predicate because
 ; the source is wall-clock based. Firmware retained evidence must additionally
 ; show generated > delivered and coalesced > 0 for the masked interval.
+;
+; NASM 3.02 diagnoses unresolved absolute 16-bit section relocations even in
+; `bin` output. All image-local absolute references below are therefore written
+; as explicit offsets from the current section base (`label - $$`). DS=CS, so
+; those constants are exactly the offsets required by this flat workload.
 
 INITIAL_TICKS        equ 3
 MASKED_SPIN_COUNT    equ 4096
@@ -34,11 +39,11 @@ start:
     push cs
     pop ds
     xor ax, ax
-    mov [tick_count], ax
+    mov [tick_count - $$], ax
 
     ; General workloads own the IVT. Install vector 21h at 0000:0084.
     mov es, ax
-    mov ax, tick_isr
+    mov ax, tick_isr - $$
     mov [es:RP86_IVT_TICK_OFFSET_ADDRESS], ax
     push cs
     pop ax
@@ -49,7 +54,7 @@ start:
     ; Establish repeated delivery before testing masking/coalescing.
     mov cx, WAIT_SPIN_COUNT
 .wait_initial:
-    cmp word [tick_count], INITIAL_TICKS
+    cmp word [tick_count - $$], INITIAL_TICKS
     jae .initial_ok
     loop .wait_initial
     mov ax, RESULT_FAIL_INITIAL
@@ -59,13 +64,12 @@ start:
     ; Hold IF=0 long enough for multiple 10 ms wall-clock periods. The ISR
     ; count must remain unchanged while INTR is physically pending.
     cli
-    mov ax, [tick_count]
-    mov [masked_snapshot], ax
+    mov ax, [tick_count - $$]
     mov cx, MASKED_SPIN_COUNT
 .masked_spin:
     nop
     loop .masked_spin
-    cmp [tick_count], ax
+    cmp [tick_count - $$], ax
     jne .masked_changed
 
     ; STI must release the single retained request. A later second tick proves
@@ -73,17 +77,17 @@ start:
     sti
     mov cx, WAIT_SPIN_COUNT
 .wait_resume:
-    cmp [tick_count], ax
+    cmp [tick_count - $$], ax
     ja .resumed
     loop .wait_resume
     mov ax, RESULT_FAIL_RESUME
     jmp fail
 
 .resumed:
-    mov ax, [tick_count]
+    mov ax, [tick_count - $$]
     mov cx, WAIT_SPIN_COUNT
 .wait_recurrence:
-    cmp [tick_count], ax
+    cmp [tick_count - $$], ax
     ja .pass
     loop .wait_recurrence
     mov ax, RESULT_FAIL_RECUR
@@ -99,7 +103,7 @@ start:
     mov dx, RP86_IO_PORT_RESULT
     out dx, ax
     mov dx, RP86_IO_PORT_DIAGNOSTIC
-    mov si, pass_text
+    mov si, pass_text - $$
     call put_line
     jmp terminal
 
@@ -108,7 +112,7 @@ fail:
     mov dx, RP86_IO_PORT_RESULT
     out dx, ax
     mov dx, RP86_IO_PORT_DIAGNOSTIC
-    mov si, fail_text
+    mov si, fail_text - $$
     call put_line
 
 terminal:
@@ -126,7 +130,7 @@ tick_isr:
     push ds
     push cs
     pop ds
-    inc word [tick_count]
+    inc word [tick_count - $$]
     mov dx, RP86_IO_PORT_PIC_COMMAND
     mov al, RP86_PIC_COMMAND_EOI
     out dx, al
@@ -148,5 +152,4 @@ put_line:
 pass_text db 'RESULT: PASS', 13, 10, 0
 fail_text db 'RESULT: FAIL', 13, 10, 0
 
-tick_count      dw 0
-masked_snapshot dw 0
+tick_count dw 0
