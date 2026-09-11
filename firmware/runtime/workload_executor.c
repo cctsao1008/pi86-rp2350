@@ -249,11 +249,19 @@ static bool io_write(void *context, uint16_t port,
             /* The FreeRTOS port emits this common-restore write for both a real
              * hardware-tick return and an INT 80h voluntary-yield return.
              * A real EOI closes the in-service interrupt and starts the 10 ms
-             * wall-time gate.  Either form is also a scheduler resume fence:
-             * refresh the processor-progress gate so the task selected by the
-             * restore gets actual bus progress before another physical tick.
-             * Do not restart the wall-time gate on a yield-only fence; otherwise
-             * a tight taskYIELD loop could postpone wall-clock delivery forever. */
+             * wall-time gate.  Either form is also a scheduler resume fence.
+             *
+             * update_periodic_tick() runs before the physical bus cycle.  A
+             * pending tick can therefore become asserted immediately before a
+             * yield-only restore fence executes.  If INTA has not started yet,
+             * retract that still-pending INTR here and retain tick_pending; the
+             * request may be reasserted after the refreshed progress gate. */
+            if (!executor->tick_in_service &&
+                executor->tick_ack_phase == 0u &&
+                executor->tick_intr_asserted) {
+                rp86_processor_bus_set_intr(false);
+                executor->tick_intr_asserted = false;
+            }
             if (executor->tick_in_service) {
                 executor->tick_in_service = false;
                 executor->tick_delivery_not_before_us =
@@ -262,7 +270,9 @@ static bool io_write(void *context, uint16_t port,
             }
             /* io_write runs before this bus cycle is committed to stats. Add
              * one for the current EOI/fence cycle, then require 64 further
-             * completed processor bus cycles. */
+             * completed processor bus cycles. Do not restart the wall-time gate
+             * on a yield-only fence; otherwise a tight taskYIELD loop could
+             * postpone wall-clock delivery forever. */
             executor->tick_delivery_not_before_cycle =
                 executor->bus_stats.cycles +
                 PERIODIC_TICK_RECOVERY_CYCLES + 1u;
