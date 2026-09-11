@@ -134,10 +134,10 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
     /* Generation remains phase-locked to the 100 Hz wall clock above.  A
      * pending request becomes physically deliverable only after both the
      * wall-clock recovery deadline and a minimum amount of completed processor
-     * bus progress since EOI.  The cycle gate is what prevents a very slow
-     * CLOCK_STEPPED processor from spending the entire 10 ms recovery interval
-     * merely finishing IRET/prefetch and taking the next tick before any task
-     * instruction can retire. */
+     * bus progress since the most recent restore fence.  A hardware-tick EOI
+     * establishes both gates; a scheduler/yield restore refreshes only the
+     * processor-progress gate so repeated voluntary yields cannot move the
+     * wall-clock source phase indefinitely. */
     const bool delivery_time_recovered =
         executor->tick_delivery_not_before_us == 0u ||
         now >= executor->tick_delivery_not_before_us;
@@ -245,17 +245,27 @@ static bool io_write(void *context, uint16_t port,
     }
     if (port == RP86_IO_PORT_PIC_COMMAND &&
         (lane_value & 0xffu) == RP86_PIC_COMMAND_EOI) {
-        if (executor->tick_enabled && executor->tick_in_service) {
-            executor->tick_in_service = false;
-            executor->tick_delivery_not_before_us =
-                time_us_64() + PERIODIC_TICK_US;
-            /* io_write runs before the EOI bus cycle is committed to stats.
-             * Add one for that current cycle, then require 64 further complete
-             * bus cycles before another physical tick can be asserted. */
+        if (executor->tick_enabled) {
+            /* The FreeRTOS port emits this common-restore write for both a real
+             * hardware-tick return and an INT 80h voluntary-yield return.
+             * A real EOI closes the in-service interrupt and starts the 10 ms
+             * wall-time gate.  Either form is also a scheduler resume fence:
+             * refresh the processor-progress gate so the task selected by the
+             * restore gets actual bus progress before another physical tick.
+             * Do not restart the wall-time gate on a yield-only fence; otherwise
+             * a tight taskYIELD loop could postpone wall-clock delivery forever. */
+            if (executor->tick_in_service) {
+                executor->tick_in_service = false;
+                executor->tick_delivery_not_before_us =
+                    time_us_64() + PERIODIC_TICK_US;
+                ++executor->tick_eoi;
+            }
+            /* io_write runs before this bus cycle is committed to stats. Add
+             * one for the current EOI/fence cycle, then require 64 further
+             * completed processor bus cycles. */
             executor->tick_delivery_not_before_cycle =
                 executor->bus_stats.cycles +
                 PERIODIC_TICK_RECOVERY_CYCLES + 1u;
-            ++executor->tick_eoi;
         }
         return true;
     }
