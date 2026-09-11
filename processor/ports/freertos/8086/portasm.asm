@@ -12,6 +12,8 @@ segment _BSS public align=16 class=BSS use16
 ; One-shot #60 physical trace state.  Startup clears DGROUP BSS before C runs.
 rp86_tick_trace_state:  resw 1
 rp86_yield_trace_state: resw 1
+rp86_trace_saved_ax:    resw 1
+rp86_trace_saved_dx:    resw 1
 
 group DGROUP CONST CONST2 _DATA DATA _BSS
 
@@ -247,19 +249,19 @@ rp86_restore_context:
     pop bx
     pop ax
 
-    ; On the first tick only, execution has consumed all software-saved words;
-    ; SP now points directly at IP,CS,FLAGS.  Avoid stack pushes here.  AX/DX
-    ; are already restored, so save them in the consumed frame slots below SP,
-    ; emit the marker, then restore them before IRET.
+    ; On the first tick only, all software-saved words are consumed and SP now
+    ; points directly at IP,CS,FLAGS.  Do not push here.  The RP86 FreeRTOS v1
+    ; contract keeps DS=DGROUP for every task, so BSS scratch words can retain
+    ; AX/DX while the final pre-IRET marker is emitted.
     cmp word [rp86_tick_trace_state], 3
     jne .restore_iret
-    mov [ss:sp - 2], ax
-    mov [ss:sp - 4], dx
+    mov [rp86_trace_saved_ax], ax
+    mov [rp86_trace_saved_dx], dx
     mov dx, RP86_IO_PORT_RESULT
     mov ax, 0x6236
     out dx, ax
-    mov dx, [ss:sp - 4]
-    mov ax, [ss:sp - 2]
+    mov ax, [rp86_trace_saved_ax]
+    mov dx, [rp86_trace_saved_dx]
 .restore_iret:
     iret
 
