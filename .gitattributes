@@ -1,4 +1,7 @@
 *.sh text eol=lf
+*.py text eol=lf
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
 
 docs/validation/evidence/ai_b2_hid_20260823_050201+0800.log -text
 docs/validation/evidence/ai_b2_hid_20260823_050201+0800.json binary

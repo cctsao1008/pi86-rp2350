@@ -20,14 +20,14 @@ With power removed:
 
 ```bash
 cd ~/github/pi86-rp2350
-git pull origin main
-git submodule update --init --recursive
-./scripts/bootstrap_tools.sh
-./scripts/build.sh --target rp86_rp2350
+git pull --ff-only
+./scripts/build.sh firmware --clean
 ```
 
-The canonical UF2 is `build/firmware/rp86_rp2350.uf2`. See
-[`development/build_and_toolchain.md`](development/build_and_toolchain.md).
+The canonical UF2 is
+`build-firmware/firmware/rp86_rp2350.uf2`. The build driver initializes missing
+profile dependencies and keeps firmware and processor-only CMake caches
+separate. See [`development/build_and_toolchain.md`](development/build_and_toolchain.md).
 
 ## Flash
 

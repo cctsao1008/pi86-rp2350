@@ -12,6 +12,7 @@ on:
       - "processor/include/rp86_abi.inc"
       - "processor/ports/freertos/8086/**"
       - "processor/workloads/validation/freertos_port/**"
+      - "scripts/build.py"
       - "third_party/FreeRTOS-Kernel"
       - "tools/package_workload.py"
       - "tools/rp86_runtime/workload.py"
@@ -56,17 +57,8 @@ jobs:
           .tools/nasm-3.02/bin/nasm -v
           ninja --version
 
-      - name: Configure processor-only FreeRTOS build
-        run: |
-          cmake -S . -B build -G Ninja \
-            -DRP86_PROCESSOR_ONLY=ON \
-            -DRP86_ENABLE_FREERTOS_8086=ON \
-            -DRP86_NASM_EXECUTABLE="$GITHUB_WORKSPACE/.tools/nasm-3.02/bin/nasm" \
-            -DRP86_WCC_EXECUTABLE="$(command -v wcc)" \
-            -DRP86_WLINK_EXECUTABLE="$(command -v wlink)"
-
-      - name: Build native FreeRTOS validation workload
-        run: cmake --build build --target freertos_port_validation_package --verbose
+      - name: Build through canonical RP86 driver
+        run: python3 scripts/build.py freertos --build-dir build --verbose
 
       - name: Validate image and Intel 8086 opcode baseline
         shell: bash
