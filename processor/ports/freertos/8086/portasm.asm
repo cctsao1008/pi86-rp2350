@@ -43,6 +43,17 @@ extern _xTaskIncrementTick
     pop ax
 %endmacro
 
+; Emit a label followed by one 16-bit value without changing SP.  This is used
+; only before restoring a selected task frame; AX/DX are restored from that
+; frame immediately afterwards.
+%macro RP86_TRACE_VALUE 2
+    mov dx, RP86_IO_PORT_RESULT
+    mov ax, %1
+    out dx, ax
+    mov ax, %2
+    out dx, ax
+%endmacro
+
 %macro RP86_SAVE_CONTEXT 0
     push ax
     push bx
@@ -179,8 +190,27 @@ rp86_freertos_tick_isr:
     cmp word [rp86_tick_trace_state], 1
     jne .tick_eoi
     mov word [rp86_tick_trace_state], 2
-    ; Selected task stack is active.  Do not push/pop here; the following
-    ; restore discards the temporary AX/DX values from this marker.
+
+    ; The first physical switch has selected a different TCB and loaded its
+    ; saved SP.  Dump the exact frame that RP86_RESTORE_CONTEXT is about to
+    ; consume.  Offsets match the nine software-saved words followed by the
+    ; hardware/synthetic IRET frame:
+    ;   +00 BP, +02 DI, +04 SI, +06 DS, +08 ES, +10 DX, +12 CX, +14 BX,
+    ;   +16 AX, +18 IP, +20 CS, +22 FLAGS.
+    ; These value records distinguish a valid fabricated task frame from a
+    ; failure after the scheduler has already selected the next task.
+    RP86_TRACE_VALUE 0x6230, sp
+    mov ax, [ss:sp + 18]
+    RP86_TRACE_VALUE 0x6231, ax
+    mov ax, [ss:sp + 20]
+    RP86_TRACE_VALUE 0x6232, ax
+    mov ax, [ss:sp + 22]
+    RP86_TRACE_VALUE 0x6233, ax
+    mov ax, ss
+    RP86_TRACE_VALUE 0x6234, ax
+
+    ; Selected task stack is active.  AX/DX are intentionally clobbered by the
+    ; trace above; the following restore replaces them from the selected frame.
     RP86_TRACE_WORD 0x6213
     jmp short .tick_eoi
 
