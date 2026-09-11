@@ -68,19 +68,6 @@ extern _xTaskIncrementTick
     push bp
 %endmacro
 
-%macro RP86_RESTORE_CONTEXT 0
-    pop bp
-    pop di
-    pop si
-    pop ds
-    pop es
-    pop dx
-    pop cx
-    pop bx
-    pop ax
-    iret
-%endmacro
-
 _rp86PortGetCodeSegment:
     mov ax, cs
     ret
@@ -193,16 +180,11 @@ rp86_freertos_tick_isr:
     jne .tick_eoi
     mov word [rp86_tick_trace_state], 2
 
-    ; The first physical switch has selected a different TCB and loaded its
-    ; saved SP.  Dump the exact frame that RP86_RESTORE_CONTEXT is about to
-    ; consume.  8086 addressing cannot use SP as an effective-address base, so
-    ; copy SP to BP temporarily; the selected task's real BP is still present
-    ; at [SS:BP+0] and will be restored immediately afterwards.
-    ;
-    ; Each 623x marker is followed by its raw 16-bit value on the result port:
+    ; First physical switch: dump the exact selected task frame before any
+    ; restore.  Each marker is followed by one raw 16-bit value:
     ;   6230 -> SP, 6231 -> IP, 6232 -> CS, 6233 -> FLAGS, 6234 -> SS.
-    ; Frame offsets are +00 BP, +02 DI, +04 SI, +06 DS, +08 ES, +10 DX,
-    ; +12 CX, +14 BX, +16 AX, +18 IP, +20 CS, +22 FLAGS.
+    ; 8086 cannot address memory through SP, so use BP as a temporary base; the
+    ; selected task's real BP remains at [SS:BP+0] and is restored below.
     RP86_TRACE_VALUE 0x6230, sp
     mov bp, sp
     mov ax, [ss:bp + 18]
@@ -213,29 +195,27 @@ rp86_freertos_tick_isr:
     RP86_TRACE_VALUE 0x6233, ax
     mov ax, ss
     RP86_TRACE_VALUE 0x6234, ax
-
-    ; Selected task stack is active.  AX/DX/BP are intentionally clobbered by
-    ; the trace above; the following restore replaces them from the frame.
     RP86_TRACE_WORD 0x6213
-    jmp short .tick_eoi
-
-.tick_no_switch:
-    cmp word [rp86_tick_trace_state], 1
-    jne .tick_eoi
-    mov word [rp86_tick_trace_state], 2
-    RP86_TRACE_WORD 0x6214
 
 .tick_eoi:
     mov dx, RP86_IO_PORT_PIC_COMMAND
     mov al, RP86_PIC_COMMAND_EOI
     out dx, al
 
-    ; State value 2 is unique to the first traced tick.  If this marker appears,
-    ; the EOI I/O write completed and control returned to the processor.
+    ; State 2 is unique to the first traced tick.  Prove EOI completed before
+    ; consuming the selected software frame.
     cmp word [rp86_tick_trace_state], 2
     jne rp86_restore_context
     mov word [rp86_tick_trace_state], 3
     RP86_TRACE_WORD 0x6235
+    jmp short rp86_restore_context
+
+.tick_no_switch:
+    cmp word [rp86_tick_trace_state], 1
+    jne .tick_eoi
+    mov word [rp86_tick_trace_state], 2
+    RP86_TRACE_WORD 0x6214
+    jmp short .tick_eoi
 
 rp86_restore_context:
     pop bp
@@ -248,9 +228,9 @@ rp86_restore_context:
     pop bx
     pop ax
 
-    ; For the first traced tick, prove the software frame was fully consumed and
-    ; IRET is the next instruction.  DS has just been restored from the selected
-    ; task frame and is required by the v1 port contract to equal DGROUP.
+    ; On the first traced tick, all software-saved words are consumed and IRET
+    ; is next.  DS is required by the v1 task contract to equal DGROUP, so BSS
+    ; scratch words can preserve AX/DX without touching the IRET frame.
     cmp word [rp86_tick_trace_state], 3
     jne .restore_iret
     mov [rp86_trace_saved_ax], ax
