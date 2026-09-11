@@ -113,6 +113,14 @@ static void upload_tick_workload(rp86_runtime_context_t *runtime) {
                                 manifest.image_crc32));
 }
 
+static void advance_to_cycle(rp86_workload_executor_t *executor,
+                             uint32_t target_cycle) {
+    while (executor->bus_stats.cycles < target_cycle) {
+        rp86_workload_executor_service(executor);
+        assert(!intr_level);
+    }
+}
+
 int main(void) {
     static uint8_t storage[0x40000u];
     rp86_runtime_context_t runtime = {0};
@@ -135,6 +143,7 @@ int main(void) {
     assert(executor.tick_enabled);
     assert(executor.tick_next_us == 11000u);
     assert(executor.tick_delivery_not_before_us == 0u);
+    assert(executor.tick_delivery_not_before_cycle == 0u);
     assert(!intr_level);
 
     /* Before the first period there is no request. */
@@ -163,19 +172,31 @@ int main(void) {
     assert(executor.tick_ack_phase == 0u && executor.tick_in_service);
     simulate_inta = false;
 
-    /* EOI releases the in-service state and starts one full-period delivery
-     * recovery interval. */
+    /* EOI releases the in-service state and starts both a full-period wall-time
+     * recovery interval and a 64-completed-cycle processor-progress interval. */
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 1u && !executor.tick_in_service);
     assert(executor.tick_delivery_not_before_us == 21000u);
+    const uint32_t first_progress_deadline =
+        executor.tick_delivery_not_before_cycle;
+    assert(first_progress_deadline == executor.bus_stats.cycles + 64u);
+
+    /* At the next source period, the request may become pending, but wall time
+     * alone is insufficient: physical INTR remains suppressed until the CPU
+     * has completed the required foreground bus progress. */
+    now_us = 21000u;
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_generated == 2u);
+    assert(executor.tick_pending && !executor.tick_intr_asserted && !intr_level);
+    advance_to_cycle(&executor, first_progress_deadline);
+    assert(executor.tick_pending && !intr_level);
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_pending && executor.tick_intr_asserted && intr_level);
 
     /* Model a long CLI interval: INTR remains asserted and later wall-clock
      * periods collapse into the single pending request instead of queueing. */
-    now_us = 21000u;
-    rp86_workload_executor_service(&executor);
-    assert(executor.tick_generated == 2u && intr_level && executor.tick_pending);
     now_us = 51000u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 5u);
@@ -201,21 +222,26 @@ int main(void) {
     assert(executor.tick_delayed == 1u);
     assert(executor.tick_coalesced == 4u);
 
-    /* Deliberately end the ISR between source deadlines.  The next 100 Hz
-     * source period arrives only 5.5 ms later, but physical delivery must stay
-     * suppressed for a full 10 ms after EOI so foreground code can run. */
+    /* End the ISR between source deadlines.  The next source period arrives
+     * only 5.5 ms later.  Advance enough processor cycles while wall time is
+     * still inside the recovery window to prove both gates are required. */
     now_us = 65500u;
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 2u && !executor.tick_in_service);
     assert(executor.tick_delivery_not_before_us == 75500u);
+    const uint32_t second_progress_deadline =
+        executor.tick_delivery_not_before_cycle;
+    assert(second_progress_deadline == executor.bus_stats.cycles + 64u);
     assert(!executor.tick_pending && !intr_level);
 
     now_us = 71000u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 7u);
     assert(executor.tick_pending && !executor.tick_intr_asserted && !intr_level);
+    advance_to_cycle(&executor, second_progress_deadline);
+    assert(executor.tick_pending && !intr_level);
 
     now_us = 75499u;
     rp86_workload_executor_service(&executor);
@@ -238,13 +264,17 @@ int main(void) {
     simulate_eoi = false;
     assert(executor.tick_eoi == 3u && !executor.tick_in_service);
     assert(executor.tick_delivery_not_before_us == 85500u);
+    assert(executor.tick_delivery_not_before_cycle ==
+           executor.bus_stats.cycles + 64u);
 
-    /* Terminal completion explicitly disables the periodic source. */
+    /* Terminal completion explicitly disables the periodic source and clears
+     * both delivery gates. */
     simulate_terminal_arm = true;
     rp86_workload_executor_service(&executor);
     simulate_terminal_arm = false;
     assert(executor.idle_armed && !executor.tick_enabled && !intr_level);
     assert(executor.tick_delivery_not_before_us == 0u);
+    assert(executor.tick_delivery_not_before_cycle == 0u);
 
     simulate_no_cycle = true;
     rp86_workload_executor_service(&executor);
