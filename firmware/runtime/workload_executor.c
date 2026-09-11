@@ -12,6 +12,7 @@
 enum {
     RESET_HANDOFF_BASE = 0xFFFF0u,
     GENERAL_BUS_STARVATION_TIMEOUT_US = 100000u,
+    PERIODIC_TICK_US = 10000u,
 };
 
 static void emit(rp86_workload_executor_t *executor,
@@ -59,6 +60,105 @@ static void reset_native_result(rp86_workload_executor_t *executor) {
     executor->native_output_length = 0u;
     executor->result_flags = 0u;
     executor->completion_reason = RP86_WORKLOAD_COMPLETION_NONE;
+}
+
+static void reset_tick_attempt(rp86_workload_executor_t *executor,
+                               bool enabled) {
+    rp86_processor_bus_set_intr(false);
+    executor->tick_enabled = enabled;
+    executor->tick_pending = false;
+    executor->tick_in_service = false;
+    executor->tick_intr_asserted = false;
+    executor->tick_ack_phase = 0u;
+    executor->tick_next_us = 0u;
+    executor->tick_generated = 0u;
+    executor->tick_delivered = 0u;
+    executor->tick_acknowledged = 0u;
+    executor->tick_delayed = 0u;
+    executor->tick_coalesced = 0u;
+    executor->tick_eoi = 0u;
+}
+
+static void emit_tick_stats(rp86_workload_executor_t *executor) {
+    if (executor->tick_generated == 0u &&
+        (executor->runtime->workload.manifest.flags &
+         RP86_WORKLOAD_FLAG_PERIODIC_TICK) == 0u)
+        return;
+    emit(executor,
+         "[TICK] generated=%lu delivered=%lu ack=%lu eoi=%lu delayed=%lu coalesced=%lu\n",
+         (unsigned long)executor->tick_generated,
+         (unsigned long)executor->tick_delivered,
+         (unsigned long)executor->tick_acknowledged,
+         (unsigned long)executor->tick_eoi,
+         (unsigned long)executor->tick_delayed,
+         (unsigned long)executor->tick_coalesced);
+}
+
+static void update_periodic_tick(rp86_workload_executor_t *executor) {
+    if (!executor->tick_enabled || executor->idle_armed ||
+        executor->tick_next_us == 0u)
+        return;
+
+    const uint64_t now = time_us_64();
+    if (now >= executor->tick_next_us) {
+        const uint64_t elapsed =
+            1u + (now - executor->tick_next_us) / PERIODIC_TICK_US;
+        executor->tick_next_us += elapsed * PERIODIC_TICK_US;
+        executor->tick_generated += (uint32_t)elapsed;
+
+        if (!executor->tick_pending) {
+            executor->tick_pending = true;
+            if (executor->tick_intr_asserted || executor->tick_ack_phase != 0u ||
+                executor->tick_in_service)
+                ++executor->tick_delayed;
+            if (elapsed > 1u)
+                executor->tick_coalesced += (uint32_t)(elapsed - 1u);
+        } else {
+            executor->tick_coalesced += (uint32_t)elapsed;
+        }
+    }
+
+    /* Assert only between complete bus cycles. This check is deliberately
+     * independent of whether a new period elapsed in this service call: a
+     * request retained while another tick was in service must reassert at the
+     * first complete boundary after EOI, not wait for another 10 ms period. */
+    if (executor->tick_pending && !executor->tick_intr_asserted &&
+        executor->tick_ack_phase == 0u && !executor->tick_in_service) {
+        rp86_processor_bus_set_intr(true);
+        executor->tick_intr_asserted = true;
+    }
+}
+
+static bool interrupt_ack(void *context, bool *drive_vector,
+                          uint8_t *vector) {
+    rp86_workload_executor_t *executor = context;
+    if (drive_vector == NULL || vector == NULL || !executor->tick_enabled)
+        return false;
+
+    if (executor->tick_ack_phase == 0u) {
+        if (!executor->tick_intr_asserted) return false;
+        /* Intel 8086 INTA #1 accepts the request but carries no vector. */
+        rp86_processor_bus_set_intr(false);
+        executor->tick_intr_asserted = false;
+        executor->tick_pending = false;
+        executor->tick_ack_phase = 1u;
+        ++executor->tick_delivered;
+        *drive_vector = false;
+        *vector = 0u;
+        return true;
+    }
+
+    if (executor->tick_ack_phase == 1u) {
+        /* Intel 8086 samples the low-byte vector during INTA #2. */
+        executor->tick_ack_phase = 0u;
+        executor->tick_in_service = true;
+        ++executor->tick_acknowledged;
+        *drive_vector = true;
+        *vector = RP86_INTERRUPT_VECTOR_TICK;
+        return true;
+    }
+
+    return false;
 }
 
 static void flush_diagnostic_line(rp86_workload_executor_t *executor) {
@@ -120,9 +220,27 @@ static bool io_write(void *context, uint16_t port,
         if (lane_value == RP86_EXECUTION_CLOCK_REQUEST_CLOCK_STEPPED)
             return executor->clock_mode == RP86_WORKLOAD_CLOCK_STEPPED;
     }
+    if (port == RP86_IO_PORT_PIC_COMMAND &&
+        (lane_value & 0xffu) == RP86_PIC_COMMAND_EOI) {
+        if (executor->tick_enabled && executor->tick_in_service) {
+            executor->tick_in_service = false;
+            ++executor->tick_eoi;
+        }
+        return true;
+    }
     if (port == RP86_IO_PORT_CONTROL &&
         lane_value == RP86_CONTROL_IDLE_PREPARE) {
         executor->idle_armed = true;
+        /* Terminal completion quiesces the periodic source. RTOS idle never
+         * uses IDLE_PREPARE, so this cannot be confused with a sleeping task. */
+        if (executor->tick_enabled) {
+            rp86_processor_bus_set_intr(false);
+            executor->tick_enabled = false;
+            executor->tick_pending = false;
+            executor->tick_in_service = false;
+            executor->tick_intr_asserted = false;
+            executor->tick_ack_phase = 0u;
+        }
         return true;
     }
     return port == RP86_IO_PORT_STATUS || port == RP86_IO_PORT_TX ||
@@ -201,6 +319,9 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
         return false;
     }
 
+    const bool tick_enabled =
+        (manifest->flags & RP86_WORKLOAD_FLAG_PERIODIC_TICK) != 0u;
+    reset_tick_attempt(executor, tick_enabled);
     rp86_processor_bus_clear_fault(executor->processor_bus);
     rp86_memory_init(&executor->processor_memory,
                      (uint8_t *)executor->runtime->memory_backing.context,
@@ -236,13 +357,16 @@ bool rp86_workload_executor_start(rp86_workload_executor_t *executor) {
     }
     rp86_processor_bus_reset_step_timing(executor->processor_bus);
     executor->execution_started_us = time_us_64();
+    if (executor->tick_enabled)
+        executor->tick_next_us = executor->execution_started_us + PERIODIC_TICK_US;
     if (executor->timeout_ms != 0u)
         executor->execution_deadline_us = executor->execution_started_us +
             (uint64_t)executor->timeout_ms * 1000u;
     emit(executor,
-         "[WORKLOAD START] id=%lu entry=%04X:%04X clock=CLOCK_STEPPED\n",
+         "[WORKLOAD START] id=%lu entry=%04X:%04X clock=CLOCK_STEPPED%s\n",
          (unsigned long)executor->runtime->workload.workload_id,
-         manifest->entry_segment, manifest->entry_offset);
+         manifest->entry_segment, manifest->entry_offset,
+         executor->tick_enabled ? " tick=100Hz" : "");
     return true;
 }
 
@@ -269,13 +393,20 @@ void rp86_workload_executor_stop(rp86_workload_executor_t *executor) {
     if (!executor->active) return;
     if (executor->completion_reason == RP86_WORKLOAD_COMPLETION_NONE)
         executor->completion_reason = RP86_WORKLOAD_COMPLETION_STOP_REQUESTED;
+    rp86_processor_bus_set_intr(false);
+    executor->tick_intr_asserted = false;
     rp86_processor_bus_safe_halt(
         executor->processor_bus, RP86_PROCESSOR_RESET_CLOCKS);
     flush_diagnostic_line(executor);
+    emit_tick_stats(executor);
     *executor->physical_bus_active = false;
     executor->idle_armed = false;
     executor->processor_idle = false;
     executor->starvation_started_us = 0u;
+    executor->tick_enabled = false;
+    executor->tick_pending = false;
+    executor->tick_in_service = false;
+    executor->tick_ack_phase = 0u;
     executor->clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
     emit(executor, "[WORKLOAD STOP] cycles=%lu\n",
          (unsigned long)executor->bus_stats.cycles);
@@ -300,10 +431,13 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
         print_trace(executor);
         return;
     }
+
+    update_periodic_tick(executor);
     const rp86_clock_stepped_io_t io = {
         .context = executor,
         .read = io_read,
         .write = io_write,
+        .interrupt_ack = interrupt_ack,
     };
     const bool completed = rp86_clock_stepped_service_cycle(
         executor->processor_bus, &executor->processor_memory, &io, 32u,
@@ -336,6 +470,7 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
         executor->bus_stats.unmapped = false;
         executor->bus_stats.invalid_lane = false;
         executor->bus_stats.no_cycle = false;
+        emit_tick_stats(executor);
         emit(executor,
              "[WORKLOAD COMPLETED] armed native HLT indication accepted\n");
         return;

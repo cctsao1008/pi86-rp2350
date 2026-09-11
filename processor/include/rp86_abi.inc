@@ -2,13 +2,17 @@
 ; Keep numerically identical to firmware/runtime/processor_abi.h.
 
 %define RP86_INTERRUPT_VECTOR_COMPANION           0x20
+%define RP86_INTERRUPT_VECTOR_TICK                0x21
 %define RP86_INTERRUPT_VECTOR_NATIVE_SERVICE      0x60
 %define RP86_IVT_COMPANION_OFFSET_ADDRESS         0x0080
 %define RP86_IVT_COMPANION_SEGMENT_ADDRESS        0x0082
+%define RP86_IVT_TICK_OFFSET_ADDRESS              0x0084
+%define RP86_IVT_TICK_SEGMENT_ADDRESS             0x0086
 %define RP86_IVT_NATIVE_SERVICE_OFFSET_ADDRESS    0x0180
 %define RP86_IVT_NATIVE_SERVICE_SEGMENT_ADDRESS   0x0182
 
 %define RP86_IO_PORT_PIC_COMMAND                  0x0020
+%define RP86_PIC_COMMAND_EOI                      0x0020
 %define RP86_IO_PORT_STATUS                       0x00E0
 %define RP86_IO_PORT_TX                           0x00E2
 %define RP86_IO_PORT_RX                           0x00E4

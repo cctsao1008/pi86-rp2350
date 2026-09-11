@@ -1,0 +1,22 @@
+name: Runtime policy tests
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/runtime-tests.yml"
+      - "firmware/**"
+      - "tests/runtime/**"
+      - "tools/package_workload.py"
+      - "tools/rp86_runtime/**"
+  workflow_dispatch:
+
+jobs:
+  runtime-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Run runtime tests
+        run: |
+          python3 -m unittest discover -s tests/runtime -p 'test_*.py' -v

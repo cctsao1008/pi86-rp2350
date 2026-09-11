@@ -69,6 +69,13 @@ rp86_add_processor_image(execution_clock_transition_workload
     PACKAGE_NAME "CLOCKSW.P86W"
 )
 
+rp86_add_processor_image(periodic_tick
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/periodic_tick.asm"
+    SYMBOL periodic_tick_workload
+    METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/periodic_tick.json"
+    PACKAGE_NAME "TICK.P86W"
+)
+
 if(RP86_ENABLE_PROCESSOR_C16)
     # Issue #58 validation target.  This path is intentionally opt-in so the
     # normal RP86 firmware build remains independent of Open Watcom.

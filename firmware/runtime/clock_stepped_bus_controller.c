@@ -94,8 +94,22 @@ bool rp86_clock_stepped_service_cycle(rp86_processor_bus_t *bus,
     stats->last_data_valid = false;
 
     if (cycle.type == RP86_PROCESSOR_BUS_CYCLE_INTERRUPT_ACK) {
+        bool drive_vector = false;
+        uint8_t vector = 0u;
         stats->interrupt_ack = true;
-        return false;
+        if (io == NULL || io->interrupt_ack == NULL ||
+            !io->interrupt_ack(io->context, &drive_vector, &vector))
+            return false;
+        if (!rp86_processor_bus_complete_interrupt_ack(
+                bus, drive_vector, vector)) {
+            stats->clock_failure = true;
+            return false;
+        }
+        stats->last_data = drive_vector ? vector : 0u;
+        stats->last_data_valid = drive_vector;
+        ++stats->interrupt_acks;
+        ++stats->cycles;
+        return true;
     }
     if (cycle.lanes == RP86_PROCESSOR_BUS_LANES_NONE) {
         stats->invalid_lane = true;

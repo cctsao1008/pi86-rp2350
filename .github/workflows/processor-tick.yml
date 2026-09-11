@@ -1,0 +1,80 @@
+name: Processor periodic tick
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/processor-tick.yml"
+      - "CMakeLists.txt"
+      - "cmake/ProcessorImage.cmake"
+      - "scripts/bootstrap_nasm.sh"
+      - "processor/CMakeLists.txt"
+      - "processor/include/rp86_abi.inc"
+      - "processor/workloads/validation/periodic_tick.asm"
+      - "processor/workloads/validation/periodic_tick.json"
+      - "tools/package_workload.py"
+      - "tools/rp86_runtime/workload.py"
+  workflow_dispatch:
+
+jobs:
+  build-periodic-tick:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Bootstrap pinned NASM 3.02
+        run: |
+          bash scripts/bootstrap_nasm.sh
+          .tools/nasm-3.02/bin/nasm -v
+          ninja --version
+
+      - name: Configure processor-only build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DRP86_PROCESSOR_ONLY=ON \
+            -DRP86_NASM_EXECUTABLE="$GITHUB_WORKSPACE/.tools/nasm-3.02/bin/nasm"
+
+      - name: Build periodic tick package
+        run: cmake --build build --target periodic_tick_package --verbose
+
+      - name: Validate packaged contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import sys
+
+          sys.path.insert(0, "tools")
+          from rp86_runtime.workload import (
+              FLAG_CLOCK_STEPPED,
+              FLAG_PERIODIC_TICK,
+              FLAG_STDIO,
+              decode_workload_file,
+          )
+
+          package_path = Path("build/workloads/TICK.P86W")
+          manifest, image = decode_workload_file(package_path.read_bytes())
+          expected = FLAG_CLOCK_STEPPED | FLAG_PERIODIC_TICK | FLAG_STDIO
+
+          assert manifest.load_address == 0x10000
+          assert (manifest.entry_segment, manifest.entry_offset) == (0x1000, 0x0000)
+          assert (manifest.stack_segment, manifest.stack_offset) == (0x2000, 0xFFF0)
+          assert manifest.flags == expected, hex(manifest.flags)
+          assert len(image) == manifest.image_size and len(image) > 0
+
+          print(f"TICK.P86W image={len(image)} bytes crc32=0x{manifest.image_crc32:08X}")
+          print(f"flags=0x{manifest.flags:08X} entry=1000:0000 stack=2000:FFF0")
+          PY
+
+          echo "=== periodic tick disassembly ==="
+          .tools/nasm-3.02/bin/ndisasm -b16 \
+            build/processor/generated/periodic_tick/periodic_tick.bin | head -220
+
+      - name: Upload physical validation package
+        uses: actions/upload-artifact@v4
+        with:
+          name: periodic-tick-validation
+          path: |
+            build/processor/generated/periodic_tick/periodic_tick.bin
+            build/workloads/TICK.P86W

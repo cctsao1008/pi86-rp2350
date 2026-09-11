@@ -3,13 +3,17 @@
 
 /* Canonical processor-visible I/O and interrupt ABI. */
 #define RP86_INTERRUPT_VECTOR_COMPANION          0x20u
+#define RP86_INTERRUPT_VECTOR_TICK               0x21u
 #define RP86_INTERRUPT_VECTOR_NATIVE_SERVICE     0x60u
 #define RP86_IVT_COMPANION_OFFSET_ADDRESS        0x0080u
 #define RP86_IVT_COMPANION_SEGMENT_ADDRESS       0x0082u
+#define RP86_IVT_TICK_OFFSET_ADDRESS             0x0084u
+#define RP86_IVT_TICK_SEGMENT_ADDRESS            0x0086u
 #define RP86_IVT_NATIVE_SERVICE_OFFSET_ADDRESS   0x0180u
 #define RP86_IVT_NATIVE_SERVICE_SEGMENT_ADDRESS  0x0182u
 
 #define RP86_IO_PORT_PIC_COMMAND                 0x0020u
+#define RP86_PIC_COMMAND_EOI                     0x0020u
 #define RP86_IO_PORT_STATUS                      0x00E0u
 #define RP86_IO_PORT_TX                          0x00E2u
 #define RP86_IO_PORT_RX                          0x00E4u
