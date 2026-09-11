@@ -10,11 +10,18 @@ typedef bool (*rp86_clock_stepped_io_read_fn)(void *context, uint16_t port,
                                      rp86_processor_bus_lanes_t lanes, uint16_t *value);
 typedef bool (*rp86_clock_stepped_io_write_fn)(void *context, uint16_t port,
                                       rp86_processor_bus_lanes_t lanes, uint16_t value);
+/* Called after an INTA cycle is identified and before the remaining stepped
+ * clocks are advanced. Set drive_vector for INTA #2; leave it false for INTA
+ * #1. Returning false leaves the acknowledge unhandled and therefore faults
+ * the general workload as before. */
+typedef bool (*rp86_clock_stepped_interrupt_ack_fn)(
+    void *context, bool *drive_vector, uint8_t *vector);
 
 typedef struct {
     void *context;
     rp86_clock_stepped_io_read_fn read;
     rp86_clock_stepped_io_write_fn write;
+    rp86_clock_stepped_interrupt_ack_fn interrupt_ack;
 } rp86_clock_stepped_io_t;
 
 typedef struct {
@@ -23,6 +30,7 @@ typedef struct {
     uint32_t memory_writes;
     uint32_t io_reads;
     uint32_t io_writes;
+    uint32_t interrupt_acks;
     uint32_t first_address;
     uint32_t last_address;
     rp86_processor_bus_cycle_type_t last_type;
