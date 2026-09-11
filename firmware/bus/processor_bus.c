@@ -224,7 +224,12 @@ bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
     cycle->inta_n = (uint8_t)sample_bit(cycle->control_sample, RP86_PROCESSOR_PIN_INTA);
     cycle->type = decode_cycle_type(cycle->iom, cycle->dtr, cycle->inta_n);
 
-    if (cycle->lanes == RP86_PROCESSOR_BUS_LANES_NONE) cycle->type = RP86_PROCESSOR_BUS_CYCLE_UNSUPPORTED;
+    /* A0/BHE are not a memory byte-lane contract during INTA. Preserve the
+     * interrupt-acknowledge classification even when normal lane decoding is
+     * meaningless for that cycle. */
+    if (cycle->type != RP86_PROCESSOR_BUS_CYCLE_INTERRUPT_ACK &&
+        cycle->lanes == RP86_PROCESSOR_BUS_LANES_NONE)
+        cycle->type = RP86_PROCESSOR_BUS_CYCLE_UNSUPPORTED;
     return true;
 }
 
@@ -263,6 +268,27 @@ bool rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
     if (rp86_processor_bus_faulted(bus)) return false;
     if (readback1 != NULL) *readback1 = rp86_processor_bus_decode_ad(sample1);
     if (readback2 != NULL) *readback2 = rp86_processor_bus_decode_ad(sample2);
+    rp86_processor_bus_release_ad();
+    return true;
+}
+
+bool rp86_processor_bus_complete_interrupt_ack(
+    rp86_processor_bus_t *bus, bool drive_vector, uint8_t vector) {
+    if (drive_vector)
+        rp86_processor_bus_drive_data(vector, RP86_PROCESSOR_BUS_LANE_LOW);
+    else
+        rp86_processor_bus_release_ad();
+
+    (void)rp86_processor_bus_step(bus);
+    if (rp86_processor_bus_faulted(bus)) {
+        rp86_processor_bus_release_ad();
+        return false;
+    }
+    (void)rp86_processor_bus_step(bus);
+    if (rp86_processor_bus_faulted(bus)) {
+        rp86_processor_bus_release_ad();
+        return false;
+    }
     rp86_processor_bus_release_ad();
     return true;
 }
