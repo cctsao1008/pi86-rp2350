@@ -73,7 +73,6 @@ uint32_t rp86_processor_bus_max_step_interval_us(
     const rp86_processor_bus_t *bus);
 void rp86_processor_bus_force_safe_state(rp86_processor_bus_t *bus);
 
-
 bool rp86_processor_bus_wait_cycle(rp86_processor_bus_t *bus,
                         uint max_idle_steps,
                         rp86_processor_bus_cycle_t *cycle);
@@ -87,6 +86,14 @@ void rp86_processor_bus_drive_data(uint16_t value, rp86_processor_bus_lanes_t la
 bool rp86_processor_bus_complete_read(rp86_processor_bus_t *bus,
                            uint16_t *readback1,
                            uint16_t *readback2);
+
+/*
+ * Complete one interrupt-acknowledge bus cycle using the established
+ * clock-stepped data cadence. INTA #1 leaves AD high-Z. INTA #2 drives the
+ * supplied interrupt vector on AD0..7 for the data phase, then releases AD.
+ */
+bool rp86_processor_bus_complete_interrupt_ack(
+    rp86_processor_bus_t *bus, bool drive_vector, uint8_t vector);
 
 /*
  * Capture CPU write data using the same phase proven by Gate 6:
