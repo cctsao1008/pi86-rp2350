@@ -230,9 +230,8 @@ rp86_freertos_tick_isr:
     mov al, RP86_PIC_COMMAND_EOI
     out dx, al
 
-    ; Only the first tick path uses state value 2.  Prove that the RP2350 EOI
-    ; write completed and execution returned to the processor before consuming
-    ; the selected task frame.
+    ; State value 2 is unique to the first traced tick.  If this marker appears,
+    ; the EOI I/O write completed and control returned to the processor.
     cmp word [rp86_tick_trace_state], 2
     jne rp86_restore_context
     mov word [rp86_tick_trace_state], 3
@@ -249,10 +248,9 @@ rp86_restore_context:
     pop bx
     pop ax
 
-    ; On the first tick only, all software-saved words are consumed and SP now
-    ; points directly at IP,CS,FLAGS.  Do not push here.  The RP86 FreeRTOS v1
-    ; contract keeps DS=DGROUP for every task, so BSS scratch words can retain
-    ; AX/DX while the final pre-IRET marker is emitted.
+    ; For the first traced tick, prove the software frame was fully consumed and
+    ; IRET is the next instruction.  DS has just been restored from the selected
+    ; task frame and is required by the v1 port contract to equal DGROUP.
     cmp word [rp86_tick_trace_state], 3
     jne .restore_iret
     mov [rp86_trace_saved_ax], ax
