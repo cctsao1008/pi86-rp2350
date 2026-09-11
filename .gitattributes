@@ -1,3 +1,5 @@
+*.sh text eol=lf
+
 docs/validation/evidence/ai_b2_hid_20260823_050201+0800.log -text
 docs/validation/evidence/ai_b2_hid_20260823_050201+0800.json binary
 docs/validation/evidence/ai_b2_hid_20260823_171808+0800.log -text
