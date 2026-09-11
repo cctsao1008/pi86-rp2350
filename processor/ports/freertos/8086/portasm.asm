@@ -196,26 +196,25 @@ rp86_freertos_tick_isr:
     mov ax, ss
     RP86_TRACE_VALUE 0x6234, ax
     RP86_TRACE_WORD 0x6213
+    jmp short .tick_eoi
+
+.tick_no_switch:
+    cmp word [rp86_tick_trace_state], 1
+    jne .tick_eoi
+    mov word [rp86_tick_trace_state], 4
+    RP86_TRACE_WORD 0x6214
 
 .tick_eoi:
     mov dx, RP86_IO_PORT_PIC_COMMAND
     mov al, RP86_PIC_COMMAND_EOI
     out dx, al
 
-    ; State 2 is unique to the first traced tick.  Prove EOI completed before
-    ; consuming the selected software frame.
+    ; State 2 is unique to the first traced tick that selected a new task.
+    ; If 6235 appears, EOI completed before the selected frame was consumed.
     cmp word [rp86_tick_trace_state], 2
     jne rp86_restore_context
     mov word [rp86_tick_trace_state], 3
     RP86_TRACE_WORD 0x6235
-    jmp short rp86_restore_context
-
-.tick_no_switch:
-    cmp word [rp86_tick_trace_state], 1
-    jne .tick_eoi
-    mov word [rp86_tick_trace_state], 2
-    RP86_TRACE_WORD 0x6214
-    jmp short .tick_eoi
 
 rp86_restore_context:
     pop bp
@@ -228,9 +227,9 @@ rp86_restore_context:
     pop bx
     pop ax
 
-    ; On the first traced tick, all software-saved words are consumed and IRET
-    ; is next.  DS is required by the v1 task contract to equal DGROUP, so BSS
-    ; scratch words can preserve AX/DX without touching the IRET frame.
+    ; On the first switching tick, all software-saved words are consumed and
+    ; IRET is next. DS is required by the v1 task contract to equal DGROUP, so
+    ; BSS scratch words can preserve AX/DX without touching the IRET frame.
     cmp word [rp86_tick_trace_state], 3
     jne .restore_iret
     mov [rp86_trace_saved_ax], ax
