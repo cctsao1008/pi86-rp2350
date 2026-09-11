@@ -61,13 +61,17 @@ typedef struct {
 
     /* Periodic tick state. Only enabled by RP86_WORKLOAD_FLAG_PERIODIC_TICK.
      * tick_ack_phase is 0 outside INTA and 1 after INTA #1 while waiting for
-     * the vector-delivery INTA #2 cycle. */
+     * the vector-delivery INTA #2 cycle. tick_delivery_not_before_us is a
+     * delivery-side recovery gate: generation stays on the 100 Hz wall-clock
+     * phase, but a completed ISR gets one full source period before another
+     * physical INTR may be asserted. */
     bool tick_enabled;
     bool tick_pending;
     bool tick_in_service;
     bool tick_intr_asserted;
     uint8_t tick_ack_phase;
     uint64_t tick_next_us;
+    uint64_t tick_delivery_not_before_us;
     uint32_t tick_generated;
     uint32_t tick_delivered;
     uint32_t tick_acknowledged;

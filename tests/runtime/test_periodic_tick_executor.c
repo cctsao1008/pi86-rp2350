@@ -134,6 +134,7 @@ int main(void) {
     assert(rp86_workload_executor_start(&executor));
     assert(executor.tick_enabled);
     assert(executor.tick_next_us == 11000u);
+    assert(executor.tick_delivery_not_before_us == 0u);
     assert(!intr_level);
 
     /* Before the first period there is no request. */
@@ -162,11 +163,13 @@ int main(void) {
     assert(executor.tick_ack_phase == 0u && executor.tick_in_service);
     simulate_inta = false;
 
-    /* EOI releases the in-service state. */
+    /* EOI releases the in-service state and starts one full-period delivery
+     * recovery interval. */
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 1u && !executor.tick_in_service);
+    assert(executor.tick_delivery_not_before_us == 21000u);
 
     /* Model a long CLI interval: INTR remains asserted and later wall-clock
      * periods collapse into the single pending request instead of queueing. */
@@ -189,8 +192,7 @@ int main(void) {
 
     /* A wall-clock period that expires while the accepted tick is still in
      * service is missed/coalesced into that service.  It must not arm an
-     * immediate follow-on interrupt, otherwise an ISR slower than 10 ms can
-     * starve all processor foreground work. */
+     * immediate follow-on interrupt. */
     now_us = 61000u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 6u);
@@ -199,21 +201,28 @@ int main(void) {
     assert(executor.tick_delayed == 1u);
     assert(executor.tick_coalesced == 4u);
 
+    /* Deliberately end the ISR between source deadlines.  The next 100 Hz
+     * source period arrives only 5.5 ms later, but physical delivery must stay
+     * suppressed for a full 10 ms after EOI so foreground code can run. */
+    now_us = 65500u;
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 2u && !executor.tick_in_service);
-    assert(!executor.tick_pending && !intr_level);
-
-    /* No immediate post-EOI request: wait for the next future 10 ms deadline. */
-    now_us = 70999u;
-    rp86_workload_executor_service(&executor);
-    assert(executor.tick_generated == 6u);
+    assert(executor.tick_delivery_not_before_us == 75500u);
     assert(!executor.tick_pending && !intr_level);
 
     now_us = 71000u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 7u);
+    assert(executor.tick_pending && !executor.tick_intr_asserted && !intr_level);
+
+    now_us = 75499u;
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_pending && !executor.tick_intr_asserted && !intr_level);
+
+    now_us = 75500u;
+    rp86_workload_executor_service(&executor);
     assert(executor.tick_pending && executor.tick_intr_asserted && intr_level);
 
     simulate_inta = true;
@@ -228,12 +237,14 @@ int main(void) {
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 3u && !executor.tick_in_service);
+    assert(executor.tick_delivery_not_before_us == 85500u);
 
     /* Terminal completion explicitly disables the periodic source. */
     simulate_terminal_arm = true;
     rp86_workload_executor_service(&executor);
     simulate_terminal_arm = false;
     assert(executor.idle_armed && !executor.tick_enabled && !intr_level);
+    assert(executor.tick_delivery_not_before_us == 0u);
 
     simulate_no_cycle = true;
     rp86_workload_executor_service(&executor);

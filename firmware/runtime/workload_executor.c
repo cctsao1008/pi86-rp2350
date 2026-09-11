@@ -71,6 +71,7 @@ static void reset_tick_attempt(rp86_workload_executor_t *executor,
     executor->tick_intr_asserted = false;
     executor->tick_ack_phase = 0u;
     executor->tick_next_us = 0u;
+    executor->tick_delivery_not_before_us = 0u;
     executor->tick_generated = 0u;
     executor->tick_delivered = 0u;
     executor->tick_acknowledged = 0u;
@@ -124,12 +125,18 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
         }
     }
 
-    /* A pending request represents a tick not yet accepted, for example while
-     * IF is clear. Keep exactly that request asserted until INTA #1 accepts it.
-     * Expirations after INTA begins are coalesced into the active service above
-     * instead of becoming an immediate post-EOI interrupt chain. */
+    /* Generation remains phase-locked to the 100 Hz wall clock above, but
+     * physical delivery is also rate-limited after EOI. A source deadline can
+     * therefore create one pending request during the recovery window without
+     * immediately reasserting INTR. This guarantees a full source period of
+     * foreground opportunity after a long CLOCK_STEPPED ISR even when EOI
+     * happens just before the next wall-clock deadline. */
+    const bool delivery_recovered =
+        executor->tick_delivery_not_before_us == 0u ||
+        now >= executor->tick_delivery_not_before_us;
     if (executor->tick_pending && !executor->tick_intr_asserted &&
-        executor->tick_ack_phase == 0u && !executor->tick_in_service) {
+        executor->tick_ack_phase == 0u && !executor->tick_in_service &&
+        delivery_recovered) {
         rp86_processor_bus_set_intr(true);
         executor->tick_intr_asserted = true;
     }
@@ -230,6 +237,8 @@ static bool io_write(void *context, uint16_t port,
         (lane_value & 0xffu) == RP86_PIC_COMMAND_EOI) {
         if (executor->tick_enabled && executor->tick_in_service) {
             executor->tick_in_service = false;
+            executor->tick_delivery_not_before_us =
+                time_us_64() + PERIODIC_TICK_US;
             ++executor->tick_eoi;
         }
         return true;
@@ -246,6 +255,7 @@ static bool io_write(void *context, uint16_t port,
             executor->tick_in_service = false;
             executor->tick_intr_asserted = false;
             executor->tick_ack_phase = 0u;
+            executor->tick_delivery_not_before_us = 0u;
         }
         return true;
     }
@@ -413,6 +423,7 @@ void rp86_workload_executor_stop(rp86_workload_executor_t *executor) {
     executor->tick_pending = false;
     executor->tick_in_service = false;
     executor->tick_ack_phase = 0u;
+    executor->tick_delivery_not_before_us = 0u;
     executor->clock_mode = RP86_WORKLOAD_CLOCK_STOPPED;
     emit(executor, "[WORKLOAD STOP] cycles=%lu\n",
          (unsigned long)executor->bus_stats.cycles);
