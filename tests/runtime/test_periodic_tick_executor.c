@@ -187,24 +187,33 @@ int main(void) {
     assert(executor.tick_acknowledged == 2u);
     assert(executor.tick_in_service);
 
-    /* A period may elapse while the previous interrupt is still in service.
-     * Retain exactly one request, then reassert it at the first complete bus
-     * boundary after EOI even if the next 10 ms deadline has not arrived. */
+    /* A wall-clock period that expires while the accepted tick is still in
+     * service is missed/coalesced into that service.  It must not arm an
+     * immediate follow-on interrupt, otherwise an ISR slower than 10 ms can
+     * starve all processor foreground work. */
     now_us = 61000u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 6u);
-    assert(executor.tick_pending && executor.tick_in_service);
+    assert(!executor.tick_pending && executor.tick_in_service);
     assert(!executor.tick_intr_asserted && !intr_level);
     assert(executor.tick_delayed == 1u);
+    assert(executor.tick_coalesced == 4u);
 
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 2u && !executor.tick_in_service);
-    assert(executor.tick_pending && !intr_level);
+    assert(!executor.tick_pending && !intr_level);
 
+    /* No immediate post-EOI request: wait for the next future 10 ms deadline. */
+    now_us = 70999u;
     rp86_workload_executor_service(&executor);
     assert(executor.tick_generated == 6u);
+    assert(!executor.tick_pending && !intr_level);
+
+    now_us = 71000u;
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_generated == 7u);
     assert(executor.tick_pending && executor.tick_intr_asserted && intr_level);
 
     simulate_inta = true;
