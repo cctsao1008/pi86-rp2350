@@ -61,10 +61,13 @@ typedef struct {
 
     /* Periodic tick state. Only enabled by RP86_WORKLOAD_FLAG_PERIODIC_TICK.
      * tick_ack_phase is 0 outside INTA and 1 after INTA #1 while waiting for
-     * the vector-delivery INTA #2 cycle.  Generation stays on the 100 Hz
-     * wall-clock phase.  After EOI, physical delivery is gated by both a
-     * wall-clock recovery deadline and a minimum completed-bus-cycle progress
-     * deadline so a slow CLOCK_STEPPED processor gets real foreground work. */
+     * the vector-delivery INTA #2 cycle. Generation stays on the 100 Hz
+     * wall-clock phase. A real hardware-tick EOI starts both the wall-clock
+     * and completed-bus-cycle recovery gates. The shared RTOS restore path also
+     * emits the EOI command after voluntary INT 80h switches; when no tick is
+     * in service that write is a scheduler resume fence which refreshes only
+     * the completed-bus-cycle gate. This gives each newly selected task actual
+     * processor progress without letting repeated yields move wall-clock time. */
     bool tick_enabled;
     bool tick_pending;
     bool tick_in_service;
