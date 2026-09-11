@@ -191,11 +191,18 @@ int main(void) {
     assert(executor.tick_generated == 2u);
     assert(executor.tick_pending && !executor.tick_intr_asserted && !intr_level);
 
-    /* Model the common restore after an INT 80h voluntary context switch.
-     * No hardware tick is in service, so the write must not count as a real
-     * EOI and must not restart the wall-clock gate.  It does refresh the
-     * processor-progress fence so the newly selected peer task gets its own
-     * execution opportunity before the pending tick can assert. */
+    /* First let the pending request become physically asserted.  This models
+     * the physical trace where the old recovery budget expired during Task A
+     * plus its INT 80h yield path before the yield restore fence executed. */
+    advance_to_cycle(&executor, first_progress_deadline);
+    assert(executor.tick_pending && !intr_level);
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_pending && executor.tick_intr_asserted && intr_level);
+
+    /* Now model the common restore after the voluntary context switch.  Since
+     * INTA has not started, the scheduler fence must retract the asserted INTR,
+     * retain the pending request, leave the wall-clock gate unchanged, and
+     * refresh only the processor-progress gate for the newly selected task. */
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
@@ -205,7 +212,8 @@ int main(void) {
         executor.tick_delivery_not_before_cycle;
     assert(yield_progress_deadline == executor.bus_stats.cycles + 64u);
     assert(yield_progress_deadline > first_progress_deadline);
-    assert(executor.tick_pending && !intr_level);
+    assert(executor.tick_pending);
+    assert(!executor.tick_intr_asserted && !intr_level);
 
     advance_to_cycle(&executor, yield_progress_deadline);
     assert(executor.tick_pending && !intr_level);
