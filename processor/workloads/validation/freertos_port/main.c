@@ -23,8 +23,29 @@
 #define RP86_SPIN_LIMIT           0xF000U
 #define RP86_TASK_STACK_WORDS     160U
 
+/* One-shot #60 physical-progress markers written to the RP86 result port. */
+#define RP86_TRACE_MAIN_ENTER     0x6100U
+#define RP86_TRACE_SEM_READY      0x6101U
+#define RP86_TRACE_QUEUE_READY    0x6102U
+#define RP86_TRACE_TASK_A_READY   0x6103U
+#define RP86_TRACE_TASK_B_READY   0x6104U
+#define RP86_TRACE_SCHED_START    0x6105U
+#define RP86_TRACE_TASK_A_ENTER   0x61A0U
+#define RP86_TRACE_TASK_A_YIELDS  0x61A1U
+#define RP86_TRACE_TASK_A_PREWAIT 0x61A2U
+#define RP86_TRACE_TASK_A_PREEMPT 0x61A3U
+#define RP86_TRACE_TASK_A_SEM     0x61A4U
+#define RP86_TRACE_TASK_A_QUEUE   0x61A5U
+#define RP86_TRACE_TASK_B_ENTER   0x61B0U
+#define RP86_TRACE_TASK_B_YIELDS  0x61B1U
+#define RP86_TRACE_TASK_B_PREWAIT 0x61B2U
+#define RP86_TRACE_TASK_B_PREEMPT 0x61B3U
+#define RP86_TRACE_TASK_B_SEM     0x61B4U
+#define RP86_TRACE_TASK_B_QUEUE   0x61B5U
+
 extern void rp86ValidationPass( void );
 extern void rp86ValidationFail( uint16_t code );
+extern void rp86ValidationTrace( uint16_t code );
 
 volatile uint16_t rp86_data_anchor = 0x8606U;
 
@@ -66,6 +87,7 @@ static void prvTaskA( void * pvParameters )
     uint16_t usValue = 0U;
 
     ( void ) pvParameters;
+    rp86ValidationTrace( RP86_TRACE_TASK_A_ENTER );
 
     for( usIndex = 0U; usIndex < 4U; usIndex++ )
     {
@@ -77,6 +99,7 @@ static void prvTaskA( void * pvParameters )
     {
         taskYIELD();
     }
+    rp86ValidationTrace( RP86_TRACE_TASK_A_YIELDS );
 
     usReadyA = 1U;
     while( usReadyB == 0U )
@@ -86,6 +109,7 @@ static void prvTaskA( void * pvParameters )
 
     /* No yield/block here: the peer can set usPreemptB only after a tick. */
     usPreemptA = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_A_PREWAIT );
     while( usPreemptB == 0U )
     {
         usPreemptA++;
@@ -95,6 +119,7 @@ static void prvTaskA( void * pvParameters )
         }
     }
     usPreemptSeenA = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_A_PREEMPT );
 
     usSemaphoreWaiting = 1U;
     if( xSemaphoreTake( xGate, portMAX_DELAY ) != pdTRUE )
@@ -102,6 +127,7 @@ static void prvTaskA( void * pvParameters )
         prvFail( RP86_FAIL_SEM_TAKE );
     }
     usSemaphoreTaken = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_A_SEM );
 
     usQueueWaiting = 1U;
     if( xQueueReceive( xQueue, &usValue, portMAX_DELAY ) != pdPASS )
@@ -113,6 +139,7 @@ static void prvTaskA( void * pvParameters )
         prvFail( RP86_FAIL_QUEUE_VALUE );
     }
     usQueueSeen = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_A_QUEUE );
 
     while( usProducerDone == 0U )
     {
@@ -141,6 +168,7 @@ static void prvTaskB( void * pvParameters )
     uint16_t usValue = RP86_QUEUE_MAGIC;
 
     ( void ) pvParameters;
+    rp86ValidationTrace( RP86_TRACE_TASK_B_ENTER );
 
     for( usIndex = 0U; usIndex < 4U; usIndex++ )
     {
@@ -152,6 +180,7 @@ static void prvTaskB( void * pvParameters )
     {
         taskYIELD();
     }
+    rp86ValidationTrace( RP86_TRACE_TASK_B_YIELDS );
 
     usReadyB = 1U;
     while( usReadyA == 0U )
@@ -161,6 +190,7 @@ static void prvTaskB( void * pvParameters )
 
     /* Symmetric peer of Task A's tick-only preemption rendezvous. */
     usPreemptB = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_B_PREWAIT );
     while( usPreemptA == 0U )
     {
         usPreemptB++;
@@ -170,6 +200,7 @@ static void prvTaskB( void * pvParameters )
         }
     }
     usPreemptSeenB = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_B_PREEMPT );
 
     while( usSemaphoreWaiting == 0U )
     {
@@ -180,6 +211,7 @@ static void prvTaskB( void * pvParameters )
         prvFail( RP86_FAIL_SEM_GIVE );
     }
     usSemaphoreGiven = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_B_SEM );
 
     while( usQueueWaiting == 0U )
     {
@@ -190,6 +222,7 @@ static void prvTaskB( void * pvParameters )
         prvFail( RP86_FAIL_QUEUE_SEND );
     }
     usProducerDone = 1U;
+    rp86ValidationTrace( RP86_TRACE_TASK_B_QUEUE );
 
     for( ;; )
     {
@@ -199,28 +232,35 @@ static void prvTaskB( void * pvParameters )
 
 uint16_t rp86_freertos_main( void )
 {
+    rp86ValidationTrace( RP86_TRACE_MAIN_ENTER );
+
     xGate = xSemaphoreCreateBinary();
     if( xGate == NULL )
     {
         return RP86_FAIL_CREATE_SEM;
     }
+    rp86ValidationTrace( RP86_TRACE_SEM_READY );
 
     xQueue = xQueueCreate( 1U, sizeof( uint16_t ) );
     if( xQueue == NULL )
     {
         return RP86_FAIL_CREATE_QUEUE;
     }
+    rp86ValidationTrace( RP86_TRACE_QUEUE_READY );
 
     if( xTaskCreate( prvTaskA, "A", RP86_TASK_STACK_WORDS, NULL, 2U, NULL ) != pdPASS )
     {
         return RP86_FAIL_CREATE_TASK_A;
     }
+    rp86ValidationTrace( RP86_TRACE_TASK_A_READY );
 
     if( xTaskCreate( prvTaskB, "B", RP86_TASK_STACK_WORDS, NULL, 2U, NULL ) != pdPASS )
     {
         return RP86_FAIL_CREATE_TASK_B;
     }
+    rp86ValidationTrace( RP86_TRACE_TASK_B_READY );
 
+    rp86ValidationTrace( RP86_TRACE_SCHED_START );
     vTaskStartScheduler();
     return RP86_FAIL_SCHED_RETURN;
 }
