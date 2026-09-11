@@ -106,11 +106,17 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
         executor->tick_next_us += elapsed * PERIODIC_TICK_US;
         executor->tick_generated += (uint32_t)elapsed;
 
-        if (!executor->tick_pending) {
+        /* Once INTA has started, the current physical interrupt owns the
+         * delivery slot.  Periods that expire before its EOI are observable as
+         * generated/delayed/coalesced time, but they must not arm an immediate
+         * follow-on request.  Otherwise a CLOCK_STEPPED ISR whose wall-clock
+         * service time exceeds 10 ms can chain interrupts indefinitely and
+         * prevent the selected task from executing at all. */
+        if (executor->tick_ack_phase != 0u || executor->tick_in_service) {
+            executor->tick_delayed += (uint32_t)elapsed;
+            executor->tick_coalesced += (uint32_t)elapsed;
+        } else if (!executor->tick_pending) {
             executor->tick_pending = true;
-            if (executor->tick_intr_asserted || executor->tick_ack_phase != 0u ||
-                executor->tick_in_service)
-                ++executor->tick_delayed;
             if (elapsed > 1u)
                 executor->tick_coalesced += (uint32_t)(elapsed - 1u);
         } else {
@@ -118,10 +124,11 @@ static void update_periodic_tick(rp86_workload_executor_t *executor) {
         }
     }
 
-    /* Assert only between complete bus cycles. This check is deliberately
-     * independent of whether a new period elapsed in this service call: a
-     * request retained while another tick was in service must reassert at the
-     * first complete boundary after EOI, not wait for another 10 ms period. */
+    /* A pending request represents a tick that has not yet been accepted, for
+     * example while the workload has IF cleared.  Keep exactly that one request
+     * asserted until INTA #1 accepts it.  Expirations that occur after INTA has
+     * begun are coalesced into the active service above instead of becoming a
+     * post-EOI interrupt chain. */
     if (executor->tick_pending && !executor->tick_intr_asserted &&
         executor->tick_ack_phase == 0u && !executor->tick_in_service) {
         rp86_processor_bus_set_intr(true);
@@ -517,158 +524,4 @@ void rp86_workload_executor_service(rp86_workload_executor_t *executor) {
     print_trace(executor);
     rp86_workload_executor_stop(executor);
     executor->runtime->workload.state = RP86_WORKLOAD_STATE_FAULTED;
-}
-
-bool rp86_workload_executor_active(const rp86_workload_executor_t *executor) {
-    return executor->active;
-}
-
-bool rp86_workload_executor_timeout_enabled(const rp86_workload_executor_t *executor) {
-    return executor->timeout_ms != 0u;
-}
-
-bool rp86_workload_executor_timeout_request(
-    rp86_workload_executor_t *executor,
-    const rp86_host_protocol_message_t *request,
-    rp86_host_protocol_message_t *reply) {
-    if (request->type != RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_REQUEST)
-        return false;
-    memset(reply, 0, sizeof *reply);
-    reply->version = RP86_HOST_PROTOCOL_VERSION;
-    reply->type = RP86_HOST_PROTOCOL_MESSAGE_WORKLOAD_TIMEOUT_RESULT;
-    reply->sequence = request->sequence;
-    if (request->version != RP86_HOST_PROTOCOL_VERSION) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_VERSION;
-        return true;
-    }
-    if (request->length != 8u || request->status != 0u || request->flags != 0u) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
-        return true;
-    }
-    uint32_t fields[2];
-    memcpy(fields, request->payload, sizeof fields);
-    if (fields[0] > RP86_WORKLOAD_TIMEOUT_SET ||
-        fields[1] > RP86_WORKLOAD_TIMEOUT_MAX_MS ||
-        (fields[0] == RP86_WORKLOAD_TIMEOUT_GET && fields[1] != 0u)) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
-        return true;
-    }
-    if (fields[0] == RP86_WORKLOAD_TIMEOUT_SET) {
-        if (fields[1] != 0u &&
-            executor->runtime->workload.state == RP86_WORKLOAD_STATE_RUNNING &&
-            !executor->active) {
-            reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
-            return true;
-        }
-        executor->timeout_ms = fields[1];
-        executor->execution_deadline_us = fields[1] != 0u &&
-            executor->active && !executor->processor_idle ?
-            executor->execution_started_us + (uint64_t)fields[1] * 1000u : 0u;
-    }
-    const uint64_t now = time_us_64();
-    const uint64_t remaining_us = executor->execution_deadline_us > now ?
-        executor->execution_deadline_us - now : 0u;
-    const rp86_workload_timeout_payload_t snapshot = {
-        .timeout_ms = executor->timeout_ms,
-        .remaining_ms = (uint32_t)((remaining_us + 999u) / 1000u),
-        .workload_id = executor->runtime->workload.workload_id,
-        .boot_id = executor->diagnostic_boot_id,
-        .armed = executor->execution_deadline_us != 0u,
-    };
-    reply->length = sizeof snapshot;
-    memcpy(reply->payload, &snapshot, sizeof snapshot);
-    return true;
-}
-
-bool rp86_workload_executor_diagnostics(
-    const rp86_workload_executor_t *executor,
-    const rp86_host_protocol_message_t *request,
-    rp86_host_protocol_message_t *reply) {
-    if (request->type != RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_REQUEST)
-        return false;
-    memset(reply, 0, sizeof *reply);
-    reply->version = RP86_HOST_PROTOCOL_VERSION;
-    reply->type = RP86_HOST_PROTOCOL_MESSAGE_DIAGNOSTICS_RESULT;
-    reply->sequence = request->sequence;
-    if (request->version != RP86_HOST_PROTOCOL_VERSION) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_VERSION;
-        return true;
-    }
-    if (request->length != sizeof(uint32_t) || request->flags != 0u ||
-        request->status != RP86_HOST_PROTOCOL_STATUS_OK) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_LENGTH;
-        return true;
-    }
-    const rp86_workload_manager_t *workload = &executor->runtime->workload;
-    uint32_t requested_id;
-    memcpy(&requested_id, request->payload, sizeof requested_id);
-    if (requested_id != 0u && requested_id != workload->workload_id) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_WORKLOAD;
-        return true;
-    }
-    if ((executor->active && !executor->processor_idle) ||
-        workload->state == RP86_WORKLOAD_STATE_RUNNING) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_BAD_STATE;
-        return true;
-    }
-    if (workload->state < RP86_WORKLOAD_STATE_STOPPED ||
-        executor->diagnostic_workload_id == 0u ||
-        executor->diagnostic_workload_id != workload->workload_id) {
-        reply->status = RP86_HOST_PROTOCOL_STATUS_SERVICE_UNAVAILABLE;
-        return true;
-    }
-    const rp86_clock_stepped_stats_t *stats = &executor->bus_stats;
-    const rp86_diagnostics_payload_t snapshot = {
-        .workload_id = executor->diagnostic_workload_id,
-        .boot_id = executor->diagnostic_boot_id,
-        .lifecycle = workload->state,
-        .completion_reason = executor->completion_reason,
-        .cycles = stats->cycles,
-        .last_address = stats->first_cycle_seen ? stats->last_address : 0u,
-        .last_data = stats->first_cycle_seen && stats->last_data_valid ? stats->last_data : 0u,
-        .cycle_type = stats->first_cycle_seen ? (uint32_t)stats->last_type : 0u,
-        .lanes = stats->first_cycle_seen ? (uint32_t)stats->last_lanes : 0u,
-        .flags = (stats->first_cycle_seen ? RP86_DIAGNOSTICS_CYCLE_VALID : 0u) |
-                 (stats->first_cycle_seen && stats->last_data_valid ? RP86_DIAGNOSTICS_DATA_VALID : 0u) |
-                 (stats->no_cycle ? RP86_DIAGNOSTICS_NO_CYCLE : 0u) |
-                 (stats->unmapped ? RP86_DIAGNOSTICS_UNMAPPED : 0u) |
-                 (stats->invalid_lane ? RP86_DIAGNOSTICS_INVALID_LANE : 0u) |
-                 (stats->pad_mismatch ? RP86_DIAGNOSTICS_PAD_MISMATCH : 0u) |
-                 (stats->clock_failure ? RP86_DIAGNOSTICS_CLOCK_FAILURE : 0u) |
-                 (stats->interrupt_ack ? RP86_DIAGNOSTICS_INTERRUPT_ACK : 0u),
-    };
-    reply->length = sizeof snapshot;
-    memcpy(reply->payload, &snapshot, sizeof snapshot);
-    return true;
-}
-
-bool rp86_workload_executor_processor_idle(
-    const rp86_workload_executor_t *executor) {
-    return executor->processor_idle;
-}
-
-rp86_workload_clock_mode_t rp86_workload_executor_clock_mode(
-    const rp86_workload_executor_t *executor) {
-    return executor->clock_mode;
-}
-
-const rp86_clock_stepped_stats_t *rp86_workload_executor_stats(
-    const rp86_workload_executor_t *executor) {
-    return &executor->bus_stats;
-}
-
-uint32_t rp86_workload_executor_result_flags(
-    const rp86_workload_executor_t *executor) {
-    return executor->result_flags;
-}
-
-rp86_workload_completion_reason_t rp86_workload_executor_completion_reason(
-    const rp86_workload_executor_t *executor) {
-    return executor->completion_reason;
-}
-
-const char *rp86_workload_executor_native_output(
-        const rp86_workload_executor_t *executor, uint16_t *length) {
-    if (length != NULL) *length = executor->native_output_length;
-    return executor->native_output;
 }
