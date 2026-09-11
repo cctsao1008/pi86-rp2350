@@ -29,7 +29,8 @@ enum {
  * Owns general native workload execution after the prepared diagnostic
  * responder hands off the physical processor bus.  PIO/DMA prepared-runtime
  * timing remains in its dedicated implementation; this object owns reset
- * handoff, clock-stepped execution, lifecycle completion, faults, and trace.
+ * handoff, clock-stepped execution, lifecycle completion, faults, trace, and
+ * the optional periodic processor tick used by native RTOS workloads.
  */
 typedef struct {
     rp86_runtime_context_t *runtime;
@@ -57,6 +58,23 @@ typedef struct {
     uint64_t execution_started_us;
     uint64_t execution_deadline_us;
     rp86_workload_clock_mode_t clock_mode;
+
+    /* Periodic tick state. Only enabled by RP86_WORKLOAD_FLAG_PERIODIC_TICK.
+     * tick_ack_phase is 0 outside INTA and 1 after INTA #1 while waiting for
+     * the vector-delivery INTA #2 cycle. */
+    bool tick_enabled;
+    bool tick_pending;
+    bool tick_in_service;
+    bool tick_intr_asserted;
+    uint8_t tick_ack_phase;
+    uint64_t tick_next_us;
+    uint32_t tick_generated;
+    uint32_t tick_delivered;
+    uint32_t tick_acknowledged;
+    uint32_t tick_delayed;
+    uint32_t tick_coalesced;
+    uint32_t tick_eoi;
+
     rp86_workload_trace_entry_t trace[RP86_WORKLOAD_TRACE_DEPTH];
     uint32_t trace_count;
     uint32_t diagnostic_workload_id;
