@@ -95,6 +95,7 @@ endif()
 
 if(RP86_ENABLE_FREERTOS_8086)
     set(RP86_FREERTOS_KERNEL_DIR "${PROJECT_SOURCE_DIR}/third_party/FreeRTOS-Kernel")
+    set(RP86_FREERTOS_CONFIG "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/FreeRTOSConfig.h")
     if(NOT EXISTS "${RP86_FREERTOS_KERNEL_DIR}/include/FreeRTOS.h")
         message(FATAL_ERROR
             "FreeRTOS-Kernel submodule is missing. Initialize it with:\n"
@@ -121,6 +122,8 @@ if(RP86_ENABLE_FREERTOS_8086)
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port"
             "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086"
             "${RP86_FREERTOS_KERNEL_DIR}/include"
+        C_OPTIONS
+            "-fi=${RP86_FREERTOS_CONFIG}"
         METADATA
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/workload.json"
         PACKAGE_NAME "FREERTOS.P86W"

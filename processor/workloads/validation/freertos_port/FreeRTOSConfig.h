@@ -1,6 +1,7 @@
-#ifndef FREERTOS_CONFIG_H
-#define FREERTOS_CONFIG_H
+#ifndef RP86_FREERTOS_CONFIG_H
+#define RP86_FREERTOS_CONFIG_H
 
+#define RP86_FREERTOS_CONFIG_INCLUDED           1
 #define configCPU_CLOCK_HZ                      ( ( unsigned long ) 5000000UL )
 #define configTICK_RATE_HZ                      100
 #define configUSE_PREEMPTION                    1
@@ -55,4 +56,4 @@
 void rp86AssertFailed( unsigned short line );
 #define configASSERT( x ) do { if( ( x ) == 0 ) { rp86AssertFailed( ( unsigned short ) __LINE__ ); } } while( 0 )
 
-#endif /* FREERTOS_CONFIG_H */
+#endif /* RP86_FREERTOS_CONFIG_H */
