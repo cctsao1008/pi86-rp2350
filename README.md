@@ -177,6 +177,12 @@ Architecture decisions are recorded in:
 - [`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md)
 - [`ADR 0009`](docs/adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md)
 
+## Documentation principle
+
+> **README explains the system. Issues explain the journey. Code proves the current state.**
+
+README and durable documentation describe the processor-runtime architecture, contracts, rationale, usage, and evidence interpretation. GitHub Issues preserve experiments, bring-up paths, temporary constraints, design alternatives, and implementation journeys. Code, configuration, protocols, and tests remain the authoritative evidence of executable behavior.
+
 ## 🙏 Lineage and acknowledgements
 
 `pi86-rp2350` builds on the [Homebrew8088 Pi86 project](https://www.homebrew8088.com/home/raspberry-pi-second-project) and its physical V20/V30 HAT. Pi86 established the physical-processor concept; this project moves bus timing into RP2350 PIO/DMA and turns the surrounding system into a modern Host-managed runtime.
