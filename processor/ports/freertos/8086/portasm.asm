@@ -244,9 +244,12 @@ rp86_restore_context:
     mov ax, [rp86_trace_saved_ax]
     mov dx, [rp86_trace_saved_dx]
 .restore_eoi:
-    ; This common restore is used by both the hardware tick and INT 80h yield.
-    ; The RP2350 accepts EOI only while a tick is actually in service, so the
-    ; yield-path write is an intentional no-op.  Preserve the selected task AX.
+    ; Every scheduler restore emits the same PIC command immediately before
+    ; IRET.  For a hardware tick it is the real EOI.  For an INT 80h voluntary
+    ; yield no tick is in service, so the RP2350 interprets the write only as a
+    ; processor-progress resume fence for the newly selected task.  This keeps
+    ; one common 8086 restore path while preventing the next physical tick from
+    ; arriving at the peer task's untouched entry frame.
     push ax
     mov al, RP86_PIC_COMMAND_EOI
     out RP86_IO_PORT_PIC_COMMAND, al
