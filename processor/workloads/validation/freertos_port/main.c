@@ -146,11 +146,20 @@ static void prvTaskA( void * pvParameters )
         taskYIELD();
     }
 
+    /*
+     * usPreemptA/usPreemptB are watchdog counters, not acceptance evidence.
+     * A periodic tick is allowed to arrive immediately after the PREWAIT
+     * marker and before either spin loop increments beyond its initial 1.
+     * In that valid schedule both counters remain 1 even though the peer ran
+     * only because of hardware-tick preemption.  The Seen flags are the stable
+     * proof: neither task yields or blocks between PREWAIT and observing the
+     * peer's flag, so both Seen flags require the tick-only rendezvous to have
+     * succeeded.
+     */
     if( ( usYieldA < 4U ) ||
         ( usYieldB < 4U ) ||
         ( usPreemptSeenA == 0U ) ||
         ( usPreemptSeenB == 0U ) ||
-        ( ( usPreemptA <= 1U ) && ( usPreemptB <= 1U ) ) ||
         ( usSemaphoreTaken == 0U ) ||
         ( usSemaphoreGiven == 0U ) ||
         ( usQueueSeen == 0U ) )
