@@ -2,14 +2,12 @@ bits 16
 
 %include "rp86_abi.inc"
 
-; Open Watcom small-model OMF segment/group declarations.
 segment CONST public align=16 class=DATA use16
 segment CONST2 public align=16 class=DATA use16
 segment _DATA public align=16 class=DATA use16
 segment DATA public align=16 class=DATA use16
 segment _BSS public align=16 class=BSS use16
 
-; One-shot #60 physical trace state.  Startup clears DGROUP BSS before C runs.
 rp86_tick_trace_state:  resw 1
 rp86_yield_trace_state: resw 1
 rp86_trace_saved_ax:    resw 1
@@ -45,9 +43,6 @@ extern _xTaskIncrementTick
     pop ax
 %endmacro
 
-; Emit a label followed by one 16-bit value without changing SP.  This is used
-; only before restoring a selected task frame; AX/DX/BP are restored from that
-; frame immediately afterwards.
 %macro RP86_TRACE_VALUE 2
     mov dx, RP86_IO_PORT_RESULT
     mov ax, %1
@@ -103,10 +98,6 @@ _rp86PortInstallVectors:
     pop ax
     ret
 
-; Load the first TCB's near pxTopOfStack.  The v1 port deliberately uses one
-; common stack segment (DGROUP) so FreeRTOS's 16-bit near stack pointer remains
-; the actual SP value.  MOV SS is immediately followed by MOV SP while IRQs are
-; disabled; IRET restores the task's IF state from the fabricated frame.
 _rp86PortStartFirstTask:
     cli
     RP86_TRACE_WORD_PRESERVE 0x6202
@@ -120,9 +111,6 @@ _rp86PortStartFirstTask:
 
     mov ss, ax
     mov sp, dx
-
-    ; The selected task stack is active now.  AX/DX may be clobbered because
-    ; the fabricated task context below restores both before the first IRET.
     RP86_TRACE_WORD 0x6204
 
     pop bp
@@ -135,12 +123,9 @@ _rp86PortStartFirstTask:
     pop bx
     pop ax
 
-    ; Preserve the fully restored register image while proving that the initial
-    ; frame was consumed successfully and IRET is the next instruction.
     RP86_TRACE_WORD_PRESERVE 0x6205
     iret
 
-; Physical RP2350-owned 100 Hz tick, vector 21h.
 rp86_freertos_tick_isr:
     RP86_SAVE_CONTEXT
     cld
@@ -180,11 +165,9 @@ rp86_freertos_tick_isr:
     jne .tick_eoi
     mov word [rp86_tick_trace_state], 2
 
-    ; First physical switch: dump the exact selected task frame before any
-    ; restore.  Each marker is followed by one raw 16-bit value:
-    ;   6230 -> SP, 6231 -> IP, 6232 -> CS, 6233 -> FLAGS, 6234 -> SS.
-    ; 8086 cannot address memory through SP, so use BP as a temporary base; the
-    ; selected task's real BP remains at [SS:BP+0] and is restored below.
+    ; First switching tick: marker/value pairs are SP, IP, CS, FLAGS, SS.
+    ; BP is used only as a temporary 8086-addressable copy of SP; the selected
+    ; task's BP remains in its saved frame and is restored below.
     RP86_TRACE_VALUE 0x6230, sp
     mov bp, sp
     mov ax, [ss:bp + 18]
@@ -209,8 +192,6 @@ rp86_freertos_tick_isr:
     mov al, RP86_PIC_COMMAND_EOI
     out dx, al
 
-    ; State 2 is unique to the first traced tick that selected a new task.
-    ; If 6235 appears, EOI completed before the selected frame was consumed.
     cmp word [rp86_tick_trace_state], 2
     jne rp86_restore_context
     mov word [rp86_tick_trace_state], 3
@@ -227,9 +208,8 @@ rp86_restore_context:
     pop bx
     pop ax
 
-    ; On the first switching tick, all software-saved words are consumed and
-    ; IRET is next. DS is required by the v1 task contract to equal DGROUP, so
-    ; BSS scratch words can preserve AX/DX without touching the IRET frame.
+    ; First switching tick only: prove the software frame is fully consumed and
+    ; IRET is immediately next, without touching the architectural IRET frame.
     cmp word [rp86_tick_trace_state], 3
     jne .restore_iret
     mov [rp86_trace_saved_ax], ax
@@ -242,8 +222,6 @@ rp86_restore_context:
 .restore_iret:
     iret
 
-; Voluntary taskYIELD() path.  INT 80h creates the same FLAGS/CS/IP hardware
-; frame as the physical interrupt; no RP2350 EOI is required for software INT.
 rp86_freertos_yield_isr:
     RP86_SAVE_CONTEXT
     cld
@@ -267,7 +245,6 @@ rp86_freertos_yield_isr:
     cmp word [rp86_yield_trace_state], 1
     jne .yield_restore
     mov word [rp86_yield_trace_state], 2
-    ; Selected task stack is active; restoration below replaces AX/DX.
     RP86_TRACE_WORD 0x6221
 
 .yield_restore:
