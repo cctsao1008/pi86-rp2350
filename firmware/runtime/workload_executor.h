@@ -66,8 +66,10 @@ typedef struct {
      * and completed-bus-cycle recovery gates. The shared RTOS restore path also
      * emits the EOI command after voluntary INT 80h switches; when no tick is
      * in service that write is a scheduler resume fence which refreshes only
-     * the completed-bus-cycle gate. This gives each newly selected task actual
-     * processor progress without letting repeated yields move wall-clock time. */
+     * the completed-bus-cycle gate. If a pending INTR was already asserted but
+     * INTA has not started, that fence retracts the line while retaining the
+     * pending request so the newly selected task gets foreground progress
+     * before the request may be reasserted. */
     bool tick_enabled;
     bool tick_pending;
     bool tick_in_service;
