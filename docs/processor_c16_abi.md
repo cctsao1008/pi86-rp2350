@@ -1,12 +1,14 @@
 # Processor C/16 ABI
 
-Status: **Intel 8086 physically validated for Issue #58; NEC V30 compatibility remains pending**. The compile/link/package ABI is CI-proven and the generated validation image has passed the RP86 physical-regression path on a real Intel 8086.
+Status: **accepted for Issue #58 on the primary physical Intel 8086 baseline**. The compile/link/package ABI is CI-proven and the generated validation image has passed the RP86 physical-regression path on a real Intel 8086. Physical NEC V30 compatibility is intentionally deferred to the final end-to-end validation stage in #61.
 
 ## Scope
 
 This contract defines the first C toolchain boundary for programs executed natively by the physical Intel 8086 / NEC V30. It does not change the Host-managed RP86 architecture, the processor workload lifecycle, or the existing NASM-only image path.
 
 The first objective is deliberately narrow: freestanding 16-bit C and NASM must link into one native image, package through the existing `.P86W` path, load at the normal processor workload base, and execute without DOS or a BIOS.
+
+The physical Intel 8086 is the project’s primary development and acceptance target. NEC V30 remains a compatibility target on the same common Intel-8086-compatible instruction and ABI path.
 
 ## Issue #58 ABI decision record
 
@@ -33,7 +35,7 @@ This table is the authoritative C/16 ABI handoff required by Issue #58 and consu
 | NASM interoperability path | NASM `-f obj` emits 16-bit OMF; NASM startup/port objects and Open Watcom C objects are linked together by WLINK |
 | Linked-image format | WLINK 16-bit segmented image model with `_TEXT` fixed at physical `0x10000` / `1000:0000` |
 | Flat-binary conversion path | WLINK `OUTPUT RAW OFFSET=0x10000`; byte zero of the emitted file corresponds to physical `0x10000` while segment fixups retain physical link addresses |
-| 8086 ISA verification method | compile with `-0`; retain WLINK map; disassemble only the linked `_TEXT` range; reject an explicit set of obvious post-8086 opcodes in CI; final CPU-baseline acceptance is execution on a physical Intel 8086 |
+| 8086 ISA verification method | compile with `-0`; retain WLINK map; disassemble only the linked `_TEXT` range; reject an explicit set of obvious post-8086 opcodes in CI; decisive CPU-baseline acceptance is execution on a physical Intel 8086 |
 
 Open Watcom's 16-bit `__cdecl` convention declares `AX/BX/CX/DX` as modified, uses stack arguments with caller cleanup, and returns ordinary scalar values through `AX`. The smoke workload deliberately leaves its helper function unannotated so CI exercises the project-wide `-ecc` default rather than only explicit per-function modifiers.
 
@@ -90,7 +92,7 @@ OUTPUT RAW OFFSET=0x10000
 
 `ORDER ... SEGADDR=0x1000` fixes the code class at the RP86 physical workload segment. `OUTPUT RAW OFFSET=0x10000` omits physical-address padding from the emitted binary without changing the linker's address calculations. `FORMAT DOS` is therefore a **link-time segmented relocation model**, not a DOS runtime dependency; no DOS executable loader, BIOS service, DOS interrupt, or default C runtime library is present in the RP86 execution path.
 
-CI run #16 resolves the current smoke image as:
+CI run #16 resolves the smoke image as:
 
 ```text
 entry:              1000:0000
@@ -119,7 +121,7 @@ xor ax, ax
 rep stosb
 ```
 
-CI cross-checks the resolved immediates in the raw startup against the WLINK map-derived BSS range. In the current smoke image the linker resolves the range to `DGROUP:+0x0010 .. +0x0012`, exactly two bytes. The C validation entry checks `rp86_bss_probe == 0` before first use; it returns `0xB551` if that contract is violated.
+CI cross-checks the resolved immediates in the raw startup against the WLINK map-derived BSS range. In the smoke image the linker resolves the range to `DGROUP:+0x0010 .. +0x0012`, exactly two bytes. The C validation entry checks `rp86_bss_probe == 0` before first use; it returns `0xB551` if that contract is violated.
 
 ## Native validation result contract
 
@@ -135,7 +137,7 @@ This makes `tools/rp86.py --physical-regression C16SMOKE.P86W` suitable as the p
 
 ## Physical Intel 8086 evidence
 
-On 2026-09-11, the validation workload passed the physical RP86 regression path on an Intel 8086 using the Issue #58 branch image without a processor-specific rebuild:
+On 2026-09-11, the validation workload passed the physical RP86 regression path on an Intel 8086 using the Issue #58 image without a processor-specific rebuild:
 
 ```text
 processor:           INTEL 8086
@@ -154,23 +156,23 @@ physical regression: PASS
 
 Because startup emits `RESULT: PASS` only after the native return value satisfies `AX == 0x147A`, this run physically validates the complete C/16 execution path exercised by the smoke workload: reset handoff, `SS:SP`, `DGROUP`, BSS initialization, initialized and writable data, near C calls, default `__cdecl` caller cleanup, return value in `AX`, RP86 result publication, and terminal lifecycle completion.
 
-The remaining compatibility gate is to execute the **same `C16SMOKE.P86W` package** on a physical NEC V30. It must not be rebuilt with a V30-specific target.
+This is the decisive physical acceptance gate for Issue #58. NEC V30 physical execution is intentionally deferred to #61, where the same common-baseline image path will be used as a final compatibility regression.
 
 ## Freestanding rule
 
 Processor-side C in this stage has no hosted C startup and may not assume DOS services. In particular, there are no `_dos_*` APIs, 8254/8259 programming, hosted `main()` startup, or standard-library calls unless a specific implementation is deliberately provided and audited for the Intel 8086 baseline. Compiler-generated helper calls are also part of the audit surface.
 
-The first smoke workload deliberately uses simple 16-bit integer operations, initialized data, BSS, globals, a near pointer, an unannotated default-`__cdecl` C function call, local stack use, and a 16-bit return value so the generated instruction surface remains auditable.
+The smoke workload deliberately uses simple 16-bit integer operations, initialized data, BSS, globals, a near pointer, an unannotated default-`__cdecl` C function call, local stack use, and a 16-bit return value so the generated instruction surface remains auditable.
 
 ## Current CI evidence
 
-Processor C16 ABI run #16 is green. The processor-only workflow proves pinned Open Watcom C/16 acquisition with SHA-256 verification, NASM OMF assembly, mixed OMF linking, fixed physical entry `1000:0000`, relocated `DGROUP`, linker-derived BSS clearing, raw binary generation, `.P86W` packaging, and an opcode scan constrained to the executable `_TEXT` range rather than interpreting DATA/BSS bytes as code.
+The Processor C16 ABI workflow is green. The processor-only workflow proves pinned Open Watcom C/16 acquisition with SHA-256 verification, NASM OMF assembly, mixed OMF linking, fixed physical entry `1000:0000`, relocated `DGROUP`, linker-derived BSS clearing, raw binary generation, `.P86W` packaging, and an opcode scan constrained to the executable `_TEXT` range rather than interpreting DATA/BSS bytes as code.
 
 The linked executable visibly contains `cmp ax,0x147a` and separate native `RESULT: PASS` / `RESULT: FAIL` output paths before terminal completion. The unannotated C helper is called with two pushed 16-bit arguments followed by caller-side `add sp,4`, matching the project-wide `-ecc` / `__cdecl` decision.
 
 The WLINK warning `W1014: stack segment not found` is expected for this workload. RP86 owns initial `SS:SP` through the workload manifest/reset handoff, and the C compiler is built with `-zu`; the linker is not asked to allocate a DOS stack segment.
 
-## Required verification before closing #58
+## Issue #58 acceptance
 
 - [x] reproducible Open Watcom C/16 binary input is pinned and digest-checked;
 - [x] complete C/16 ABI decision record is populated;
@@ -183,8 +185,7 @@ The WLINK warning `W1014: stack segment not found` is expected for this workload
 - [x] the image is packaged by the existing `.P86W` path;
 - [x] CI ISA auditing is restricted to the linked executable `_TEXT` bytes;
 - [x] native checksum success is converted into RP86's formal `RESULT: PASS` acceptance signal;
-- [x] execute the validation workload on a physical Intel 8086 and observe the `AX == 0x147A` acceptance predicate with formal PASS;
-- [ ] confirm NEC V30 compatibility on the same C/16 ABI path.
+- [x] the validation workload executes on a physical Intel 8086 and satisfies the `AX == 0x147A` acceptance predicate with formal PASS.
 
 The CI opcode scan is a useful guard, not a mathematical proof that every emitted instruction is valid on every 8086 implementation. The physical Intel 8086 regression above is the decisive CPU-baseline evidence for this workload.
 
@@ -192,4 +193,6 @@ The CI opcode scan is a useful guard, not a mathematical proof that every emitte
 
 The initial `-ms` memory model remains subject to FreeRTOS kernel/heap sizing. The RTOS interrupt/tick ABI and exact task context are intentionally outside this toolchain issue and remain follow-on processor-port work. In particular, #60 must choose the task-stack segment representation without weakening the near-pointer rules established here.
 
-Related: #57, #58, #60, #62.
+Physical NEC V30 compatibility remains a final end-to-end validation item under #61 rather than a prerequisite for #59 or #60.
+
+Related: #57, #58, #60, #61, #62.
