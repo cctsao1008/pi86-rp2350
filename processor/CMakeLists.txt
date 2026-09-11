@@ -2,6 +2,13 @@ include("${PROJECT_SOURCE_DIR}/cmake/ProcessorImage.cmake")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+option(RP86_ENABLE_PROCESSOR_C16
+       "Enable experimental Open Watcom C/16 processor workloads" OFF)
+
+if(RP86_ENABLE_PROCESSOR_C16)
+    include("${PROJECT_SOURCE_DIR}/cmake/ProcessorC16Image.cmake")
+endif()
+
 # Canonical resident program executed by the physical 8086-class processor.
 rp86_add_processor_image(processor_runtime_image
     SOURCE "${CMAKE_CURRENT_LIST_DIR}/runtime/runtime.asm"
@@ -61,3 +68,18 @@ rp86_add_processor_image(execution_clock_transition_workload
     METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/execution_clock_transition.json"
     PACKAGE_NAME "CLOCKSW.P86W"
 )
+
+if(RP86_ENABLE_PROCESSOR_C16)
+    # Issue #58 validation target.  This path is intentionally opt-in so the
+    # normal RP86 firmware build remains independent of Open Watcom.
+    rp86_add_processor_c16_image(c16_abi_smoke
+        C_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/c16_abi_smoke/main.c"
+        ASM_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/c16_abi_smoke/startup.asm"
+        METADATA
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/c16_abi_smoke/workload.json"
+        PACKAGE_NAME "C16SMOKE.P86W"
+        LOAD_ADDRESS "0x10000"
+    )
+endif()

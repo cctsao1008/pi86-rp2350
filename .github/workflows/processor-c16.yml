@@ -1,0 +1,179 @@
+name: Processor C16 ABI
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/processor-c16.yml"
+      - "CMakeLists.txt"
+      - "cmake/ProcessorC16Image.cmake"
+      - "cmake/LinkProcessorC16.cmake"
+      - "docs/processor_c16_abi.md"
+      - "processor/CMakeLists.txt"
+      - "processor/workloads/validation/c16_abi_smoke/**"
+      - "tools/package_workload.py"
+      - "tools/rp86_runtime/workload.py"
+  workflow_dispatch:
+
+jobs:
+  build-c16-smoke:
+    runs-on: ubuntu-latest
+
+    env:
+      OW_TAG: "2026-09-01-Build"
+      OW_SNAPSHOT_SHA256: "bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      # Issue #58 requires a reproducible C/16 compiler, not a moving
+      # Current-build/Last-CI-build alias. Pin both the named Open Watcom
+      # release and the exact release-asset digest.
+      - name: Setup pinned Open Watcom C/16
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/ow-snapshot.tar.xz"
+          url="https://github.com/open-watcom/open-watcom-v2/releases/download/${OW_TAG}/ow-snapshot.tar.xz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+          echo "${OW_SNAPSHOT_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "$HOME/watcom"
+          tar -xJf "$archive" -C "$HOME/watcom"
+          echo "WATCOM=$HOME/watcom" >> "$GITHUB_ENV"
+          echo "INCLUDE=$HOME/watcom/h" >> "$GITHUB_ENV"
+          echo "$HOME/watcom/binl" >> "$GITHUB_PATH"
+
+      - name: Install native workload build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nasm ninja-build
+          nasm -v
+          ninja --version
+
+      - name: Report Open Watcom tools
+        run: |
+          command -v wcc
+          command -v wlink
+          wcc -? 2>&1 | head -40 || true
+
+      - name: Configure RP86 C16 validation
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DRP86_PROCESSOR_ONLY=ON \
+            -DRP86_ENABLE_PROCESSOR_C16=ON \
+            -DRP86_NASM_EXECUTABLE="$(command -v nasm)" \
+            -DRP86_WCC_EXECUTABLE="$(command -v wcc)" \
+            -DRP86_WLINK_EXECUTABLE="$(command -v wlink)"
+
+      - name: Build mixed C and NASM workload
+        run: cmake --build build --target c16_abi_smoke_package --verbose
+
+      - name: Inspect C16 evidence
+        run: |
+          echo "=== generated files ==="
+          find build/processor/generated/c16_abi_smoke -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+          echo "=== linker map ==="
+          cat build/processor/generated/c16_abi_smoke/c16_abi_smoke.map
+          echo "=== first 128 bytes ==="
+          xxd -g1 -l128 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin
+          echo "=== initial raw-image disassembly ==="
+          ndisasm -b16 build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin | head -120
+          echo "=== package ==="
+          ls -l build/workloads/C16SMOKE.P86W
+
+      - name: Validate segmented entry and BSS startup contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          generated = Path("build/processor/generated/c16_abi_smoke")
+          map_text = (generated / "c16_abi_smoke.map").read_text(errors="replace")
+          image = (generated / "c16_abi_smoke.bin").read_bytes()
+
+          group = re.search(
+              r"^DGROUP\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
+              map_text,
+              re.MULTILINE,
+          )
+          text = re.search(
+              r"^_TEXT\s+CODE\s+\S+\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
+              map_text,
+              re.MULTILINE,
+          )
+          bss = re.search(
+              r"^_BSS\s+BSS\s+DGROUP\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
+              map_text,
+              re.MULTILINE,
+          )
+          entry = re.search(r"^\s*Entry point address:\s+1000:0000\s*$", map_text, re.MULTILINE)
+          if not group or not text or not bss or not entry:
+              raise SystemExit("missing DGROUP, _TEXT, _BSS, or 1000:0000 entry evidence in WLINK map")
+
+          text_phys = int(text.group(1), 16) * 16 + int(text.group(2), 16)
+          text_size = int(text.group(3), 16)
+          dg_phys = int(group.group(1), 16) * 16 + int(group.group(2), 16)
+          bss_phys = int(bss.group(1), 16) * 16 + int(bss.group(2), 16)
+          bss_size = int(bss.group(3), 16)
+          bss_start = bss_phys - dg_phys
+          bss_end = bss_start + bss_size
+
+          if text_phys != 0x10000 or text_size <= 0 or text_size > len(image):
+              raise SystemExit(
+                  f"invalid _TEXT placement/size: physical=0x{text_phys:05x} "
+                  f"size=0x{text_size:x} image={len(image)}"
+              )
+          if bss_size <= 0 or not (0 <= bss_start <= bss_end <= 0x10000):
+              raise SystemExit(
+                  f"invalid small-model BSS range: start=0x{bss_start:04x} "
+                  f"end=0x{bss_end:04x} size=0x{bss_size:x}"
+              )
+
+          # startup.asm must load WLINK's _edata/_end offsets and then execute
+          # `sub cx,di; xor ax,ax; rep stosb`. Matching these resolved values
+          # against the map proves the linker-derived BSS clearing range.
+          clear_sequence = (
+              b"\xbf" + bss_start.to_bytes(2, "little") +
+              b"\xb9" + bss_end.to_bytes(2, "little") +
+              b"\x29\xf9\x31\xc0\xf3\xaa"
+          )
+          if clear_sequence not in image[:text_size]:
+              raise SystemExit(
+                  "startup does not contain linker-derived BSS clear sequence "
+                  f"for [0x{bss_start:04x},0x{bss_end:04x})"
+              )
+
+          # Keep ISA auditing strictly inside the executable _TEXT bytes. The
+          # raw image also contains DATA/BSS representation, which must never
+          # be interpreted as instructions by the opcode gate.
+          text_image = Path("build/c16_abi_smoke.text.bin")
+          text_image.write_bytes(image[:text_size])
+
+          print(
+              f"C16 layout OK: _TEXT=0x{text_phys:05x}+0x{text_size:x}, "
+              f"DGROUP=0x{dg_phys:05x}, "
+              f"BSS=[+0x{bss_start:04x},+0x{bss_end:04x}) ({bss_size} bytes)"
+          )
+          PY
+
+      - name: Reject obvious post-8086 code opcodes
+        run: |
+          ndisasm -b16 build/c16_abi_smoke.text.bin > build/c16_abi_smoke.ndisasm
+          cat build/c16_abi_smoke.ndisasm
+          if grep -Eiw 'pusha|popa|pushad|popad|enter|leave|bound|insb|insw|outsb|outsw' build/c16_abi_smoke.ndisasm; then
+            echo "Found an instruction outside the intended Intel 8086 baseline"
+            exit 1
+          fi
+
+      - name: Upload C16 build evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: c16-abi-smoke
+          path: |
+            build/processor/generated/c16_abi_smoke/c16_abi_smoke.bin
+            build/processor/generated/c16_abi_smoke/c16_abi_smoke.map
+            build/processor/generated/c16_abi_smoke/c16_abi_smoke.lnk
+            build/c16_abi_smoke.text.bin
+            build/c16_abi_smoke.ndisasm
+            build/workloads/C16SMOKE.P86W

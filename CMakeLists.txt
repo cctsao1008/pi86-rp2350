@@ -1,5 +1,18 @@
 cmake_minimum_required(VERSION 3.13)
 
+# Native 8086/V30 workload development does not require the RP2350 cross
+# compiler or Pico SDK.  Keep this path independent so processor-side CI and
+# toolchain work can be reproduced without configuring firmware.
+option(RP86_PROCESSOR_ONLY
+       "Configure only native Intel 8086 / NEC V30 processor workloads" OFF)
+
+if(RP86_PROCESSOR_ONLY)
+    project(rp86_processor_workloads C)
+    set(CMAKE_C_STANDARD 11)
+    add_subdirectory(processor)
+    return()
+endif()
+
 # The repository-pinned Pico SDK submodule is the canonical SDK dependency.
 # An explicit -DPICO_SDK_PATH=... may still be used for deliberate local
 # experiments, but no environment variable is required for normal builds.
