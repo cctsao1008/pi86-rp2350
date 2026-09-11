@@ -187,10 +187,38 @@ int main(void) {
     assert(executor.tick_acknowledged == 2u);
     assert(executor.tick_in_service);
 
+    /* A period may elapse while the previous interrupt is still in service.
+     * Retain exactly one request, then reassert it at the first complete bus
+     * boundary after EOI even if the next 10 ms deadline has not arrived. */
+    now_us = 61000u;
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_generated == 6u);
+    assert(executor.tick_pending && executor.tick_in_service);
+    assert(!executor.tick_intr_asserted && !intr_level);
+    assert(executor.tick_delayed == 1u);
+
     simulate_eoi = true;
     rp86_workload_executor_service(&executor);
     simulate_eoi = false;
     assert(executor.tick_eoi == 2u && !executor.tick_in_service);
+    assert(executor.tick_pending && !intr_level);
+
+    rp86_workload_executor_service(&executor);
+    assert(executor.tick_generated == 6u);
+    assert(executor.tick_pending && executor.tick_intr_asserted && intr_level);
+
+    simulate_inta = true;
+    rp86_workload_executor_service(&executor); /* INTA #1 */
+    rp86_workload_executor_service(&executor); /* INTA #2 */
+    simulate_inta = false;
+    assert(executor.tick_delivered == 3u);
+    assert(executor.tick_acknowledged == 3u);
+    assert(executor.tick_in_service);
+
+    simulate_eoi = true;
+    rp86_workload_executor_service(&executor);
+    simulate_eoi = false;
+    assert(executor.tick_eoi == 3u && !executor.tick_in_service);
 
     /* Terminal completion explicitly disables the periodic source. */
     simulate_terminal_arm = true;
