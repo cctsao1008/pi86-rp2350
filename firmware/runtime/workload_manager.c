@@ -55,10 +55,16 @@ static bool manifest_valid(const rp86_workload_manifest_t *manifest,
                                  RP86_WORKLOAD_FLAG_STDIO |
                                  RP86_WORKLOAD_FLAG_SHARED_MEMORY |
                                  RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING |
-                                 RP86_WORKLOAD_FLAG_CLOCK_STEPPED;
+                                 RP86_WORKLOAD_FLAG_CLOCK_STEPPED |
+                                 RP86_WORKLOAD_FLAG_PERIODIC_TICK;
     if ((manifest->flags & ~known_flags) != 0u) return false;
     if ((manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_FREE_RUNNING) != 0u &&
         (manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_STEPPED) != 0u)
+        return false;
+    /* The initial periodic interrupt implementation is defined only for the
+     * deterministic CLOCK_STEPPED general-workload path. */
+    if ((manifest->flags & RP86_WORKLOAD_FLAG_PERIODIC_TICK) != 0u &&
+        (manifest->flags & RP86_WORKLOAD_FLAG_CLOCK_STEPPED) == 0u)
         return false;
     if ((manifest->shared_size == 0u) !=
         ((manifest->flags & RP86_WORKLOAD_FLAG_SHARED_MEMORY) == 0u))
