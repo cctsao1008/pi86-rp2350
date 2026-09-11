@@ -28,6 +28,7 @@ FLAG_STDIO = 1 << 1
 FLAG_SHARED_MEMORY = 1 << 2
 FLAG_CLOCK_FREE_RUNNING = 1 << 3
 FLAG_CLOCK_STEPPED = 1 << 4
+FLAG_PERIODIC_TICK = 1 << 5
 
 _MANIFEST = struct.Struct("<IHHIIIHHHHIII")
 _BEGIN_PREFIX = struct.Struct("<I")
@@ -147,12 +148,14 @@ class WorkloadManifest:
             raise ValueError("shared-memory flag, base, and size are inconsistent")
         known_flags = (
             FLAG_PERSISTENT | FLAG_STDIO | FLAG_SHARED_MEMORY |
-            FLAG_CLOCK_FREE_RUNNING | FLAG_CLOCK_STEPPED
+            FLAG_CLOCK_FREE_RUNNING | FLAG_CLOCK_STEPPED | FLAG_PERIODIC_TICK
         )
         if self.flags & ~known_flags:
             raise ValueError("workload uses unknown flags")
         if self.flags & FLAG_CLOCK_FREE_RUNNING and self.flags & FLAG_CLOCK_STEPPED:
             raise ValueError("workload requests two execution clock modes")
+        if self.flags & FLAG_PERIODIC_TICK and not self.flags & FLAG_CLOCK_STEPPED:
+            raise ValueError("periodic tick currently requires clock-stepped execution")
         return self
 
     def encode(self) -> bytes:
