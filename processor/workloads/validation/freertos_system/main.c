@@ -5,7 +5,7 @@
 #include "queue.h"
 #include "rp86_event.h"
 
-#define RP86_TASK_STACK_WORDS       160U
+#define RP86_TASK_STACK_WORDS       512U
 #define RP86_QUEUE_LENGTH           4U
 #define RP86_LED_PERIOD_MS          500U
 #define RP86_PRODUCER_PERIOD_MS     300U
