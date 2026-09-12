@@ -9,6 +9,7 @@
 #define RP86_QUEUE_LENGTH           4U
 #define RP86_LED_PERIOD_MS          500U
 #define RP86_PRODUCER_PERIOD_MS     300U
+#define RP86_QUEUE_WAIT_MS          1000U
 
 #define RP86_FAIL_CREATE_QUEUE      0x6701U
 #define RP86_FAIL_CREATE_LED        0x6702U
@@ -205,7 +206,9 @@ static void prvConsumerTask( void * pvParameters )
             prvArmQueueTrace();
         }
 
-        if( xQueueReceive( xQueue, &usValue, portMAX_DELAY ) != pdPASS )
+        if( xQueueReceive( xQueue,
+                           &usValue,
+                           pdMS_TO_TICKS( RP86_QUEUE_WAIT_MS ) ) != pdPASS )
         {
             prvFatal( RP86_FAIL_QUEUE_RECV );
         }
