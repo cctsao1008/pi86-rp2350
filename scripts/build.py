@@ -14,24 +14,27 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NASM_VERSION = "3.02"
 FREERTOS_COMMIT = "8be86d4a24fd4091f8f4192018423ab590f408db"
-COMMANDS = ("firmware", "tick", "c16", "freertos", "all")
+COMMANDS = ("firmware", "tick", "c16", "freertos", "freertos-system", "all")
 BUILD_DIR = {
     "firmware": "build-firmware",
     "tick": "build-tick",
     "c16": "build-c16",
     "freertos": "build-freertos",
+    "freertos-system": "build-freertos-system",
 }
 TARGET = {
     "firmware": "rp86_rp2350",
     "tick": "periodic_tick_package",
     "c16": "c16_abi_smoke_package",
     "freertos": "freertos_port_validation_package",
+    "freertos-system": "freertos_system_validation_package",
 }
 ARTIFACT = {
     "firmware": "firmware/rp86_rp2350.uf2",
     "tick": "workloads/TICK.P86W",
     "c16": "workloads/C16SMOKE.P86W",
     "freertos": "workloads/FREERTOS.P86W",
+    "freertos-system": "workloads/FREERTOS-SYSTEM.P86W",
 }
 
 
@@ -299,10 +302,11 @@ def build_one(command, build_dir, target_override, args, base_env):
             "Use the command-specific directory or --clean."
         )
 
+    freertos_command = command in ("freertos", "freertos-system")
     defs = {
         "RP86_PROCESSOR_ONLY": expected,
         "RP86_ENABLE_PROCESSOR_C16": "ON" if command == "c16" else "OFF",
-        "RP86_ENABLE_FREERTOS_8086": "ON" if command == "freertos" else "OFF",
+        "RP86_ENABLE_FREERTOS_8086": "ON" if freertos_command else "OFF",
     }
 
     print(f"\n=== RP86 build: {command} ===")
@@ -318,11 +322,11 @@ def build_one(command, build_dir, target_override, args, base_env):
         )
     else:
         defs["RP86_NASM_EXECUTABLE"] = ensure_nasm(env)
-        if command in ("c16", "freertos"):
+        if command in ("c16", "freertos", "freertos-system"):
             wcc, wlink = ensure_watcom(env)
             defs["RP86_WCC_EXECUTABLE"] = wcc
             defs["RP86_WLINK_EXECUTABLE"] = wlink
-        if command == "freertos":
+        if freertos_command:
             ensure_freertos(env)
 
     configure(build_dir, defs, env)
@@ -355,7 +359,7 @@ def main(argv=None):
     env = os.environ.copy()
     try:
         if args.command == "all":
-            for command in ("firmware", "tick", "c16", "freertos"):
+            for command in ("firmware", "tick", "c16", "freertos", "freertos-system"):
                 build_one(command, ROOT / BUILD_DIR[command], None, args, env)
         else:
             if args.build_dir:

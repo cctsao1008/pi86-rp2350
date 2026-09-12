@@ -10,8 +10,10 @@ on:
       - "cmake/LinkProcessorC16.cmake"
       - "processor/CMakeLists.txt"
       - "processor/include/rp86_abi.inc"
+      - "processor/include/rp86_event.h"
       - "processor/ports/freertos/8086/**"
       - "processor/workloads/validation/freertos_port/**"
+      - "processor/workloads/validation/freertos_system/**"
       - "scripts/build.py"
       - "third_party/FreeRTOS-Kernel"
       - "tools/package_workload.py"
@@ -58,9 +60,11 @@ jobs:
           ninja --version
 
       - name: Build through canonical RP86 driver
-        run: python3 scripts/build.py freertos --build-dir build --verbose
+        run: |
+          python3 scripts/build.py freertos --build-dir build --verbose
+          python3 scripts/build.py freertos-system --build-dir build-system --verbose
 
-      - name: Validate image and Intel 8086 opcode baseline
+      - name: Validate port image and Intel 8086 opcode baseline
         shell: bash
         run: |
           python3 - <<'PY'
@@ -119,7 +123,68 @@ jobs:
           echo "=== package ==="
           ls -lh build/workloads/FREERTOS.P86W
 
-      - name: Upload FreeRTOS 8086 build evidence
+      - name: Validate system image and Intel 8086 opcode baseline
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          import sys
+
+          sys.path.insert(0, "tools")
+          from rp86_runtime.workload import (
+              FLAG_CLOCK_STEPPED,
+              FLAG_PERIODIC_TICK,
+              decode_workload_file,
+          )
+
+          generated = Path("build-system/processor/generated/freertos_system_validation")
+          image = (generated / "freertos_system_validation.bin").read_bytes()
+          map_text = (generated / "freertos_system_validation.map").read_text(errors="replace")
+          package = Path("build-system/workloads/FREERTOS-SYSTEM.P86W")
+          manifest, packaged_image = decode_workload_file(package.read_bytes())
+
+          expected_flags = FLAG_CLOCK_STEPPED | FLAG_PERIODIC_TICK
+          assert manifest.load_address == 0x10000
+          assert (manifest.entry_segment, manifest.entry_offset) == (0x1000, 0x0000)
+          assert (manifest.stack_segment, manifest.stack_offset) == (0x2000, 0xFFF0)
+          assert manifest.flags == expected_flags
+          assert manifest.shared_size == 0
+          assert packaged_image == image
+          if "_grp86telemetry" not in map_text.lower():
+              raise SystemExit("missing gRp86Telemetry linker-map evidence")
+
+          text = re.search(
+              r"^_TEXT\s+CODE\s+\S+\s+([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\s+([0-9A-Fa-f]{8})\s*$",
+              map_text,
+              re.MULTILINE,
+          )
+          entry = re.search(r"^\s*Entry point address:\s+1000:0000\s*$", map_text, re.MULTILINE)
+          if not text or not entry:
+              raise SystemExit("missing system _TEXT or 1000:0000 entry evidence")
+
+          text_phys = int(text.group(1), 16) * 16 + int(text.group(2), 16)
+          text_size = int(text.group(3), 16)
+          if text_phys != 0x10000 or text_size <= 0 or text_size > len(image):
+              raise SystemExit(f"invalid system _TEXT placement/size: 0x{text_phys:05X}+0x{text_size:X}")
+
+          Path("build-system/freertos_system_8086.text.bin").write_bytes(image[:text_size])
+          print(f"FREERTOS-SYSTEM.P86W image={len(image)} bytes crc32=0x{manifest.image_crc32:08X}")
+          print(f"_TEXT=0x{text_phys:05X}+0x{text_size:X} flags=0x{manifest.flags:08X}")
+          PY
+
+          .tools/nasm-3.02/bin/ndisasm -b16 build-system/freertos_system_8086.text.bin > build-system/freertos_system_8086.ndisasm
+          if grep -Eiw 'pusha|popa|pushad|popad|enter|leave|bound|insb|insw|outsb|outsw' build-system/freertos_system_8086.ndisasm; then
+            echo "Found an instruction outside the intended Intel 8086 baseline"
+            exit 1
+          fi
+
+          echo "=== first 180 system instructions ==="
+          head -180 build-system/freertos_system_8086.ndisasm
+          echo "=== system package ==="
+          ls -lh build-system/workloads/FREERTOS-SYSTEM.P86W
+
+      - name: Upload FreeRTOS 8086 port evidence
         uses: actions/upload-artifact@v4
         with:
           name: freertos-8086-port-validation
@@ -130,3 +195,15 @@ jobs:
             build/freertos_8086.text.bin
             build/freertos_8086.ndisasm
             build/workloads/FREERTOS.P86W
+
+      - name: Upload FreeRTOS 8086 system evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: freertos-8086-system-validation
+          path: |
+            build-system/processor/generated/freertos_system_validation/freertos_system_validation.bin
+            build-system/processor/generated/freertos_system_validation/freertos_system_validation.map
+            build-system/processor/generated/freertos_system_validation/freertos_system_validation.lnk
+            build-system/freertos_system_8086.text.bin
+            build-system/freertos_system_8086.ndisasm
+            build-system/workloads/FREERTOS-SYSTEM.P86W

@@ -5,7 +5,7 @@ find_package(Python3 REQUIRED COMPONENTS Interpreter)
 option(RP86_ENABLE_PROCESSOR_C16
        "Enable experimental Open Watcom C/16 processor workloads" OFF)
 option(RP86_ENABLE_FREERTOS_8086
-       "Enable the native FreeRTOS Intel 8086 validation workload" OFF)
+       "Enable the native FreeRTOS Intel 8086 validation workloads" OFF)
 
 if(RP86_ENABLE_PROCESSOR_C16 OR RP86_ENABLE_FREERTOS_8086)
     include("${PROJECT_SOURCE_DIR}/cmake/ProcessorC16Image.cmake")
@@ -95,7 +95,8 @@ endif()
 
 if(RP86_ENABLE_FREERTOS_8086)
     set(RP86_FREERTOS_KERNEL_DIR "${PROJECT_SOURCE_DIR}/third_party/FreeRTOS-Kernel")
-    set(RP86_FREERTOS_CONFIG "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/FreeRTOSConfig.h")
+    set(RP86_FREERTOS_PORT_CONFIG "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/FreeRTOSConfig.h")
+    set(RP86_FREERTOS_SYSTEM_CONFIG "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/FreeRTOSConfig.h")
     if(NOT EXISTS "${RP86_FREERTOS_KERNEL_DIR}/include/FreeRTOS.h")
         message(FATAL_ERROR
             "FreeRTOS-Kernel submodule is missing. Initialize it with:\n"
@@ -123,10 +124,38 @@ if(RP86_ENABLE_FREERTOS_8086)
             "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086"
             "${RP86_FREERTOS_KERNEL_DIR}/include"
         C_OPTIONS
-            "-fi=${RP86_FREERTOS_CONFIG}"
+            "-fi=${RP86_FREERTOS_PORT_CONFIG}"
         METADATA
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/workload.json"
         PACKAGE_NAME "FREERTOS.P86W"
+        LOAD_ADDRESS "0x10000"
+    )
+
+    # Issue #67/#61 sustained system workload.  It shares the proven portable
+    # layer but keeps its application, configuration, package, and evidence
+    # separate from the closed #60 port witness.
+    rp86_add_processor_c16_image(freertos_system_validation
+        C_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/main.c"
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/port.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/list.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/queue.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/tasks.c"
+            "${RP86_FREERTOS_KERNEL_DIR}/portable/MemMang/heap_1.c"
+        ASM_SOURCES
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/compiler_helpers.asm"
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/portasm.asm"
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/startup.asm"
+        INCLUDE_DIRS
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system"
+            "${CMAKE_CURRENT_LIST_DIR}/include"
+            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086"
+            "${RP86_FREERTOS_KERNEL_DIR}/include"
+        C_OPTIONS
+            "-fi=${RP86_FREERTOS_SYSTEM_CONFIG}"
+        METADATA
+            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/workload.json"
+        PACKAGE_NAME "FREERTOS-SYSTEM.P86W"
         LOAD_ADDRESS "0x10000"
     )
 endif()
