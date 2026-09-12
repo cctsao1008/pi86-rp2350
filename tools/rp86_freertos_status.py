@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import os
 from pathlib import Path
 import secrets
@@ -28,6 +29,15 @@ def _parse_address(value: str) -> int:
         return int(value, 0)
     except ValueError as exc:
         raise argparse.ArgumentTypeError(f"invalid address: {value}") from exc
+
+
+def _observation_timestamp() -> str:
+    """Return a millisecond local timestamp with an explicit UTC offset."""
+    now = datetime.now().astimezone()
+    offset = now.strftime("%z")
+    if len(offset) == 5:
+        offset = f"{offset[:3]}:{offset[3:]}"
+    return f"{now.strftime('%Y-%m-%d %H:%M:%S')}.{now.microsecond // 1000:03d} {offset}"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -114,14 +124,15 @@ def main(argv: list[str] | None = None) -> int:
             snapshots.append(snapshot)
             if args.samples > 1:
                 print(f"Sample {index + 1}/{args.samples}")
-            print(snapshot.format(address))
+            print(f"[{_observation_timestamp()}] {snapshot.format(address)}")
             if index + 1 < args.samples:
                 print()
                 time.sleep(args.interval)
 
         if port_trace_address is not None:
             print()
-            print(read_port_trace(read_memory, port_trace_address).format(port_trace_address))
+            trace = read_port_trace(read_memory, port_trace_address)
+            print(f"[{_observation_timestamp()}] {trace.format(port_trace_address)}")
     except (RuntimeError, ValueError) as exc:
         print(f"telemetry: {exc}", file=sys.stderr)
         return 2
