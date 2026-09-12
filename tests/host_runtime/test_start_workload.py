@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 import sys
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 from rp86_runtime.start_workload import (  # noqa: E402
     _next_sequence,
     _sequence_from_hello,
+    _timestamp,
     _workload_path_error,
     build_parser,
 )
@@ -41,6 +43,15 @@ class StartWorkloadTests(unittest.TestCase):
             binary = root / "RTOS.BIN"
             binary.write_bytes(b"placeholder")
             self.assertIn(".P86W", _workload_path_error(str(binary)) or "")
+
+    def test_lifecycle_timestamp_is_local_offset_aware_to_milliseconds(self) -> None:
+        self.assertRegex(
+            _timestamp(),
+            re.compile(
+                r"^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3} "
+                r"[+-]\d{2}:\d{2}\]$"
+            ),
+        )
 
 
 if __name__ == "__main__":
