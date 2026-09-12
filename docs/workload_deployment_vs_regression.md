@@ -25,10 +25,21 @@ Host
   -> return PASS
 ```
 
-A successful command ends with:
+Lifecycle evidence is timestamped with local time, millisecond resolution, and the UTC offset so Host deployment events can be correlated with runtime/session and workload-specific telemetry.
+
+A successful command has the form:
 
 ```text
-WORKLOAD START: PASS
+[2026-09-13 01:15:12.104 +08:00] [RP86 WORKLOAD START]
+Workload = build-freertos-system/workloads/FREERTOS-SYSTEM.P86W
+
+[2026-09-13 01:15:12.331 +08:00] Native workload upload
+  ...
+[2026-09-13 01:15:12.487 +08:00] workload upload: PASS (... records)
+  ...
+[2026-09-13 01:15:12.488 +08:00] workload run: ACCEPTED (1 records)
+  ...
+[2026-09-13 01:15:12.489 +08:00] WORKLOAD START: PASS
 Physical processor continues executing after Host command return.
 ```
 
