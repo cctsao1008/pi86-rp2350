@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 import re
 import struct
@@ -43,6 +44,11 @@ def telemetry_address_from_map(map_text: str) -> int:
     segment = int(match.group(1), 16)
     offset = int(match.group(2), 16)
     return (segment << 4) + offset
+
+
+def counter_delta(previous: int, current: int) -> int:
+    """Return one unsigned 16-bit forward counter delta."""
+    return (current - previous) & 0xFFFF
 
 
 @dataclass(frozen=True)
@@ -88,3 +94,47 @@ class FreeRTOSSystemTelemetry:
                 f"  Errors       {self.error_count}",
             )
         )
+
+
+def read_stable_telemetry(
+    read_memory: Callable[[int, int], bytes],
+    address: int,
+    *,
+    attempts: int = 5,
+) -> FreeRTOSSystemTelemetry:
+    """Read one coherent snapshot using the workload's odd/even sequence."""
+    if attempts < 1:
+        raise ValueError("telemetry attempts must be at least 1")
+    for _attempt in range(attempts):
+        before = decode_sequence(
+            read_memory(address + TELEMETRY_SEQUENCE_OFFSET, 2)
+        )
+        if not stable_sequence(before):
+            continue
+        raw = read_memory(address, TELEMETRY_SIZE)
+        after = decode_sequence(
+            read_memory(address + TELEMETRY_SEQUENCE_OFFSET, 2)
+        )
+        snapshot = FreeRTOSSystemTelemetry.decode(raw)
+        if before == after == snapshot.event_sequence and snapshot.stable:
+            return snapshot
+    raise RuntimeError("processor state changed during every telemetry snapshot")
+
+
+def sustained_progress(
+    first: FreeRTOSSystemTelemetry,
+    last: FreeRTOSSystemTelemetry,
+) -> tuple[bool, tuple[str, ...]]:
+    """Evaluate the #71 long-running workload's minimal forward-progress witness."""
+    failures: list[str] = []
+    if first.error_count != 0 or last.error_count != 0:
+        failures.append("error_count is non-zero")
+    if counter_delta(first.led_toggle_count, last.led_toggle_count) == 0:
+        failures.append("LED toggle count did not advance")
+    if counter_delta(first.queue_tx_count, last.queue_tx_count) == 0:
+        failures.append("queue TX count did not advance")
+    if counter_delta(first.queue_rx_count, last.queue_rx_count) == 0:
+        failures.append("queue RX count did not advance")
+    if counter_delta(first.event_sequence, last.event_sequence) == 0:
+        failures.append("event sequence did not advance")
+    return not failures, tuple(failures)

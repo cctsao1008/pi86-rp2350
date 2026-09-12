@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Read one stable FreeRTOS system telemetry snapshot through an active RP86 broker."""
+"""Read stable FreeRTOS system telemetry snapshots through an active RP86 broker."""
 
 from __future__ import annotations
 
@@ -8,14 +8,13 @@ import os
 from pathlib import Path
 import secrets
 import sys
+import time
 
 from rp86_runtime.broker import BrokerClient, discover_brokers, select_broker
 from rp86_runtime.freertos_system import (
     FreeRTOSSystemTelemetry,
-    TELEMETRY_SEQUENCE_OFFSET,
-    TELEMETRY_SIZE,
-    decode_sequence,
-    stable_sequence,
+    read_stable_telemetry,
+    sustained_progress,
     telemetry_address_from_map,
 )
 from rp86_runtime.memory import memory_read_request, parse_memory_read
@@ -43,10 +42,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--hid-serial", help="select one active RP86 broker by device ID")
     parser.add_argument("--timeout", type=float, default=1.0)
+    parser.add_argument(
+        "--samples", type=int, default=1,
+        help="number of stable snapshots to read (default: 1)",
+    )
+    parser.add_argument(
+        "--interval", type=float, default=1.0,
+        help="seconds between samples when --samples is greater than 1",
+    )
+    parser.add_argument(
+        "--verify-progress", action="store_true",
+        help="require LED, queue, and event counters to advance with zero errors",
+    )
     args = parser.parse_args(argv)
 
     if (args.address is None) == (args.map is None):
         parser.error("supply exactly one of ADDRESS or --map FILE")
+    if args.samples < 1:
+        parser.error("--samples must be at least 1")
+    if args.interval < 0:
+        parser.error("--interval must not be negative")
+    if args.verify_progress and args.samples < 2:
+        parser.error("--verify-progress requires at least two samples")
 
     try:
         address = args.address
@@ -80,28 +97,33 @@ def main(argv: list[str] | None = None) -> int:
         except (KeyError, ValueError) as exc:
             raise RuntimeError(f"invalid broker memory reply: {exc}") from exc
 
+    snapshots: list[FreeRTOSSystemTelemetry] = []
     try:
-        for _attempt in range(5):
-            before = decode_sequence(
-                read_memory(address + TELEMETRY_SEQUENCE_OFFSET, 2)
-            )
-            if not stable_sequence(before):
-                continue
-            raw = read_memory(address, TELEMETRY_SIZE)
-            after = decode_sequence(
-                read_memory(address + TELEMETRY_SEQUENCE_OFFSET, 2)
-            )
-            snapshot = FreeRTOSSystemTelemetry.decode(raw)
-            if before == after == snapshot.event_sequence and snapshot.stable:
-                print(snapshot.format(address))
-                return 0
+        for index in range(args.samples):
+            snapshot = read_stable_telemetry(read_memory, address)
+            snapshots.append(snapshot)
+            if args.samples > 1:
+                print(f"Sample {index + 1}/{args.samples}")
+            print(snapshot.format(address))
+            if index + 1 < args.samples:
+                print()
+                time.sleep(args.interval)
     except (RuntimeError, ValueError) as exc:
         print(f"telemetry: {exc}", file=sys.stderr)
         return 2
 
-    print("telemetry: processor state changed during every snapshot; retry",
-          file=sys.stderr)
-    return 1
+    if args.verify_progress:
+        passed, failures = sustained_progress(snapshots[0], snapshots[-1])
+        print()
+        if passed:
+            print("SUSTAINED PROGRESS: PASS")
+            return 0
+        print("SUSTAINED PROGRESS: FAIL")
+        for failure in failures:
+            print(f"  - {failure}")
+        return 1
+
+    return 0
 
 
 if __name__ == "__main__":

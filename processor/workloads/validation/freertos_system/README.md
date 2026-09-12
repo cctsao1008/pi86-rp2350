@@ -1,6 +1,6 @@
 # FreeRTOS system workload
 
-This is the Issue #67/#61 system-level workload.  It is deliberately separate
+This is the Issue #67/#61 system-level workload. It is deliberately separate
 from `freertos_port/`, which remains the closed Issue #60 portable-layer
 acceptance witness.
 
@@ -11,13 +11,13 @@ validated RP86 FreeRTOS/8086 port:
 - `PROD`: sends a monotonically increasing 16-bit value to a queue every 300 ms;
 - `CONS`: blocks on that queue and verifies sequence continuity.
 
-There is no RP2350 GPIO LED in this proof.  The physical 8086 owns the state;
+There is no RP2350 GPIO LED in this proof. The physical 8086 owns the state;
 the Host/Web UI may only observe and render it.
 
 ## Telemetry
 
 `gRp86Telemetry` is an ordinary workload global in processor-visible Internal
-SRAM.  Its address is workload-local and must be discovered from the generated
+SRAM. Its address is workload-local and must be discovered from the generated
 linker map; no permanent telemetry address or public ABI is claimed yet.
 
 The first layout is intentionally only 16 bytes:
@@ -45,10 +45,10 @@ Event IDs are workload-local:
 ```
 
 `last_event.seq` doubles as a tiny seqlock for the complete 16-byte telemetry
-block.  The processor publishes an odd value before mutation and an even value
-after `event`/`arg` and the other telemetry fields are complete.  A Host reader
+block. The processor publishes an odd value before mutation and an even value
+after `event`/`arg` and the other telemetry fields are complete. A Host reader
 accepts a snapshot only when the sequence read before and after the block is the
-same even value.  This adds one 16-bit write at update start and avoids locks,
+same even value. This adds one 16-bit write at update start and avoids locks,
 ring buffers, timestamps, printf, or a separate logging transport.
 
 The reserved `3F000h-3FFFFh` ownership-transfer mailbox is not used as scratch
@@ -75,24 +75,33 @@ build-freertos-system/processor/generated/freertos_system_validation/
     freertos_system_validation.map
 ```
 
-Locate `_gRp86Telemetry` in that map and convert its segment:offset to a physical
-address.  This discovery step is intentional for the first version so the
-experiment does not prematurely freeze a telemetry address.
+The Host telemetry helper resolves `_gRp86Telemetry` directly from that map, so
+normal validation does not require copying or freezing a physical address.
 
-With an RP86 runtime/broker already active, read and decode one coherent snapshot
-without stopping the workload:
+With an RP86 runtime/broker already active, read one coherent snapshot without
+stopping the workload:
 
 ```text
-py tools/rp86_freertos_status.py <physical-address>
+py tools/rp86_freertos_status.py --map build-freertos-system/processor/generated/freertos_system_validation/freertos_system_validation.map
 ```
 
-The helper performs only ordinary processor-visible RAM reads.  The 8086 remains
-the source of truth and the Host only decodes the 16-byte witness.
+For the Issue #71 sustained-run witness, collect multiple snapshots and require
+forward progress:
+
+```text
+py tools/rp86_freertos_status.py --map build-freertos-system/processor/generated/freertos_system_validation/freertos_system_validation.map --samples 6 --interval 1 --verify-progress
+```
+
+The helper performs only ordinary processor-visible RAM reads. `--verify-progress`
+passes only when LED, queue TX/RX, and event counters advance between the first
+and last samples while `error_count` remains zero. A literal telemetry address
+is still accepted as a diagnostic override, but the linker map is the canonical
+discovery source.
 
 ## Runtime expectation
 
-A healthy workload is long-running.  It does not publish a terminal PASS or
-execute HLT during normal operation.  Acceptance is sustained forward progress:
+A healthy workload is long-running. It does not publish a terminal PASS or
+execute HLT during normal operation. Acceptance is sustained forward progress:
 
 ```text
 LED state/count changes
@@ -102,11 +111,11 @@ last_event.seq advances and is even when stable
 error_count remains 0
 ```
 
-Host `status`, `stop`, and `restart` remain the lifecycle controls.  A fatal
+Host `status`, `stop`, and `restart` remain the lifecycle controls. A fatal
 creation, queue, sequence, or assertion failure publishes a `67xx`/`6Fxx`
 result, emits `RESULT: FAIL`, and terminates through the ordinary RP86 idle/HLT
 path.
 
-Intel 8086 is the primary physical acceptance target.  NEC V30 remains the
+Intel 8086 is the primary physical acceptance target. NEC V30 remains the
 final compatibility regression under Issue #61 and must use the same common
 8086 baseline rather than V30-specific fixes.
