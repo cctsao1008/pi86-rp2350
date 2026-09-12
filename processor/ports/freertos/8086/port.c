@@ -2,12 +2,18 @@
 #include "task.h"
 
 /*
- * RAM-backed first-yield localization witness.
+ * RAM-backed first-yield localization witness lives in portasm.asm.
  *
- * Keep the storage in C so Open Watcom emits it as a normal public data symbol
- * in the linker map.  portasm.asm owns the state machine and field layout.
+ * Reference it from C as well as assembly so Open Watcom/WLINK keeps the public
+ * symbol visible in the generated linker map.  The Host uses that map as the
+ * discovery source rather than treating the address as ABI.
  */
-volatile uint16_t gRp86PortTrace[ 7 ];
+extern volatile uint16_t gRp86PortTrace[ 7 ];
+
+volatile uint16_t * rp86PortTraceAnchor( void )
+{
+    return gRp86PortTrace;
+}
 
 /* Project-owned NASM glue.  All entry points use the selected near __cdecl ABI. */
 extern uint16_t rp86PortGetCodeSegment( void );
