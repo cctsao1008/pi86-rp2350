@@ -71,6 +71,10 @@ void rp86QueueTraceStage( unsigned short stage, unsigned short detail );
     rp86QueueTraceStage( 6U, ( unsigned short ) ( xAlreadyYielded ) )
 #define traceRETURN_xQueueReceive( xReturn ) \
     rp86QueueTraceStage( 7U, ( unsigned short ) ( xReturn ) )
+#define traceENTER_vTaskPlaceOnEventList( pxEventList, xTicksToWait ) \
+    rp86QueueTraceStage( 10U, ( unsigned short ) ( xTicksToWait ) )
+#define traceRETURN_vTaskPlaceOnEventList() \
+    rp86QueueTraceStage( 11U, 0U )
 
 void rp86AssertFailed( unsigned short line );
 #define configASSERT( x ) do { if( ( x ) == 0 ) { rp86AssertFailed( ( unsigned short ) __LINE__ ); } } while( 0 )
