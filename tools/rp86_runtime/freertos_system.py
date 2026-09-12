@@ -1,4 +1,4 @@
-"""Decode the small RAM-backed FreeRTOS system telemetry witness."""
+"""Decode the RAM-backed FreeRTOS system and scheduler-port witnesses."""
 
 from __future__ import annotations
 
@@ -10,9 +10,15 @@ import struct
 
 TELEMETRY_SIZE = 16
 TELEMETRY_SEQUENCE_OFFSET = 8
+PORT_TRACE_SIZE = 14
 _TELEMETRY = struct.Struct("<8H")
+_PORT_TRACE = struct.Struct("<7H")
 _TELEMETRY_SYMBOL = re.compile(
     r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\+?\s+_gRp86Telemetry\b",
+    re.MULTILINE,
+)
+_PORT_TRACE_SYMBOL = re.compile(
+    r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\+?\s+_gRp86PortTrace\b",
     re.MULTILINE,
 )
 _EVENT_NAMES = {
@@ -22,6 +28,14 @@ _EVENT_NAMES = {
     4: "QUEUE_SEND",
     5: "QUEUE_RECV",
     6: "ERROR",
+}
+_PORT_STAGE_NAMES = {
+    0: "IDLE",
+    1: "YIELD_ISR_ENTERED",
+    2: "CURRENT_CONTEXT_SAVED",
+    3: "SCHEDULER_RETURNED",
+    4: "NEXT_SP_LOADED",
+    5: "PRE_IRET",
 }
 
 
@@ -36,14 +50,31 @@ def decode_sequence(data: bytes) -> int:
     return struct.unpack("<H", data)[0]
 
 
-def telemetry_address_from_map(map_text: str) -> int:
-    """Resolve the workload-local telemetry physical address from a Watcom map."""
-    match = _TELEMETRY_SYMBOL.search(map_text)
+def _physical_address_from_symbol(
+    map_text: str,
+    pattern: re.Pattern[str],
+    symbol: str,
+) -> int:
+    match = pattern.search(map_text)
     if match is None:
-        raise ValueError("linker map does not contain _gRp86Telemetry")
+        raise ValueError(f"linker map does not contain {symbol}")
     segment = int(match.group(1), 16)
     offset = int(match.group(2), 16)
     return (segment << 4) + offset
+
+
+def telemetry_address_from_map(map_text: str) -> int:
+    """Resolve the workload-local telemetry physical address from a Watcom map."""
+    return _physical_address_from_symbol(
+        map_text, _TELEMETRY_SYMBOL, "_gRp86Telemetry"
+    )
+
+
+def port_trace_address_from_map(map_text: str) -> int:
+    """Resolve the 8086 FreeRTOS port trace physical address from a Watcom map."""
+    return _physical_address_from_symbol(
+        map_text, _PORT_TRACE_SYMBOL, "_gRp86PortTrace"
+    )
 
 
 def counter_delta(previous: int, current: int) -> int:
@@ -96,6 +127,48 @@ class FreeRTOSSystemTelemetry:
         )
 
 
+@dataclass(frozen=True)
+class FreeRTOSPortTrace:
+    stage: int
+    old_ss: int
+    old_sp: int
+    old_tcb: int
+    new_ss: int
+    new_sp: int
+    new_tcb: int
+
+    @classmethod
+    def decode(cls, data: bytes) -> "FreeRTOSPortTrace":
+        if len(data) != PORT_TRACE_SIZE:
+            raise ValueError(
+                f"FreeRTOS port trace must be exactly {PORT_TRACE_SIZE} bytes"
+            )
+        return cls(*_PORT_TRACE.unpack(data))
+
+    @property
+    def stage_name(self) -> str:
+        return _PORT_STAGE_NAMES.get(self.stage, f"STAGE_{self.stage}")
+
+    @property
+    def same_stack_segment(self) -> bool:
+        return self.old_ss == self.new_ss
+
+    def format(self, address: int | None = None) -> str:
+        heading = "FreeRTOS port switch trace"
+        if address is not None:
+            heading += f" @ 0x{address:05X}"
+        ss_relation = "same" if self.same_stack_segment else "CHANGED"
+        return "\n".join(
+            (
+                heading,
+                f"  Stage        {self.stage} ({self.stage_name})",
+                f"  Outgoing     SS:SP={self.old_ss:04X}:{self.old_sp:04X} TCB={self.old_tcb:04X}",
+                f"  Incoming     SS:SP={self.new_ss:04X}:{self.new_sp:04X} TCB={self.new_tcb:04X}",
+                f"  Stack SS     {ss_relation}",
+            )
+        )
+
+
 def read_stable_telemetry(
     read_memory: Callable[[int, int], bytes],
     address: int,
@@ -119,6 +192,14 @@ def read_stable_telemetry(
         if before == after == snapshot.event_sequence and snapshot.stable:
             return snapshot
     raise RuntimeError("processor state changed during every telemetry snapshot")
+
+
+def read_port_trace(
+    read_memory: Callable[[int, int], bytes],
+    address: int,
+) -> FreeRTOSPortTrace:
+    """Read the one-shot first-yield scheduler-port witness."""
+    return FreeRTOSPortTrace.decode(read_memory(address, PORT_TRACE_SIZE))
 
 
 def sustained_progress(
