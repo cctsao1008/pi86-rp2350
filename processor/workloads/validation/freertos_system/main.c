@@ -64,7 +64,8 @@ static void prvCommitEventLocked( uint16_t usEvent, uint16_t usArg )
  *   0 entry, 1 queue, 2 LED created, 3 producer created, 4 consumer created,
  *   5 immediately before vTaskStartScheduler(), 6 consumer task entered,
  *   7 producer task entered, 8 LED task entered,
- *   9 consumer immediately before xQueueReceive().
+ *   9 consumer immediately before the one-shot explicit portYIELD(),
+ *  10 explicit portYIELD() returned; immediately before xQueueReceive().
  */
 static void prvPublishBootStage( uint16_t usStage )
 {
@@ -156,13 +157,20 @@ static void prvConsumerTask( void * pvParameters )
 {
     uint16_t usValue = 0U;
     uint16_t usExpected = 1U;
+    uint16_t usYieldProbeDone = 0U;
 
     ( void ) pvParameters;
     prvPublishTaskStage( 6U );
 
     for( ;; )
     {
-        prvPublishTaskStage( 9U );
+        if( usYieldProbeDone == 0U )
+        {
+            prvPublishTaskStage( 9U );
+            portYIELD();
+            usYieldProbeDone = 1U;
+            prvPublishTaskStage( 10U );
+        }
 
         if( xQueueReceive( xQueue, &usValue, portMAX_DELAY ) != pdPASS )
         {
