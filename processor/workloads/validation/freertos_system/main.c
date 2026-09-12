@@ -63,7 +63,8 @@ static void prvCommitEventLocked( uint16_t usEvent, uint16_t usArg )
  * Temporary #71 scheduler-localization witness:
  *   0 entry, 1 queue, 2 LED created, 3 producer created, 4 consumer created,
  *   5 immediately before vTaskStartScheduler(), 6 consumer task entered,
- *   7 producer task entered, 8 LED task entered.
+ *   7 producer task entered, 8 LED task entered,
+ *   9 consumer immediately before xQueueReceive().
  */
 static void prvPublishBootStage( uint16_t usStage )
 {
@@ -161,6 +162,8 @@ static void prvConsumerTask( void * pvParameters )
 
     for( ;; )
     {
+        prvPublishTaskStage( 9U );
+
         if( xQueueReceive( xQueue, &usValue, portMAX_DELAY ) != pdPASS )
         {
             prvFatal( RP86_FAIL_QUEUE_RECV );
