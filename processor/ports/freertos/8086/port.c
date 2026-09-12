@@ -1,6 +1,14 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+/*
+ * RAM-backed first-yield localization witness.
+ *
+ * Keep the storage in C so Open Watcom emits it as a normal public data symbol
+ * in the linker map.  portasm.asm owns the state machine and field layout.
+ */
+volatile uint16_t gRp86PortTrace[ 7 ];
+
 /* Project-owned NASM glue.  All entry points use the selected near __cdecl ABI. */
 extern uint16_t rp86PortGetCodeSegment( void );
 extern uint16_t rp86PortGetDataSegment( void );
