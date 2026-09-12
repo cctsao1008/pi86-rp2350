@@ -59,6 +59,17 @@ static void prvCommitEventLocked( uint16_t usEvent, uint16_t usArg )
     gRp86Telemetry.last_event.seq = usTelemetrySequence; /* even: stable */
 }
 
+/*
+ * Pre-scheduler startup witness.  BOOT arg values are intentionally tiny and
+ * temporary diagnostics for #71: 0 entry, 1 queue, 2 LED task, 3 producer,
+ * 4 consumer, 5 immediately before vTaskStartScheduler().
+ */
+static void prvPublishBootStage( uint16_t usStage )
+{
+    prvBeginTelemetryUpdateLocked();
+    prvCommitEventLocked( RP86_EVT_BOOT, usStage );
+}
+
 static uint16_t prvPreSchedulerFail( uint16_t usCode )
 {
     prvBeginTelemetryUpdateLocked();
@@ -160,30 +171,34 @@ static void prvConsumerTask( void * pvParameters )
 uint16_t rp86_freertos_system_main( void )
 {
     usTelemetrySequence = 0U;
-    prvBeginTelemetryUpdateLocked();
-    prvCommitEventLocked( RP86_EVT_BOOT, 0U );
+    prvPublishBootStage( 0U );
 
     xQueue = xQueueCreate( RP86_QUEUE_LENGTH, sizeof( uint16_t ) );
     if( xQueue == NULL )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_QUEUE );
     }
+    prvPublishBootStage( 1U );
 
     if( xTaskCreate( prvLedTask, "LED", RP86_TASK_STACK_WORDS, NULL, 1U, NULL ) != pdPASS )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_LED );
     }
+    prvPublishBootStage( 2U );
 
     if( xTaskCreate( prvProducerTask, "PROD", RP86_TASK_STACK_WORDS, NULL, 2U, NULL ) != pdPASS )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_PRODUCER );
     }
+    prvPublishBootStage( 3U );
 
     if( xTaskCreate( prvConsumerTask, "CONS", RP86_TASK_STACK_WORDS, NULL, 3U, NULL ) != pdPASS )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_CONSUMER );
     }
+    prvPublishBootStage( 4U );
 
+    prvPublishBootStage( 5U );
     vTaskStartScheduler();
     return prvPreSchedulerFail( RP86_FAIL_SCHED_RETURN );
 }
