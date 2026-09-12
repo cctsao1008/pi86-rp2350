@@ -18,7 +18,6 @@
 #define configENABLE_BACKWARD_COMPATIBILITY     0
 #define configNUM_THREAD_LOCAL_STORAGE_POINTERS 0
 #define configUSE_MINI_LIST_ITEM                1
-#define configLIST_VOLATILE                     volatile
 #define configUSE_NEWLIB_REENTRANT              0
 
 #define configUSE_TIMERS                        0
@@ -53,41 +52,6 @@
 #define INCLUDE_xTaskGetCurrentTaskHandle       0
 #define INCLUDE_uxTaskPriorityGet               0
 #define INCLUDE_vTaskPrioritySet                0
-
-/*
- * Temporary Issue #71 queue-blocking localization hooks.  These use the
- * kernel's existing trace points instead of carrying a patched FreeRTOS kernel.
- * The workload arms the witness immediately before its first xQueueReceive().
- */
-void rp86QueueTraceStage( unsigned short stage, unsigned short detail );
-#define traceENTER_xQueueReceive( xQueue, pvBuffer, xTicksToWait ) \
-    rp86QueueTraceStage( 2U, ( unsigned short ) ( xTicksToWait ) )
-#define traceENTER_vTaskSuspendAll() \
-    rp86QueueTraceStage( 3U, 0U )
-#define traceBLOCKING_ON_QUEUE_RECEIVE( pxQueue ) \
-    rp86QueueTraceStage( 4U, 0U )
-#define traceENTER_xTaskResumeAll() \
-    rp86QueueTraceStage( 5U, 0U )
-#define traceRETURN_xTaskResumeAll( xAlreadyYielded ) \
-    rp86QueueTraceStage( 6U, ( unsigned short ) ( xAlreadyYielded ) )
-#define traceRETURN_xQueueReceive( xReturn ) \
-    rp86QueueTraceStage( 7U, ( unsigned short ) ( xReturn ) )
-#define traceENTER_vTaskPlaceOnEventList( pxEventList, xTicksToWait ) \
-    rp86QueueTraceStage( 10U, ( unsigned short ) ( xTicksToWait ) )
-#define traceRETURN_vTaskPlaceOnEventList() \
-    rp86QueueTraceStage( 11U, 0U )
-#define traceENTER_vListInsert( pxList, pxNewListItem ) \
-    rp86QueueTraceStage( 12U, 0U )
-#define traceRETURN_vListInsert() \
-    rp86QueueTraceStage( 13U, 0U )
-#define traceENTER_vListInsertEnd( pxList, pxNewListItem ) \
-    rp86QueueTraceStage( 14U, 0U )
-#define traceRETURN_vListInsertEnd() \
-    rp86QueueTraceStage( 15U, 0U )
-#define traceENTER_uxListRemove( pxItemToRemove ) \
-    rp86QueueTraceStage( 16U, 0U )
-#define traceRETURN_uxListRemove( uxNumberOfItems ) \
-    rp86QueueTraceStage( 17U, ( unsigned short ) ( uxNumberOfItems ) )
 
 void rp86AssertFailed( unsigned short line );
 #define configASSERT( x ) do { if( ( x ) == 0 ) { rp86AssertFailed( ( unsigned short ) __LINE__ ); } } while( 0 )
