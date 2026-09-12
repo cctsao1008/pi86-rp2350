@@ -83,6 +83,10 @@ void rp86QueueTraceStage( unsigned short stage, unsigned short detail );
     rp86QueueTraceStage( 14U, 0U )
 #define traceRETURN_vListInsertEnd() \
     rp86QueueTraceStage( 15U, 0U )
+#define traceENTER_uxListRemove( pxItemToRemove ) \
+    rp86QueueTraceStage( 16U, 0U )
+#define traceRETURN_uxListRemove( uxNumberOfItems ) \
+    rp86QueueTraceStage( 17U, ( unsigned short ) ( uxNumberOfItems ) )
 
 void rp86AssertFailed( unsigned short line );
 #define configASSERT( x ) do { if( ( x ) == 0 ) { rp86AssertFailed( ( unsigned short ) __LINE__ ); } } while( 0 )
