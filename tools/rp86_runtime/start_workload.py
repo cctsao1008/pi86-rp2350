@@ -45,6 +45,11 @@ def _event(text: str, *, file=None) -> None:
     print(f"{_timestamp()} {text}", file=file)
 
 
+def _format_duration(seconds: float) -> str:
+    """Render one monotonic elapsed duration at millisecond resolution."""
+    return f"{max(0.0, seconds):.3f} s"
+
+
 def _next_sequence(sequence: int) -> int:
     return (sequence + 1) & 0xFFFFFFFF or 1
 
@@ -165,6 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {path_error}", file=sys.stderr)
         return VALIDATION_EXIT
 
+    deployment_started = time.monotonic()
     print()
     _event("[RP86 WORKLOAD START]")
     print(f"Workload = {args.start_workload}")
@@ -271,6 +277,10 @@ def main(argv: list[str] | None = None) -> int:
             return VALIDATION_EXIT
 
         _event("WORKLOAD START: PASS")
+        print(
+            "Deployment duration: "
+            f"{_format_duration(time.monotonic() - deployment_started)}"
+        )
         print("Physical processor continues executing after Host command return.")
         return PASS_EXIT
     except (OSError, RuntimeError, ValueError) as exc:
