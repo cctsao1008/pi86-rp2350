@@ -53,6 +53,25 @@
 #define INCLUDE_uxTaskPriorityGet               0
 #define INCLUDE_vTaskPrioritySet                0
 
+/*
+ * Temporary Issue #71 queue-blocking localization hooks.  These use the
+ * kernel's existing trace points instead of carrying a patched FreeRTOS kernel.
+ * The workload arms the witness immediately before its first xQueueReceive().
+ */
+void rp86QueueTraceStage( unsigned short stage, unsigned short detail );
+#define traceENTER_xQueueReceive( xQueue, pvBuffer, xTicksToWait ) \
+    rp86QueueTraceStage( 2U, ( unsigned short ) ( xTicksToWait ) )
+#define traceENTER_vTaskSuspendAll() \
+    rp86QueueTraceStage( 3U, 0U )
+#define traceBLOCKING_ON_QUEUE_RECEIVE( pxQueue ) \
+    rp86QueueTraceStage( 4U, 0U )
+#define traceENTER_xTaskResumeAll() \
+    rp86QueueTraceStage( 5U, 0U )
+#define traceRETURN_xTaskResumeAll( xAlreadyYielded ) \
+    rp86QueueTraceStage( 6U, ( unsigned short ) ( xAlreadyYielded ) )
+#define traceRETURN_xQueueReceive( xReturn ) \
+    rp86QueueTraceStage( 7U, ( unsigned short ) ( xReturn ) )
+
 void rp86AssertFailed( unsigned short line );
 #define configASSERT( x ) do { if( ( x ) == 0 ) { rp86AssertFailed( ( unsigned short ) __LINE__ ); } } while( 0 )
 
