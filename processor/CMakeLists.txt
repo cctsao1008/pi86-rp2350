@@ -125,6 +125,8 @@ if(RP86_ENABLE_FREERTOS_8086)
             "${RP86_FREERTOS_KERNEL_DIR}/include"
         C_OPTIONS
             "-fi=${RP86_FREERTOS_PORT_CONFIG}"
+        DEPENDS
+            "${RP86_FREERTOS_PORT_CONFIG}"
         METADATA
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_port/workload.json"
         PACKAGE_NAME "FREERTOS.P86W"
@@ -153,6 +155,8 @@ if(RP86_ENABLE_FREERTOS_8086)
             "${RP86_FREERTOS_KERNEL_DIR}/include"
         C_OPTIONS
             "-fi=${RP86_FREERTOS_SYSTEM_CONFIG}"
+        DEPENDS
+            "${RP86_FREERTOS_SYSTEM_CONFIG}"
         METADATA
             "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/workload.json"
         PACKAGE_NAME "FREERTOS-SYSTEM.P86W"
