@@ -15,9 +15,7 @@ from rp86_runtime.broker import BrokerClient, discover_brokers, select_broker
 from rp86_runtime.freertos_system import (
     FreeRTOSSystemTelemetry,
     port_trace_address_from_map,
-    queue_trace_address_from_map,
     read_port_trace,
-    read_queue_trace,
     read_stable_telemetry,
     sustained_progress,
     telemetry_address_from_map,
@@ -58,10 +56,6 @@ def main(argv: list[str] | None = None) -> int:
         "--port-trace", action="store_true",
         help="also decode _gRp86PortTrace (requires --map)",
     )
-    parser.add_argument(
-        "--queue-trace", action="store_true",
-        help="also decode the first xQueueReceive blocking witness (requires --map)",
-    )
     parser.add_argument("--hid-serial", help="select one active RP86 broker by device ID")
     parser.add_argument("--timeout", type=float, default=1.0)
     parser.add_argument(
@@ -80,8 +74,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if (args.address is None) == (args.map is None):
         parser.error("supply exactly one of ADDRESS or --map FILE")
-    if (args.port_trace or args.queue_trace) and args.map is None:
-        parser.error("--port-trace/--queue-trace require --map FILE")
+    if args.port_trace and args.map is None:
+        parser.error("--port-trace requires --map FILE")
     if args.samples < 1:
         parser.error("--samples must be at least 1")
     if args.interval < 0:
@@ -92,14 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     try:
         address = args.address
         port_trace_address = None
-        queue_trace_address = None
         if args.map is not None:
             map_text = args.map.read_text(encoding="utf-8", errors="replace")
             address = telemetry_address_from_map(map_text)
             if args.port_trace:
                 port_trace_address = port_trace_address_from_map(map_text)
-            if args.queue_trace:
-                queue_trace_address = queue_trace_address_from_map(map_text)
         record = select_broker(discover_brokers(), args.hid_serial)
     except (OSError, RuntimeError, ValueError) as exc:
         print(f"telemetry: {exc}", file=sys.stderr)
@@ -137,14 +128,6 @@ def main(argv: list[str] | None = None) -> int:
             if index + 1 < args.samples:
                 print()
                 time.sleep(args.interval)
-
-        if queue_trace_address is not None:
-            print()
-            queue_trace = read_queue_trace(read_memory, queue_trace_address)
-            print(
-                f"[{_observation_timestamp()}] "
-                f"{queue_trace.format(queue_trace_address)}"
-            )
 
         if port_trace_address is not None:
             print()
