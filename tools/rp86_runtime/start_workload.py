@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import os
 from pathlib import Path
 import secrets
@@ -29,6 +30,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--owner-wait", type=float, default=5.0)
     return parser
+
+
+def _timestamp() -> str:
+    """Return one local, offset-aware millisecond timestamp for lifecycle evidence."""
+    now = datetime.now().astimezone()
+    offset = now.strftime("%z")
+    if len(offset) == 5:
+        offset = f"{offset[:3]}:{offset[3:]}"
+    return f"[{now.strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]} {offset}]"
+
+
+def _event(text: str, *, file=None) -> None:
+    print(f"{_timestamp()} {text}", file=file)
 
 
 def _next_sequence(sequence: int) -> int:
@@ -151,14 +165,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"ERROR: {path_error}", file=sys.stderr)
         return VALIDATION_EXIT
 
-    print("\n[RP86 WORKLOAD START]")
+    print()
+    _event("[RP86 WORKLOAD START]")
     print(f"Workload = {args.start_workload}")
 
     record, _spawned_owner, owner_error = _ensure_runtime_owner(
         args.hid_serial, args.owner_wait
     )
     if record is None:
-        print(f"ERROR: {owner_error or 'no active RP86 Host broker'}", file=sys.stderr)
+        _event(
+            f"WORKLOAD START: FAIL ({owner_error or 'no active RP86 Host broker'})",
+            file=sys.stderr,
+        )
         return TRANSPORT_EXIT
 
     client = BrokerClient(
@@ -182,7 +200,7 @@ def main(argv: list[str] | None = None) -> int:
         sequence = _next_sequence(status_request.sequence)
 
         if workload_upload_requires_stop(current.lifecycle):
-            print("load: stopping active processor")
+            _event("load: stopping active processor")
             stop_request = control_record(
                 "stop", workload_id=0, sequence=sequence
             )
@@ -200,8 +218,8 @@ def main(argv: list[str] | None = None) -> int:
             transfer_id=secrets.randbits(32),
             first_sequence=sequence,
         )
+        _event("Native workload upload")
         print(
-            "Native workload upload\n"
             f"  image   {len(image)} bytes\n"
             f"  address 0x{manifest.load_address:05X}\n"
             f"  entry   {manifest.entry_segment:04X}:{manifest.entry_offset:04X}\n"
@@ -214,7 +232,7 @@ def main(argv: list[str] | None = None) -> int:
                 client, request, f"load-{index}", args.timeout
             )
             if final_reply is None:
-                print(
+                _event(
                     f"workload upload: FAILED at record {index}/{len(records)}: "
                     f"{error or 'unknown error'}",
                     file=sys.stderr,
@@ -222,8 +240,8 @@ def main(argv: list[str] | None = None) -> int:
                 return VALIDATION_EXIT
         assert final_reply is not None
         staged = _state(final_reply)
+        _event(f"workload upload: PASS ({len(records)} records)")
         print(
-            f"workload upload: PASS ({len(records)} records)\n"
             f"  workload_id={staged.workload_id} state={staged.lifecycle_name} "
             f"detail={staged.detail} clock={staged.clock_name} "
             f"cycles={staged.cycles} processor={staged.processor_state}"
@@ -237,26 +255,26 @@ def main(argv: list[str] | None = None) -> int:
         if run_reply is None:
             raise RuntimeError(error or "workload run failed")
         running = _state(run_reply)
+        _event("workload run: ACCEPTED (1 records)")
         print(
-            "workload run: ACCEPTED (1 records)\n"
             f"  workload_id={running.workload_id} state={running.lifecycle_name} "
             f"detail={running.detail} clock={running.clock_name} "
             f"cycles={running.cycles} processor={running.processor_state}"
         )
 
         if running.lifecycle_name != "RUNNING" or running.processor_state != "ACTIVE":
-            print(
+            _event(
                 "WORKLOAD START: FAIL "
                 f"(state={running.lifecycle_name}, processor={running.processor_state})",
                 file=sys.stderr,
             )
             return VALIDATION_EXIT
 
-        print("WORKLOAD START: PASS")
+        _event("WORKLOAD START: PASS")
         print("Physical processor continues executing after Host command return.")
         return PASS_EXIT
     except (OSError, RuntimeError, ValueError) as exc:
-        print(f"WORKLOAD START: FAIL ({exc})", file=sys.stderr)
+        _event(f"WORKLOAD START: FAIL ({exc})", file=sys.stderr)
         return TRANSPORT_EXIT
 
 
