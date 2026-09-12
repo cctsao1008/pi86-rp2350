@@ -15,6 +15,16 @@ volatile uint16_t * rp86PortTraceAnchor( void )
     return gRp86PortTrace;
 }
 
+void rp86PortResetTrace( void )
+{
+    unsigned int uxIndex;
+
+    for( uxIndex = 0U; uxIndex < 7U; uxIndex++ )
+    {
+        gRp86PortTrace[ uxIndex ] = 0U;
+    }
+}
+
 /* Project-owned NASM glue.  All entry points use the selected near __cdecl ABI. */
 extern uint16_t rp86PortGetCodeSegment( void );
 extern uint16_t rp86PortGetDataSegment( void );
