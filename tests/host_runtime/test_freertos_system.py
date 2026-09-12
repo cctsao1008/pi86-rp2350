@@ -9,11 +9,14 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from rp86_runtime.freertos_system import (  # noqa: E402
     FreeRTOSPortTrace,
+    FreeRTOSQueueTrace,
     FreeRTOSSystemTelemetry,
     counter_delta,
     decode_sequence,
     port_trace_address_from_map,
+    queue_trace_address_from_map,
     read_port_trace,
+    read_queue_trace,
     read_stable_telemetry,
     stable_sequence,
     sustained_progress,
@@ -51,6 +54,10 @@ class FreeRTOSSystemTelemetryTests(unittest.TestCase):
         text = "126A:0270+     _gRp86PortTrace\n"
         self.assertEqual(port_trace_address_from_map(text), 0x12910)
 
+    def test_queue_trace_map_symbol_resolves_to_physical_address(self) -> None:
+        text = "126A:0280+     _gRp86QueueTrace\n"
+        self.assertEqual(queue_trace_address_from_map(text), 0x12920)
+
     def test_port_trace_decode_and_format(self) -> None:
         raw = struct.pack("<7H", 5, 0x126A, 0x08A0, 0x0310, 0x126A, 0x0760, 0x02E0)
         trace = FreeRTOSPortTrace.decode(raw)
@@ -61,11 +68,26 @@ class FreeRTOSSystemTelemetryTests(unittest.TestCase):
         self.assertIn("126A:08A0", rendered)
         self.assertIn("Stack SS     same", rendered)
 
+    def test_queue_trace_decode_and_format(self) -> None:
+        raw = struct.pack("<3H", 1, 6, 0)
+        trace = FreeRTOSQueueTrace.decode(raw)
+        self.assertEqual(trace.stage_name, "RETURN_XTASK_RESUME_ALL")
+        rendered = trace.format(0x12920)
+        self.assertIn("Armed        1", rendered)
+        self.assertIn("6 (RETURN_XTASK_RESUME_ALL)", rendered)
+        self.assertIn("0x0000 (0)", rendered)
+
     def test_port_trace_reader(self) -> None:
         raw = struct.pack("<7H", 3, 0x126A, 0x08A0, 0x0310, 0, 0, 0)
         trace = read_port_trace(lambda _address, _length: raw, 0x12910)
         self.assertEqual(trace.stage, 3)
         self.assertEqual(trace.stage_name, "SCHEDULER_RETURNED")
+
+    def test_queue_trace_reader(self) -> None:
+        raw = struct.pack("<3H", 1, 4, 0)
+        trace = read_queue_trace(lambda _address, _length: raw, 0x12920)
+        self.assertEqual(trace.stage, 4)
+        self.assertEqual(trace.stage_name, "BLOCKING_ON_QUEUE_RECEIVE")
 
     def test_stable_reader_retries_odd_sequence(self) -> None:
         stable = struct.pack("<8H", 1, 9, 7, 7, 12, 5, 7, 0)
@@ -99,12 +121,16 @@ class FreeRTOSSystemTelemetryTests(unittest.TestCase):
             FreeRTOSSystemTelemetry.decode(b"\x00" * 15)
         with self.assertRaisesRegex(ValueError, "exactly 14 bytes"):
             FreeRTOSPortTrace.decode(b"\x00" * 13)
+        with self.assertRaisesRegex(ValueError, "exactly 6 bytes"):
+            FreeRTOSQueueTrace.decode(b"\x00" * 5)
         with self.assertRaisesRegex(ValueError, "exactly 2 bytes"):
             decode_sequence(b"\x00")
         with self.assertRaisesRegex(ValueError, "_gRp86Telemetry"):
             telemetry_address_from_map("no symbols here")
         with self.assertRaisesRegex(ValueError, "_gRp86PortTrace"):
             port_trace_address_from_map("no symbols here")
+        with self.assertRaisesRegex(ValueError, "_gRp86QueueTrace"):
+            queue_trace_address_from_map("no symbols here")
         with self.assertRaisesRegex(ValueError, "at least 1"):
             read_stable_telemetry(lambda _a, _l: b"", 0, attempts=0)
 
