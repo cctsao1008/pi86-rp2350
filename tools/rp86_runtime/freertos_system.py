@@ -11,20 +11,14 @@ import struct
 TELEMETRY_SIZE = 16
 TELEMETRY_SEQUENCE_OFFSET = 8
 PORT_TRACE_SIZE = 14
-QUEUE_TRACE_SIZE = 6
 _TELEMETRY = struct.Struct("<8H")
 _PORT_TRACE = struct.Struct("<7H")
-_QUEUE_TRACE = struct.Struct("<3H")
 _TELEMETRY_SYMBOL = re.compile(
     r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\+?\s+_gRp86Telemetry\b",
     re.MULTILINE,
 )
 _PORT_TRACE_SYMBOL = re.compile(
     r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\+?\s+_gRp86PortTrace\b",
-    re.MULTILINE,
-)
-_QUEUE_TRACE_SYMBOL = re.compile(
-    r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\+?\s+_gRp86QueueTrace\b",
     re.MULTILINE,
 )
 _EVENT_NAMES = {
@@ -42,24 +36,6 @@ _PORT_STAGE_NAMES = {
     3: "SCHEDULER_RETURNED",
     4: "NEXT_SP_LOADED",
     5: "PRE_IRET",
-}
-_QUEUE_STAGE_NAMES = {
-    0: "IDLE",
-    1: "ARMED",
-    2: "ENTER_XQUEUE_RECEIVE",
-    3: "ENTER_VTASK_SUSPEND_ALL",
-    4: "BLOCKING_ON_QUEUE_RECEIVE",
-    5: "ENTER_XTASK_RESUME_ALL",
-    6: "RETURN_XTASK_RESUME_ALL",
-    7: "RETURN_XQUEUE_RECEIVE",
-    10: "ENTER_VTASK_PLACE_ON_EVENT_LIST",
-    11: "RETURN_VTASK_PLACE_ON_EVENT_LIST",
-    12: "ENTER_VLIST_INSERT",
-    13: "RETURN_VLIST_INSERT",
-    14: "ENTER_VLIST_INSERT_END",
-    15: "RETURN_VLIST_INSERT_END",
-    16: "ENTER_UXLIST_REMOVE",
-    17: "RETURN_UXLIST_REMOVE",
 }
 
 
@@ -98,13 +74,6 @@ def port_trace_address_from_map(map_text: str) -> int:
     """Resolve the 8086 FreeRTOS port trace physical address from a Watcom map."""
     return _physical_address_from_symbol(
         map_text, _PORT_TRACE_SYMBOL, "_gRp86PortTrace"
-    )
-
-
-def queue_trace_address_from_map(map_text: str) -> int:
-    """Resolve the queue-blocking trace physical address from a Watcom map."""
-    return _physical_address_from_symbol(
-        map_text, _QUEUE_TRACE_SYMBOL, "_gRp86QueueTrace"
     )
 
 
@@ -200,38 +169,6 @@ class FreeRTOSPortTrace:
         )
 
 
-@dataclass(frozen=True)
-class FreeRTOSQueueTrace:
-    armed: int
-    stage: int
-    detail: int
-
-    @classmethod
-    def decode(cls, data: bytes) -> "FreeRTOSQueueTrace":
-        if len(data) != QUEUE_TRACE_SIZE:
-            raise ValueError(
-                f"FreeRTOS queue trace must be exactly {QUEUE_TRACE_SIZE} bytes"
-            )
-        return cls(*_QUEUE_TRACE.unpack(data))
-
-    @property
-    def stage_name(self) -> str:
-        return _QUEUE_STAGE_NAMES.get(self.stage, f"STAGE_{self.stage}")
-
-    def format(self, address: int | None = None) -> str:
-        heading = "FreeRTOS queue blocking trace"
-        if address is not None:
-            heading += f" @ 0x{address:05X}"
-        return "\n".join(
-            (
-                heading,
-                f"  Armed        {self.armed}",
-                f"  Stage        {self.stage} ({self.stage_name})",
-                f"  Detail       0x{self.detail:04X} ({self.detail})",
-            )
-        )
-
-
 def read_stable_telemetry(
     read_memory: Callable[[int, int], bytes],
     address: int,
@@ -261,16 +198,8 @@ def read_port_trace(
     read_memory: Callable[[int, int], bytes],
     address: int,
 ) -> FreeRTOSPortTrace:
-    """Read the one-shot first-yield scheduler-port witness."""
+    """Read the scheduler-port context-switch witness."""
     return FreeRTOSPortTrace.decode(read_memory(address, PORT_TRACE_SIZE))
-
-
-def read_queue_trace(
-    read_memory: Callable[[int, int], bytes],
-    address: int,
-) -> FreeRTOSQueueTrace:
-    """Read the first xQueueReceive blocking-path witness."""
-    return FreeRTOSQueueTrace.decode(read_memory(address, QUEUE_TRACE_SIZE))
 
 
 def sustained_progress(
