@@ -37,39 +37,14 @@ typedef struct rp86_freertos_telemetry
     volatile uint16_t error_count;
 } rp86_freertos_telemetry_t;
 
-typedef struct rp86_freertos_queue_trace
-{
-    volatile uint16_t armed;
-    volatile uint16_t stage;
-    volatile uint16_t detail;
-} rp86_freertos_queue_trace_t;
-
 extern void rp86SystemFail( uint16_t code );
-extern void rp86PortResetTrace( void );
 
 /* Exported intentionally: linker-map symbols are workload-local discovery aids. */
 volatile rp86_freertos_telemetry_t gRp86Telemetry;
-volatile rp86_freertos_queue_trace_t gRp86QueueTrace;
 volatile uint16_t rp86_data_anchor = 0x8667U;
 
 static QueueHandle_t xQueue;
 static uint16_t usTelemetrySequence;
-
-void rp86QueueTraceStage( unsigned short stage, unsigned short detail )
-{
-    if( gRp86QueueTrace.armed != 0U )
-    {
-        gRp86QueueTrace.stage = ( uint16_t ) stage;
-        gRp86QueueTrace.detail = ( uint16_t ) detail;
-    }
-}
-
-static void prvArmQueueTrace( void )
-{
-    gRp86QueueTrace.detail = 0U;
-    gRp86QueueTrace.stage = 1U;
-    gRp86QueueTrace.armed = 1U;
-}
 
 static void prvBeginTelemetryUpdateLocked( void )
 {
@@ -86,12 +61,10 @@ static void prvCommitEventLocked( uint16_t usEvent, uint16_t usArg )
 }
 
 /*
- * Temporary #71 scheduler-localization witness:
+ * Boot/task stages:
  *   0 entry, 1 queue, 2 LED created, 3 producer created, 4 consumer created,
  *   5 immediately before vTaskStartScheduler(), 6 consumer task entered,
- *   7 producer task entered, 8 LED task entered,
- *   9 consumer immediately before the one-shot explicit portYIELD(),
- *  10 explicit portYIELD() returned; immediately before xQueueReceive().
+ *   7 producer task entered, 8 LED task entered.
  */
 static void prvPublishBootStage( uint16_t usStage )
 {
@@ -183,32 +156,16 @@ static void prvConsumerTask( void * pvParameters )
 {
     uint16_t usValue = 0U;
     uint16_t usExpected = 1U;
-    uint16_t usYieldProbeDone = 0U;
 
     ( void ) pvParameters;
     prvPublishTaskStage( 6U );
 
     for( ;; )
     {
-        if( usYieldProbeDone == 0U )
-        {
-            prvPublishTaskStage( 9U );
-            portYIELD();
-            usYieldProbeDone = 1U;
-            prvPublishTaskStage( 10U );
-
-            /*
-             * The explicit-yield round trip is now proven.  Reset the port
-             * witness so the next INT 80h, if xQueueReceive reaches it, is the
-             * one captured alongside the queue-blocking trace below.
-             */
-            rp86PortResetTrace();
-            prvArmQueueTrace();
-        }
-
-        if( xQueueReceive( xQueue,
-                           &usValue,
-                           pdMS_TO_TICKS( RP86_QUEUE_WAIT_MS ) ) != pdPASS )
+        if( xQueueReceive(
+                xQueue,
+                &usValue,
+                pdMS_TO_TICKS( RP86_QUEUE_WAIT_MS ) ) != pdPASS )
         {
             prvFatal( RP86_FAIL_QUEUE_RECV );
         }
@@ -229,9 +186,6 @@ static void prvConsumerTask( void * pvParameters )
 uint16_t rp86_freertos_system_main( void )
 {
     usTelemetrySequence = 0U;
-    gRp86QueueTrace.armed = 0U;
-    gRp86QueueTrace.stage = 0U;
-    gRp86QueueTrace.detail = 0U;
     prvPublishBootStage( 0U );
 
     xQueue = xQueueCreate( RP86_QUEUE_LENGTH, sizeof( uint16_t ) );
