@@ -8,14 +8,18 @@ on:
       - ".github/workflows/runtime-tests.yml"
       - "firmware/**"
       - "tests/runtime/**"
+      - "tests/host_runtime/**"
       - "tools/package_workload.py"
+      - "tools/rp86_freertos_status.py"
       - "tools/rp86_runtime/**"
   pull_request:
     paths:
       - ".github/workflows/runtime-tests.yml"
       - "firmware/**"
       - "tests/runtime/**"
+      - "tests/host_runtime/**"
       - "tools/package_workload.py"
+      - "tools/rp86_freertos_status.py"
       - "tools/rp86_runtime/**"
   workflow_dispatch:
 
@@ -26,6 +30,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Run runtime tests
-        run: |
-          python3 -m unittest discover -s tests/runtime -p 'test_*.py' -v
+      - name: Run Host runtime tests
+        run: python3 -m unittest discover -s tests/host_runtime -p 'test_*.py' -v
+
+      - name: Run firmware runtime policy tests
+        run: python3 -m unittest discover -s tests/runtime -p 'test_*.py' -v

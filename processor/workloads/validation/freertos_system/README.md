@@ -44,11 +44,12 @@ Event IDs are workload-local:
 6  ERROR
 ```
 
-The processor updates telemetry fields plus `event`/`arg`, then publishes
-`last_event.seq` last.  A Host observer that needs one coherent snapshot reads
-`seq`, reads the 16-byte block, then reads `seq` again and retries if the two
-sequence values differ.  No lock, ring buffer, timestamp service, printf, or
-mailbox ownership is required.
+`last_event.seq` doubles as a tiny seqlock for the complete 16-byte telemetry
+block.  The processor publishes an odd value before mutation and an even value
+after `event`/`arg` and the other telemetry fields are complete.  A Host reader
+accepts a snapshot only when the sequence read before and after the block is the
+same even value.  This adds one 16-bit write at update start and avoids locks,
+ring buffers, timestamps, printf, or a separate logging transport.
 
 The reserved `3F000h-3FFFFh` ownership-transfer mailbox is not used as scratch
 telemetry storage.
@@ -75,9 +76,18 @@ build-freertos-system/processor/generated/freertos_system_validation/
 ```
 
 Locate `_gRp86Telemetry` in that map and convert its segment:offset to a physical
-address before using the existing Host `mem read` command.  This discovery step
-is intentional for the first version so the experiment does not prematurely
-freeze a telemetry address.
+address.  This discovery step is intentional for the first version so the
+experiment does not prematurely freeze a telemetry address.
+
+With an RP86 runtime/broker already active, read and decode one coherent snapshot
+without stopping the workload:
+
+```text
+py tools/rp86_freertos_status.py <physical-address>
+```
+
+The helper performs only ordinary processor-visible RAM reads.  The 8086 remains
+the source of truth and the Host only decodes the 16-byte witness.
 
 ## Runtime expectation
 
@@ -88,7 +98,7 @@ execute HLT during normal operation.  Acceptance is sustained forward progress:
 LED state/count changes
 queue_tx_count advances
 queue_rx_count follows and advances
-last_event.seq advances
+last_event.seq advances and is even when stable
 error_count remains 0
 ```
 

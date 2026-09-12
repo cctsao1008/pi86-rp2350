@@ -6,10 +6,9 @@
 /*
  * Minimal processor-owned event witness.
  *
- * A producer writes event/arg first and publishes seq last.  A Host observer
- * may read seq before and after the surrounding telemetry block and retry when
- * the two values differ.  The record intentionally carries no strings,
- * timestamp, ring-buffer state, or transport ownership.
+ * seq also acts as a tiny seqlock for the surrounding telemetry block:
+ * odd means update in progress, even means stable.  The processor publishes
+ * no strings, timestamps, ring-buffer state, or transport ownership here.
  */
 typedef struct rp86_event
 {

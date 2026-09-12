@@ -43,31 +43,36 @@ volatile rp86_freertos_telemetry_t gRp86Telemetry;
 volatile uint16_t rp86_data_anchor = 0x8667U;
 
 static QueueHandle_t xQueue;
-static uint16_t usEventSequence;
+static uint16_t usTelemetrySequence;
 
-static void prvPublishEventLocked( uint16_t usEvent, uint16_t usArg )
+static void prvBeginTelemetryUpdateLocked( void )
+{
+    usTelemetrySequence++;
+    gRp86Telemetry.last_event.seq = usTelemetrySequence; /* odd: unstable */
+}
+
+static void prvCommitEventLocked( uint16_t usEvent, uint16_t usArg )
 {
     gRp86Telemetry.last_event.event = usEvent;
     gRp86Telemetry.last_event.arg = usArg;
-    usEventSequence++;
-    gRp86Telemetry.last_event.seq = usEventSequence;
+    usTelemetrySequence++;
+    gRp86Telemetry.last_event.seq = usTelemetrySequence; /* even: stable */
 }
 
 static uint16_t prvPreSchedulerFail( uint16_t usCode )
 {
+    prvBeginTelemetryUpdateLocked();
     gRp86Telemetry.error_count++;
-    gRp86Telemetry.last_event.event = RP86_EVT_ERROR;
-    gRp86Telemetry.last_event.arg = usCode;
-    usEventSequence++;
-    gRp86Telemetry.last_event.seq = usEventSequence;
+    prvCommitEventLocked( RP86_EVT_ERROR, usCode );
     return usCode;
 }
 
 static void prvFatal( uint16_t usCode )
 {
     taskENTER_CRITICAL();
+    prvBeginTelemetryUpdateLocked();
     gRp86Telemetry.error_count++;
-    prvPublishEventLocked( RP86_EVT_ERROR, usCode );
+    prvCommitEventLocked( RP86_EVT_ERROR, usCode );
     taskEXIT_CRITICAL();
 
     rp86SystemFail( usCode );
@@ -89,9 +94,10 @@ static void prvLedTask( void * pvParameters )
     for( ;; )
     {
         taskENTER_CRITICAL();
+        prvBeginTelemetryUpdateLocked();
         gRp86Telemetry.led_state ^= 1U;
         gRp86Telemetry.led_toggle_count++;
-        prvPublishEventLocked(
+        prvCommitEventLocked(
             ( gRp86Telemetry.led_state != 0U ) ? RP86_EVT_LED_ON : RP86_EVT_LED_OFF,
             gRp86Telemetry.led_toggle_count );
         taskEXIT_CRITICAL();
@@ -115,8 +121,9 @@ static void prvProducerTask( void * pvParameters )
         }
 
         taskENTER_CRITICAL();
+        prvBeginTelemetryUpdateLocked();
         gRp86Telemetry.queue_tx_count++;
-        prvPublishEventLocked( RP86_EVT_QUEUE_SEND, usValue );
+        prvCommitEventLocked( RP86_EVT_QUEUE_SEND, usValue );
         taskEXIT_CRITICAL();
 
         vTaskDelay( pdMS_TO_TICKS( RP86_PRODUCER_PERIOD_MS ) );
@@ -143,18 +150,18 @@ static void prvConsumerTask( void * pvParameters )
         usExpected++;
 
         taskENTER_CRITICAL();
+        prvBeginTelemetryUpdateLocked();
         gRp86Telemetry.queue_rx_count++;
-        prvPublishEventLocked( RP86_EVT_QUEUE_RECV, usValue );
+        prvCommitEventLocked( RP86_EVT_QUEUE_RECV, usValue );
         taskEXIT_CRITICAL();
     }
 }
 
 uint16_t rp86_freertos_system_main( void )
 {
-    usEventSequence = 1U;
-    gRp86Telemetry.last_event.event = RP86_EVT_BOOT;
-    gRp86Telemetry.last_event.arg = 0U;
-    gRp86Telemetry.last_event.seq = usEventSequence;
+    usTelemetrySequence = 0U;
+    prvBeginTelemetryUpdateLocked();
+    prvCommitEventLocked( RP86_EVT_BOOT, 0U );
 
     xQueue = xQueueCreate( RP86_QUEUE_LENGTH, sizeof( uint16_t ) );
     if( xQueue == NULL )
