@@ -60,14 +60,22 @@ static void prvCommitEventLocked( uint16_t usEvent, uint16_t usArg )
 }
 
 /*
- * Pre-scheduler startup witness.  BOOT arg values are intentionally tiny and
- * temporary diagnostics for #71: 0 entry, 1 queue, 2 LED task, 3 producer,
- * 4 consumer, 5 immediately before vTaskStartScheduler().
+ * Temporary #71 scheduler-localization witness:
+ *   0 entry, 1 queue, 2 LED created, 3 producer created, 4 consumer created,
+ *   5 immediately before vTaskStartScheduler(), 6 consumer task entered,
+ *   7 producer task entered, 8 LED task entered.
  */
 static void prvPublishBootStage( uint16_t usStage )
 {
     prvBeginTelemetryUpdateLocked();
     prvCommitEventLocked( RP86_EVT_BOOT, usStage );
+}
+
+static void prvPublishTaskStage( uint16_t usStage )
+{
+    taskENTER_CRITICAL();
+    prvPublishBootStage( usStage );
+    taskEXIT_CRITICAL();
 }
 
 static uint16_t prvPreSchedulerFail( uint16_t usCode )
@@ -101,6 +109,7 @@ void rp86AssertFailed( unsigned short line )
 static void prvLedTask( void * pvParameters )
 {
     ( void ) pvParameters;
+    prvPublishTaskStage( 8U );
 
     for( ;; )
     {
@@ -122,6 +131,7 @@ static void prvProducerTask( void * pvParameters )
     uint16_t usValue = 0U;
 
     ( void ) pvParameters;
+    prvPublishTaskStage( 7U );
 
     for( ;; )
     {
@@ -147,6 +157,7 @@ static void prvConsumerTask( void * pvParameters )
     uint16_t usExpected = 1U;
 
     ( void ) pvParameters;
+    prvPublishTaskStage( 6U );
 
     for( ;; )
     {
