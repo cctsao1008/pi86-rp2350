@@ -25,7 +25,7 @@ Host
   -> return PASS
 ```
 
-Lifecycle evidence is timestamped with local time, millisecond resolution, and the UTC offset so Host deployment events can be correlated with runtime/session and workload-specific telemetry.
+Lifecycle evidence is timestamped with local time, millisecond resolution, and the UTC offset so Host deployment events can be correlated with runtime/session and workload-specific telemetry. Timestamps are attached to lifecycle-event lines; indented detail lines remain part of the immediately preceding event.
 
 A successful command has the form:
 
@@ -34,11 +34,14 @@ A successful command has the form:
 Workload = build-freertos-system/workloads/FREERTOS-SYSTEM.P86W
 
 [2026-09-13 01:15:12.331 +08:00] Native workload upload
-  ...
+  image   10198 bytes
+  address 0x10000
+  entry   1000:0000
+  CRC32   A5AE36E2
 [2026-09-13 01:15:12.487 +08:00] workload upload: PASS (... records)
-  ...
+  workload_id=N state=STAGED ...
 [2026-09-13 01:15:12.488 +08:00] workload run: ACCEPTED (1 records)
-  ...
+  workload_id=N state=RUNNING ... processor=ACTIVE
 [2026-09-13 01:15:12.489 +08:00] WORKLOAD START: PASS
 Physical processor continues executing after Host command return.
 ```
