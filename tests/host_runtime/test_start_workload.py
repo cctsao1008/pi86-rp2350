@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 
 from rp86_runtime.start_workload import (  # noqa: E402
+    _format_duration,
     _next_sequence,
     _sequence_from_hello,
     _timestamp,
@@ -52,6 +53,10 @@ class StartWorkloadTests(unittest.TestCase):
                 r"[+-]\d{2}:\d{2}\]$"
             ),
         )
+
+    def test_deployment_duration_uses_millisecond_resolution(self) -> None:
+        self.assertEqual(_format_duration(19.3154), "19.315 s")
+        self.assertEqual(_format_duration(-1.0), "0.000 s")
 
 
 if __name__ == "__main__":
