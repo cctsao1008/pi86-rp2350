@@ -36,14 +36,39 @@ typedef struct rp86_freertos_telemetry
     volatile uint16_t error_count;
 } rp86_freertos_telemetry_t;
 
-extern void rp86SystemFail( uint16_t code );
+typedef struct rp86_freertos_queue_trace
+{
+    volatile uint16_t armed;
+    volatile uint16_t stage;
+    volatile uint16_t detail;
+} rp86_freertos_queue_trace_t;
 
-/* Exported intentionally: the linker map is the workload-local discovery aid. */
+extern void rp86SystemFail( uint16_t code );
+extern void rp86PortResetTrace( void );
+
+/* Exported intentionally: linker-map symbols are workload-local discovery aids. */
 volatile rp86_freertos_telemetry_t gRp86Telemetry;
+volatile rp86_freertos_queue_trace_t gRp86QueueTrace;
 volatile uint16_t rp86_data_anchor = 0x8667U;
 
 static QueueHandle_t xQueue;
 static uint16_t usTelemetrySequence;
+
+void rp86QueueTraceStage( unsigned short stage, unsigned short detail )
+{
+    if( gRp86QueueTrace.armed != 0U )
+    {
+        gRp86QueueTrace.stage = ( uint16_t ) stage;
+        gRp86QueueTrace.detail = ( uint16_t ) detail;
+    }
+}
+
+static void prvArmQueueTrace( void )
+{
+    gRp86QueueTrace.detail = 0U;
+    gRp86QueueTrace.stage = 1U;
+    gRp86QueueTrace.armed = 1U;
+}
 
 static void prvBeginTelemetryUpdateLocked( void )
 {
@@ -170,6 +195,14 @@ static void prvConsumerTask( void * pvParameters )
             portYIELD();
             usYieldProbeDone = 1U;
             prvPublishTaskStage( 10U );
+
+            /*
+             * The explicit-yield round trip is now proven.  Reset the port
+             * witness so the next INT 80h, if xQueueReceive reaches it, is the
+             * one captured alongside the queue-blocking trace below.
+             */
+            rp86PortResetTrace();
+            prvArmQueueTrace();
         }
 
         if( xQueueReceive( xQueue, &usValue, portMAX_DELAY ) != pdPASS )
@@ -193,6 +226,9 @@ static void prvConsumerTask( void * pvParameters )
 uint16_t rp86_freertos_system_main( void )
 {
     usTelemetrySequence = 0U;
+    gRp86QueueTrace.armed = 0U;
+    gRp86QueueTrace.stage = 0U;
+    gRp86QueueTrace.detail = 0U;
     prvPublishBootStage( 0U );
 
     xQueue = xQueueCreate( RP86_QUEUE_LENGTH, sizeof( uint16_t ) );
