@@ -11,6 +11,7 @@ from rp86_runtime.freertos_system import (  # noqa: E402
     FreeRTOSSystemTelemetry,
     decode_sequence,
     stable_sequence,
+    telemetry_address_from_map,
 )
 
 
@@ -24,7 +25,7 @@ class FreeRTOSSystemTelemetryTests(unittest.TestCase):
         self.assertEqual(snapshot.queue_rx_count, 18)
         self.assertEqual(snapshot.event_name, "QUEUE_RECV")
         self.assertTrue(snapshot.stable)
-        rendered = snapshot.format(0x128D8)
+        rendered = snapshot.format(0x128F8)
         self.assertIn("LED          ON", rendered)
         self.assertIn("QUEUE_RECV", rendered)
         self.assertIn("Errors       0", rendered)
@@ -36,11 +37,17 @@ class FreeRTOSSystemTelemetryTests(unittest.TestCase):
     def test_sequence_is_little_endian(self) -> None:
         self.assertEqual(decode_sequence(b"\x34\x12"), 0x1234)
 
-    def test_invalid_sizes_are_rejected(self) -> None:
+    def test_map_symbol_resolves_to_physical_address(self) -> None:
+        text = "126A:0258+     _gRp86Telemetry\n"
+        self.assertEqual(telemetry_address_from_map(text), 0x128F8)
+
+    def test_invalid_sizes_and_missing_symbol_are_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "exactly 16 bytes"):
             FreeRTOSSystemTelemetry.decode(b"\x00" * 15)
         with self.assertRaisesRegex(ValueError, "exactly 2 bytes"):
             decode_sequence(b"\x00")
+        with self.assertRaisesRegex(ValueError, "_gRp86Telemetry"):
+            telemetry_address_from_map("no symbols here")
 
 
 if __name__ == "__main__":

@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import struct
 
 
 TELEMETRY_SIZE = 16
 TELEMETRY_SEQUENCE_OFFSET = 8
 _TELEMETRY = struct.Struct("<8H")
+_TELEMETRY_SYMBOL = re.compile(
+    r"^\s*([0-9A-Fa-f]{4}):([0-9A-Fa-f]{4})\+?\s+_gRp86Telemetry\b",
+    re.MULTILINE,
+)
 _EVENT_NAMES = {
     1: "BOOT",
     2: "LED_ON",
@@ -28,6 +33,16 @@ def decode_sequence(data: bytes) -> int:
     if len(data) != 2:
         raise ValueError("telemetry sequence must be exactly 2 bytes")
     return struct.unpack("<H", data)[0]
+
+
+def telemetry_address_from_map(map_text: str) -> int:
+    """Resolve the workload-local telemetry physical address from a Watcom map."""
+    match = _TELEMETRY_SYMBOL.search(map_text)
+    if match is None:
+        raise ValueError("linker map does not contain _gRp86Telemetry")
+    segment = int(match.group(1), 16)
+    offset = int(match.group(2), 16)
+    return (segment << 4) + offset
 
 
 @dataclass(frozen=True)
