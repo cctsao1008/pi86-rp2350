@@ -9,16 +9,33 @@ on:
       - "cmake/ProcessorImage.cmake"
       - "cmake/ProcessorC16Image.cmake"
       - "cmake/LinkProcessorC16.cmake"
+      - "host/rp86/workload.py"
       - "processor/CMakeLists.txt"
       - "processor/include/rp86_abi.inc"
       - "processor/include/rp86_event.h"
       - "processor/ports/freertos/8086/**"
       - "processor/workloads/**"
       - "scripts/build.py"
-      - "tests/host_runtime/test_build_pipeline.py"
+      - "scripts/package_workload.py"
+      - "tests/build/test_build_pipeline.py"
       - "third_party/FreeRTOS-Kernel"
-      - "tools/package_workload.py"
-      - "tools/rp86_runtime/workload.py"
+  pull_request:
+    paths:
+      - ".github/workflows/freertos-8086.yml"
+      - ".gitmodules"
+      - "cmake/ProcessorImage.cmake"
+      - "cmake/ProcessorC16Image.cmake"
+      - "cmake/LinkProcessorC16.cmake"
+      - "host/rp86/workload.py"
+      - "processor/CMakeLists.txt"
+      - "processor/include/rp86_abi.inc"
+      - "processor/include/rp86_event.h"
+      - "processor/ports/freertos/8086/**"
+      - "processor/workloads/**"
+      - "scripts/build.py"
+      - "scripts/package_workload.py"
+      - "tests/build/test_build_pipeline.py"
+      - "third_party/FreeRTOS-Kernel"
   workflow_dispatch:
 
 jobs:
@@ -61,7 +78,7 @@ jobs:
           ninja --version
 
       - name: Test workload build architecture
-        run: python3 -m unittest tests.host_runtime.test_build_pipeline
+        run: python3 -m unittest tests.build.test_build_pipeline
 
       - name: Build through canonical RP86 driver
         run: python3 scripts/build.py workloads --verbose
@@ -72,10 +89,8 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          import sys
 
-          sys.path.insert(0, "tools")
-          from rp86_runtime.workload import (
+          from host.rp86.workload import (
               FLAG_CLOCK_STEPPED,
               FLAG_PERIODIC_TICK,
               FLAG_STDIO,
@@ -131,10 +146,8 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           import re
-          import sys
 
-          sys.path.insert(0, "tools")
-          from rp86_runtime.workload import (
+          from host.rp86.workload import (
               FLAG_CLOCK_STEPPED,
               FLAG_PERIODIC_TICK,
               decode_workload_file,
