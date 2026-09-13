@@ -132,7 +132,7 @@ If future tests require processor-visible I/O or interrupt behavior, only the mi
 
 ## Repository placement
 
-The intended layout is intentionally small:
+The laboratory remains an engineering tool, not Host production runtime:
 
 ```text
 tools/
@@ -145,11 +145,12 @@ tools/
     └── cli.py
 
 tests/
-└── ia16_lab/
-    ├── fixtures/
-    │   └── freertos_block_state.py
-    ├── test_machine.py
-    └── test_freertos_block_path.py
+└── tools/
+    └── ia16_lab/
+        ├── fixtures/
+        │   └── freertos_block_state.py
+        ├── test_machine.py
+        └── test_freertos_block_path.py
 ```
 
 The project-level naming uses **laboratory** rather than simulator, emulator, or digital twin to make the scope boundary explicit.
@@ -340,5 +341,5 @@ If it cannot provide substantially better evidence than disassembly plus existin
 - GitHub Issue #80 — implementation and go/no-go tracking
 - GitHub Issue #75 — first FreeRTOS vertical slice
 - GitHub Issue #79 — strict Intel 8086 opcode-baseline validation
-- `docs/processor_c16_abi.md` — Open Watcom C/16 ABI contract
-- `docs/processor_freertos_8086_port.md` — FreeRTOS 8086 portable-layer contract
+- [`docs/reference/processor_c16_abi.md`](../reference/processor_c16_abi.md) — Open Watcom C/16 ABI contract
+- [`docs/reference/processor_freertos_8086_port.md`](../reference/processor_freertos_8086_port.md) — FreeRTOS 8086 portable-layer contract
