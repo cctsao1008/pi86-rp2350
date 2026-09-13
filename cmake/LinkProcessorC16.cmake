@@ -35,13 +35,21 @@ file(MAKE_DIRECTORY "${output_dir}")
 # only the emitted file representation.  OUTPUT RAW OFFSET removes the leading
 # physical-address padding without changing linker address calculations.
 #
-# ORDER is the WLINK mechanism intended for fixed-address/ROMable targets.  It
-# keeps _TEXT first at LOAD_ADDRESS while allowing the C compiler's DGROUP
+# OPTION DOSSEG is part of the C/16 startup ABI, not merely an ordering
+# preference.  Open Watcom defines the reserved _edata and _end symbols only
+# when DOSSEG is active; the RP86 startup uses those symbols to zero exactly
+# the DGROUP BSS range on every cold entry/restart.  We link without the Watcom
+# run-time libraries, so no library startup object can be relied on to request
+# DOSSEG implicitly.
+#
+# ORDER remains the WLINK mechanism used here for the fixed physical placement:
+# it keeps _TEXT first at LOAD_ADDRESS while allowing the C compiler's DGROUP
 # classes to follow with normal 8086 segment fixups resolved by the linker.
 file(WRITE "${LINK_SCRIPT}"
     "format dos\n"
     "option quiet\n"
     "option nodefaultlibs\n"
+    "option dosseg\n"
     "option start=rp86_c16_entry\n"
     "order clname CODE segaddr=${load_segment} segment _TEXT clname DATA clname BSS\n"
     "output raw offset=${LOAD_ADDRESS}\n"
