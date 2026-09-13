@@ -20,7 +20,6 @@ on:
       - "tests/host/**"
       - "tests/integration/**"
       - "tools/diagnostics/**"
-      - "tools/rp86_runtime/**"
   pull_request:
     paths:
       - ".github/workflows/runtime-tests.yml"
@@ -38,7 +37,6 @@ on:
       - "tests/host/**"
       - "tests/integration/**"
       - "tools/diagnostics/**"
-      - "tools/rp86_runtime/**"
   workflow_dispatch:
 
 jobs:
