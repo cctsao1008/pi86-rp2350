@@ -147,18 +147,44 @@ class IA16Machine:
 
     def run(self, *, instruction_count: int) -> None:
         """Execute at most ``instruction_count`` instructions from current CS:IP."""
-        if self.workload is None:
-            raise RuntimeError("no workload is loaded")
-        if instruction_count <= 0:
-            raise ValueError("instruction_count must be positive")
-
-        start = self.current_linear_ip()
+        self._validate_run(instruction_count)
         self._uc.emu_start(
-            start,
+            self.current_linear_ip(),
             self.memory_size,
             timeout=0,
             count=instruction_count,
         )
+
+    def run_until_address(self, address: int, *, instruction_count: int) -> bool:
+        """Run until ``address`` is about to execute, or the bound is exhausted.
+
+        The target instruction is not executed.  Returning ``True`` therefore
+        leaves the machine registers and stack at an exact call/branch boundary,
+        which is useful for focused ABI and caller-state fixtures.
+        """
+        self._validate_run(instruction_count)
+        if not 0 <= address < self.memory_size:
+            raise ValueError("target address is outside modeled memory")
+
+        reached = False
+
+        def stop_hook(_uc: Any, current: int, _size: int, _user: Any) -> None:
+            nonlocal reached
+            if current == address:
+                reached = True
+                self._uc.emu_stop()
+
+        hook = self._uc.hook_add(self._hook_code, stop_hook)
+        try:
+            self._uc.emu_start(
+                self.current_linear_ip(),
+                self.memory_size,
+                timeout=0,
+                count=instruction_count,
+            )
+        finally:
+            self._uc.hook_del(hook)
+        return reached
 
     def current_linear_ip(self) -> int:
         state = self.registers()
@@ -172,12 +198,7 @@ class IA16Machine:
         return RegisterState(**values)
 
     def write_register(self, name: str, value: int) -> None:
-        """Set one IA16 register for a focused execution fixture.
-
-        Production workload loading still owns the normal initial CPU state.
-        This narrow override exists so evidence fixtures can enter a real linked
-        function with an explicitly constructed processor-visible pre-state.
-        """
+        """Set one IA16 register for a focused execution fixture."""
         if name not in self._register_ids:
             raise ValueError(f"unknown IA16 register: {name}")
         if value < 0 or value > 0xFFFF:
@@ -193,6 +214,12 @@ class IA16Machine:
         if address < 0 or address + len(data) > self.memory_size:
             raise ValueError("memory write is outside modeled memory")
         self._uc.mem_write(address, data)
+
+    def _validate_run(self, instruction_count: int) -> None:
+        if self.workload is None:
+            raise RuntimeError("no workload is loaded")
+        if instruction_count <= 0:
+            raise ValueError("instruction_count must be positive")
 
     def _write_reg(self, name: str, value: int) -> None:
         self._uc.reg_write(self._register_ids[name], value)
