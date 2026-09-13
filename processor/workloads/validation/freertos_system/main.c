@@ -3,6 +3,7 @@
 #include "FreeRTOS.h"
 #include "task.h"
 #include "queue.h"
+#include "portable.h"
 #include "rp86_event.h"
 
 #define RP86_TASK_STACK_WORDS       512U
@@ -185,6 +186,17 @@ static void prvConsumerTask( void * pvParameters )
 
 uint16_t rp86_freertos_system_main( void )
 {
+    /*
+     * RP86 restart re-enters this workload in the same RAM-resident C image.
+     * FreeRTOS deliberately provides reset hooks for this case: task/kernel
+     * globals and heap_1 allocation state may be compiler-initialized data and
+     * therefore are not covered by the startup stub's BSS clear.  Reset both
+     * modules before allocating any queue, TCB, or task stack.  The calls are
+     * also safe on the first cold entry, where the state is already initial.
+     */
+    vTaskResetState();
+    vPortHeapResetState();
+
     usTelemetrySequence = 0U;
     prvPublishBootStage( 0U );
 
