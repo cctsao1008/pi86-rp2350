@@ -10,9 +10,10 @@ import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "tools"))
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.workload import (  # noqa: E402
+from host.rp86.workload import (  # noqa: E402
     FLAG_CLOCK_FREE_RUNNING,
     FLAG_CLOCK_STEPPED,
     FLAG_PERIODIC_TICK,
