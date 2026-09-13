@@ -34,14 +34,14 @@ USB composition can change between targets. A CDC-only image and a CDC+HID compo
 
 3. Do not assume the previous COM number.
 4. Check Windows Device Manager for the development VID/PID documented by the target.
-5. Query the current runtime with `py tools/rp86.py --status`; do not reset just to recapture startup text.
+5. Query the current runtime with `py -m host.apps.cli.rp86 --status`; do not reset just to recapture startup text.
 
 The RP2350 firmware must not require a CDC connection before releasing or safely terminating the V30 experiment unless that dependency is the explicit test subject.
 
 ## HID appears but no CDC evidence arrives
 
 - Confirm that the selected UF2 is the composite target, not an older HID-only or CDC-only image.
-- Use `rp86.py --list-devices` to verify the HID interface.
+- Use `py -m host.apps.cli.rp86 --list-devices` to verify the HID interface.
 - Rediscover the associated CDC COM port.
 - Start the bridge with both the HID device and explicit COM port available.
 - Query current status; missing startup text alone is not a reason to reset.
