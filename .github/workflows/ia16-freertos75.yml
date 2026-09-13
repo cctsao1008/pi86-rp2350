@@ -103,6 +103,33 @@ jobs:
             --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
             | tee build-workloads/freertos75-xqueue-layout.txt
 
+      - name: Resolve production FreeRTOS port context layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.ia16_lab.freertos75_port_layout \
+            --link build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.lnk \
+            --map build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map \
+            --main-object build-workloads/processor/generated/freertos_system_pmax_a/c1_main.obj \
+            --queue-object build-workloads/processor/generated/freertos_system_pmax_a/c4_queue.obj \
+            --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            --port-object build-workloads/processor/generated/freertos_system_pmax_a/c2_port.obj \
+            | tee build-workloads/freertos75-port-layout.txt
+
+      - name: Execute real initial task restore through xQueueReceive
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.ia16_lab.freertos75_port_context_fixture \
+            artifacts/workloads/FREERTOS-PMAX-A.P86W \
+            --link build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.lnk \
+            --map build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map \
+            --main-object build-workloads/processor/generated/freertos_system_pmax_a/c1_main.obj \
+            --queue-object build-workloads/processor/generated/freertos_system_pmax_a/c4_queue.obj \
+            --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            --port-object build-workloads/processor/generated/freertos_system_pmax_a/c2_port.obj \
+            | tee build-workloads/freertos75-port-context.txt
+
       - name: Execute real xQueueReceive caller to delayed-list boundary
         shell: bash
         run: |
@@ -124,8 +151,6 @@ jobs:
           window=build-workloads/freertos75-delayed-list-window.bin
           listing=build-workloads/freertos75-delayed-list-window.ndisasm
 
-          # OMF/WLINK evidence resolves prvAddCurrentTaskToDelayedList to physical
-          # 0x12613. The flat image is loaded at 0x10000, hence file offset 0x2613.
           dd if="$image" of="$window" bs=1 skip=$((0x25F0)) count=$((0x1E0)) status=none
           .tools/nasm-3.02/bin/ndisasm -b 16 -o 0x125F0 "$window" | tee "$listing"
           grep -q '^00012613' "$listing"
@@ -181,6 +206,8 @@ jobs:
             build-workloads/freertos75-tooling.txt
             build-workloads/freertos75-omf-layout.txt
             build-workloads/freertos75-xqueue-layout.txt
+            build-workloads/freertos75-port-layout.txt
+            build-workloads/freertos75-port-context.txt
             build-workloads/freertos75-xqueue-boundary.txt
             build-workloads/freertos75-delayed-list-window.bin
             build-workloads/freertos75-delayed-list-window.ndisasm
