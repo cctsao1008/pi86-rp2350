@@ -121,11 +121,15 @@ Developer-facing engineering applications only: execution laboratories, diagnost
 
 Deleting `tools/` must not make the deployed RP86 system unable to operate normally.
 
-The IA16 binary execution laboratory belongs here:
+The current top-level tool set is intentionally small:
 
 ```text
-tools/ia16_lab/
+tools/
+├── diagnostics/
+└── ia16_lab/
 ```
+
+The IA16 binary execution laboratory remains an engineering tool rather than a production Host dependency.
 
 ### `scripts/`
 
@@ -152,6 +156,10 @@ tests/
 
 `physical/` remains a separate validation class because physical Intel 8086 / NEC V30 evidence is the final architectural acceptance layer, not an ordinary unit-test category.
 
+Repository structure is itself a tested contract. `tests/build/test_repository_structure.py` rejects reintroduction of migrated legacy paths and stale references to them, and asserts that `tools/` remains engineering-only. The Runtime policy workflow executes that gate together with build, cross-plane, Host, firmware, and documentation policy tests.
+
+This makes the migration invariant durable: a future change cannot silently restore a second Host runtime under `tools/`, an obsolete test hierarchy, or one of the retired root documentation authorities without failing CI.
+
 ## Documentation authority
 
 ```text
@@ -168,6 +176,8 @@ The repository documentation rule is:
 > README explains the system. Issues explain the journey. Code proves the current state.
 
 Git history is the archive; superseded documentation should not create a parallel archive tree.
+
+Documentation integrity is mechanically checked by `scripts/check_docs.py`, including relative links and repository-specific policy constraints. That checker is part of the Runtime policy CI gate for documentation changes.
 
 ## Dependency rules
 
@@ -199,3 +209,5 @@ Issue #82 performs the transition from the historical tree to this model.
 The migration changes ownership paths, imports, build references, CI paths, and documentation links. It must not be used to change runtime semantics, fix FreeRTOS #75 behavior, redesign the #79 ISA validator, or broaden the #80 IA16 laboratory.
 
 Temporary duplicate paths are allowed only inside the #82 migration branch while consumers are moved. They must not remain when #82 is accepted.
+
+The accepted post-migration tree is expected to satisfy both repository-structure and documentation policy gates. A failure in an orthogonal functional validator remains owned by its corresponding issue rather than being hidden or opportunistically repaired as part of a path migration.
