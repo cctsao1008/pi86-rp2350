@@ -3,12 +3,12 @@ import sys
 import unittest
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.protocol import Message, TYPE_WORKLOAD_CONTROL, TYPE_WORKLOAD_STATUS  # noqa: E402
-from rp86_runtime.request_channel import exchange_hid_request  # noqa: E402
-from rp86_runtime.transport import hid_output_report  # noqa: E402
+from host.rp86.protocol import Message, TYPE_WORKLOAD_CONTROL, TYPE_WORKLOAD_STATUS  # noqa: E402
+from host.rp86.request_channel import exchange_hid_request  # noqa: E402
+from host.rp86.transport import hid_output_report  # noqa: E402
 
 
 class FakeHid:
