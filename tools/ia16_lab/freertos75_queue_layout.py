@@ -1,9 +1,9 @@
 """Resolve production xQueueReceive caller context for FreeRTOS issue #75.
 
 This module extends the Step-3 OMF/WLINK evidence one level outward from
-prvAddCurrentTaskToDelayedList().  It resolves the real workload-local consumer
-function, queue handle storage, and public xQueueReceive entry from the same
-production PMAX-A link without changing FreeRTOS or workload linkage.
+prvAddCurrentTaskToDelayedList(). It resolves the real workload-local consumer
+function, queue handle storage, public xQueueReceive entry, and scheduler globals
+needed to execute the caller path from the same production PMAX-A link.
 """
 
 from __future__ import annotations
@@ -29,6 +29,10 @@ class FreeRTOS75QueueLayout:
     consumer_task: int
     queue_receive: int
     queue_handle: int
+    tick_count: int
+    num_overflows: int
+    scheduler_suspended: int
+    pended_ticks: int
 
     def dgroup_offset(self, address: int) -> int:
         offset = address - self.scheduler.dgroup_base
@@ -63,9 +67,8 @@ def resolve_queue_layout(
     bases = contribution_bases(objects)
     main = _find_object(objects, main_object)
     queue = _find_object(objects, queue_object)
+    tasks = _find_object(objects, tasks_object)
 
-    # Validate the exact contributions that carry the local workload caller and
-    # queue handle before accepting any local-symbol address as evidence.
     main_text_anchor = linked_address(main, "_rp86_freertos_system_main", bases, placements)
     if main_text_anchor != map_symbols.address("_rp86_freertos_system_main"):
         raise RuntimeError("main-object _TEXT contribution does not match WLINK map")
@@ -82,16 +85,30 @@ def resolve_queue_layout(
     queue_handle = linked_address(main, "_xQueue", bases, placements)
     queue_receive = queue_text_anchor
 
-    # The workload stores xQueue as a near pointer in DGROUP.
-    offset = queue_handle - scheduler.dgroup_base
-    if not 0 <= offset <= 0xFFFF:
-        raise RuntimeError("workload xQueue handle is outside DGROUP")
+    task_globals = {
+        name: linked_address(tasks, name, bases, placements)
+        for name in (
+            "_xTickCount",
+            "_xNumOfOverflows",
+            "_uxSchedulerSuspended",
+            "_xPendedTicks",
+        )
+    }
+
+    for address in (queue_handle, *task_globals.values()):
+        offset = address - scheduler.dgroup_base
+        if not 0 <= offset <= 0xFFFF:
+            raise RuntimeError("caller fixture state is outside DGROUP")
 
     return FreeRTOS75QueueLayout(
         scheduler=scheduler,
         consumer_task=consumer_task,
         queue_receive=queue_receive,
         queue_handle=queue_handle,
+        tick_count=task_globals["_xTickCount"],
+        num_overflows=task_globals["_xNumOfOverflows"],
+        scheduler_suspended=task_globals["_uxSchedulerSuspended"],
+        pended_ticks=task_globals["_xPendedTicks"],
     )
 
 
@@ -128,6 +145,14 @@ def main(argv: list[str] | None = None) -> int:
     print(
         f"  delayed-list fn   0x{layout.scheduler.address('_prvAddCurrentTaskToDelayedList'):05X}"
     )
+    print("  scheduler globals")
+    for name, address in (
+        ("xTickCount", layout.tick_count),
+        ("xNumOfOverflows", layout.num_overflows),
+        ("uxSchedulerSuspended", layout.scheduler_suspended),
+        ("xPendedTicks", layout.pended_ticks),
+    ):
+        print(f"    {name:<20} 0x{address:05X} [DGROUP+0x{layout.dgroup_offset(address):04X}]")
     return 0
 
 
