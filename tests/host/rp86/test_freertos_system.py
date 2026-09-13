@@ -4,10 +4,10 @@ from pathlib import Path
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.freertos_system import (  # noqa: E402
+from host.rp86.freertos_system import (  # noqa: E402
     FreeRTOSPortTrace,
     FreeRTOSSystemTelemetry,
     counter_delta,
