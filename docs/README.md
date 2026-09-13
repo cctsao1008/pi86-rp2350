@@ -3,19 +3,19 @@
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel
 > 8086 and NEC V30 processors.**
 
-Documentation is being migrated under Issue #82 from historical root-level placement to authority-based categories. Canonical category paths are used as soon as a document has been migrated; remaining root-level paths stay authoritative until their coordinated link sweep is complete.
+Documentation is organized by authority rather than by project history. Architecture explains durable system boundaries; reference documents define stable interfaces, maps, and ABI contracts; development documents describe engineering workflows; validation retains accepted evidence.
 
 ## Start here
 
-1. [`architecture.md`](architecture.md) — identity, roles, and boundaries
-2. [`host_runtime_architecture.md`](host_runtime_architecture.md) — runtime and ownership model
-3. [`host_runtime_shell.md`](host_runtime_shell.md) — RP86 Host shell
-4. [`memory_architecture.md`](memory_architecture.md) — SRAM, PSRAM, flash, SD, and sharing
-5. [`processor_memory_map.md`](processor_memory_map.md) — canonical 8086/V30 physical address map
-6. [`processor_io_interrupt_map.md`](processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
-7. [`host_protocol.md`](host_protocol.md) — Host operations and transports
-8. [`companion_service_abi.md`](companion_service_abi.md) — records and processor mailbox
-9. [`hardware.md`](hardware.md) — board resources and electrical ownership
+1. [`architecture/README.md`](architecture/README.md) — identity, roles, and boundaries
+2. [`architecture/host_runtime.md`](architecture/host_runtime.md) — runtime and ownership model
+3. [`reference/host_runtime_shell.md`](reference/host_runtime_shell.md) — RP86 Host shell
+4. [`architecture/memory.md`](architecture/memory.md) — SRAM, PSRAM, flash, SD, and sharing
+5. [`reference/processor_memory_map.md`](reference/processor_memory_map.md) — canonical 8086/V30 physical address map
+6. [`reference/processor_io_interrupt_map.md`](reference/processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
+7. [`reference/host_protocol.md`](reference/host_protocol.md) — Host operations and transports
+8. [`reference/companion_service_abi.md`](reference/companion_service_abi.md) — records and processor mailbox
+9. [`architecture/hardware.md`](architecture/hardware.md) — board resources and electrical ownership
 10. [`bringup/README.md`](bringup/README.md) — physical bring-up and acceptance
 11. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
 12. [`development/workload_deployment_vs_regression.md`](development/workload_deployment_vs_regression.md) — persistent deployment vs finite regression
