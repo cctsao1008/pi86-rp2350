@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """RPBridge: local broker for one RP86 physical-processor device.
 
-The broker never touches hardware from its network thread.  TCP requests are
+The broker never touches hardware from its network thread. TCP requests are
 placed on a queue and completed by the single Device Actor that already owns
-CDC/HID.  UDP carries read-only telemetry snapshots.
+CDC/HID. UDP carries read-only telemetry snapshots.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ import asyncio
 import base64
 from concurrent.futures import Future
 from dataclasses import dataclass
+from datetime import datetime
 from enum import Enum
 import json
 import os
@@ -27,6 +28,15 @@ from .device_ownership import DeviceOwnership
 
 BROKER_VERSION = 1
 MAX_RPC_BYTES = 16 * 1024
+HOST_RECORD_SIZE = 64
+HOST_TYPE_WORKLOAD_CONTROL = 0x23
+WORKLOAD_CONTROL_NAMES = {
+    1: "RUN",
+    2: "STOP",
+    3: "RESTART",
+    4: "STATUS",
+}
+CONTROL_AUDIT_LIMIT = 16
 
 
 class BrokerState(str, Enum):
@@ -243,6 +253,8 @@ class DeviceBroker:
         self._startup_error: BaseException | None = None
         self._ownership = DeviceOwnership(device_id)
         self._stop_event: asyncio.Event | None = None
+        self._audit_lock = threading.Lock()
+        self._control_audit: list[dict[str, Any]] = []
         self.record: BrokerRecord | None = None
         self.state = BrokerState.OPENING
         self.snapshot: dict[str, Any] = {
@@ -250,6 +262,7 @@ class DeviceBroker:
             "completed": 0,
             "lost": 0,
             "sequence": 0,
+            "control_audit": [],
         }
 
     def transition(self, target: BrokerState) -> None:
@@ -260,10 +273,55 @@ class DeviceBroker:
         self.state = target
         self.snapshot["state"] = target.value
 
+    @staticmethod
+    def _decode_workload_control(record: bytes) -> dict[str, Any] | None:
+        """Decode provenance fields from one workload-control ABI record."""
+        if len(record) != HOST_RECORD_SIZE or record[1] != HOST_TYPE_WORKLOAD_CONTROL:
+            return None
+        sequence = int.from_bytes(record[4:8], "little")
+        length = int.from_bytes(record[8:10], "little")
+        if length < 8:
+            return {
+                "sequence": sequence,
+                "operation": "MALFORMED",
+                "operation_code": None,
+                "workload_id": None,
+            }
+        operation = record[12]
+        workload_id = int.from_bytes(record[16:20], "little")
+        return {
+            "sequence": sequence,
+            "operation": WORKLOAD_CONTROL_NAMES.get(operation, f"UNKNOWN({operation})"),
+            "operation_code": operation,
+            "workload_id": workload_id,
+        }
+
+    def _record_control_audit(
+        self,
+        *,
+        client_id: str,
+        request_id: str,
+        decoded: dict[str, Any],
+        response: dict[str, Any],
+    ) -> None:
+        entry = {
+            "observed_at": datetime.now().astimezone().isoformat(),
+            "client_id": client_id,
+            "request_id": request_id,
+            **decoded,
+            "accepted": bool(response.get("ok")),
+        }
+        if not response.get("ok") and response.get("error"):
+            entry["error"] = str(response["error"])
+        with self._audit_lock:
+            self._control_audit.append(entry)
+            del self._control_audit[:-CONTROL_AUDIT_LIMIT]
+
     async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
         response: dict[str, Any]
+        workload_control_audit: tuple[str, str, dict[str, Any]] | None = None
         try:
             line = await reader.readline()
             if not line or len(line) > MAX_RPC_BYTES:
@@ -287,12 +345,17 @@ class DeviceBroker:
                 response = {"ok": True, "device_id": self.device_id}
             elif operation == "exchange":
                 record = base64.b64decode(request["record"], validate=True)
-                if len(record) != 64:
+                if len(record) != HOST_RECORD_SIZE:
                     raise ValueError("broker exchange requires one 64-byte ABI record")
+                client_id = str(request.get("client_id") or "anonymous")
+                request_id = str(request.get("request_id") or "")
+                decoded = self._decode_workload_control(record)
+                if decoded is not None:
+                    workload_control_audit = (client_id, request_id, decoded)
                 future: Future[dict[str, Any]] = Future()
                 pending = BrokerExchangeRequest(
-                    client_id=str(request.get("client_id") or "anonymous"),
-                    request_id=str(request.get("request_id") or ""),
+                    client_id=client_id,
+                    request_id=request_id,
                     record=record,
                     future=future,
                 )
@@ -316,6 +379,14 @@ class DeviceBroker:
                 raise ValueError(f"unsupported broker operation: {operation}")
         except (ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             response = {"ok": False, "error": str(exc)}
+        if workload_control_audit is not None:
+            client_id, request_id, decoded = workload_control_audit
+            self._record_control_audit(
+                client_id=client_id,
+                request_id=request_id,
+                decoded=decoded,
+                response=response,
+            )
         writer.write(json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n")
         await writer.drain()
         writer.close()
@@ -397,7 +468,9 @@ class DeviceBroker:
                 return requests
 
     def publish(self, snapshot: dict[str, Any]) -> None:
-        self.snapshot = dict(snapshot)
+        with self._audit_lock:
+            audit = [dict(entry) for entry in self._control_audit]
+        self.snapshot = {**snapshot, "control_audit": audit}
         if self._loop is None or self._udp_transport is None:
             return
         payload = json.dumps(
