@@ -1,0 +1,22 @@
+.program issue106_pointer_source
+; Engineering-only source for Issue #106 Phase B1.
+; M33 preloads a full 32-bit SRAM pointer into TX FIFO before the trial.
+; Once enabled, the state machine moves that pointer to RX FIFO so a DMA
+; control channel can consume it under PIO DREQ pacing. No M33 code runs in
+; the pointer -> DMA-trigger -> SRAM-read path.
+.wrap_target
+    pull block
+    mov isr, osr
+    push block
+.wrap
+
+.program issue106_word_sink
+; Engineering-only sink for Issue #106 Phase B1.
+; The data DMA writes the fetched SRAM word into this SM's TX FIFO. The PIO
+; state machine loops the word back to RX FIFO so M33 can verify it after the
+; hardware-paced transaction has completed.
+.wrap_target
+    pull block
+    mov isr, osr
+    push block
+.wrap
