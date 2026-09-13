@@ -3,30 +3,32 @@
 ## Purpose
 
 This document records the read-only state-machine audit requested by issue #98.
-It begins after the IA16 software-execution work in #86, #94, and #96 established that the production Intel 8086 code path is internally coherent through:
+It begins after the IA16 software-execution work in #86, #94, and #96 established that the production Intel 8086 code path is internally coherent through first-task restore, `xQueueReceive()`, delayed-list insertion, and controlled tick interleaving.
 
-```text
-first-task restore
-    -> prvConsumerTask
-    -> xQueueReceive
-    -> vTaskPlaceOnEventList
-    -> prvAddCurrentTaskToDelayedList
-    -> xSuspendedTaskList insertion
+A critical scope correction emerged during this audit:
+
+> **The #75 PMAX workload is `clock-stepped`. Its periodic INTA path is serviced by `workload_executor.c` + `clock_stepped_bus_controller.c` + `processor_bus.c`. The PIO1 SM3 responder in `processor_service.pio` is not the acknowledge engine used by this workload path.**
+
+`workload-pmax-a.json` explicitly selects:
+
+```json
+"clock": "clock-stepped",
+"flags": ["periodic-tick"]
 ```
 
-The remaining question is whether the **RP2350 companion-side periodic-interrupt pipeline** can present a state ordering to the physical Intel 8086 that is not represented by the currently separate software tests.
+and `rp86_workload_executor_service()` only services an active general workload when `clock_mode == RP86_WORKLOAD_CLOCK_STEPPED`, then calls `rp86_clock_stepped_service_cycle()`.
 
-This audit does not change interrupt behavior, timing constants, or FreeRTOS source.
+This removes the initially suspected PIO-IRQ4/IRQ5-to-Core0 asynchronous ordering from the #75 software path. The remaining audit target is the composition of the **executor tick policy with the real clock-stepped bus controller and processor-bus acknowledge completion**.
+
+No production interrupt behavior, timing constant, or FreeRTOS source is changed by this audit.
 
 ---
 
-## 1. Ownership
-
-The periodic tick path is split across four owners.
+## 1. Actual #75 Interrupt Ownership
 
 ### `firmware/runtime/workload_executor.c`
 
-Owns the policy state:
+Owns the periodic-tick policy state:
 
 ```text
 tick_pending
@@ -41,37 +43,46 @@ It also owns:
 
 - 100 Hz wall-clock generation;
 - coalescing/delay accounting;
-- the delivery gates;
-- logical INTA #1 / INTA #2 progression in the clock-stepped service path;
+- delivery gates;
+- the logical INTA #1 / INTA #2 policy callback;
 - real-EOI versus yield-only restore-fence handling.
+
+### `firmware/runtime/clock_stepped_bus_controller.c`
+
+Owns one complete clock-stepped bus transaction at the runtime level.
+
+For an interrupt-acknowledge cycle it performs:
+
+```text
+processor_bus_wait_cycle()
+    -> classify INTERRUPT_ACK
+    -> executor interrupt_ack callback
+    -> processor_bus_complete_interrupt_ack(drive_vector, vector)
+    -> commit stats.interrupt_acks / stats.cycles
+```
+
+This is the production composition boundary missing from the existing executor-only policy test.
 
 ### `firmware/bus/processor_bus.c`
 
-Owns the physical `INTR` GPIO level through:
+Owns the physical clock-stepped bus signals.
+
+Relevant functions are:
 
 ```text
-rp86_processor_bus_set_intr(bool asserted)
+rp86_processor_bus_set_intr()
+rp86_processor_bus_wait_cycle()
+rp86_processor_bus_complete_interrupt_ack()
 ```
 
-The function is deliberately thin: policy remains in the executor.
+`rp86_processor_bus_wait_cycle()` classifies a bus cycle as `INTERRUPT_ACK` whenever sampled `INTA` is asserted, independent of normal A0/BHE lane decoding.
 
-### `firmware/runtime/processor_service.pio`
+`rp86_processor_bus_complete_interrupt_ack()`:
 
-PIO1 SM3 owns the physical two-cycle interrupt acknowledge transaction:
-
-```text
-INTA #1 asserted
-    -> do not drive AD
-    -> PIO IRQ4
-    -> wait for INTA #1 completion
-
-INTA #2 asserted
-    -> drive encoded vector on AD
-    -> release AD when INTAK deasserts
-    -> PIO IRQ5
-```
-
-The documented ownership rule is that Core0 may deassert physical `INTR` after IRQ4, while the PIO state machine owns AD during the vector phase.
+- leaves AD high-Z for INTA #1 (`drive_vector == false`);
+- drives the low-byte vector for INTA #2 (`drive_vector == true`);
+- advances two execution-clock steps to complete the current acknowledge cycle;
+- always releases AD afterwards.
 
 ### `processor/ports/freertos/8086/portasm.asm`
 
@@ -86,16 +97,20 @@ INT 80h voluntary yield
     -> IRET
 ```
 
-The same EOI-port write has two meanings on the RP2350 side:
+The same EOI-port write has two RP2350 meanings:
 
 - if `tick_in_service == true`: complete the real hardware tick;
-- otherwise: scheduler resume fence only.
+- otherwise: scheduler-resume fence only.
+
+### `firmware/runtime/processor_service.pio` — not the #75 path
+
+PIO1 SM3 implements a separate physical two-cycle INTA responder used by the prepared/canonical service runtime. Its IRQ4/IRQ5 witness contract is valid for that runtime, but it is **not** the interrupt-acknowledge mechanism traversed by the PMAX-A clock-stepped general workload.
+
+It must therefore not be used to infer a PIO/Core0 race for #75.
 
 ---
 
-## 2. Logical States
-
-The executor state can be usefully reduced to the following logical phases.
+## 2. Logical Executor States
 
 ### S0 — Idle
 
@@ -106,8 +121,6 @@ tick_ack_phase      = 0
 tick_in_service     = 0
 ```
 
-No periodic request is waiting or active.
-
 ### S1 — Pending but gated
 
 ```text
@@ -116,8 +129,6 @@ tick_intr_asserted  = 0
 tick_ack_phase      = 0
 tick_in_service     = 0
 ```
-
-A wall-clock period has produced a request, but one or both delivery gates are closed.
 
 ### S2 — INTR asserted, not yet accepted
 
@@ -128,8 +139,6 @@ tick_ack_phase      = 0
 tick_in_service     = 0
 ```
 
-The request is physically visible on `INTR`, but the software model has not yet accepted INTA #1.
-
 ### S3 — INTA #1 accepted
 
 ```text
@@ -138,8 +147,6 @@ tick_intr_asserted  = 0
 tick_ack_phase      = 1
 tick_in_service     = 0
 ```
-
-The interrupt request has been accepted. `INTR` is deasserted and the second acknowledge cycle owns the next transition.
 
 ### S4 — Tick ISR in service
 
@@ -150,52 +157,29 @@ tick_ack_phase      = 0
 tick_in_service     = 1
 ```
 
-INTA #2 delivered vector `21h`; the processor is executing the tick ISR until the common restore EOI.
+The normal transition is:
 
-A source period expiring in S3/S4 is accounted as delayed/coalesced rather than arming an immediate second request.
+```text
+S0 --100 Hz expiry--> S1
+S1 --delivery gates open--> S2
+S2 --clock-stepped INTA #1 cycle--> S3
+S3 --clock-stepped INTA #2 cycle--> S4
+S4 --processor EOI write--> S0 + recovery gates
+```
+
+A yield-only restore fence may instead perform:
+
+```text
+S2 -> S1
+```
+
+but only before an INTA cycle has been accepted. The pending request is retained while physical `INTR` is retracted and the processor-progress gate is refreshed.
 
 ---
 
-## 3. Main Transitions
+## 3. Required Invariants
 
-```text
-S0
- | 100 Hz source expires
- v
-S1
- | wall-time gate open AND progress gate open
- v
-S2
- | INTA #1 accepted
- v
-S3
- | INTA #2 vector delivered
- v
-S4
- | real hardware-tick EOI
- v
-S0 + wall-time recovery gate + progress recovery gate
-```
-
-A pending request may also take this path:
-
-```text
-S2
- | yield-only common restore fence
- | only if INTA has NOT started
- v
-S1
-```
-
-The request remains pending, physical `INTR` is retracted, and only the processor-progress gate is refreshed.
-
----
-
-## 4. Required Invariants
-
-The following invariants should hold outside momentary function-call implementation details.
-
-### I1 — asserted INTR implies a retractable pending request
+### I1 — asserted INTR is still a pending request
 
 ```text
 tick_intr_asserted
@@ -204,7 +188,7 @@ tick_intr_asserted
     && !tick_in_service
 ```
 
-### I2 — after INTA #1 the request is no longer retractable
+### I2 — INTA #1 consumes pending/retractable state
 
 ```text
 tick_ack_phase == 1
@@ -228,19 +212,9 @@ tick_in_service
     && !tick_intr_asserted
 ```
 
-A wall-clock period that expires here is delayed/coalesced and does not become an immediate pending request.
+### I5 — yield-only fence never consumes pending work
 
-### I5 — yield-only fence never consumes a request
-
-If:
-
-```text
-!tick_in_service
-&& tick_ack_phase == 0
-&& tick_intr_asserted
-```
-
-then the common restore fence may retract physical `INTR`, but it must preserve:
+If a fence retracts an asserted but unaccepted request, it must preserve:
 
 ```text
 tick_pending == true
@@ -255,176 +229,196 @@ tick_delivery_not_before_us
     = current wall time + 10 ms
 ```
 
-and:
+and before the current EOI bus cycle is committed:
 
 ```text
 tick_delivery_not_before_cycle
-    = pre-commit bus_stats.cycles + 64 + 1
+    = bus_stats.cycles + 64 + 1
 ```
 
-Because `io_write()` runs before the EOI bus cycle is committed, the `+1` accounts for the current fence cycle. After that cycle is committed, the observable remaining budget is 64 completed processor cycles.
+After that bus cycle is committed, the remaining observable budget is 64 completed processor cycles.
 
 ### I7 — yield-only fence refreshes only processor progress
 
-A voluntary-yield restore fence must not restart the 100 Hz wall-time phase. It refreshes only:
+A voluntary-yield restore fence must not restart the wall-clock gate. Otherwise a tight yield loop could indefinitely move the 100 Hz source delivery boundary.
+
+### I8 — each accepted clock-stepped INTA cycle is atomic at executor service granularity
+
+Within one call to `rp86_clock_stepped_service_cycle()` the order is:
 
 ```text
-tick_delivery_not_before_cycle
+wait/classify cycle
+    -> executor interrupt_ack callback changes logical phase
+    -> complete that physical acknowledge cycle
+    -> commit cycle statistics
 ```
 
-Otherwise a tight `taskYIELD()` loop could postpone wall-clock delivery indefinitely.
+No second processor bus transaction, including an EOI write, is serviced between the callback and completion of that same acknowledge cycle.
+
+This is materially different from the PIO/Core0 asynchronous model originally considered for #98.
 
 ---
 
-## 5. Existing Test Coverage
+## 4. Existing Test Coverage
 
 ### Executor policy
 
-`tests/firmware/runtime/test_periodic_tick_executor.c` covers:
+`tests/firmware/runtime/test_periodic_tick_executor.c` already covers:
 
-- first source-period generation;
-- transition S1 -> S2;
-- modeled INTA #1: S2 -> S3;
-- modeled INTA #2: S3 -> S4;
+- source generation;
+- S1 -> S2 assertion;
+- logical INTA #1 and #2 callback transitions;
 - real EOI and both recovery gates;
 - pending request blocked by the progress gate;
-- asserted-but-not-yet-accepted request retracted by a yield-only fence;
-- pending request retained across that retraction;
+- yield-only retraction before acceptance;
+- pending retention across retraction;
 - long-CLI coalescing;
-- source expiry while a tick is in service;
+- source expiry while in service;
 - simultaneous wall-time and cycle-gate requirements;
-- terminal shutdown of the periodic source.
+- terminal periodic-source shutdown.
 
-The test explicitly verifies that after a committed EOI cycle the progress deadline is 64 cycles ahead, matching the pre-commit `+65` expression in production code.
+The test explicitly confirms that the pre-commit `+65` expression becomes exactly `committed_cycles + 64` after the EOI cycle is counted. No off-by-one defect is demonstrated.
+
+### Clock-stepped INTA controller
+
+`tests/firmware/runtime/test_clock_stepped_interrupt_ack.c` exercises the production `rp86_clock_stepped_service_cycle()` with an `INTERRUPT_ACK` bus cycle and verifies:
+
+- INTA #1 callback result completes without vector drive;
+- INTA #2 callback result drives vector `21h`;
+- acknowledge and cycle counters are committed;
+- missing callback and failed physical completion are rejected.
 
 ### IA16 processor-side context
 
-Issue #96 / PR #97 covers the production processor side:
+Issue #96 / PR #97 covers:
 
-- real task-frame construction and first restore;
+- real task-frame construction / first restore;
 - real `xQueueReceive()` path;
-- delayed-list transition;
-- controlled tick injection at all 22 instructions in the physical suspect window;
-- register/segment/stack/list preservation across the real tick ISR and IRET.
-
-This strongly reduces the probability of a pure IA16 context-save/restore defect.
-
-### PIO acknowledge transaction
-
-`firmware/runtime/processor_service.pio` defines the physical transaction contract itself:
-
-```text
-INTA #1 -> IRQ4, no AD drive
-INTA #2 -> vector drive -> AD release -> IRQ5
-```
-
-Existing physical/bring-up work has validated the two-cycle INTA mechanism, but this is not the same as composing it with the periodic-tick executor state machine in one host-side regression test.
+- real delayed-list insertion;
+- real tick ISR/IRET injected at all 22 instructions in the physical suspect window;
+- architectural state preservation.
 
 ---
 
-## 6. Demonstrated Coverage Gap
+## 5. Demonstrated Coverage Gap
 
-The current test split leaves one important composition gap.
+The remaining software gap is narrower than the original #98 wording suggested.
 
-`test_periodic_tick_executor.c` models an interrupt acknowledge by calling the executor's `interrupt_ack()` callback directly. This proves the executor transition logic, but it does not model the asynchronous boundary introduced by the physical PIO responder:
+Two tests cover the two relevant halves:
 
 ```text
-physical INTA #1 edge
-    -> PIO SM3 observes it
-    -> PIO IRQ4 becomes pending
-    -> Core0 observes IRQ4
-    -> executor/Core0 deasserts INTR / advances software state
+test_periodic_tick_executor.c
+    executor state machine
+
+ test_clock_stepped_interrupt_ack.c
+    real clock-stepped INTA transaction controller
 ```
 
-The PIO program separately proves the intended bus ownership, but no single software regression currently binds these two views into one ordered transaction.
+but they are not composed in one test. The executor test replaces `rp86_clock_stepped_service_cycle()` with a test stub, while the controller test supplies an independent synthetic acknowledge policy callback.
 
-Therefore the remaining software question is not whether either half works independently. It is:
+Therefore no regression currently proves the exact production composition:
 
-> Can the composed executor + PIO event ordering admit a transient state that violates the logical invariants above?
+```text
+workload_executor_service()
+    -> update_periodic_tick()
+    -> real rp86_clock_stepped_service_cycle()
+    -> real executor interrupt_ack callback
+    -> processor_bus_complete_interrupt_ack()
+    -> executor state / bus-stats commit
+```
 
-The most important boundary is S2 -> S3, because physical request acceptance occurs in PIO before Core0 necessarily processes the IRQ4 witness.
-
-This is an audit/test-coverage gap, not evidence of a defect.
+This is a composition-test gap, not evidence of a defect.
 
 ---
 
-## 7. Race Analysis
+## 6. Race Analysis
 
-### Yield-fence retraction versus INTA #1
+### Yield fence versus INTA #1
 
-At the policy level a yield-only fence may retract `INTR` only while:
+For the #75 clock-stepped path, the bus controller serializes complete bus cycles. Once an INTA #1 cycle has been classified, the executor callback transitions S2 -> S3 and that physical cycle is completed before the next processor bus transaction can be serviced.
 
-```text
-tick_ack_phase == 0
-&& !tick_in_service
-```
+A processor EOI/yield write is therefore not interleaved *inside* the INTA #1 service transaction.
 
-Once the software model has processed INTA #1, retraction is forbidden.
-
-The physical processor also constrains the race: once the 8086 begins an interrupt acknowledge sequence, the interrupted foreground task is no longer executing a later yield-fence instruction. That makes a true processor-side ordering of:
+The legal alternatives are:
 
 ```text
-INTA #1 accepted
-then old-task EOI/yield fence
+yield EOI bus cycle first
+    -> request may be retracted S2 -> S1
+
+or
+
+INTA #1 bus cycle first
+    -> request becomes S3 and is no longer retractable
 ```
 
-architecturally implausible.
-
-However, the RP2350 has two observation domains (PIO and Core0), so a host-side composed test should still make the firmware-side ordering explicit instead of relying on this argument alone.
+This substantially weakens the original concern about an asynchronous PIO witness window for #75 because that window belongs to a different runtime path.
 
 ### 64-cycle progress gate
 
-The production expression:
+The production ordering remains internally consistent:
 
 ```text
-bus_stats.cycles + 64 + 1
+io_write(EOI) callback
+    -> records pre-commit cycles + 65
+    -> service cycle returns
+    -> current EOI cycle increments stats.cycles
 ```
 
-is internally consistent with the current service ordering because the EOI write callback executes before the current bus cycle is committed to `bus_stats.cycles`.
-
-The existing periodic-tick test independently confirms the post-commit result:
-
-```text
-deadline == committed_cycles + 64
-```
-
-No off-by-one defect is demonstrated here.
+The post-commit deadline is therefore 64 cycles ahead, as the current test asserts.
 
 ---
 
-## 8. Next Test
+## 7. Next Test
 
-The next implementation step should be a **cross-layer interrupt transaction harness**, not a timing-constant change.
-
-The harness should model the observable PIO/Core0 events explicitly:
+Add one **production-composition host regression** that links:
 
 ```text
-1. executor generates tick
-2. executor asserts physical INTR
-3. simulated PIO observes INTA #1
-4. PIO publishes IRQ4
-5. Core0 consumes IRQ4 and advances executor acceptance state
-6. simulated PIO observes INTA #2
-7. vector 21h is driven
-8. PIO publishes IRQ5
-9. executor enters in-service state
-10. processor-side EOI/fence is delivered
-11. recovery gates are established
-12. pending/reassertion policy is checked
+workload_executor.c
+clock_stepped_bus_controller.c
 ```
 
-Include the yield-fence case where a request became asserted just before the fence, and force ordering at every legal point before INTA #1 acceptance.
+while stubbing only the lowest physical `processor_bus_*` primitives.
 
-The test should assert the invariants in Section 4 after every transition.
+Feed an explicit sequence of physical bus-cycle observations:
 
-Only if this composed test demonstrates a reachable invariant violation should production behavior be changed.
+```text
+normal progress
+100 Hz expiry / INTR assertion
+INTA #1
+INTA #2
+processor ISR progress
+PIC EOI write
+64-cycle recovery
+pending reassertion
+```
+
+and separately:
+
+```text
+INTR asserted
+PIC EOI yield fence BEFORE INTA #1
+request retained / INTR retracted
+64-cycle progress
+INTA #1
+INTA #2
+```
+
+The test should assert I1-I8 after every completed transaction.
+
+The key point is that the test must use the real `rp86_clock_stepped_service_cycle()` and the real private executor `interrupt_ack`/`io_write` callbacks through `rp86_workload_executor_service()`. It should not invoke those private callbacks directly.
+
+Only if this composed production path demonstrates a reachable invariant violation should runtime behavior be changed.
 
 ---
 
-## 9. Current Conclusion
+## 8. Current Conclusion
 
-No source-level contradiction or off-by-one error is established by this read-only audit.
+The audit found an important architectural correction rather than a tick-state defect:
 
-The strongest remaining software uncertainty is the **cross-domain ordering between executor policy state and the PIO INTA witness path**. Existing tests cover the two halves well but do not yet compose them into one transaction-level regression.
+> The #75 PMAX workload does not traverse the PIO1 SM3 / IRQ4 / IRQ5 acknowledge path. It uses the synchronous clock-stepped bus controller.
 
-That is the next narrow test target for issue #98.
+Consequently the originally suspected PIO/Core0 cross-domain race is not a valid #75 hypothesis.
+
+No source-level state contradiction, recovery-gate off-by-one, or IA16 context failure is currently demonstrated. The remaining software uncertainty is the untested composition of the executor state machine with the real clock-stepped bus controller.
+
+That production-composition regression is the next narrow target for issue #98.
