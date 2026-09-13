@@ -202,8 +202,9 @@ python3 -m unittest discover -s tests/runtime -p 'test_*.py'
 python3 tools/docs/check_docs.py
 ```
 
-Build-pipeline policy tests enforce the public profiles, aggregate package
-registration, absence of a per-workload Python inventory, clean staging, and
+Build-pipeline policy tests enforce the public profiles, canonical staging
+path, aggregate package registration, absence of a per-workload Python
+inventory, clean install/verification staging, and
 `all = firmware + complete workload set` dispatch semantics.
 
 `execution_clock_runtime` is the dedicated physical validation target for the
