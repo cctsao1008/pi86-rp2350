@@ -49,6 +49,6 @@ must define its miss behavior before it can be called physically supported.
 
 - [`0006-retain-current-pi86-hat-as-hardware-baseline.md`](0006-retain-current-pi86-hat-as-hardware-baseline.md)
 - [`0010-adopt-free-running-and-clock-stepped-execution.md`](0010-adopt-free-running-and-clock-stepped-execution.md)
-- [`../architecture.md`](../architecture.md)
-- [`../hardware.md`](../hardware.md)
-- [`../memory_architecture.md`](../memory_architecture.md)
+- [`../architecture/README.md`](../architecture/README.md)
+- [`../architecture/hardware.md`](../architecture/hardware.md)
+- [`../architecture/memory.md`](../architecture/memory.md)
