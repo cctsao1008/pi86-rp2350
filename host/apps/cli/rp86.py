@@ -6,8 +6,11 @@ from __future__ import annotations
 import sys
 
 
-if "--remote" in sys.argv:
-    sys.argv.remove("--remote")
+if "--public" in sys.argv or "--remote" in sys.argv:
+    if "--public" in sys.argv:
+        sys.argv.remove("--public")
+    if "--remote" in sys.argv:
+        sys.argv.remove("--remote")
     from host.apps.remote.rp86_remote import main
 elif "--web" in sys.argv:
     sys.argv.remove("--web")
