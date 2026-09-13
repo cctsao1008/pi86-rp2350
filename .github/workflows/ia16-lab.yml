@@ -1,0 +1,28 @@
+name: IA16 binary lab
+
+on:
+  push:
+    paths:
+      - "tools/ia16_lab/**"
+      - "tests/ia16_lab/**"
+      - "tools/rp86_runtime/workload.py"
+      - ".github/workflows/ia16-lab.yml"
+  pull_request:
+    paths:
+      - "tools/ia16_lab/**"
+      - "tests/ia16_lab/**"
+      - "tools/rp86_runtime/workload.py"
+      - ".github/workflows/ia16-lab.yml"
+
+jobs:
+  step1:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install execution engine
+        run: python -m pip install -r tools/ia16_lab/requirements.txt
+      - name: Run IA16 lab tests
+        run: python -m unittest discover -s tests/ia16_lab -p 'test_*.py'
