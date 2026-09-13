@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class EvidenceQueueTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class EvidenceQueueTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "test_evidence_queue"
             sources = (
-                ROOT / "tests/runtime/test_evidence_queue.c",
+                ROOT / "tests/firmware/runtime/test_evidence_queue.c",
                 ROOT / "firmware/runtime/evidence_queue.c",
             )
             result = subprocess.run(
