@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class HostProtocolLengthTests(unittest.TestCase):
@@ -15,7 +15,7 @@ class HostProtocolLengthTests(unittest.TestCase):
             self.skipTest("host C compiler is unavailable")
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "test_host_protocol_length"
-            source = ROOT / "tests/runtime/test_host_protocol_length.c"
+            source = ROOT / "tests/firmware/runtime/test_host_protocol_length.c"
             result = subprocess.run(
                 [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
                  "-I", str(ROOT / "firmware"), str(source),
