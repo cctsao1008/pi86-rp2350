@@ -127,3 +127,25 @@ add_custom_command(TARGET rp86_rp2350 POST_BUILD
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFirmwareSize.cmake
     VERBATIM
 )
+
+# Issue #106 engineering laboratory.  EXCLUDE_FROM_ALL keeps this out of the
+# production firmware/default build while still making the exact RP2350 DMA
+# alias experiment reproducible with an explicit target build.
+add_executable(rp86_issue106_dma_alias_read_lab EXCLUDE_FROM_ALL
+    labs/issue106_dma_alias_read.c
+)
+
+target_link_libraries(rp86_issue106_dma_alias_read_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_dma_alias_read_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_dma_alias_read.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_dma_alias_read_lab 1)
+pico_enable_stdio_uart(rp86_issue106_dma_alias_read_lab 0)
+pico_set_binary_type(rp86_issue106_dma_alias_read_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_dma_alias_read_lab)
