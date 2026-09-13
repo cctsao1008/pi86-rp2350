@@ -5,8 +5,8 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-SOURCE = ROOT / "tests" / "runtime" / "test_spsc_record_slot.c"
+ROOT = Path(__file__).resolve().parents[3]
+SOURCE = ROOT / "tests" / "firmware" / "runtime" / "test_spsc_record_slot.c"
 
 
 class SpscRecordSlotTests(unittest.TestCase):
