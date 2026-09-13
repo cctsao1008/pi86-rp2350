@@ -19,8 +19,8 @@ The shell is the reference interface to the
 protocol and it is not required to be implemented in Python forever.
 
 `RPBridge` is the narrower transport layer beneath RP86: composite CDC/HID,
-the 64-byte ABI, and the local multi-client broker. `tools/rp86.py` is the only
-command-line entry point.
+the 64-byte ABI, and the local multi-client broker. `py -m host.apps.cli.rp86`
+is the canonical command-line entry point.
 
 Interactive sessions, with or without `--attach`, connect to the current
 runtime and read structured status first. They reuse an existing broker and
@@ -202,7 +202,7 @@ For a single-command physical regression, run:
 From the Windows checkout, address the package produced by the WSL build:
 
 ```powershell
-py tools\rp86.py --physical-regression "\\wsl.localhost\Ubuntu-22.04\home\build\github\pi86-rp2350\build\workloads\INVSQRT.P86W"
+py -m host.apps.cli.rp86 --physical-regression "\\wsl.localhost\Ubuntu-22.04\home\build\github\pi86-rp2350\build\workloads\INVSQRT.P86W"
 ```
 
 From the WSL checkout itself, use `build/workloads/INVSQRT.P86W`.
@@ -414,7 +414,7 @@ The canonical composite CDC+HID firmware exposes its control and observation
 plane through CDC:
 
 ```powershell
-py tools\rp86.py --status --timeout 5
+py -m host.apps.cli.rp86 --status --timeout 5
 ```
 
 The Host automatically selects the CDC interface when exactly one
@@ -431,10 +431,10 @@ and HID interfaces. Later processes discover it by USB serial `device_id` and
 connect as clients instead of reopening the hardware:
 
 ```text
-first rp86.py
+first RP86 Host process
   = shell + Device Actor + CDC/HID owner + broker
 
-later rp86.py or another rp86_runtime client
+later RP86 CLI or another host.rp86 client
   = broker client
 ```
 
@@ -505,8 +505,8 @@ Use `timeout off` for that path; it is not silently advertised as protected.
 Both operations use one sequence-bound 64-byte HID runtime-control record:
 
 ```powershell
-py tools\rp86.py --reboot
-py tools\rp86.py --bootloader
+py -m host.apps.cli.rp86 --reboot
+py -m host.apps.cli.rp86 --bootloader
 ```
 
 Before acknowledging either operation, the RP2350 holds the installed
