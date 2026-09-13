@@ -3,7 +3,7 @@ import re
 import unittest
 
 
-ROOT = pathlib.Path(__file__).resolve().parents[2]
+ROOT = pathlib.Path(__file__).resolve().parents[3]
 FIRMWARE = ROOT / "firmware"
 
 
@@ -60,7 +60,6 @@ class FirmwareSourceStructureTests(unittest.TestCase):
             self.assertIn(identity_policy, prepared_header + prepared_source)
         self.assertIn("rp86_prepared_runtime_observe_processor", runtime_source)
 
-        # The PIO/DMA/ISR timing kernel deliberately stays contiguous.
         for timing_path in (
             "run_live_round",
             "companion_dma_irq0",
