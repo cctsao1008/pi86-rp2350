@@ -171,6 +171,19 @@ class IA16Machine:
         }
         return RegisterState(**values)
 
+    def write_register(self, name: str, value: int) -> None:
+        """Set one IA16 register for a focused execution fixture.
+
+        Production workload loading still owns the normal initial CPU state.
+        This narrow override exists so evidence fixtures can enter a real linked
+        function with an explicitly constructed processor-visible pre-state.
+        """
+        if name not in self._register_ids:
+            raise ValueError(f"unknown IA16 register: {name}")
+        if value < 0 or value > 0xFFFF:
+            raise ValueError("IA16 fixture register value must fit in 16 bits")
+        self._write_reg(name, value)
+
     def read_memory(self, address: int, size: int) -> bytes:
         if address < 0 or size < 0 or address + size > self.memory_size:
             raise ValueError("memory read is outside modeled memory")
