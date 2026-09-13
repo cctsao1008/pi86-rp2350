@@ -59,20 +59,20 @@ The physical workload package is:
 build-c16/workloads/C16SMOKE.P86W
 ```
 
-The C/16 ABI itself, including the compiler switches, segmentation model, calling convention, BSS policy, and linker placement contract, is defined in [`docs/processor_c16_abi.md`](../../../../docs/processor_c16_abi.md).
+The C/16 ABI itself, including the compiler switches, segmentation model, calling convention, BSS policy, and linker placement contract, is defined in [`docs/reference/processor_c16_abi.md`](../../../../docs/reference/processor_c16_abi.md).
 
 ## Physical Intel 8086 acceptance
 
-Use the existing RP86 physical-regression path. From a Host environment that can access the RP2350 device:
+Use the canonical RP86 Host CLI from an environment that can access the RP2350 device:
 
-```text
-py tools\rp86.py --physical-regression "<absolute-path-to>\C16SMOKE.P86W"
+```powershell
+py -m host.apps.cli.rp86 --physical-regression "<absolute-path-to>\C16SMOKE.P86W"
 ```
 
-If the Host runtime is being run directly from a Linux/WSL checkout with device access, the equivalent package argument is:
+If the Host runtime is being run directly from a Linux/WSL checkout with device access, the equivalent command is:
 
 ```bash
-python3 tools/rp86.py --physical-regression build-c16/workloads/C16SMOKE.P86W
+python3 -m host.apps.cli.rp86 --physical-regression build-c16/workloads/C16SMOKE.P86W
 ```
 
 Issue #58 accepts the Intel 8086 run only when the structured workload result is `COMPLETED`, the completion reason is the native terminal-HLT path, and the firmware-owned formal PASS flag is present. Supporting evidence should show the native result `147A` and the diagnostic line `RESULT: PASS`.
