@@ -16,6 +16,7 @@ from .symbols import SymbolTable
 class FreeRTOS75PortLayout:
     queue: FreeRTOS75QueueLayout
     initialise_stack: int
+    install_vectors: int
     start_first_task: int
     task_exit_error: int
 
@@ -56,11 +57,13 @@ def resolve_port_layout(
         raise RuntimeError("port-object _TEXT contribution does not match WLINK map")
 
     task_exit_error = linked_address(port, "_prvTaskExitError", bases, placements)
+    install_vectors = map_symbols.address("_rp86PortInstallVectors")
     start_first_task = map_symbols.address("_rp86PortStartFirstTask")
 
     return FreeRTOS75PortLayout(
         queue=queue_layout,
         initialise_stack=initialise_stack,
+        install_vectors=install_vectors,
         start_first_task=start_first_task,
         task_exit_error=task_exit_error,
     )
@@ -89,6 +92,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print("FreeRTOS #75 port-context layout")
     print(f"  pxPortInitialiseStack  0x{layout.initialise_stack:05X}")
+    print(f"  rp86PortInstallVectors 0x{layout.install_vectors:05X}")
     print(f"  rp86PortStartFirstTask 0x{layout.start_first_task:05X}")
     print(f"  prvTaskExitError       0x{layout.task_exit_error:05X}")
     print(f"  prvConsumerTask        0x{layout.queue.consumer_task:05X}")
