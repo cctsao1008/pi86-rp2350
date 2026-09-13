@@ -4,8 +4,8 @@
 ; A feeder DMA places full 32-bit SRAM pointers in this SM's TX FIFO. The SM
 ; publishes exactly one pointer to RX FIFO, then waits for the sink SM to
 ; acknowledge that the corresponding SRAM word has reached the response side.
-; This prevents the control DMA from issuing a new READ_ADDR_TRIG while the
-; data channel is still servicing the previous request.
+; This ordering is required because RP2350 DMA ignores a trigger received while
+; the target channel is already busy.
 .wrap_target
     pull block
     mov isr, osr
