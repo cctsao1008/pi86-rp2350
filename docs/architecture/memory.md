@@ -243,8 +243,8 @@ The order of implementation does not change the architecture:
 
 ## 10. Related documents
 
-- [`architecture.md`](architecture.md) — canonical role and runtime model
-- [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime contract
-- [`host_protocol.md`](host_protocol.md) — Host operations
-- [`adr/0003-define-physical-timing-boundary.md`](adr/0003-define-physical-timing-boundary.md) — fixed-`READY` constraint
-- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision
+- [`README.md`](README.md) — canonical role and runtime model
+- [`host_runtime.md`](host_runtime.md) — detailed runtime contract
+- [`../reference/host_protocol.md`](../reference/host_protocol.md) — Host operations
+- [`../adr/0003-define-physical-timing-boundary.md`](../adr/0003-define-physical-timing-boundary.md) — fixed-`READY` constraint
+- [`../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision
