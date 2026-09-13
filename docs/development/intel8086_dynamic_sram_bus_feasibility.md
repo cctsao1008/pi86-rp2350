@@ -75,7 +75,11 @@ RP2350 DMA provides the primitives needed for a hardware-paced control/data pipe
 - trigger aliases for `READ_ADDR`, `WRITE_ADDR`, `TRANS_COUNT` and `CTRL`;
 - a channel can configure and launch another channel by writing a compact control block or one trigger alias.
 
-This means a control channel can, in principle, consume a dynamically produced address word and write it into another DMA channel's `READ_ADDR_TRIG` or `WRITE_ADDR_TRIG` register.
+This means a control channel can consume a dynamically produced address word and write it into another DMA channel's `READ_ADDR_TRIG` or `WRITE_ADDR_TRIG` register.
+
+RP2350 also retains a reload value for `TRANS_COUNT`. Each time a channel starts a new transfer sequence, that reload value is copied into the live counter. Therefore a one-word data channel can be programmed once with `TRANS_COUNT=1` and then started repeatedly by later writes to `READ_ADDR_TRIG` without an intervening M33 write to `TRANS_COUNT`.
+
+A trigger received while the channel is already busy is ignored. Repeated dynamic transfers therefore still need a hardware ordering rule so that the next pointer is not published until the previous data transfer has completed.
 
 Important limitation:
 
@@ -117,7 +121,7 @@ TRANS_COUNT = one word
 TREQ_SEL    = appropriate pacing policy
 ```
 
-Writing `READ_ADDR_TRIG` both installs the dynamic SRAM source pointer and launches the data transfer.
+Writing `READ_ADDR_TRIG` both installs the dynamic SRAM source pointer and launches the data transfer. The programmed one-word `TRANS_COUNT` reloads automatically on each later trigger.
 
 ### Stage R3 — SRAM fetch
 
@@ -195,6 +199,8 @@ Before physical execution:
 3. prove that software reference pack/unpack functions are bijective for the supported lane cases;
 4. define the exact PIO transformation sequence and instruction count.
 
+The host-side permutation model and randomized round-trip tests are implemented in this PR.
+
 ### Phase B — DMA control-plane laboratory
 
 Without the Intel processor driving the bus:
@@ -205,7 +211,30 @@ Without the Intel processor driving the bus:
 4. repeat for dynamic `WRITE_ADDR_TRIG` writes;
 5. verify no M33 callback is used per transfer.
 
-This is the key proof that dynamic addresses can launch arbitrary SRAM transfers in hardware.
+Phase B is split into two read-side substeps:
+
+```text
+B1  one-shot dynamic READ_ADDR_TRIG primitive
+B2  repeated hardware-autonomous reads with PIO/DMA handshake
+```
+
+The B2 implementation uses four DMA roles and two PIO state machines:
+
+```text
+pointer array
+    -> feeder DMA
+    -> source PIO
+    -> control DMA
+    -> data READ_ADDR_TRIG
+    -> SRAM word
+    -> sink PIO
+    -> capture DMA
+    -> result array
+```
+
+The source PIO waits for a sink-PIO IRQ acknowledgement before publishing the next pointer. This closes the trigger-while-busy race without M33 rearming individual transfers.
+
+The laboratory source now expresses this topology, but physical execution of the lab target is still required before B2 can be marked proven.
 
 ### Phase C — timing-bound synthetic bus
 
@@ -255,21 +284,27 @@ If any required step needs an unbounded software callback, or if worst-case timi
 
 Do not change `RP86_PROCESSOR_HZ` yet.
 
-Implement a host-testable address/lane permutation model first, then build an isolated RP2350 DMA alias laboratory that proves this primitive:
+The immediate gate is now the physical engineering target:
 
 ```text
-PIO-produced full SRAM pointer
-    -> DMA control channel
-    -> data-channel READ_ADDR_TRIG
-    -> arbitrary SRAM word
-    -> PIO TX FIFO
+rp86_issue106_dma_alias_read_lab
 ```
 
-A symmetric `WRITE_ADDR_TRIG` experiment follows after the read path is proven.
+It must prove the full B2 finite stream on RP2350:
+
+```text
+PIO/DMA pointer stream
+    -> repeated READ_ADDR_TRIG
+    -> arbitrary SRAM reads
+    -> PIO sink
+    -> DMA-captured results
+```
+
+with no M33 per-transaction rearm. After that, implement the symmetric repeated `WRITE_ADDR_TRIG` laboratory before integrating the scattered GPIO address front end.
 
 ## References
 
-- RP2350 Datasheet, DMA chapter: channel chaining, peripheral DREQ pacing and control-register trigger aliases.
+- RP2350 Datasheet, DMA chapter: `TRANS_COUNT` reload semantics, channel chaining, peripheral DREQ pacing and control-register trigger aliases.
 - RP2350 Datasheet, PIO chapter: RP2350 PIO v1 features, three PIO blocks / twelve state machines, reduced DREQ latency.
 - Raspberry Pi Pico-series C/C++ SDK: `pio_get_dreq()` and DMA/PIO integration APIs.
 - `firmware/bus/processor_bus_pins.h`: canonical scattered Pi86 HAT signal map.
