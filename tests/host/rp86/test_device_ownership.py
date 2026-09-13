@@ -7,10 +7,10 @@ import unittest
 from unittest.mock import patch
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.device_ownership import (  # noqa: E402
+from host.rp86.device_ownership import (  # noqa: E402
     DeviceOwnership,
     DeviceOwnershipError,
 )
@@ -42,7 +42,7 @@ class DeviceOwnershipTests(unittest.TestCase):
 
     def test_ownership_is_exclusive_across_processes(self) -> None:
         child_code = (
-            "from rp86_runtime.device_ownership import DeviceOwnership, "
+            "from host.rp86.device_ownership import DeviceOwnership, "
             "DeviceOwnershipError; "
             "lock=DeviceOwnership('SERIAL-THREE'); "
             "\ntry: lock.acquire()"
@@ -54,7 +54,7 @@ class DeviceOwnershipTests(unittest.TestCase):
         ):
             with DeviceOwnership("SERIAL-THREE"):
                 environment = os.environ.copy()
-                environment["PYTHONPATH"] = str(TOOLS)
+                environment["PYTHONPATH"] = str(ROOT)
                 completed = subprocess.run(
                     [sys.executable, "-c", child_code],
                     env=environment,
