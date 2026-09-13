@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class ClockSteppedInterruptAckTests(unittest.TestCase):
@@ -16,11 +16,11 @@ class ClockSteppedInterruptAckTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "test_clock_stepped_interrupt_ack"
             sources = [
-                "tests/runtime/test_clock_stepped_interrupt_ack.c",
+                "tests/firmware/runtime/test_clock_stepped_interrupt_ack.c",
                 "firmware/runtime/clock_stepped_bus_controller.c",
                 "firmware/memory/memory.c",
             ]
-            includes = ["tests/runtime/stubs", "firmware", "third_party/fatfs/source"]
+            includes = ["tests/firmware/runtime/stubs", "firmware", "third_party/fatfs/source"]
             compiled = subprocess.run(
                 [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
                  *(flag for path in includes for flag in ("-I", str(ROOT / path))),
