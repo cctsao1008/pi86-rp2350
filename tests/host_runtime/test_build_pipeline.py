@@ -23,6 +23,7 @@ class BuildPipelineTests(unittest.TestCase):
         self.assertEqual(build.COMMANDS, ("firmware", "workloads", "all"))
         self.assertEqual(build.BUILD_DIR["workloads"], "build-workloads")
         self.assertEqual(build.TARGET["workloads"], "rp86_workload_packages")
+        self.assertEqual(build.WORKLOAD_STAGE, ROOT / "artifacts" / "workloads")
 
     def test_package_helpers_share_one_aggregate_and_install_component(self):
         asm = (ROOT / "cmake" / "ProcessorImage.cmake").read_text()
@@ -60,6 +61,36 @@ class BuildPipelineTests(unittest.TestCase):
 
             self.assertFalse(stage.exists())
             self.assertEqual(sentinel.read_text(), "keep")
+
+    def test_stage_is_cleaned_installed_and_every_package_is_verified(self):
+        build = load_build_driver()
+        calls = []
+
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            stage = root / "workloads"
+            stage.mkdir()
+            (stage / "STALE.P86W").write_bytes(b"stale")
+
+            def install(build_dir, env):
+                calls.append(("install", Path(build_dir)))
+                stage.mkdir(parents=True, exist_ok=True)
+                (stage / "A.P86W").write_bytes(b"a")
+                (stage / "B.P86W").write_bytes(b"b")
+
+            verified = []
+
+            def report(path):
+                verified.append(path.name)
+
+            with patch.object(build, "WORKLOAD_STAGE", stage), patch.object(
+                build, "cmake_install_workloads", side_effect=install
+            ), patch.object(build, "report_workload", side_effect=report):
+                build.stage_and_report_workloads(root / "build", {})
+
+            self.assertFalse((stage / "STALE.P86W").exists())
+            self.assertEqual(calls, [("install", root / "build")])
+            self.assertEqual(verified, ["A.P86W", "B.P86W"])
 
     def test_all_dispatches_firmware_then_complete_workload_set(self):
         build = load_build_driver()
