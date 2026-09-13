@@ -1,13 +1,8 @@
-import sys
 from pathlib import Path
 import tempfile
 import unittest
 
-
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
-
-from rp86_runtime.shell_commands import (  # noqa: E402
+from host.rp86.shell_commands import (
     CommandHistory,
     complete_shell_input,
     format_host_directory,
