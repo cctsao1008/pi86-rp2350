@@ -54,7 +54,8 @@ The target source-tree model is defined by [`architecture/repository_structure.m
 - [`ADR 0006`](adr/0006-retain-current-pi86-hat-as-hardware-baseline.md) — Pi86 HAT baseline
 - [`ADR 0008`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — runtime identity
 - [`ADR 0009`](adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md) — processor scope
-- [`ADR 0010`](adr/0010-adopt-free-running-and-clock-stepped-execution.md) — execution clock modes
+- [`ADR 0010`](adr/0010-adopt-free-running-and-clock-stepped-execution.md) — historical execution clock-mode decision
+- [`ADR 0011`](adr/0011-constrain-intel-8086-to-continuous-in-spec-clock.md) — Intel 8086 continuous in-spec clock contract
 
 ## Current physical evidence
 
