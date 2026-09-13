@@ -69,8 +69,8 @@ Costs:
 
 ## Related documents
 
-- [`../architecture.md`](../architecture.md)
-- [`../memory_architecture.md`](../memory_architecture.md)
+- [`../architecture/README.md`](../architecture/README.md)
+- [`../architecture/memory.md`](../architecture/memory.md)
 - [`../validation/clock_stepped_internal_sram_general_execution_validation.md`](../validation/clock_stepped_internal_sram_general_execution_validation.md)
 - [`../validation/execution_clock_mode_transition_validation.md`](../validation/execution_clock_mode_transition_validation.md)
 - [`0003-define-physical-timing-boundary.md`](0003-define-physical-timing-boundary.md)
