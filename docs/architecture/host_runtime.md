@@ -1,6 +1,6 @@
 # RP86 Host Runtime Contract
 
-**Status:** Detailed contract subordinate to [`architecture.md`](architecture.md)
+**Status:** Detailed contract subordinate to [`README.md`](README.md)
 **Scope:** Host runtime, RP2350 resource ownership, and physical Intel 8086 / NEC V30 execution
 
 ## 1. Purpose
