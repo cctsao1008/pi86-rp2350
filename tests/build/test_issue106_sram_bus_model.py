@@ -1,7 +1,7 @@
 import random
 import unittest
 
-from tools.issue106_sram_bus_model import (
+from tools.diagnostics.issue106_sram_bus_model import (
     Lane,
     classify_lane,
     decode_address_gpio,
