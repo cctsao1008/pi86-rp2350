@@ -1,0 +1,95 @@
+name: IA16 FreeRTOS 75 slice
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/ia16-freertos75.yml"
+      - "cmake/ProcessorC16Image.cmake"
+      - "cmake/LinkProcessorC16.cmake"
+      - "host/rp86/workload.py"
+      - "processor/CMakeLists.txt"
+      - "processor/ports/freertos/8086/**"
+      - "processor/workloads/validation/freertos_system/**"
+      - "scripts/build.py"
+      - "scripts/package_workload.py"
+      - "tests/tools/ia16_lab/**"
+      - "tools/ia16_lab/**"
+      - "third_party/FreeRTOS-Kernel"
+  workflow_dispatch:
+
+jobs:
+  freertos75-binary-slice:
+    runs-on: ubuntu-24.04
+    env:
+      OW_TAG: "2026-09-01-Build"
+      OW_SNAPSHOT_SHA256: "bac354f3c75ffa49ff8d70a44e475de7e7c1823fff04b80c14787bd0792c9bdf"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          submodules: false
+
+      - name: Checkout pinned FreeRTOS kernel
+        run: |
+          git submodule update --init third_party/FreeRTOS-Kernel
+          test "$(git -C third_party/FreeRTOS-Kernel rev-parse HEAD)" = "8be86d4a24fd4091f8f4192018423ab590f408db"
+
+      - name: Setup pinned Open Watcom C/16
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/ow-snapshot.tar.xz"
+          url="https://github.com/open-watcom/open-watcom-v2/releases/download/${OW_TAG}/ow-snapshot.tar.xz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+          echo "${OW_SNAPSHOT_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "$HOME/watcom"
+          tar -xJf "$archive" -C "$HOME/watcom"
+          echo "WATCOM=$HOME/watcom" >> "$GITHUB_ENV"
+          echo "INCLUDE=$HOME/watcom/h" >> "$GITHUB_ENV"
+          echo "$HOME/watcom/binl" >> "$GITHUB_PATH"
+
+      - name: Bootstrap pinned NASM 3.02
+        run: bash scripts/bootstrap_nasm.sh
+
+      - name: Install IA16 execution engine
+        run: python3 -m pip install -r tools/ia16_lab/requirements.txt
+
+      - name: Run IA16 lab unit tests
+        run: python3 -m unittest discover -s tests/tools/ia16_lab -p 'test_*.py'
+
+      - name: Build production FreeRTOS artifacts
+        run: python3 scripts/build.py workloads --verbose
+
+      - name: Probe PMAX-A production binary and map
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m tools.ia16_lab.freertos75_probe \
+            artifacts/workloads/FREERTOS-PMAX-A.P86W \
+            --map build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map \
+            --count 96 | tee build-workloads/freertos75-pmax-a-probe.txt
+
+      - name: Probe PMAX-B production binary and map
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 -m tools.ia16_lab.freertos75_probe \
+            artifacts/workloads/FREERTOS-PMAX-B.P86W \
+            --map build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.map \
+            --count 96 | tee build-workloads/freertos75-pmax-b-probe.txt
+
+      - name: Upload FreeRTOS #75 binary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ia16-freertos75-evidence
+          path: |
+            build-workloads/freertos75-pmax-a-probe.txt
+            build-workloads/freertos75-pmax-b-probe.txt
+            build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map
+            build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.bin
+            build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.map
+            build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.bin
+            artifacts/workloads/FREERTOS-PMAX-A.P86W
+            artifacts/workloads/FREERTOS-PMAX-B.P86W
