@@ -130,6 +130,20 @@ jobs:
             --port-object build-workloads/processor/generated/freertos_system_pmax_a/c2_port.obj \
             | tee build-workloads/freertos75-port-context.txt
 
+      - name: Inject real tick across delayed-list instruction boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.ia16_lab.freertos75_tick_interleave \
+            artifacts/workloads/FREERTOS-PMAX-A.P86W \
+            --link build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.lnk \
+            --map build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map \
+            --main-object build-workloads/processor/generated/freertos_system_pmax_a/c1_main.obj \
+            --queue-object build-workloads/processor/generated/freertos_system_pmax_a/c4_queue.obj \
+            --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            --port-object build-workloads/processor/generated/freertos_system_pmax_a/c2_port.obj \
+            | tee build-workloads/freertos75-tick-interleave.txt
+
       - name: Execute real xQueueReceive caller to delayed-list boundary
         shell: bash
         run: |
@@ -150,7 +164,6 @@ jobs:
           image=build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.bin
           window=build-workloads/freertos75-delayed-list-window.bin
           listing=build-workloads/freertos75-delayed-list-window.ndisasm
-
           dd if="$image" of="$window" bs=1 skip=$((0x25F0)) count=$((0x1E0)) status=none
           .tools/nasm-3.02/bin/ndisasm -b 16 -o 0x125F0 "$window" | tee "$listing"
           grep -q '^00012613' "$listing"
@@ -208,6 +221,7 @@ jobs:
             build-workloads/freertos75-xqueue-layout.txt
             build-workloads/freertos75-port-layout.txt
             build-workloads/freertos75-port-context.txt
+            build-workloads/freertos75-tick-interleave.txt
             build-workloads/freertos75-xqueue-boundary.txt
             build-workloads/freertos75-delayed-list-window.bin
             build-workloads/freertos75-delayed-list-window.ndisasm
