@@ -7,7 +7,7 @@ on:
       - "CMakeLists.txt"
       - "cmake/ProcessorC16Image.cmake"
       - "cmake/LinkProcessorC16.cmake"
-      - "docs/processor_c16_abi.md"
+      - "docs/reference/processor_c16_abi.md"
       - "host/rp86/workload.py"
       - "processor/CMakeLists.txt"
       - "processor/workloads/validation/c16_abi_smoke/**"
