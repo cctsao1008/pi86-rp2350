@@ -2,7 +2,7 @@
 
 - Status: **Canonical for protocol version 1**
 - Applies to: Host Protocol, RP2350 service/realtime handoff, and retained mailbox validation evidence
-- Source definitions: `firmware/host_protocol/host_protocol.h`, `tools/rp86_runtime/protocol.py`
+- Source definitions: `firmware/host_protocol/host_protocol.h`, `host/rp86/protocol.py`
 
 ## Purpose
 
@@ -264,6 +264,6 @@ Application success and physical evidence are separate assertions.
 ## Related documents
 
 - [`host_protocol.md`](host_protocol.md) - Host-side operations above this ABI
-- [`host_runtime_architecture.md`](host_runtime_architecture.md) - ownership transfer and runtime roles
-- [`development/windows_physical_validation.md`](development/windows_physical_validation.md) - physical validator workflow
-- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current project terminology
+- [`../architecture/host_runtime.md`](../architecture/host_runtime.md) - ownership transfer and runtime roles
+- [`../development/windows_physical_validation.md`](../development/windows_physical_validation.md) - physical validator workflow
+- [`../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current project terminology
