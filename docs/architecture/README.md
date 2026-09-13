@@ -303,9 +303,9 @@ Or operationally:
 
 ## 13. Detailed contracts
 
-- [`host_runtime_architecture.md`](host_runtime_architecture.md) — detailed runtime, permission, and implementation contract
-- [`host_runtime_shell.md`](host_runtime_shell.md) — shell command surface
-- [`memory_architecture.md`](memory_architecture.md) — memory and storage ownership
-- [`host_protocol.md`](host_protocol.md) — Host/RP2350 wire semantics
+- [`host_runtime.md`](host_runtime.md) — detailed runtime, permission, and implementation contract
+- [`../reference/host_runtime_shell.md`](../reference/host_runtime_shell.md) — shell command surface
+- [`memory.md`](memory.md) — memory and storage ownership
+- [`../reference/host_protocol.md`](../reference/host_protocol.md) — Host/RP2350 wire semantics
 - [`hardware.md`](hardware.md) — board resources, signal mapping, and physical ownership
-- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision
+- [`../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — current architecture decision
