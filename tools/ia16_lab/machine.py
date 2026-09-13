@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from .loader import LoadedWorkload, linear_address
 
@@ -50,11 +50,14 @@ class IA16Machine:
                 Uc,
                 UC_ARCH_X86,
                 UC_HOOK_CODE,
+                UC_HOOK_INSN,
                 UC_HOOK_MEM_READ,
                 UC_HOOK_MEM_WRITE,
                 UC_MODE_16,
             )
             from unicorn.x86_const import (
+                UC_X86_INS_IN,
+                UC_X86_INS_OUT,
                 UC_X86_REG_AX,
                 UC_X86_REG_BP,
                 UC_X86_REG_BX,
@@ -93,13 +96,17 @@ class IA16Machine:
             "flags": UC_X86_REG_EFLAGS,
         }
         self._hook_code = UC_HOOK_CODE
+        self._hook_insn = UC_HOOK_INSN
         self._hook_mem_read = UC_HOOK_MEM_READ
         self._hook_mem_write = UC_HOOK_MEM_WRITE
+        self._insn_in = UC_X86_INS_IN
+        self._insn_out = UC_X86_INS_OUT
         self._uc = Uc(UC_ARCH_X86, UC_MODE_16)
         self._uc.mem_map(0, memory_size)
         self.memory_size = memory_size
         self.workload: LoadedWorkload | None = None
         self._trace_hooks: list[Any] = []
+        self._io_hooks: list[Any] = []
 
     def load(self, workload: LoadedWorkload) -> None:
         """Load one decoded production workload and apply manifest CPU state."""
@@ -145,6 +152,54 @@ class IA16Machine:
             )
         )
 
+    def install_io_handlers(
+        self,
+        *,
+        on_out: Callable[[int, int, int], None] | None = None,
+        on_in: Callable[[int, int], int] | None = None,
+    ) -> None:
+        """Attach minimal processor-I/O handlers for focused execution fixtures.
+
+        This is intentionally not a device model.  It only makes architectural
+        IN/OUT instructions observable so production code containing trace or
+        PIC-marker I/O can execute under the binary lab without inventing
+        RP2350, PIC, or bus-timing behavior.
+        """
+        if self._io_hooks:
+            raise RuntimeError("I/O handlers are already installed")
+
+        if on_out is not None:
+            def out_hook(_uc: Any, port: int, size: int, value: int, _user: Any) -> None:
+                on_out(int(port), int(size), int(value))
+
+            self._io_hooks.append(
+                self._uc.hook_add(
+                    self._hook_insn,
+                    out_hook,
+                    None,
+                    1,
+                    0,
+                    self._insn_out,
+                )
+            )
+
+        if on_in is not None:
+            def in_hook(_uc: Any, port: int, size: int, _user: Any) -> int:
+                value = int(on_in(int(port), int(size)))
+                mask = (1 << (size * 8)) - 1
+                return value & mask
+
+            self._io_hooks.append(
+                self._uc.hook_add(
+                    self._hook_insn,
+                    in_hook,
+                    None,
+                    1,
+                    0,
+                    self._insn_in,
+                )
+            )
+
     def run(self, *, instruction_count: int) -> None:
         """Execute at most ``instruction_count`` instructions from current CS:IP."""
         if self.workload is None:
@@ -159,6 +214,39 @@ class IA16Machine:
             timeout=0,
             count=instruction_count,
         )
+
+    def run_until_address(self, address: int, *, instruction_count: int) -> bool:
+        """Run until ``address`` is about to execute, or the bound is exhausted.
+
+        The target instruction is not executed. Returning ``True`` leaves the
+        machine at an exact linked-code boundary for ABI/context inspection.
+        """
+        if self.workload is None:
+            raise RuntimeError("no workload is loaded")
+        if instruction_count <= 0:
+            raise ValueError("instruction_count must be positive")
+        if not 0 <= address < self.memory_size:
+            raise ValueError("target address is outside modeled memory")
+
+        reached = False
+
+        def stop_hook(_uc: Any, current: int, _size: int, _user: Any) -> None:
+            nonlocal reached
+            if current == address:
+                reached = True
+                self._uc.emu_stop()
+
+        hook = self._uc.hook_add(self._hook_code, stop_hook)
+        try:
+            self._uc.emu_start(
+                self.current_linear_ip(),
+                self.memory_size,
+                timeout=0,
+                count=instruction_count,
+            )
+        finally:
+            self._uc.hook_del(hook)
+        return reached
 
     def inject_real_mode_interrupt(self, vector: int) -> None:
         """Inject one 8086-style real-mode interrupt at the current boundary.
