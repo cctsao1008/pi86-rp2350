@@ -125,7 +125,7 @@ Host memory operations address assigned processor-visible memory through RP2350
 ownership. They do not grant the Host raw ownership of RP2350 SRAM, PSRAM
 metadata, or bus-controller state.
 
-Memory-map semantics and physical backing are defined in [`memory_architecture.md`](memory_architecture.md).
+Memory-map semantics and physical backing are defined in [`../architecture/memory.md`](../architecture/memory.md).
 
 ### Persistent storage
 
@@ -376,8 +376,8 @@ service does not change existing record layouts or bus timing.
 
 ## 13. Related documents
 
-- [`architecture.md`](architecture.md) - overall system architecture
-- [`memory_architecture.md`](memory_architecture.md) - memory terminology, V30 Memory Map, and backing resources
+- [`../architecture/README.md`](../architecture/README.md) - overall system architecture
+- [`../architecture/memory.md`](../architecture/memory.md) - memory terminology, V30 Memory Map, and backing resources
 - [`companion_service_abi.md`](companion_service_abi.md) - validated Host Bridge/Companion Service v1 record and mailbox path
-- [`host_runtime_architecture.md`](host_runtime_architecture.md) - detailed runtime contract
-- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current architecture decision
+- [`../architecture/host_runtime.md`](../architecture/host_runtime.md) - detailed runtime contract
+- [`../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](../adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current architecture decision
