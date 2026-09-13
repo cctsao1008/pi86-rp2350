@@ -1,17 +1,16 @@
-*.sh text eol=lf
-*.py text eol=lf
-*.ps1 text eol=crlf
-*.cmd text eol=crlf
+* text=auto
 
-docs/validation/evidence/ai_b2_hid_20260823_050201+0800.log -text
-docs/validation/evidence/ai_b2_hid_20260823_050201+0800.json binary
-docs/validation/evidence/ai_b2_hid_20260823_171808+0800.log -text
-docs/validation/evidence/ai_b2_hid_20260823_171808+0800.json binary
-docs/validation/evidence/ai_b3_codex_20260823_051243+0800.log -text
-docs/validation/evidence/ai_b3_codex_20260823_051243+0800.json binary
-docs/validation/evidence/companion_runtime_20260823_205245+0800.log -text
-docs/validation/evidence/companion_runtime_20260823_205245+0800.json binary
-docs/validation/evidence/companion_heartbeat_20260823_211828+0800.log -text
-docs/validation/evidence/companion_heartbeat_20260823_211828+0800.json binary
-docs/validation/evidence/companion_heartbeat_20260823_212131+0800.log -text
-docs/validation/evidence/companion_heartbeat_20260823_212131+0800.json binary
+*.py    text eol=lf
+*.c     text eol=lf
+*.h     text eol=lf
+*.asm   text eol=lf
+*.cmake text eol=lf
+*.md    text eol=lf
+*.txt   text eol=lf
+*.json  text eol=lf
+*.yml   text eol=lf
+*.yaml  text eol=lf
+
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
