@@ -96,15 +96,15 @@ function(rp86_add_processor_image target_name)
             OUTPUT "${package_path}"
             COMMAND "${CMAKE_COMMAND}" -E make_directory "${package_dir}"
             COMMAND "${Python3_EXECUTABLE}"
-                "${PROJECT_SOURCE_DIR}/tools/package_workload.py"
+                "${PROJECT_SOURCE_DIR}/scripts/package_workload.py"
                 --metadata "${metadata_path}"
                 --image "${binary_path}"
                 --output "${package_path}"
             DEPENDS
                 "${binary_path}"
                 "${metadata_path}"
-                "${PROJECT_SOURCE_DIR}/tools/package_workload.py"
-                "${PROJECT_SOURCE_DIR}/tools/rp86_runtime/workload.py"
+                "${PROJECT_SOURCE_DIR}/scripts/package_workload.py"
+                "${PROJECT_SOURCE_DIR}/host/rp86/workload.py"
             VERBATIM
             COMMENT "Packaging processor workload ${IMAGE_PACKAGE_NAME}"
         )
