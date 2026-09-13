@@ -160,6 +160,41 @@ class IA16Machine:
             count=instruction_count,
         )
 
+    def inject_real_mode_interrupt(self, vector: int) -> None:
+        """Inject one 8086-style real-mode interrupt at the current boundary.
+
+        The helper models only architectural CPU interrupt entry: FLAGS, CS and
+        IP are pushed on the current SS:SP stack, IF/TF are cleared, and the new
+        CS:IP is loaded from the IVT.  The handler itself remains production
+        machine code and returns with its real IRET path.
+        """
+        if self.workload is None:
+            raise RuntimeError("no workload is loaded")
+        if vector < 0 or vector > 0xFF:
+            raise ValueError("interrupt vector must fit in 8 bits")
+
+        state = self.registers()
+        new_sp = (state.sp - 6) & 0xFFFF
+        stack = linear_address(state.ss, new_sp)
+        if stack + 6 > self.memory_size:
+            raise ValueError("interrupt frame lies outside modeled memory")
+
+        frame = (
+            int(state.ip & 0xFFFF).to_bytes(2, "little")
+            + int(state.cs & 0xFFFF).to_bytes(2, "little")
+            + int(state.flags & 0xFFFF).to_bytes(2, "little")
+        )
+        self._uc.mem_write(stack, frame)
+        self._write_reg("sp", new_sp)
+        self._write_reg("flags", state.flags & ~(0x0200 | 0x0100))
+
+        ivt = vector * 4
+        raw = bytes(self._uc.mem_read(ivt, 4))
+        offset = int.from_bytes(raw[0:2], "little")
+        segment = int.from_bytes(raw[2:4], "little")
+        self._write_reg("cs", segment)
+        self._write_reg("ip", offset)
+
     def current_linear_ip(self) -> int:
         state = self.registers()
         return linear_address(state.cs, state.ip)
