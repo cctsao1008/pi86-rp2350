@@ -75,6 +75,7 @@ class Issue106SramBusModelTests(unittest.TestCase):
     def test_repeated_dma_lab_has_hardware_handshake(self) -> None:
         pio_text = (ROOT / "firmware/labs/issue106_dma_alias_read.pio").read_text()
         c_text = (ROOT / "firmware/labs/issue106_dma_alias_read.c").read_text()
+        cmake_text = (ROOT / "firmware/CMakeLists.txt").read_text()
 
         self.assertIn("wait 1 irq 0", pio_text)
         self.assertIn("irq clear 0", pio_text)
@@ -86,6 +87,7 @@ class Issue106SramBusModelTests(unittest.TestCase):
         self.assertIn("capture_dma", c_text)
         self.assertIn("ISSUE106_VECTOR_COUNT", c_text)
         self.assertNotIn("run_one_shot", c_text)
+        self.assertIn("rp86_issue106_dma_alias_read_lab EXCLUDE_FROM_ALL", cmake_text)
 
 
 if __name__ == "__main__":
