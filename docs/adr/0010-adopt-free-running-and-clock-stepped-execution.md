@@ -1,9 +1,10 @@
 # ADR 0010: Adopt FREE_RUNNING and CLOCK_STEPPED Execution Clock Modes
 
-- Status: Accepted
+- Status: Accepted historically; Intel 8086 general-execution scope superseded by ADR 0011
 - Date: 2026-08-28
 - Supersedes: ADR 0003 physical timing boundary
 - Amends: ADR 0006's fixed-READY timing policy
+- Superseded for Intel 8086 by: ADR 0011 continuous in-spec clock contract
 
 ## Context
 
@@ -51,6 +52,11 @@ as vendor-guaranteed fully static processors. Each supported clock policy must
 retain physical evidence and return the bus to `RESET=HIGH`, `CLK=LOW`, and AD
 high-Z on completion or fault.
 
+For the Intel 8086 target, ADR 0011 now makes this boundary normative: arbitrary
+stopped-clock `CLOCK_STEPPED` operation is not a compliant general-execution
+contract, and `FREE_RUNNING` is compliant only at an in-spec continuous clock
+operating point. NEC V30 clock behavior remains a separate vendor-contract audit.
+
 ## Consequences
 
 Positive:
@@ -67,11 +73,16 @@ Costs:
 - interrupt, timeout, and recovery behavior must be validated in both modes;
 - External PSRAM still needs separate physical measurement.
 
+The original benefits and costs above describe the historical project-mode decision.
+For Intel 8086 architectural claims, ADR 0011 takes precedence.
+
 ## Related documents
 
 - [`../architecture/README.md`](../architecture/README.md)
 - [`../architecture/memory.md`](../architecture/memory.md)
+- [`../architecture/intel_8086_clock_contract.md`](../architecture/intel_8086_clock_contract.md)
 - [`../validation/clock_stepped_internal_sram_general_execution_validation.md`](../validation/clock_stepped_internal_sram_general_execution_validation.md)
 - [`../validation/execution_clock_mode_transition_validation.md`](../validation/execution_clock_mode_transition_validation.md)
 - [`0003-define-physical-timing-boundary.md`](0003-define-physical-timing-boundary.md)
 - [`0006-retain-current-pi86-hat-as-hardware-baseline.md`](0006-retain-current-pi86-hat-as-hardware-baseline.md)
+- [`0011-constrain-intel-8086-to-continuous-in-spec-clock.md`](0011-constrain-intel-8086-to-continuous-in-spec-clock.md)
