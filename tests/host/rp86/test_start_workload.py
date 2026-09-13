@@ -5,10 +5,10 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.start_workload import (  # noqa: E402
+from host.rp86.start_workload import (  # noqa: E402
     _format_duration,
     _next_sequence,
     _sequence_from_hello,
