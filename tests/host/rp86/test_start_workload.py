@@ -1,8 +1,10 @@
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -12,6 +14,7 @@ from host.rp86.start_workload import (  # noqa: E402
     _format_duration,
     _next_sequence,
     _sequence_from_hello,
+    _spawn_background_owner,
     _timestamp,
     _workload_path_error,
     build_parser,
@@ -44,6 +47,21 @@ class StartWorkloadTests(unittest.TestCase):
             binary = root / "RTOS.BIN"
             binary.write_bytes(b"placeholder")
             self.assertIn(".P86W", _workload_path_error(str(binary)) or "")
+
+    def test_background_owner_uses_canonical_module_entry_point(self) -> None:
+        process = object()
+        with patch("host.rp86.start_workload.subprocess.Popen", return_value=process) as popen:
+            self.assertIs(_spawn_background_owner(), process)
+        command = popen.call_args.args[0]
+        kwargs = popen.call_args.kwargs
+        self.assertEqual(
+            command[:3],
+            [sys.executable, "-m", "host.apps.cli.rp86"],
+        )
+        self.assertEqual(Path(kwargs["cwd"]), ROOT)
+        self.assertIs(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(kwargs["stderr"], subprocess.DEVNULL)
 
     def test_lifecycle_timestamp_is_local_offset_aware_to_milliseconds(self) -> None:
         self.assertRegex(
