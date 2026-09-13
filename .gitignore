@@ -48,10 +48,11 @@
 *.map
 *.dis
 
-# Build directories
+# Build directories and staged artifacts
 build/
 Build/
 build-*/
+artifacts/
 
 # Repository-local host tools
 .tools/
