@@ -72,10 +72,10 @@ def _workload_path_error(value: str) -> str | None:
 
 def _spawn_background_owner() -> subprocess.Popen[bytes]:
     repo_root = Path(__file__).resolve().parents[2]
-    rp86_entry = repo_root / "host" / "apps" / "cli" / "rp86.py"
     command = [
         sys.executable,
-        str(rp86_entry),
+        "-m",
+        "host.apps.cli.rp86",
         "--interactive",
         "--attach",
         "--display",
