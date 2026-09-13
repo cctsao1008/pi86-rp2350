@@ -7,10 +7,10 @@ import threading
 import unittest
 from unittest.mock import AsyncMock, patch
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.broker import (  # noqa: E402
+from host.rp86.broker import (  # noqa: E402
     BrokerClient,
     BrokerRecord,
     BrokerState,
@@ -18,8 +18,8 @@ from rp86_runtime.broker import (  # noqa: E402
     discover_brokers,
     select_broker,
 )
-from rp86_runtime.device_ownership import DeviceOwnership  # noqa: E402
-from rp86_runtime.workload import control_record  # noqa: E402
+from host.rp86.device_ownership import DeviceOwnership  # noqa: E402
+from host.rp86.workload import control_record  # noqa: E402
 
 
 class HostBrokerTests(unittest.TestCase):
