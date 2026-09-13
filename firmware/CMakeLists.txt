@@ -128,9 +128,9 @@ add_custom_command(TARGET rp86_rp2350 POST_BUILD
     VERBATIM
 )
 
-# Issue #106 engineering laboratory.  EXCLUDE_FROM_ALL keeps this out of the
-# production firmware/default build while still making the exact RP2350 DMA
-# alias experiment reproducible with an explicit target build.
+# Issue #106 engineering laboratory. EXCLUDE_FROM_ALL keeps this out of the
+# production firmware/default build while making the repeated hardware-paced
+# DMA alias experiment reproducible with an explicit target build.
 add_executable(rp86_issue106_dma_alias_read_lab EXCLUDE_FROM_ALL
     labs/issue106_dma_alias_read.c
 )
