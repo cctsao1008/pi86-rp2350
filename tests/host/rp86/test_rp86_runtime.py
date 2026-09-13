@@ -8,32 +8,31 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+WEB_APP_ROOT = ROOT / "host" / "apps" / "web"
 
-from rp86_runtime.cli import build_parser, _regression_workload_error  # noqa: E402
-import rp86_runtime.cli as cli  # noqa: E402
-from rp86_runtime.console import (  # noqa: E402
+from host.rp86.cli import build_parser, _regression_workload_error  # noqa: E402
+import host.rp86.cli as cli  # noqa: E402
+from host.rp86.console import (  # noqa: E402
     CdcDisplayStream,
     _apply_input_character,
     _status_text,
 )
-from rp86_runtime.device import DeviceClient  # noqa: E402
-from rp86_runtime.calculator import calculator_payload, is_calculator_payload  # noqa: E402
-from rp86_runtime.session import (  # noqa: E402
+from host.rp86.device import DeviceClient  # noqa: E402
+from host.rp86.calculator import calculator_payload, is_calculator_payload  # noqa: E402
+from host.rp86.session import (  # noqa: E402
     _broker_runtime_state,
     _native_probe_unavailable,
     _format_runtime_top,
 )
-from rp86_runtime.runtime_state import (  # noqa: E402
+from host.rp86.runtime_state import (  # noqa: E402
     prepared_runtime_is_available,
     processor_execution_state,
     workload_upload_requires_stop,
 )
-from rp86_runtime.shell_commands import (  # noqa: E402
-    complete_shell_input,
-)
-import rp86_web_api  # noqa: E402
+from host.rp86.shell_commands import complete_shell_input  # noqa: E402
+from host.apps.web import rp86_web_api  # noqa: E402
 
 
 class Rp86RuntimeTests(unittest.TestCase):
@@ -94,7 +93,7 @@ class Rp86RuntimeTests(unittest.TestCase):
         process = Mock()
         process.poll.return_value = None
         record = SimpleNamespace(device_id="TEST-RP86")
-        api = rp86_web_api.WebApi(TOOLS)
+        api = rp86_web_api.WebApi(WEB_APP_ROOT)
         with (
             patch.object(api, "active_broker", side_effect=[None, record]),
             patch.object(rp86_web_api.subprocess, "Popen", return_value=process) as popen,
@@ -116,7 +115,7 @@ class Rp86RuntimeTests(unittest.TestCase):
         accepted = Mock()
         accepted.poll.return_value = None
         record = SimpleNamespace(device_id="TEST-RP86")
-        api = rp86_web_api.WebApi(TOOLS)
+        api = rp86_web_api.WebApi(WEB_APP_ROOT)
         with (
             patch.object(
                 api,
