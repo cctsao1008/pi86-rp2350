@@ -3,29 +3,45 @@
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel
 > 8086 and NEC V30 processors.**
 
+Documentation is organized by authority rather than by the order in which the project evolved.
+
 ## Start here
 
-1. [`architecture.md`](architecture.md) — identity, roles, and boundaries
-2. [`host_runtime_architecture.md`](host_runtime_architecture.md) — runtime and ownership model
-3. [`host_runtime_shell.md`](host_runtime_shell.md) — RP86 Host shell
-4. [`memory_architecture.md`](memory_architecture.md) — SRAM, PSRAM, flash, SD, and sharing
-5. [`processor_memory_map.md`](processor_memory_map.md) — canonical 8086/V30 physical address map
-6. [`processor_io_interrupt_map.md`](processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
-7. [`host_protocol.md`](host_protocol.md) — Host operations and transports
-8. [`companion_service_abi.md`](companion_service_abi.md) — records and processor mailbox
-9. [`hardware.md`](hardware.md) — board resources and electrical ownership
-10. [`bringup.md`](bringup.md) — physical bring-up and acceptance
+1. [`architecture/system_architecture.md`](architecture/system_architecture.md) — system identity, roles, and boundaries
+2. [`architecture/host_runtime.md`](architecture/host_runtime.md) — Host runtime and ownership model
+3. [`architecture/memory.md`](architecture/memory.md) — processor-visible memory and storage ownership
+4. [`architecture/repository_structure.md`](architecture/repository_structure.md) — source-tree ownership model
+5. [`reference/processor_memory_map.md`](reference/processor_memory_map.md) — canonical 8086/V30 physical address map
+6. [`reference/processor_io_interrupt_map.md`](reference/processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
+7. [`reference/host_protocol.md`](reference/host_protocol.md) — Host operations and transports
+8. [`reference/companion_service_abi.md`](reference/companion_service_abi.md) — records and processor mailbox
+9. [`reference/hardware.md`](reference/hardware.md) — board resources and electrical ownership
+10. [`bringup/README.md`](bringup/README.md) — physical bring-up and acceptance
 11. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
-12. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
-13. [`bringup/recovery.md`](bringup/recovery.md) — recovery
-14. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
-15. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
-16. [`reference.md`](reference.md) — external specification and implementation references
+12. [`development/host_runtime_shell.md`](development/host_runtime_shell.md) — RP86 Host shell
+13. [`development/workload_deployment_vs_regression.md`](development/workload_deployment_vs_regression.md) — persistent deployment vs finite validation
+14. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
+15. [`bringup/recovery.md`](bringup/recovery.md) — recovery
+16. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
+17. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
+18. [`reference/README.md`](reference/README.md) — external specification and implementation references
 
 ```text
 Host       = Runtime Controller
 RP2350     = Companion Resource and Bus Controller
 8086 / V30 = Bare-Metal Remote Physical Processor
+```
+
+## Documentation authority
+
+```text
+docs/architecture/   durable current system architecture
+docs/reference/      exact stable technical reference and ABI/maps
+docs/development/    build/debug/developer workflows
+docs/validation/     acceptance methods and accepted evidence
+docs/bringup/        physical bring-up and recovery
+docs/adr/            architectural decisions and rationale
+docs/story/          public narrative only; not normative architecture
 ```
 
 ## Architectural decisions
@@ -49,18 +65,19 @@ RP2350     = Companion Resource and Bus Controller
 - [`execution_clock_mode_transition_validation.md`](validation/execution_clock_mode_transition_validation.md)
 - [`internal_sram_shared_mailbox_validation.md`](validation/internal_sram_shared_mailbox_validation.md)
 
-[`story/`](story/) contains the four public articles. They are narrative, not
-competing architecture specifications.
+[`story/`](story/) contains the four public articles. They preserve project narrative, not competing architecture specifications.
 
 ## Placement rule
 
 ```text
-stable architecture or interface  -> canonical document
-current implementation work       -> GitHub issue
-accepted physical measurement     -> validation/
-one architectural decision        -> adr/
-public narrative                  -> story/
-superseded material                -> Git history
+stable architecture             -> architecture/
+stable interface / ABI / map   -> reference/
+development workflow            -> development/
+accepted physical measurement   -> validation/
+physical bring-up / recovery    -> bringup/
+one architectural decision      -> adr/
+public narrative                -> story/
+superseded material             -> Git history
 ```
 
 The repository intentionally has no documentation archive. Git is the archive.
