@@ -3,10 +3,10 @@ import sys
 import unittest
 from unittest.mock import patch
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.protocol import (  # noqa: E402
+from host.rp86.protocol import (  # noqa: E402
     FLAG_RETRY,
     MESSAGE_SIZE,
     NATIVE_PROCESSOR_INTEL_8086,
@@ -26,7 +26,7 @@ from rp86_runtime.protocol import (  # noqa: E402
     RUNTIME_CONTROL_ENTER_BOOTLOADER,
     RUNTIME_CONTROL_REBOOT,
 )
-from rp86_runtime.constants import (  # noqa: E402
+from host.rp86.constants import (  # noqa: E402
     BOOTLOADER_ACK,
     BOOTLOADER_REQUEST,
     REBOOT_ACK,
@@ -37,14 +37,14 @@ from rp86_runtime.constants import (  # noqa: E402
     COMMAND_REPLY,
     HEARTBEAT_REPLY,
 )
-from rp86_runtime.core import (  # noqa: E402
+from host.rp86.core import (  # noqa: E402
     heartbeat_payload,
     hid_output_report,
     normalize_hid_input,
     validate_live_reply,
     validate_device_reply,
 )
-from rp86_runtime.transport import (  # noqa: E402
+from host.rp86.transport import (  # noqa: E402
     cdc_serial_for_port,
     resolve_cdc_port,
     select_cdc_port,
@@ -135,7 +135,7 @@ class ProtocolTests(unittest.TestCase):
         ):
             device = FakeHid()
             with patch(
-                "rp86_runtime.transport._open_hid",
+                "host.rp86.transport._open_hid",
                 return_value=(device, {"serial": "TEST"}),
             ):
                 identity = send_hid_runtime_control(
