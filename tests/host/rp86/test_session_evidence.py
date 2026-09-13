@@ -6,12 +6,12 @@ import sys
 import unittest
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.session_evidence import SessionEvidence, regression_failure_reasons  # noqa: E402
-from rp86_runtime.runtime_state import WorkloadRuntimeState  # noqa: E402
-from rp86_runtime.workload import WorkloadManifest  # noqa: E402
+from host.rp86.session_evidence import SessionEvidence, regression_failure_reasons  # noqa: E402
+from host.rp86.runtime_state import WorkloadRuntimeState  # noqa: E402
+from host.rp86.workload import WorkloadManifest  # noqa: E402
 
 
 class SessionEvidenceTests(unittest.TestCase):
