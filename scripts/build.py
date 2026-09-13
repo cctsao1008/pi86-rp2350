@@ -292,10 +292,10 @@ def sha256(path):
 
 
 def decode_workload(path):
-    tools = str(ROOT / "tools")
-    if tools not in sys.path:
-        sys.path.insert(0, tools)
-    from rp86_runtime.workload import decode_workload_file
+    root = str(ROOT)
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from host.rp86.workload import decode_workload_file
 
     return decode_workload_file(path.read_bytes())
 
