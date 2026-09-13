@@ -3,10 +3,10 @@ import sys
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.mailbox import (  # noqa: E402
+from host.rp86.mailbox import (  # noqa: E402
     MAILBOX_BASE,
     MAILBOX_MAGIC,
     OWNER_PROCESSOR,
@@ -14,14 +14,14 @@ from rp86_runtime.mailbox import (  # noqa: E402
     MailboxHeader,
     mailbox_commit_records,
 )
-from rp86_runtime.memory import (  # noqa: E402
+from host.rp86.memory import (  # noqa: E402
     format_memory_dump,
     memory_read_request,
     memory_write_records,
     parse_memory_read,
     validate_memory_reply,
 )
-from rp86_runtime.protocol import (  # noqa: E402
+from host.rp86.protocol import (  # noqa: E402
     MEMORY_READ,
     Message,
     STATUS_BAD_STATE,
