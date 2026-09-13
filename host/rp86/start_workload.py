@@ -71,10 +71,11 @@ def _workload_path_error(value: str) -> str | None:
 
 
 def _spawn_background_owner() -> subprocess.Popen[bytes]:
-    tools_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(__file__).resolve().parents[2]
+    rp86_entry = repo_root / "host" / "apps" / "cli" / "rp86.py"
     command = [
         sys.executable,
-        str(tools_root / "rp86.py"),
+        str(rp86_entry),
         "--interactive",
         "--attach",
         "--display",
@@ -83,7 +84,7 @@ def _spawn_background_owner() -> subprocess.Popen[bytes]:
         "1.0",
     ]
     kwargs: dict[str, object] = {
-        "cwd": str(tools_root.parent),
+        "cwd": str(repo_root),
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
         "stderr": subprocess.DEVNULL,
