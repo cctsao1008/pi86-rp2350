@@ -133,33 +133,64 @@ if(RP86_ENABLE_FREERTOS_8086)
         LOAD_ADDRESS "0x10000"
     )
 
+    function(rp86_add_freertos_system_validation target_name metadata package_name)
+        rp86_add_processor_c16_image(${target_name}
+            C_SOURCES
+                "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/main.c"
+                "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/port.c"
+                "${RP86_FREERTOS_KERNEL_DIR}/list.c"
+                "${RP86_FREERTOS_KERNEL_DIR}/queue.c"
+                "${RP86_FREERTOS_KERNEL_DIR}/tasks.c"
+                "${RP86_FREERTOS_KERNEL_DIR}/portable/MemMang/heap_1.c"
+            ASM_SOURCES
+                "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/compiler_helpers.asm"
+                "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/portasm.asm"
+                "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/startup.asm"
+            INCLUDE_DIRS
+                "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system"
+                "${CMAKE_CURRENT_LIST_DIR}/include"
+                "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086"
+                "${RP86_FREERTOS_KERNEL_DIR}/include"
+            C_OPTIONS
+                "-fi=${RP86_FREERTOS_SYSTEM_CONFIG}"
+                ${ARGN}
+            DEPENDS
+                "${RP86_FREERTOS_SYSTEM_CONFIG}"
+            METADATA
+                "${metadata}"
+            PACKAGE_NAME "${package_name}"
+            LOAD_ADDRESS "0x10000"
+        )
+    endfunction()
+
     # Issue #67/#61 sustained system workload.  It shares the proven portable
     # layer but keeps its application, configuration, package, and evidence
     # separate from the closed #60 port witness.
-    rp86_add_processor_c16_image(freertos_system_validation
-        C_SOURCES
-            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/main.c"
-            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/port.c"
-            "${RP86_FREERTOS_KERNEL_DIR}/list.c"
-            "${RP86_FREERTOS_KERNEL_DIR}/queue.c"
-            "${RP86_FREERTOS_KERNEL_DIR}/tasks.c"
-            "${RP86_FREERTOS_KERNEL_DIR}/portable/MemMang/heap_1.c"
-        ASM_SOURCES
-            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/compiler_helpers.asm"
-            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086/portasm.asm"
-            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/startup.asm"
-        INCLUDE_DIRS
-            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system"
-            "${CMAKE_CURRENT_LIST_DIR}/include"
-            "${CMAKE_CURRENT_LIST_DIR}/ports/freertos/8086"
-            "${RP86_FREERTOS_KERNEL_DIR}/include"
-        C_OPTIONS
-            "-fi=${RP86_FREERTOS_SYSTEM_CONFIG}"
-        DEPENDS
-            "${RP86_FREERTOS_SYSTEM_CONFIG}"
-        METADATA
-            "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/workload.json"
-        PACKAGE_NAME "FREERTOS-SYSTEM.P86W"
-        LOAD_ADDRESS "0x10000"
+    rp86_add_freertos_system_validation(
+        freertos_system_validation
+        "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/workload.json"
+        "FREERTOS-SYSTEM.P86W"
+    )
+
+    # Issue #75 discriminating pair.  Both use the system workload and
+    # portMAX_DELAY; only the Consumer/Producer priority topology differs.
+    # A reproduces the sole-highest-priority Consumer path.  B leaves another
+    # task ready at the same priority when the Consumer blocks.
+    rp86_add_freertos_system_validation(
+        freertos_system_pmax_a
+        "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/workload-pmax-a.json"
+        "FREERTOS-PMAX-A.P86W"
+        "-dRP86_QUEUE_WAIT_FOREVER=1"
+        "-dRP86_CONSUMER_PRIORITY=3"
+        "-dRP86_PRODUCER_PRIORITY=2"
+    )
+
+    rp86_add_freertos_system_validation(
+        freertos_system_pmax_b
+        "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/freertos_system/workload-pmax-b.json"
+        "FREERTOS-PMAX-B.P86W"
+        "-dRP86_QUEUE_WAIT_FOREVER=1"
+        "-dRP86_CONSUMER_PRIORITY=2"
+        "-dRP86_PRODUCER_PRIORITY=2"
     )
 endif()
