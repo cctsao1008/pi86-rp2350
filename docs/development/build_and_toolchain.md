@@ -13,28 +13,46 @@ scripts/build.ps1     PowerShell wrapper
 scripts/build.cmd     cmd.exe wrapper
 ```
 
-The wrappers expose the same build profiles:
+The public build profiles are intentionally small:
 
 ```text
-firmware   RP2350 firmware (`rp86_rp2350`)
-tick       periodic Intel 8086 tick validation workload
-c16        Open Watcom C/16 ABI smoke workload
-freertos   FreeRTOS Intel 8086 validation workload
-all        run all four profiles sequentially
+firmware    RP2350 firmware
+workloads   complete configured native 8086 workload set
+all         firmware + workloads
 ```
 
-Explicit build profiles use isolated CMake build directories so firmware and
-processor-only configuration caches cannot contaminate each other:
+Build generation remains separate from flashing and physical validation.
+
+## Build trees and staged artifacts
+
+The repository uses two canonical CMake build trees:
 
 ```text
-build-firmware/
-build-tick/
-build-c16/
-build-freertos/
+build-firmware/     RP2350 firmware configuration
+build-workloads/    processor-only workload configuration
 ```
 
-Build generation is intentionally separate from flashing and physical
-validation.
+`build-workloads/` is an incremental build cache, not a distributable artifact
+registry. After a complete workload build, the driver clears and stages the
+current package set into:
+
+```text
+artifacts/workloads/
+```
+
+Only that staged directory represents the current complete workload artifact
+set. Stale `.P86W` files left in a build tree cannot enter it.
+
+Every workload package is registered by the same CMake package helper that
+creates its package target. The aggregate target is:
+
+```text
+rp86_workload_packages
+```
+
+The driver does not maintain a second list of workload names or package paths.
+Each staged `.P86W` is decoded with the normal workload parser before the build
+is reported PASS; the `.P86W` manifest remains the runtime authority.
 
 ## Requirements
 
@@ -47,15 +65,14 @@ steps begin:
 - `firmware`: repository-pinned Pico SDK and picotool, plus the Arm GNU
   Toolchain supported by the pinned Pico SDK. On Linux/WSL the driver can call
   `scripts/bootstrap_tools.sh` when the repository-local picotool is missing.
-- `tick`: NASM 3.02. On Linux/WSL the driver can call
-  `scripts/bootstrap_nasm.sh` when the pinned repository-local NASM is missing.
-- `c16`: NASM 3.02 plus Open Watcom C/16 `wcc` and `wlink`.
-- `freertos`: the same C/16 tools plus the repository-pinned
-  `third_party/FreeRTOS-Kernel` revision.
+- `workloads`: NASM 3.02, Open Watcom C/16 `wcc` and `wlink`, and the
+  repository-pinned `third_party/FreeRTOS-Kernel` revision. This single
+  configuration builds the complete current ASM, C/16, and FreeRTOS workload
+  package graph.
 
 Open Watcom discovery accepts `RP86_WCC_EXECUTABLE` and
 `RP86_WLINK_EXECUTABLE`, then checks `WATCOM`, `~/watcom`, the repository-local
-tool area, and `PATH`. This avoids passing empty tool paths into CMake.
+tool area, and `PATH`.
 
 ## Clone or update
 
@@ -81,43 +98,37 @@ git submodule update --init --recursive
 
 ```bash
 ./scripts/build.sh firmware --clean
-./scripts/build.sh tick
-./scripts/build.sh c16
-./scripts/build.sh freertos
+./scripts/build.sh workloads
 ./scripts/build.sh all
 ```
 
-The primary outputs are:
+Canonical outputs are:
 
 ```text
 build-firmware/firmware/rp86_rp2350.uf2
-build-tick/workloads/TICK.P86W
-build-c16/workloads/C16SMOKE.P86W
-build-freertos/workloads/FREERTOS.P86W
+artifacts/workloads/*.P86W
 ```
+
+For the established Windows/WSL development flow, use PowerShell for Git and
+Host/physical-runtime operations, and WSL for the native build toolchains.
 
 ## PowerShell
 
 ```powershell
 .\scripts\build.ps1 firmware --clean
-.\scripts\build.ps1 tick
-.\scripts\build.ps1 c16
-.\scripts\build.ps1 freertos
+.\scripts\build.ps1 workloads
 .\scripts\build.ps1 all
 ```
 
-Native Windows builds still require native Windows versions of the selected
-profile's toolchain. For the existing WSL development environment, Bash/WSL is
-the canonical place to generate firmware and 8086 workload artifacts;
-PowerShell remains suitable for Host runtime and physical-validation commands.
+Native Windows workload builds require native Windows versions of NASM and
+Open Watcom. WSL remains the canonical workload build environment when those
+native tools are not installed.
 
 ## cmd.exe
 
 ```cmd
 scripts\build.cmd firmware --clean
-scripts\build.cmd tick
-scripts\build.cmd c16
-scripts\build.cmd freertos
+scripts\build.cmd workloads
 scripts\build.cmd all
 ```
 
@@ -127,18 +138,23 @@ The canonical driver accepts:
 
 ```text
 --clean                 remove the selected build directory before configure
---build-dir <path>      override the profile build directory
---target <name>         override the CMake target
+--build-dir <path>      override the selected profile build directory
+--target <name>         override the CMake target for expert/debug use
 --jobs <n>              set the parallel build job count
 --verbose               request verbose CMake build output
 ```
 
-`--build-dir` and `--target` are intentionally rejected with `all` because the
-profiles use incompatible CMake configuration modes.
+`--build-dir` and `--target` are rejected with `all` because firmware and
+processor workloads are separate CMake configurations.
 
-## Legacy wrapper compatibility
+When `workloads --target <name>` is used, the requested target is built but the
+canonical staged artifact set is intentionally left unchanged. To produce the
+complete staged set, run `workloads` without a target override.
 
-Existing firmware invocations remain accepted. For example:
+## Legacy firmware wrapper compatibility
+
+Existing firmware invocations without an explicit profile remain accepted. For
+example:
 
 ```bash
 ./scripts/build.sh --clean --target rp86_rp2350
@@ -150,15 +166,29 @@ and:
 .\scripts\build.ps1 -Clean -Target rp86_rp2350
 ```
 
-continue to select the firmware profile and the historical `build/` directory.
-New development should use an explicit profile so the isolated build
-directories are used.
+continue to select the firmware profile and historical `build/` directory.
+New development should use the explicit `firmware` profile.
 
 ## Manual CMake
 
-Manual CMake remains available for debugging, but is not the normal operator
-interface. Keep processor-only and Pico firmware builds in separate build
-directories and pass explicit tool paths for C/16 work.
+Manual CMake remains available as the expert escape hatch. Keep processor-only
+and Pico firmware builds in separate build directories.
+
+After configuring `build-workloads/`, a single package may be rebuilt directly
+without changing the canonical build interface, for example:
+
+```bash
+cmake --build build-workloads --target fast_invsqrt_package --parallel
+```
+
+A complete workload package build is:
+
+```bash
+cmake --build build-workloads --target rp86_workload_packages --parallel
+```
+
+Canonical staging is performed by `scripts/build.py workloads` using the CMake
+`workloads` install component.
 
 ## Tests
 
