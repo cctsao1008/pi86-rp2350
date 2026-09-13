@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class WorkloadExecutorTests(unittest.TestCase):
@@ -16,15 +16,15 @@ class WorkloadExecutorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "test_workload_executor"
             sources = [
-                "tests/runtime/test_workload_executor.c",
-                "tests/runtime/workload_executor_tick_stubs.c",
+                "tests/firmware/runtime/test_workload_executor.c",
+                "tests/firmware/runtime/workload_executor_tick_stubs.c",
                 "firmware/runtime/workload_executor.c",
                 "firmware/runtime/workload_manager.c",
                 "firmware/memory/backing.c",
                 "firmware/memory/memory.c",
                 "firmware/memory/shared_mailbox.c",
             ]
-            includes = ["tests/runtime/stubs", "firmware", "third_party/fatfs/source"]
+            includes = ["tests/firmware/runtime/stubs", "firmware", "third_party/fatfs/source"]
             compiled = subprocess.run(
                 [compiler, "-std=c11", "-Wall", "-Wextra", "-Werror",
                  *(flag for path in includes for flag in ("-I", str(ROOT / path))),
