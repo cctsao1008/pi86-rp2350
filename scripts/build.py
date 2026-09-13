@@ -14,28 +14,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 NASM_VERSION = "3.02"
 FREERTOS_COMMIT = "8be86d4a24fd4091f8f4192018423ab590f408db"
-COMMANDS = ("firmware", "tick", "c16", "freertos", "freertos-system", "all")
+COMMANDS = ("firmware", "workloads", "all")
 BUILD_DIR = {
     "firmware": "build-firmware",
-    "tick": "build-tick",
-    "c16": "build-c16",
-    "freertos": "build-freertos",
-    "freertos-system": "build-freertos-system",
+    "workloads": "build-workloads",
 }
 TARGET = {
     "firmware": "rp86_rp2350",
-    "tick": "periodic_tick_package",
-    "c16": "c16_abi_smoke_package",
-    "freertos": "freertos_port_validation_package",
-    "freertos-system": "freertos_system_validation_package",
+    "workloads": "rp86_workload_packages",
 }
-ARTIFACT = {
-    "firmware": "firmware/rp86_rp2350.uf2",
-    "tick": "workloads/TICK.P86W",
-    "c16": "workloads/C16SMOKE.P86W",
-    "freertos": "workloads/FREERTOS.P86W",
-    "freertos-system": "workloads/FREERTOS-SYSTEM.P86W",
-}
+FIRMWARE_ARTIFACT = Path("firmware/rp86_rp2350.uf2")
+WORKLOAD_STAGE = ROOT / "artifacts" / "workloads"
 
 
 class BuildError(RuntimeError):
@@ -148,7 +137,11 @@ def watcom_candidates(env, tool):
     if env.get("WATCOM"):
         roots.append(as_path(env["WATCOM"]))
     roots += [Path.home() / "watcom", ROOT / ".tools/watcom"]
-    dirs = ("binnt64", "binnt", "binw64", "binw") if os.name == "nt" else ("binl", "binl64")
+    dirs = (
+        ("binnt64", "binnt", "binw64", "binw")
+        if os.name == "nt"
+        else ("binl", "binl64")
+    )
     filename = tool + (".exe" if os.name == "nt" else "")
     return roots, [root / d / filename for root in roots for d in dirs]
 
@@ -169,10 +162,18 @@ def ensure_watcom(env):
     known_bins = {"binl", "binl64", "binnt64", "binnt", "binw64", "binw"}
     wcc_path = Path(wcc).resolve()
     wlink_path = Path(wlink).resolve()
-    wcc_root = wcc_path.parent.parent if wcc_path.parent.name.lower() in known_bins else None
-    wlink_root = wlink_path.parent.parent if wlink_path.parent.name.lower() in known_bins else None
+    wcc_root = (
+        wcc_path.parent.parent if wcc_path.parent.name.lower() in known_bins else None
+    )
+    wlink_root = (
+        wlink_path.parent.parent
+        if wlink_path.parent.name.lower() in known_bins
+        else None
+    )
     if wcc_root and wlink_root and wcc_root != wlink_root:
-        raise BuildError(f"wcc and wlink resolve to different roots: {wcc_root} vs {wlink_root}")
+        raise BuildError(
+            f"wcc and wlink resolve to different roots: {wcc_root} vs {wlink_root}"
+        )
     watcom_root = wcc_root or wlink_root
     prepend(env, "PATH", wcc_path.parent)
     if watcom_root:
@@ -189,7 +190,9 @@ def ensure_freertos(env):
     kernel = submodule(
         "third_party/FreeRTOS-Kernel", "include/FreeRTOS.h", env, recursive=False
     )
-    actual = run([require("git"), "-C", kernel, "rev-parse", "HEAD"], env, capture=True)
+    actual = run(
+        [require("git"), "-C", kernel, "rev-parse", "HEAD"], env, capture=True
+    )
     if actual != FREERTOS_COMMIT:
         raise BuildError(
             "FreeRTOS-Kernel is not at the repository-pinned commit.\n"
@@ -203,7 +206,11 @@ def ensure_freertos(env):
 def ensure_firmware(env):
     sdk = submodule("third_party/pico-sdk", "pico_sdk_init.cmake", env, recursive=True)
     submodule("third_party/picotool", "CMakeLists.txt", env, recursive=True)
-    picotool_dir = as_path(env["RP86_PICOTOOL_DIR"]) if env.get("RP86_PICOTOOL_DIR") else ROOT / ".tools/picotool-install/picotool"
+    picotool_dir = (
+        as_path(env["RP86_PICOTOOL_DIR"])
+        if env.get("RP86_PICOTOOL_DIR")
+        else ROOT / ".tools/picotool-install/picotool"
+    )
     picotool = picotool_dir / ("picotool.exe" if os.name == "nt" else "picotool")
     if not picotool.is_file() and os.name != "nt":
         print("picotool is missing; bootstrapping pinned host tools.")
@@ -231,10 +238,10 @@ def cache_mode(build_dir):
     return None
 
 
-def clean_dir(build_dir):
-    resolved = build_dir.resolve()
+def clean_dir(path):
+    resolved = path.resolve()
     if resolved in (ROOT.resolve(), Path(resolved.anchor)):
-        raise BuildError(f"refusing to remove unsafe build directory: {resolved}")
+        raise BuildError(f"refusing to remove unsafe directory: {resolved}")
     if resolved.exists():
         print(f"Removing {resolved}")
         shutil.rmtree(resolved)
@@ -243,7 +250,9 @@ def clean_dir(build_dir):
 def configure(build_dir, defs, env):
     cmake = require("cmake")
     args = [cmake, "-S", ROOT, "-B", build_dir]
-    if not (build_dir / "CMakeCache.txt").exists() and shutil.which("ninja", path=env.get("PATH")):
+    if not (build_dir / "CMakeCache.txt").exists() and shutil.which(
+        "ninja", path=env.get("PATH")
+    ):
         args += ["-G", "Ninja"]
     args += [f"-D{k}={v}" for k, v in defs.items()]
     run(args, env)
@@ -258,6 +267,22 @@ def cmake_build(build_dir, target, env, jobs, verbose):
     run(args, env)
 
 
+def cmake_install_workloads(build_dir, env):
+    prefix = ROOT / "artifacts"
+    run(
+        [
+            require("cmake"),
+            "--install",
+            build_dir,
+            "--prefix",
+            prefix,
+            "--component",
+            "workloads",
+        ],
+        env,
+    )
+
+
 def sha256(path):
     h = hashlib.sha256()
     with path.open("rb") as f:
@@ -266,75 +291,123 @@ def sha256(path):
     return h.hexdigest()
 
 
-def report(command, build_dir, target):
-    if command == "firmware" and target != TARGET["firmware"]:
+def decode_workload(path):
+    tools = str(ROOT / "tools")
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    from rp86_runtime.workload import decode_workload_file
+
+    return decode_workload_file(path.read_bytes())
+
+
+def report_firmware(build_dir, target):
+    if target != TARGET["firmware"]:
         files = sorted(build_dir.rglob("*.uf2"))
         print("Generated UF2 : " + (", ".join(str(x) for x in files) or "none"))
         return
-    artifact = build_dir / ARTIFACT[command]
+    artifact = build_dir / FIRMWARE_ARTIFACT
     if not artifact.is_file():
         raise BuildError(f"expected artifact was not produced: {artifact}")
     print(f"Artifact      : {artifact}")
     print(f"Size          : {artifact.stat().st_size} bytes")
     print(f"SHA-256       : {sha256(artifact)}")
-    if artifact.suffix.upper() == ".P86W":
-        sys.path.insert(0, str(ROOT / "tools"))
-        from rp86_runtime.workload import decode_workload_file
-        manifest, image = decode_workload_file(artifact.read_bytes())
-        print(f"Image         : {len(image)} bytes")
-        print(f"Image CRC32   : {manifest.image_crc32:08X}")
-        print(f"Load          : 0x{manifest.load_address:05X}")
-        print(f"Entry         : {manifest.entry_segment:04X}:{manifest.entry_offset:04X}")
-        print(f"Stack         : {manifest.stack_segment:04X}:{manifest.stack_offset:04X}")
-        print(f"Flags         : 0x{manifest.flags:08X}")
 
 
-def build_one(command, build_dir, target_override, args, base_env):
-    env = dict(base_env)
-    processor_only = command != "firmware"
-    if args.clean:
-        clean_dir(build_dir)
+def report_workload(path):
+    manifest, image = decode_workload(path)
+    print(f"Artifact      : {path}")
+    print(f"Size          : {path.stat().st_size} bytes")
+    print(f"SHA-256       : {sha256(path)}")
+    print(f"Image         : {len(image)} bytes")
+    print(f"Image CRC32   : {manifest.image_crc32:08X}")
+    print(f"Load          : 0x{manifest.load_address:05X}")
+    print(f"Entry         : {manifest.entry_segment:04X}:{manifest.entry_offset:04X}")
+    print(f"Stack         : {manifest.stack_segment:04X}:{manifest.stack_offset:04X}")
+    print(f"Flags         : 0x{manifest.flags:08X}")
+
+
+def stage_and_report_workloads(build_dir, env):
+    clean_dir(WORKLOAD_STAGE)
+    cmake_install_workloads(build_dir, env)
+    artifacts = sorted(WORKLOAD_STAGE.glob("*.P86W"))
+    if not artifacts:
+        raise BuildError(
+            f"workload staging produced no P86W artifacts in {WORKLOAD_STAGE}"
+        )
+    print(f"\nStaged workload set: {WORKLOAD_STAGE}")
+    for artifact in artifacts:
+        print()
+        report_workload(artifact)
+    print(f"\nVerified workloads: {len(artifacts)}")
+
+
+def check_mode(build_dir, expected):
     existing = cache_mode(build_dir)
-    expected = "ON" if processor_only else "OFF"
     if existing and existing != expected:
         raise BuildError(
             f"{build_dir} has RP86_PROCESSOR_ONLY={existing}, expected {expected}. "
             "Use the command-specific directory or --clean."
         )
 
-    freertos_command = command in ("freertos", "freertos-system")
-    defs = {
-        "RP86_PROCESSOR_ONLY": expected,
-        "RP86_ENABLE_PROCESSOR_C16": "ON" if command == "c16" else "OFF",
-        "RP86_ENABLE_FREERTOS_8086": "ON" if freertos_command else "OFF",
-    }
 
-    print(f"\n=== RP86 build: {command} ===")
+def build_firmware(build_dir, target_override, args, base_env):
+    env = dict(base_env)
+    if args.clean:
+        clean_dir(build_dir)
+    check_mode(build_dir, "OFF")
+
+    print("\n=== RP86 build: firmware ===")
     print(f"Repository    : {ROOT}")
     print(f"Build dir     : {build_dir}")
 
-    if command == "firmware":
-        picotool_dir = ensure_firmware(env)
-        defs.update(
-            PICO_BOARD="waveshare_rp2350_pizero",
-            picotool_DIR=picotool_dir,
-            CMAKE_BUILD_TYPE="Release",
-        )
-    else:
-        defs["RP86_NASM_EXECUTABLE"] = ensure_nasm(env)
-        if command in ("c16", "freertos", "freertos-system"):
-            wcc, wlink = ensure_watcom(env)
-            defs["RP86_WCC_EXECUTABLE"] = wcc
-            defs["RP86_WLINK_EXECUTABLE"] = wlink
-        if freertos_command:
-            ensure_freertos(env)
-
+    picotool_dir = ensure_firmware(env)
+    defs = {
+        "RP86_PROCESSOR_ONLY": "OFF",
+        "RP86_ENABLE_PROCESSOR_C16": "OFF",
+        "RP86_ENABLE_FREERTOS_8086": "OFF",
+        "PICO_BOARD": "waveshare_rp2350_pizero",
+        "picotool_DIR": picotool_dir,
+        "CMAKE_BUILD_TYPE": "Release",
+    }
     configure(build_dir, defs, env)
-    target = target_override or TARGET[command]
+    target = target_override or TARGET["firmware"]
     print(f"Target        : {target}")
     cmake_build(build_dir, target, env, args.jobs, args.verbose)
-    report(command, build_dir, target)
-    print(f"BUILD {command.upper()}: PASS")
+    report_firmware(build_dir, target)
+    print("BUILD FIRMWARE: PASS")
+
+
+def build_workloads(build_dir, target_override, args, base_env):
+    env = dict(base_env)
+    if args.clean:
+        clean_dir(build_dir)
+    check_mode(build_dir, "ON")
+
+    print("\n=== RP86 build: workloads ===")
+    print(f"Repository    : {ROOT}")
+    print(f"Build dir     : {build_dir}")
+
+    nasm = ensure_nasm(env)
+    wcc, wlink = ensure_watcom(env)
+    ensure_freertos(env)
+    defs = {
+        "RP86_PROCESSOR_ONLY": "ON",
+        "RP86_ENABLE_PROCESSOR_C16": "ON",
+        "RP86_ENABLE_FREERTOS_8086": "ON",
+        "RP86_NASM_EXECUTABLE": nasm,
+        "RP86_WCC_EXECUTABLE": wcc,
+        "RP86_WLINK_EXECUTABLE": wlink,
+    }
+    configure(build_dir, defs, env)
+    target = target_override or TARGET["workloads"]
+    print(f"Target        : {target}")
+    cmake_build(build_dir, target, env, args.jobs, args.verbose)
+
+    if target_override:
+        print("Custom workload target built; canonical staging was not changed.")
+    else:
+        stage_and_report_workloads(build_dir, env)
+    print("BUILD WORKLOADS: PASS")
 
 
 def main(argv=None):
@@ -359,17 +432,24 @@ def main(argv=None):
     env = os.environ.copy()
     try:
         if args.command == "all":
-            for command in ("firmware", "tick", "c16", "freertos", "freertos-system"):
-                build_one(command, ROOT / BUILD_DIR[command], None, args, env)
+            build_firmware(ROOT / BUILD_DIR["firmware"], None, args, env)
+            build_workloads(ROOT / BUILD_DIR["workloads"], None, args, env)
+        elif args.command == "workloads":
+            build_dir = (
+                as_path(args.build_dir)
+                if args.build_dir
+                else ROOT / BUILD_DIR["workloads"]
+            )
+            build_workloads(build_dir, args.target, args, env)
         else:
             if args.build_dir:
                 build_dir = as_path(args.build_dir)
             elif explicit:
-                build_dir = ROOT / BUILD_DIR[args.command]
+                build_dir = ROOT / BUILD_DIR["firmware"]
             else:
                 # Legacy build.sh/build.ps1 firmware invocations keep build/.
                 build_dir = ROOT / "build"
-            build_one(args.command, build_dir, args.target, args, env)
+            build_firmware(build_dir, args.target, args, env)
     except (BuildError, OSError, ImportError) as exc:
         print(f"\nBUILD ERROR: {exc}", file=sys.stderr)
         return 1
