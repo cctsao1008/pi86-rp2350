@@ -119,8 +119,8 @@ architecture in the current source tree.
 
 ## Related documents
 
-- [`../architecture.md`](../architecture.md)
-- [`../host_runtime_architecture.md`](../host_runtime_architecture.md)
-- [`../host_runtime_shell.md`](../host_runtime_shell.md)
-- [`../memory_architecture.md`](../memory_architecture.md)
-- [`../host_protocol.md`](../host_protocol.md)
+- [`../architecture/README.md`](../architecture/README.md)
+- [`../architecture/host_runtime.md`](../architecture/host_runtime.md)
+- [`../reference/host_runtime_shell.md`](../reference/host_runtime_shell.md)
+- [`../architecture/memory.md`](../architecture/memory.md)
+- [`../reference/host_protocol.md`](../reference/host_protocol.md)
