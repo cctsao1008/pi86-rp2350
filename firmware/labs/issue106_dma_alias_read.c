@@ -1,21 +1,30 @@
 /*
- * Issue #106 Phase B1: one-shot dynamic SRAM read through a DMA trigger alias.
+ * Issue #106 Phase B2: repeated dynamic SRAM reads through a DMA trigger alias.
  *
- * This is an engineering laboratory, not production firmware.  It proves the
- * narrow primitive needed by the continuous-clock Intel 8086 datapath:
+ * Engineering laboratory only.  The active transaction path is entirely
+ * hardware-paced:
  *
- *   PIO-produced full SRAM pointer
+ *   pointer feeder DMA
+ *       -> source PIO
  *       -> control DMA
  *       -> data-channel AL3_READ_ADDR_TRIG
  *       -> internal SRAM read
- *       -> sink PIO TX FIFO
+ *       -> sink PIO
+ *       -> capture DMA
+ *       -> result buffer
  *
- * M33 prepares and verifies a finite trial, but does not participate in the
- * active pointer -> trigger -> SRAM -> PIO transfer path.
+ * The source and sink PIO state machines use a PIO IRQ flag as a hardware
+ * acknowledgement.  The next pointer is not published until the previous SRAM
+ * word has reached the sink.  M33 configures the finite experiment and verifies
+ * the result after launch; it does not rearm or service individual transfers.
+ *
+ * RP2350 DMA reloads TRANS_COUNT from its programmed reload value whenever a
+ * channel starts a new transfer sequence.  Therefore the data channel can keep
+ * TRANS_COUNT=1 programmed once and be started repeatedly by dynamic writes to
+ * AL3_READ_ADDR_TRIG.
  *
  * This experiment deliberately does NOT yet prove:
  *   - scattered Pi86 GPIO address repacking;
- *   - autonomous multi-transaction DMA rearming;
  *   - Intel 2 MHz bus timing acceptance;
  *   - byte-lane handling;
  *   - physical 8086 execution.
@@ -34,24 +43,17 @@
 
 #define ISSUE106_VECTOR_COUNT 16u
 #define ISSUE106_TIMEOUT_US 100000u
+#define ISSUE106_HANDSHAKE_IRQ 0u
 
 static uint32_t backing[ISSUE106_VECTOR_COUNT];
+static uint32_t pointers[ISSUE106_VECTOR_COUNT];
+static uint32_t observed[ISSUE106_VECTOR_COUNT];
 
 static bool wait_dma_idle(uint channel, uint64_t deadline) {
     while (dma_channel_is_busy(channel)) {
         if (time_us_64() > deadline) return false;
         tight_loop_contents();
     }
-    return true;
-}
-
-static bool wait_rx_word(PIO pio, uint sm, uint32_t *value,
-                         uint64_t deadline) {
-    while (pio_sm_is_rx_fifo_empty(pio, sm)) {
-        if (time_us_64() > deadline) return false;
-        tight_loop_contents();
-    }
-    *value = pio_sm_get(pio, sm);
     return true;
 }
 
@@ -71,30 +73,31 @@ static void init_sink_sm(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, true);
 }
 
-static bool run_one_shot(PIO pio, uint source_sm, uint sink_sm,
-                         uint control_dma, uint data_dma,
-                         const uint32_t *source_ptr, uint32_t expected,
-                         uint32_t *observed) {
+static bool run_repeated_reads(PIO pio, uint source_sm, uint sink_sm,
+                               uint pointer_dma, uint control_dma,
+                               uint data_dma, uint capture_dma) {
+    pio_interrupt_clear(pio, ISSUE106_HANDSHAKE_IRQ);
+    for (uint i = 0; i < ISSUE106_VECTOR_COUNT; ++i) observed[i] = 0u;
+
     /*
-     * Data channel is fully configured but dormant.  TRANS_COUNT=1 is armed
-     * before the trial.  A hardware write to AL3_READ_ADDR_TRIG installs the
-     * dynamic source pointer and starts the transfer.
+     * Data channel: one SRAM word per trigger.  Its READ_ADDR is replaced by
+     * each control-DMA write to AL3_READ_ADDR_TRIG.  TRANS_COUNT=1 is written
+     * once; RP2350 reloads that count automatically on every later trigger.
      */
     dma_channel_config data_cfg = dma_channel_get_default_config(data_dma);
     channel_config_set_transfer_data_size(&data_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&data_cfg, false);
     channel_config_set_write_increment(&data_cfg, false);
-    channel_config_set_dreq(&data_cfg, DREQ_FORCE);
+    channel_config_set_dreq(&data_cfg, pio_get_dreq(pio, sink_sm, true));
     channel_config_set_high_priority(&data_cfg, true);
     dma_channel_configure(data_dma, &data_cfg,
                           &pio->txf[sink_sm], backing,
                           1u, false);
 
     /*
-     * Control channel consumes exactly one pointer from the source PIO RX FIFO
-     * and writes it to the data channel trigger alias.  The control channel is
-     * paced by the source PIO RX DREQ; it cannot fire before PIO publishes the
-     * pointer.
+     * Control channel: one pointer word per source-PIO RX DREQ.  Each pointer
+     * write both installs the dynamic SRAM source address and triggers exactly
+     * one data-channel transfer sequence.
      */
     dma_channel_config control_cfg = dma_channel_get_default_config(control_dma);
     channel_config_set_transfer_data_size(&control_cfg, DMA_SIZE_32);
@@ -106,32 +109,60 @@ static bool run_one_shot(PIO pio, uint source_sm, uint sink_sm,
     dma_channel_configure(
         control_dma, &control_cfg,
         &dma_channel_hw_addr(data_dma)->al3_read_addr_trig,
-        &pio->rxf[source_sm], 1u, true);
+        &pio->rxf[source_sm], ISSUE106_VECTOR_COUNT, false);
+
+    /* Feed a finite pointer stream to the source PIO without M33 per-vector. */
+    dma_channel_config pointer_cfg = dma_channel_get_default_config(pointer_dma);
+    channel_config_set_transfer_data_size(&pointer_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&pointer_cfg, true);
+    channel_config_set_write_increment(&pointer_cfg, false);
+    channel_config_set_dreq(
+        &pointer_cfg, pio_get_dreq(pio, source_sm, true));
+    dma_channel_configure(pointer_dma, &pointer_cfg,
+                          &pio->txf[source_sm], pointers,
+                          ISSUE106_VECTOR_COUNT, false);
+
+    /* Drain sink RX to memory. PUSH backpressure is part of the handshake. */
+    dma_channel_config capture_cfg = dma_channel_get_default_config(capture_dma);
+    channel_config_set_transfer_data_size(&capture_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&capture_cfg, false);
+    channel_config_set_write_increment(&capture_cfg, true);
+    channel_config_set_dreq(
+        &capture_cfg, pio_get_dreq(pio, sink_sm, false));
+    dma_channel_configure(capture_dma, &capture_cfg,
+                          observed, &pio->rxf[sink_sm],
+                          ISSUE106_VECTOR_COUNT, false);
 
     /*
-     * This M33 write happens before the hardware-paced path begins.  PIO then
-     * publishes the full SRAM pointer; from that point through the SRAM read
-     * and sink-PIO delivery no M33 callback is involved.
+     * Arm consumers before the producer.  Once pointer_dma starts, all sixteen
+     * pointer -> trigger -> SRAM -> PIO -> capture transactions progress using
+     * only DMA, PIO DREQs and the PIO IRQ handshake.
      */
-    pio_sm_put_blocking(pio, source_sm, (uint32_t)(uintptr_t)source_ptr);
+    dma_start_channel_mask((1u << control_dma) | (1u << capture_dma));
+    dma_channel_start(pointer_dma);
 
     const uint64_t deadline = time_us_64() + ISSUE106_TIMEOUT_US;
+    if (!wait_dma_idle(pointer_dma, deadline)) return false;
     if (!wait_dma_idle(control_dma, deadline)) return false;
+    if (!wait_dma_idle(capture_dma, deadline)) return false;
     if (!wait_dma_idle(data_dma, deadline)) return false;
-    if (!wait_rx_word(pio, sink_sm, observed, deadline)) return false;
 
-    return *observed == expected;
+    for (uint i = 0; i < ISSUE106_VECTOR_COUNT; ++i) {
+        if (observed[i] != backing[i]) return false;
+    }
+    return true;
 }
 
 int main(void) {
     stdio_init_all();
     sleep_ms(1500);
 
-    printf("issue106 dma-alias read lab\n");
-    printf("scope: one-shot PIO pointer -> DMA trigger -> SRAM -> PIO\n");
+    printf("issue106 dma-alias repeated-read lab\n");
+    printf("scope: autonomous pointer stream -> DMA trigger -> SRAM -> PIO\n");
 
     for (uint i = 0; i < ISSUE106_VECTOR_COUNT; ++i) {
         backing[i] = 0x10600000u ^ (0x01010101u * i) ^ (i << 17);
+        pointers[i] = (uint32_t)(uintptr_t)&backing[i];
     }
 
     PIO pio = pio0;
@@ -142,32 +173,29 @@ int main(void) {
     init_source_sm(pio, source_sm, source_offset);
     init_sink_sm(pio, sink_sm, sink_offset);
 
+    const uint pointer_dma = dma_claim_unused_channel(true);
     const uint control_dma = dma_claim_unused_channel(true);
     const uint data_dma = dma_claim_unused_channel(true);
+    const uint capture_dma = dma_claim_unused_channel(true);
+
+    const bool pass = run_repeated_reads(
+        pio, source_sm, sink_sm,
+        pointer_dma, control_dma, data_dma, capture_dma);
 
     uint failures = 0u;
     for (uint i = 0; i < ISSUE106_VECTOR_COUNT; ++i) {
-        uint32_t observed = 0u;
-        const bool pass = run_one_shot(
-            pio, source_sm, sink_sm, control_dma, data_dma,
-            &backing[i], backing[i], &observed);
-
+        const bool item_pass = observed[i] == backing[i];
         printf("[%02u] ptr=%08" PRIx32 " expected=%08" PRIx32
                " observed=%08" PRIx32 " %s\n",
-               i, (uint32_t)(uintptr_t)&backing[i], backing[i], observed,
-               pass ? "PASS" : "FAIL");
-        if (!pass) ++failures;
-
-        dma_channel_abort(control_dma);
-        dma_channel_abort(data_dma);
-        pio_sm_clear_fifos(pio, source_sm);
-        pio_sm_clear_fifos(pio, sink_sm);
+               i, pointers[i], backing[i], observed[i],
+               item_pass ? "PASS" : "FAIL");
+        if (!item_pass) ++failures;
     }
 
-    printf("RESULT: %s (%u/%u failed)\n",
-           failures == 0u ? "PASS" : "FAIL",
-           failures, ISSUE106_VECTOR_COUNT);
-    printf("NOTE: this is not Intel timing acceptance.\n");
+    printf("RESULT: %s (%u/%u data mismatches)\n",
+           pass ? "PASS" : "FAIL", failures, ISSUE106_VECTOR_COUNT);
+    printf("NOTE: hardware-autonomous repeated read path only; ");
+    printf("this is not Intel timing acceptance.\n");
 
     while (true) tight_loop_contents();
 }
