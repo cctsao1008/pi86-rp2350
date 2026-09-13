@@ -19,6 +19,7 @@ from rp86_runtime.broker import (  # noqa: E402
     select_broker,
 )
 from rp86_runtime.device_ownership import DeviceOwnership  # noqa: E402
+from rp86_runtime.workload import control_record  # noqa: E402
 
 
 class HostBrokerTests(unittest.TestCase):
@@ -93,6 +94,46 @@ class HostBrokerTests(unittest.TestCase):
             thread.join(timeout=1.0)
             self.assertTrue(result["ok"])
             self.assertEqual(result["latency_ms"], 2.5)
+            broker.stop()
+
+    def test_workload_control_provenance_is_retained_in_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            "os.environ", {"RP86_BROKER_DIR": directory}
+        ):
+            broker = DeviceBroker("AUDIT", "intel-8086")
+            record = broker.start()
+            result: dict[str, object] = {}
+            encoded = control_record(
+                "restart", workload_id=5, sequence=77
+            ).encode()
+
+            def request() -> None:
+                result.update(
+                    BrokerClient(record, "web-workload").exchange(
+                        encoded, "restart-request-1", 1.0
+                    )
+                )
+
+            thread = threading.Thread(target=request)
+            thread.start()
+            pending = broker.requests.get(timeout=1.0)
+            pending.future.set_result(
+                {"ok": True, "reply_hex": bytes(64).hex(), "latency_ms": 1.0}
+            )
+            thread.join(timeout=1.0)
+            self.assertTrue(result["ok"])
+
+            broker.publish({"state": "OWNER_ACTIVE", "sequence": 77})
+            hello = BrokerClient(record, "observer").hello()
+            audit = hello["snapshot"]["control_audit"]
+            self.assertEqual(len(audit), 1)
+            self.assertEqual(audit[0]["client_id"], "web-workload")
+            self.assertEqual(audit[0]["request_id"], "restart-request-1")
+            self.assertEqual(audit[0]["sequence"], 77)
+            self.assertEqual(audit[0]["operation"], "RESTART")
+            self.assertEqual(audit[0]["operation_code"], 3)
+            self.assertEqual(audit[0]["workload_id"], 5)
+            self.assertTrue(audit[0]["accepted"])
             broker.stop()
 
     def test_cdc_control_is_queued_for_the_same_device_actor(self) -> None:
