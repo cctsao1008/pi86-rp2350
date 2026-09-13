@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from .loader import LoadedWorkload, linear_address
 
@@ -34,7 +35,7 @@ class IA16Machine:
 
     This class deliberately models only processor-visible memory/register state.
     It does not model RP2350, PIO, DMA, bus timing, or strict Intel-8086 ISA
-    legality.  ISA legality remains a separate validation concern.
+    legality. ISA legality remains a separate validation concern.
     """
 
     PAGE_SIZE = 0x1000
@@ -45,7 +46,14 @@ class IA16Machine:
             raise ValueError("memory_size must be a positive 4 KiB multiple")
 
         try:
-            from unicorn import Uc, UC_ARCH_X86, UC_MODE_16
+            from unicorn import (
+                Uc,
+                UC_ARCH_X86,
+                UC_HOOK_CODE,
+                UC_HOOK_MEM_READ,
+                UC_HOOK_MEM_WRITE,
+                UC_MODE_16,
+            )
             from unicorn.x86_const import (
                 UC_X86_REG_AX,
                 UC_X86_REG_BP,
@@ -84,10 +92,14 @@ class IA16Machine:
             "ip": UC_X86_REG_IP,
             "flags": UC_X86_REG_EFLAGS,
         }
+        self._hook_code = UC_HOOK_CODE
+        self._hook_mem_read = UC_HOOK_MEM_READ
+        self._hook_mem_write = UC_HOOK_MEM_WRITE
         self._uc = Uc(UC_ARCH_X86, UC_MODE_16)
         self._uc.mem_map(0, memory_size)
         self.memory_size = memory_size
         self.workload: LoadedWorkload | None = None
+        self._trace_hooks: list[Any] = []
 
     def load(self, workload: LoadedWorkload) -> None:
         """Load one decoded production workload and apply manifest CPU state."""
@@ -107,6 +119,31 @@ class IA16Machine:
         self._write_reg("ss", manifest.stack_segment)
         self._write_reg("sp", manifest.stack_offset)
         self.workload = workload
+
+    def install_trace(self, recorder: Any) -> None:
+        """Attach one trace recorder using Unicorn code/read/write hooks."""
+        if self._trace_hooks:
+            raise RuntimeError("a trace recorder is already installed")
+
+        def code_hook(_uc: Any, address: int, size: int, _user: Any) -> None:
+            recorder.instruction(address, size, self.registers())
+
+        def read_hook(_uc: Any, _access: int, address: int, size: int, _value: int, _user: Any) -> None:
+            if recorder.interested(address, size):
+                raw = bytes(self._uc.mem_read(address, size))
+                value = int.from_bytes(raw, "little")
+                recorder.memory("READ", address, size, value, self.registers())
+
+        def write_hook(_uc: Any, _access: int, address: int, size: int, value: int, _user: Any) -> None:
+            recorder.memory("WRITE", address, size, value, self.registers())
+
+        self._trace_hooks.extend(
+            (
+                self._uc.hook_add(self._hook_code, code_hook),
+                self._uc.hook_add(self._hook_mem_read, read_hook),
+                self._uc.hook_add(self._hook_mem_write, write_hook),
+            )
+        )
 
     def run(self, *, instruction_count: int) -> None:
         """Execute at most ``instruction_count`` instructions from current CS:IP."""
