@@ -83,6 +83,41 @@ jobs:
             fi
           } | tee build-workloads/freertos75-tooling.txt
 
+      - name: Disassemble production FreeRTOS tasks object
+        shell: bash
+        run: |
+          set -euo pipefail
+          obj=build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj
+          listing=build-workloads/freertos75-tasks-a.wdis
+          context=build-workloads/freertos75-tasks-symbol-context.txt
+
+          if ! wdis -l="$listing" "$obj"; then
+            rm -f "$listing"
+            wdis "$obj" -l="$listing"
+          fi
+
+          test -s "$listing"
+
+          {
+            echo "=== local symbols and nearby disassembly ==="
+            grep -n -E -C 20 \
+              'prvAddCurrentTaskToDelayedList|xSuspendedTaskList|pxReadyTasksLists|pxCurrentTCB|uxListRemove' \
+              "$listing" || true
+          } | tee "$context"
+
+          for symbol in \
+            prvAddCurrentTaskToDelayedList \
+            xSuspendedTaskList \
+            pxReadyTasksLists \
+            pxCurrentTCB \
+            uxListRemove
+          do
+            if ! grep -q "$symbol" "$listing"; then
+              echo "Required object-level symbol missing from WDIS listing: $symbol" >&2
+              exit 1
+            fi
+          done
+
       - name: Probe PMAX-A production binary and map
         shell: bash
         run: |
@@ -122,6 +157,8 @@ jobs:
           path: |
             build-workloads/freertos75-tooling.txt
             build-workloads/freertos75-tasks-object-sha256.txt
+            build-workloads/freertos75-tasks-a.wdis
+            build-workloads/freertos75-tasks-symbol-context.txt
             build-workloads/freertos75-pmax-a-probe.txt
             build-workloads/freertos75-pmax-b-probe.txt
             build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj
