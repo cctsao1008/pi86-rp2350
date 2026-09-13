@@ -91,6 +91,22 @@ jobs:
             --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
             | tee build-workloads/freertos75-omf-layout.txt
 
+      - name: Disassemble exact delayed-list machine-code window
+        shell: bash
+        run: |
+          set -euo pipefail
+          image=build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.bin
+          window=build-workloads/freertos75-delayed-list-window.bin
+          listing=build-workloads/freertos75-delayed-list-window.ndisasm
+
+          # OMF/WLINK evidence resolves prvAddCurrentTaskToDelayedList to physical
+          # 0x12613.  The flat image is loaded at 0x10000, hence file offset 0x2613.
+          # Start slightly before the function and capture enough code to include
+          # the complete indefinite-block branch and its return path.
+          dd if="$image" of="$window" bs=1 skip=$((0x25F0)) count=$((0x1E0)) status=none
+          .tools/nasm-3.02/bin/ndisasm -b 16 -o 0x125F0 "$window" | tee "$listing"
+          grep -q '^00012613' "$listing"
+
       - name: Probe PMAX-A production binary and map
         shell: bash
         run: |
@@ -130,6 +146,8 @@ jobs:
           path: |
             build-workloads/freertos75-tooling.txt
             build-workloads/freertos75-omf-layout.txt
+            build-workloads/freertos75-delayed-list-window.bin
+            build-workloads/freertos75-delayed-list-window.ndisasm
             build-workloads/freertos75-tasks-object-sha256.txt
             build-workloads/freertos75-pmax-a-probe.txt
             build-workloads/freertos75-pmax-b-probe.txt
