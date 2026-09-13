@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class MemoryServiceTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class MemoryServiceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "test_memory_service"
             sources = (
-                ROOT / "tests/runtime/test_memory_service.c",
+                ROOT / "tests/firmware/runtime/test_memory_service.c",
                 ROOT / "firmware/memory/backing.c",
                 ROOT / "firmware/memory/memory_service.c",
                 ROOT / "firmware/memory/shared_mailbox.c",
