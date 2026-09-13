@@ -98,6 +98,30 @@ and last samples while `error_count` remains zero. A literal telemetry address
 is still accepted as a diagnostic override, but the linker map is the canonical
 discovery source.
 
+## Restart contract
+
+RP86 `workload restart` re-enters the same RAM-resident C/16 workload image;
+it does not perform a new Host upload. The workload startup clears ordinary
+BSS, but FreeRTOS also defines explicit module reset APIs for restarting the
+scheduler in an existing C runtime image.
+
+Before allocating any queue, TCB, or task stack, the system workload therefore
+performs:
+
+```c
+vTaskResetState();
+vPortHeapResetState();
+```
+
+`vTaskResetState()` returns the FreeRTOS task/scheduler module to its startup
+state, including `pxCurrentTCB`, task counts, tick/scheduler state, and list
+bookkeeping. `vPortHeapResetState()` resets the `heap_1` allocator state. Both
+calls are also valid on the first cold entry, where those modules are already
+in their initial state.
+
+This is a workload/runtime restart requirement, not an Intel-8086-specific
+kernel modification. The upstream FreeRTOS kernel remains unchanged.
+
 ## Runtime expectation
 
 A healthy workload is long-running. It does not publish a terminal PASS or
