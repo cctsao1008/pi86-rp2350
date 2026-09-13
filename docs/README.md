@@ -7,31 +7,37 @@ Documentation is organized by authority rather than by project history. Architec
 
 ## Start here
 
-1. [`architecture/README.md`](architecture/README.md) — identity, roles, and boundaries
+1. [`architecture/README.md`](architecture/README.md) — canonical system planes, roles, timing boundary, and evidence model
 2. [`architecture/host_runtime.md`](architecture/host_runtime.md) — runtime and ownership model
-3. [`reference/host_runtime_shell.md`](reference/host_runtime_shell.md) — RP86 Host shell
-4. [`architecture/memory.md`](architecture/memory.md) — SRAM, PSRAM, flash, SD, and sharing
-5. [`reference/processor_memory_map.md`](reference/processor_memory_map.md) — canonical 8086/V30 physical address map
-6. [`reference/processor_io_interrupt_map.md`](reference/processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
-7. [`reference/host_protocol.md`](reference/host_protocol.md) — Host operations and transports
-8. [`reference/companion_service_abi.md`](reference/companion_service_abi.md) — records and processor mailbox
-9. [`architecture/hardware.md`](architecture/hardware.md) — board resources and electrical ownership
-10. [`bringup/README.md`](bringup/README.md) — physical bring-up and acceptance
-11. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
-12. [`development/workload_deployment_vs_regression.md`](development/workload_deployment_vs_regression.md) — persistent deployment vs finite regression
-13. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
-14. [`bringup/recovery.md`](bringup/recovery.md) — recovery
-15. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
-16. [`reference/processor_c16_abi.md`](reference/processor_c16_abi.md) — Open Watcom C/16 processor ABI
-17. [`reference/processor_freertos_8086_port.md`](reference/processor_freertos_8086_port.md) — FreeRTOS 8086 portable-layer contract
-18. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
-19. [`reference/README.md`](reference/README.md) — external specification and implementation references
+3. [`architecture/intel_8086_clock_contract.md`](architecture/intel_8086_clock_contract.md) — Intel continuous-clock contract and fixed-`READY` implications
+4. [`reference/host_runtime_shell.md`](reference/host_runtime_shell.md) — RP86 Host shell
+5. [`architecture/memory.md`](architecture/memory.md) — SRAM, PSRAM, flash, SD, and sharing
+6. [`reference/processor_memory_map.md`](reference/processor_memory_map.md) — canonical 8086/V30 physical address map
+7. [`reference/processor_io_interrupt_map.md`](reference/processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
+8. [`reference/host_protocol.md`](reference/host_protocol.md) — Host operations and transports
+9. [`reference/companion_service_abi.md`](reference/companion_service_abi.md) — records and processor mailbox
+10. [`architecture/hardware.md`](architecture/hardware.md) — board resources and electrical ownership
+11. [`bringup/README.md`](bringup/README.md) — physical bring-up and acceptance
+12. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
+13. [`development/workload_deployment_vs_regression.md`](development/workload_deployment_vs_regression.md) — persistent deployment vs finite regression
+14. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
+15. [`bringup/recovery.md`](bringup/recovery.md) — recovery
+16. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
+17. [`reference/processor_c16_abi.md`](reference/processor_c16_abi.md) — Open Watcom C/16 processor ABI
+18. [`reference/processor_freertos_8086_port.md`](reference/processor_freertos_8086_port.md) — FreeRTOS 8086 portable-layer contract
+19. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
+20. [`reference/README.md`](reference/README.md) — external specification and implementation references
 
 ```text
-Host       = Runtime Controller
-RP2350     = Companion Resource and Bus Controller
-8086 / V30 = Bare-Metal Remote Physical Processor
+Host                    = control / orchestration plane
+RP2350 M33              = service and policy plane
+RP2350 PIO + DMA        = realtime processor-bus data plane
+Intel 8086 / NEC V30    = physical execution authority
+IA16 Lab                = binary execution microscope
+Physical silicon        = final evidence authority
 ```
+
+The active processor bus path must not depend synchronously on Host software, USB, filesystems, or other unbounded software latency. Intel and NEC share the runtime architecture, but processor-specific electrical and clock contracts are audited independently.
 
 ## Documentation authority
 
@@ -68,6 +74,8 @@ The target source-tree model is defined by [`architecture/repository_structure.m
 - [`clock_stepped_internal_sram_general_execution_validation.md`](validation/clock_stepped_internal_sram_general_execution_validation.md)
 - [`execution_clock_mode_transition_validation.md`](validation/execution_clock_mode_transition_validation.md)
 - [`internal_sram_shared_mailbox_validation.md`](validation/internal_sram_shared_mailbox_validation.md)
+
+These records remain factual observations of the documented test conditions. Intel observations below the vendor minimum clock or under stopped-clock execution are empirical evidence, not vendor-compliant operating points.
 
 [`story/`](story/) contains the four public articles. They preserve project narrative, not competing architecture specifications.
 
