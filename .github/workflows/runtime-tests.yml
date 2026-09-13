@@ -9,11 +9,12 @@ on:
       - ".gitignore"
       - "cmake/ProcessorImage.cmake"
       - "cmake/ProcessorC16Image.cmake"
-      - "docs/development/build_and_toolchain.md"
+      - "docs/**"
       - "firmware/**"
       - "host/**"
       - "processor/CMakeLists.txt"
       - "scripts/build.py"
+      - "scripts/check_docs.py"
       - "scripts/package_workload.py"
       - "tests/build/**"
       - "tests/firmware/**"
@@ -26,11 +27,12 @@ on:
       - ".gitignore"
       - "cmake/ProcessorImage.cmake"
       - "cmake/ProcessorC16Image.cmake"
-      - "docs/development/build_and_toolchain.md"
+      - "docs/**"
       - "firmware/**"
       - "host/**"
       - "processor/CMakeLists.txt"
       - "scripts/build.py"
+      - "scripts/check_docs.py"
       - "scripts/package_workload.py"
       - "tests/build/**"
       - "tests/firmware/**"
@@ -61,3 +63,6 @@ jobs:
         run: |
           python3 -m unittest discover -s tests/build -p 'test_*.py' -v
           python3 -m unittest discover -s tests/integration -p 'test_*.py' -v
+
+      - name: Validate repository documentation
+        run: python3 scripts/check_docs.py
