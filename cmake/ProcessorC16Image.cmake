@@ -37,6 +37,11 @@ function(rp86_add_processor_c16_image target_name)
             "include ProcessorImage.cmake first"
         )
     endif()
+    if(NOT COMMAND rp86_register_workload_package)
+        message(FATAL_ERROR
+            "rp86_register_workload_package is unavailable; include ProcessorImage.cmake first"
+        )
+    endif()
 
     set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/${target_name}")
     set(binary_path "${generated_dir}/${target_name}.bin")
@@ -160,6 +165,7 @@ function(rp86_add_processor_c16_image target_name)
             COMMENT "Packaging processor C/16 workload ${C16_PACKAGE_NAME}"
         )
         add_custom_target(${target_name}_package DEPENDS "${package_path}")
+        rp86_register_workload_package(${target_name}_package "${package_path}")
         set(${target_name}_PACKAGE "${package_path}" PARENT_SCOPE)
     endif()
 
