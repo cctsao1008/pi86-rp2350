@@ -2,10 +2,10 @@ from pathlib import Path
 import sys
 import struct
 import unittest
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.filesystem import (
+from host.rp86.filesystem import (
     df_request,
     list_request,
     parse_df,
@@ -15,7 +15,7 @@ from rp86_runtime.filesystem import (
     validate_reply,
     write_records,
 )
-from rp86_runtime.protocol import (
+from host.rp86.protocol import (
     FILESYSTEM_DF,
     FILESYSTEM_FLAG_DIRECTORY,
     FILESYSTEM_FLAG_EOF,
