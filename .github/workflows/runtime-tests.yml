@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/runtime-tests.yml"
+      - ".gitignore"
       - "cmake/ProcessorImage.cmake"
       - "cmake/ProcessorC16Image.cmake"
       - "processor/CMakeLists.txt"
@@ -20,6 +21,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/runtime-tests.yml"
+      - ".gitignore"
       - "cmake/ProcessorImage.cmake"
       - "cmake/ProcessorC16Image.cmake"
       - "processor/CMakeLists.txt"
