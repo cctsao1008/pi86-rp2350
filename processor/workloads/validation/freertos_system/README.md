@@ -59,19 +59,19 @@ telemetry storage.
 Use the canonical build entry point:
 
 ```text
-python3 scripts/build.py freertos-system
+python3 scripts/build.py workloads
 ```
 
-The package is generated as:
+The staged package is:
 
 ```text
-build-freertos-system/workloads/FREERTOS-SYSTEM.P86W
+artifacts/workloads/FREERTOS-SYSTEM.P86W
 ```
 
-The generated map is:
+The generated map remains in the processor-only build tree:
 
 ```text
-build-freertos-system/processor/generated/freertos_system_validation/
+build-workloads/processor/generated/freertos_system_validation/
     freertos_system_validation.map
 ```
 
@@ -82,14 +82,14 @@ With an RP86 runtime/broker already active, read one coherent snapshot without
 stopping the workload:
 
 ```text
-py tools/rp86_freertos_status.py --map build-freertos-system/processor/generated/freertos_system_validation/freertos_system_validation.map
+py -m tools.diagnostics.freertos_status --map build-workloads/processor/generated/freertos_system_validation/freertos_system_validation.map
 ```
 
 For the Issue #71 sustained-run witness, collect multiple snapshots and require
 forward progress:
 
 ```text
-py tools/rp86_freertos_status.py --map build-freertos-system/processor/generated/freertos_system_validation/freertos_system_validation.map --samples 6 --interval 1 --verify-progress
+py -m tools.diagnostics.freertos_status --map build-workloads/processor/generated/freertos_system_validation/freertos_system_validation.map --samples 6 --interval 1 --verify-progress
 ```
 
 The helper performs only ordinary processor-visible RAM reads. `--verify-progress`
