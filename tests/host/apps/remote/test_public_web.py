@@ -5,20 +5,21 @@ import sys
 import unittest
 from unittest.mock import patch
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[4]
+sys.path.insert(0, str(ROOT))
+REMOTE_APP_ROOT = ROOT / "host" / "apps" / "remote"
 
-import rp86_public  # noqa: E402
-from rp86_runtime.protocol import (  # noqa: E402
+from host.apps.remote import rp86_remote  # noqa: E402
+from host.rp86.protocol import (  # noqa: E402
     Message,
     TYPE_WORKLOAD_STATUS,
 )
-from rp86_web_api import WebApi  # noqa: E402
+from host.apps.web.rp86_web_api import WebApi  # noqa: E402
 
 
 class PublicSessionTests(unittest.TestCase):
     def test_exclusive_acquire_resume_and_release(self) -> None:
-        session = rp86_public.PublicSession()
+        session = rp86_remote.PublicSession()
 
         first, status = session.acquire(owner="browser-a")
         self.assertEqual(status, 200)
@@ -46,7 +47,7 @@ class PublicSessionTests(unittest.TestCase):
         self.assertFalse(session.snapshot()["owned"])
 
     def test_snapshot_reports_requester_ownership(self) -> None:
-        session = rp86_public.PublicSession()
+        session = rp86_remote.PublicSession()
         acquired, _ = session.acquire(owner="browser-a")
         token = str(acquired["token"])
 
@@ -55,23 +56,23 @@ class PublicSessionTests(unittest.TestCase):
         self.assertTrue(session.snapshot("stale-token")["owned"])
 
     def test_session_has_no_implicit_time_limit(self) -> None:
-        session = rp86_public.PublicSession()
-        with patch.object(rp86_public.time, "time", return_value=10.0):
+        session = rp86_remote.PublicSession()
+        with patch.object(rp86_remote.time, "time", return_value=10.0):
             acquired, _ = session.acquire(owner="browser")
         token = str(acquired["token"])
-        with patch.object(rp86_public.time, "time", return_value=10_000_000.0):
+        with patch.object(rp86_remote.time, "time", return_value=10_000_000.0):
             self.assertTrue(session.authorize(token))
         self.assertTrue(session.snapshot()["owned"])
 
     def test_release_is_idempotent_when_available(self) -> None:
-        session = rp86_public.PublicSession()
+        session = rp86_remote.PublicSession()
         released, status = session.release(None)
         self.assertEqual(status, 200)
         self.assertTrue(released["ok"])
         self.assertFalse(released["released"])
 
     def test_public_page_exposes_native_workload_lifecycle(self) -> None:
-        html = rp86_public.INDEX_HTML
+        html = rp86_remote.INDEX_HTML
         for marker in (
             'id="workloadFile"',
             'id="load"',
@@ -86,7 +87,7 @@ class PublicSessionTests(unittest.TestCase):
             self.assertIn(marker, html)
 
     def test_running_workload_does_not_render_failure(self) -> None:
-        html = rp86_public.INDEX_HTML
+        html = rp86_remote.INDEX_HTML
         self.assertIn(
             "const terminal=['COMPLETED','FAULTED','TIMED_OUT'].includes(state);",
             html,
@@ -95,7 +96,7 @@ class PublicSessionTests(unittest.TestCase):
 
     def test_request_body_budget_covers_one_megabyte_processor_image(self) -> None:
         encoded = ((0x100000 + 2) // 3) * 4
-        self.assertGreater(rp86_public.MAX_REQUEST_BYTES, encoded)
+        self.assertGreater(rp86_remote.MAX_REQUEST_BYTES, encoded)
 
 
 _STATUS = struct.Struct("<IIIIIIIIHH16s")
@@ -168,7 +169,7 @@ class FakeWorkloadBroker:
 
 class PublicWorkloadApiTests(unittest.TestCase):
     def test_upload_raw_binary_uses_existing_workload_transport(self) -> None:
-        api = WebApi(TOOLS)
+        api = WebApi(REMOTE_APP_ROOT)
         broker = FakeWorkloadBroker()
         with patch.object(api, "broker_client", return_value=(object(), broker)):
             result = api.workload_upload({
@@ -186,7 +187,7 @@ class PublicWorkloadApiTests(unittest.TestCase):
         self.assertGreaterEqual(result["record_count"], 3)
 
     def test_run_uses_current_workload_wildcard(self) -> None:
-        api = WebApi(TOOLS)
+        api = WebApi(REMOTE_APP_ROOT)
         broker = FakeWorkloadBroker(workload_id=99, workload_state="STAGED")
         with patch.object(api, "broker_client", return_value=(object(), broker)):
             result = api.workload_control("run")
@@ -197,7 +198,7 @@ class PublicWorkloadApiTests(unittest.TestCase):
         self.assertEqual(control_workload_id(broker.requests[-1]), 0)
 
     def test_status_ignores_stale_broker_workload_id(self) -> None:
-        api = WebApi(TOOLS)
+        api = WebApi(REMOTE_APP_ROOT)
         broker = FakeWorkloadBroker(workload_id=99, workload_state="RUNNING")
         with patch.object(api, "broker_client", return_value=(object(), broker)):
             result = api.workload_control("status")
@@ -206,7 +207,7 @@ class PublicWorkloadApiTests(unittest.TestCase):
         self.assertEqual(control_workload_id(broker.requests[-1]), 0)
 
     def test_replacement_stop_uses_current_workload_wildcard(self) -> None:
-        api = WebApi(TOOLS)
+        api = WebApi(REMOTE_APP_ROOT)
         broker = FakeWorkloadBroker(workload_id=99, workload_state="RUNNING")
         with patch.object(api, "broker_client", return_value=(object(), broker)):
             result = api.workload_upload({
