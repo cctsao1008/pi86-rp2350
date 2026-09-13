@@ -38,7 +38,7 @@ Current source lineage:
 
 - `processor/workloads/validation/clock_stepped_general.asm`
 - `firmware/runtime/clock_stepped_bus_controller.c`
-- `tests/execution_clock_runtime/execution_clock_runtime.c`
+- `tests/firmware/runtime/execution_clock/execution_clock_runtime.c`
 
 The original standalone harness and its exact artifact name remain recoverable
 from Git history; they are not retained as parallel current implementations.
