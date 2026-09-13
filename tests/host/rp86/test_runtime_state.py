@@ -4,21 +4,21 @@ import sys
 import unittest
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.protocol import (  # noqa: E402
+from host.rp86.protocol import (  # noqa: E402
     NATIVE_PROCESSOR_INTEL_8086,
     NativeServiceWitness,
     TYPE_HEARTBEAT,
 )
-from rp86_runtime.runtime_state import (  # noqa: E402
+from host.rp86.runtime_state import (  # noqa: E402
     ProcessorObservationState,
     RequestSequence,
     RuntimeStatusSnapshot,
     WorkloadRuntimeState,
 )
-from rp86_runtime.workload import (  # noqa: E402
+from host.rp86.workload import (  # noqa: E402
     PROCESSOR_FLAG_IDLE,
     PROCESSOR_FLAG_PREPARED_RUNTIME_INITIALIZED,
     RESULT_FLAG_NATIVE_OUTPUT,
