@@ -36,15 +36,15 @@ file(MAKE_DIRECTORY "${output_dir}")
 # physical-address padding without changing linker address calculations.
 #
 # OPTION DOSSEG is part of the C/16 startup ABI, not merely an ordering
-# preference.  Open Watcom defines the reserved _edata and _end symbols only
-# when DOSSEG is active; the RP86 startup uses those symbols to zero exactly
-# the DGROUP BSS range on every cold entry/restart.  We link without the Watcom
-# run-time libraries, so no library startup object can be relied on to request
-# DOSSEG implicitly.
+# preference.  Open Watcom defines the reserved _edata and _end symbols when
+# DOSSEG is active; the RP86 startup uses those symbols to zero the DGROUP BSS
+# range on every cold entry/restart.  We link with NODEFAULTLIBS, so the RP86
+# link script must request DOSSEG itself instead of depending on a Watcom
+# run-time startup object to do it implicitly.
 #
-# ORDER remains the WLINK mechanism used here for the fixed physical placement:
-# it keeps _TEXT first at LOAD_ADDRESS while allowing the C compiler's DGROUP
-# classes to follow with normal 8086 segment fixups resolved by the linker.
+# ORDER remains the WLINK mechanism used here for fixed physical placement:
+# it keeps _TEXT at LOAD_ADDRESS while preserving the DATA-before-BSS layout
+# required by the startup's _edata.._end clear.
 file(WRITE "${LINK_SCRIPT}"
     "format dos\n"
     "option quiet\n"
