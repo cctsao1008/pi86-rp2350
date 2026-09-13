@@ -6,11 +6,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-import rp86_web  # noqa: E402
-from rp86_web_view import processor_view  # noqa: E402
+from host.apps.web import rp86_web  # noqa: E402
+from host.apps.web.rp86_web_view import processor_view  # noqa: E402
 
 
 class WebLayoutTests(unittest.TestCase):
