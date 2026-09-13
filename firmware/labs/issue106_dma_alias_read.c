@@ -1,7 +1,7 @@
 /*
  * Issue #106 Phase B2: repeated dynamic SRAM reads through a DMA trigger alias.
  *
- * Engineering laboratory only.  The active transaction path is entirely
+ * Engineering laboratory only. The active transaction path is entirely
  * hardware-paced:
  *
  *   pointer feeder DMA
@@ -14,20 +14,14 @@
  *       -> result buffer
  *
  * The source and sink PIO state machines use a PIO IRQ flag as a hardware
- * acknowledgement.  The next pointer is not published until the previous SRAM
- * word has reached the sink.  M33 configures the finite experiment and verifies
+ * acknowledgement. The next pointer is not published until the previous SRAM
+ * word has reached the sink. M33 configures the finite experiment and verifies
  * the result after launch; it does not rearm or service individual transfers.
  *
  * RP2350 DMA reloads TRANS_COUNT from its programmed reload value whenever a
- * channel starts a new transfer sequence.  Therefore the data channel can keep
+ * channel starts a new transfer sequence. Therefore the data channel can keep
  * TRANS_COUNT=1 programmed once and be started repeatedly by dynamic writes to
  * AL3_READ_ADDR_TRIG.
- *
- * This experiment deliberately does NOT yet prove:
- *   - scattered Pi86 GPIO address repacking;
- *   - Intel 2 MHz bus timing acceptance;
- *   - byte-lane handling;
- *   - physical 8086 execution.
  */
 
 #include <inttypes.h>
@@ -79,11 +73,6 @@ static bool run_repeated_reads(PIO pio, uint source_sm, uint sink_sm,
     pio_interrupt_clear(pio, ISSUE106_HANDSHAKE_IRQ);
     for (uint i = 0; i < ISSUE106_VECTOR_COUNT; ++i) observed[i] = 0u;
 
-    /*
-     * Data channel: one SRAM word per trigger.  Its READ_ADDR is replaced by
-     * each control-DMA write to AL3_READ_ADDR_TRIG.  TRANS_COUNT=1 is written
-     * once; RP2350 reloads that count automatically on every later trigger.
-     */
     dma_channel_config data_cfg = dma_channel_get_default_config(data_dma);
     channel_config_set_transfer_data_size(&data_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&data_cfg, false);
@@ -94,50 +83,38 @@ static bool run_repeated_reads(PIO pio, uint source_sm, uint sink_sm,
                           &pio->txf[sink_sm], backing,
                           1u, false);
 
-    /*
-     * Control channel: one pointer word per source-PIO RX DREQ.  Each pointer
-     * write both installs the dynamic SRAM source address and triggers exactly
-     * one data-channel transfer sequence.
-     */
     dma_channel_config control_cfg = dma_channel_get_default_config(control_dma);
     channel_config_set_transfer_data_size(&control_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&control_cfg, false);
     channel_config_set_write_increment(&control_cfg, false);
-    channel_config_set_dreq(
-        &control_cfg, pio_get_dreq(pio, source_sm, false));
+    channel_config_set_dreq(&control_cfg,
+                            pio_get_dreq(pio, source_sm, false));
     channel_config_set_high_priority(&control_cfg, true);
     dma_channel_configure(
         control_dma, &control_cfg,
         &dma_channel_hw_addr(data_dma)->al3_read_addr_trig,
         &pio->rxf[source_sm], ISSUE106_VECTOR_COUNT, false);
 
-    /* Feed a finite pointer stream to the source PIO without M33 per-vector. */
     dma_channel_config pointer_cfg = dma_channel_get_default_config(pointer_dma);
     channel_config_set_transfer_data_size(&pointer_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&pointer_cfg, true);
     channel_config_set_write_increment(&pointer_cfg, false);
-    channel_config_set_dreq(
-        &pointer_cfg, pio_get_dreq(pio, source_sm, true));
+    channel_config_set_dreq(&pointer_cfg,
+                            pio_get_dreq(pio, source_sm, true));
     dma_channel_configure(pointer_dma, &pointer_cfg,
                           &pio->txf[source_sm], pointers,
                           ISSUE106_VECTOR_COUNT, false);
 
-    /* Drain sink RX to memory. PUSH backpressure is part of the handshake. */
     dma_channel_config capture_cfg = dma_channel_get_default_config(capture_dma);
     channel_config_set_transfer_data_size(&capture_cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&capture_cfg, false);
     channel_config_set_write_increment(&capture_cfg, true);
-    channel_config_set_dreq(
-        &capture_cfg, pio_get_dreq(pio, sink_sm, false));
+    channel_config_set_dreq(&capture_cfg,
+                            pio_get_dreq(pio, sink_sm, false));
     dma_channel_configure(capture_dma, &capture_cfg,
                           observed, &pio->rxf[sink_sm],
                           ISSUE106_VECTOR_COUNT, false);
 
-    /*
-     * Arm consumers before the producer.  Once pointer_dma starts, all sixteen
-     * pointer -> trigger -> SRAM -> PIO -> capture transactions progress using
-     * only DMA, PIO DREQs and the PIO IRQ handshake.
-     */
     dma_start_channel_mask((1u << control_dma) | (1u << capture_dma));
     dma_channel_start(pointer_dma);
 
