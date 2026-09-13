@@ -9,10 +9,9 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-TOOLS = ROOT / "tools"
-sys.path.insert(0, str(TOOLS))
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime import diagnostics, processor_abi, protocol, runtime_state, workload, workload_timeout  # noqa: E402
+from host.rp86 import diagnostics, processor_abi, protocol, runtime_state, workload, workload_timeout  # noqa: E402
 
 
 def _integer(expression: str) -> int:
