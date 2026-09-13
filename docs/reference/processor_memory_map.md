@@ -334,8 +334,8 @@ The executable definitions are maintained in:
 - `firmware/memory/shared_mailbox.h` — mailbox base, size, and header ABI;
 - `firmware/runtime/workload_manager.c` — manifest range validation;
 - `firmware/runtime/canonical_runtime.c` — reset handoff and diagnostic ROM;
-- `tools/rp86_runtime/workload.py` — Host-side manifest validation;
-- `tools/rp86_runtime/memory.py` — Host memory-transfer records.
+- `host/rp86/workload.py` — Host-side manifest validation;
+- `host/rp86/memory.py` — Host memory-transfer records.
 
 If prose and executable constants ever disagree, the mismatch is a defect. The
 map must be updated as one contract rather than maintained as independent
