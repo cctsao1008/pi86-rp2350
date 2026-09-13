@@ -3,28 +3,29 @@
 > **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel
 > 8086 and NEC V30 processors.**
 
-Documentation is organized by authority rather than by the order in which the project evolved.
+Documentation is being migrated under Issue #82 from historical root-level placement to authority-based categories. Canonical category paths are used as soon as a document has been migrated; remaining root-level paths stay authoritative until their coordinated link sweep is complete.
 
 ## Start here
 
-1. [`architecture/system_architecture.md`](architecture/system_architecture.md) — system identity, roles, and boundaries
-2. [`architecture/host_runtime.md`](architecture/host_runtime.md) — Host runtime and ownership model
-3. [`architecture/memory.md`](architecture/memory.md) — processor-visible memory and storage ownership
-4. [`architecture/repository_structure.md`](architecture/repository_structure.md) — source-tree ownership model
-5. [`reference/processor_memory_map.md`](reference/processor_memory_map.md) — canonical 8086/V30 physical address map
-6. [`reference/processor_io_interrupt_map.md`](reference/processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
-7. [`reference/host_protocol.md`](reference/host_protocol.md) — Host operations and transports
-8. [`reference/companion_service_abi.md`](reference/companion_service_abi.md) — records and processor mailbox
-9. [`reference/hardware.md`](reference/hardware.md) — board resources and electrical ownership
+1. [`architecture.md`](architecture.md) — identity, roles, and boundaries
+2. [`host_runtime_architecture.md`](host_runtime_architecture.md) — runtime and ownership model
+3. [`host_runtime_shell.md`](host_runtime_shell.md) — RP86 Host shell
+4. [`memory_architecture.md`](memory_architecture.md) — SRAM, PSRAM, flash, SD, and sharing
+5. [`processor_memory_map.md`](processor_memory_map.md) — canonical 8086/V30 physical address map
+6. [`processor_io_interrupt_map.md`](processor_io_interrupt_map.md) — processor I/O ports and interrupt vectors
+7. [`host_protocol.md`](host_protocol.md) — Host operations and transports
+8. [`companion_service_abi.md`](companion_service_abi.md) — records and processor mailbox
+9. [`hardware.md`](hardware.md) — board resources and electrical ownership
 10. [`bringup/README.md`](bringup/README.md) — physical bring-up and acceptance
 11. [`development/build_and_toolchain.md`](development/build_and_toolchain.md) — build procedure
-12. [`development/host_runtime_shell.md`](development/host_runtime_shell.md) — RP86 Host shell
-13. [`development/workload_deployment_vs_regression.md`](development/workload_deployment_vs_regression.md) — persistent deployment vs finite validation
-14. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
-15. [`bringup/recovery.md`](bringup/recovery.md) — recovery
-16. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
-17. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
-18. [`reference/README.md`](reference/README.md) — external specification and implementation references
+12. [`development/workload_deployment_vs_regression.md`](development/workload_deployment_vs_regression.md) — persistent deployment vs finite regression
+13. [`development/windows_physical_validation.md`](development/windows_physical_validation.md) — live hardware workflow
+14. [`bringup/recovery.md`](bringup/recovery.md) — recovery
+15. [`development/codex_physical_development_loop.md`](development/codex_physical_development_loop.md) — closed physical development loop
+16. [`reference/processor_c16_abi.md`](reference/processor_c16_abi.md) — Open Watcom C/16 processor ABI
+17. [`reference/processor_freertos_8086_port.md`](reference/processor_freertos_8086_port.md) — FreeRTOS 8086 portable-layer contract
+18. [`../processor/README.md`](../processor/README.md) — native processor runtime and workloads
+19. [`reference/README.md`](reference/README.md) — external specification and implementation references
 
 ```text
 Host       = Runtime Controller
@@ -43,6 +44,8 @@ docs/bringup/        physical bring-up and recovery
 docs/adr/            architectural decisions and rationale
 docs/story/          public narrative only; not normative architecture
 ```
+
+The target source-tree model is defined by [`architecture/repository_structure.md`](architecture/repository_structure.md).
 
 ## Architectural decisions
 
