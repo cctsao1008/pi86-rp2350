@@ -4,12 +4,13 @@ import struct
 import sys
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from rp86_runtime.core import validate_device_reply
-from rp86_runtime.protocol import Message, TYPE_WORKLOAD_TIMEOUT_RESULT, STATUS_BAD_STATE
-from rp86_runtime.runtime_state import RequestSequence
-from rp86_runtime.service_client import RuntimeServiceClient
-from rp86_runtime.workload_timeout import WorkloadTimeout, parse_timeout, timeout_request
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+from host.rp86.core import validate_device_reply
+from host.rp86.protocol import Message, TYPE_WORKLOAD_TIMEOUT_RESULT, STATUS_BAD_STATE
+from host.rp86.runtime_state import RequestSequence
+from host.rp86.service_client import RuntimeServiceClient
+from host.rp86.workload_timeout import WorkloadTimeout, parse_timeout, timeout_request
 
 
 class WorkloadTimeoutTests(unittest.TestCase):
