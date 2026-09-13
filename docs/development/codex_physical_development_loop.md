@@ -13,7 +13,7 @@ This is not simulation-only validation. The decisive result comes from an
 installed Intel 8086 or NEC V30 executing native machine instructions on its
 physical bus.
 
-The canonical roles remain those defined in [`../architecture.md`](../architecture.md):
+The canonical roles remain those defined in [`../architecture/README.md`](../architecture/README.md):
 
 ```text
 Host       = Runtime Controller
@@ -105,7 +105,7 @@ The workload manifest also carried CRC32 `C967752D`.
 The Host can request UF2 boot mode through the running CDC control path:
 
 ```powershell
-py tools\rp86.py --bootloader --timeout 5
+py -m host.apps.cli.rp86 --bootloader --timeout 5
 ```
 
 A successful request reports:
@@ -125,7 +125,7 @@ On Windows, the canonical shell is:
 
 ```powershell
 cd D:\my-github\pi86-rp2350
-py tools\rp86.py `
+py -m host.apps.cli.rp86 `
   --interactive --heartbeat --attach `
   --display status --interval 1.0 `
   --output-dir D:\pi86-validation-logs

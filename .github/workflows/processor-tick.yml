@@ -6,13 +6,13 @@ on:
       - ".github/workflows/processor-tick.yml"
       - "CMakeLists.txt"
       - "cmake/ProcessorImage.cmake"
+      - "host/rp86/workload.py"
       - "scripts/bootstrap_nasm.sh"
+      - "scripts/package_workload.py"
       - "processor/CMakeLists.txt"
       - "processor/include/rp86_abi.inc"
       - "processor/workloads/validation/periodic_tick.asm"
       - "processor/workloads/validation/periodic_tick.json"
-      - "tools/package_workload.py"
-      - "tools/rp86_runtime/workload.py"
   workflow_dispatch:
 
 jobs:
@@ -43,10 +43,8 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
-          import sys
 
-          sys.path.insert(0, "tools")
-          from rp86_runtime.workload import (
+          from host.rp86.workload import (
               FLAG_CLOCK_STEPPED,
               FLAG_PERIODIC_TICK,
               FLAG_STDIO,

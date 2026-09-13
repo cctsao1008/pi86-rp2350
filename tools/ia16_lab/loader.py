@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from tools.rp86_runtime.workload import WorkloadManifest, decode_workload_file
+from host.rp86.workload import WorkloadManifest, decode_workload_file
 
 
 @dataclass(frozen=True)

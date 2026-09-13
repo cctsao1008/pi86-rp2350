@@ -7,11 +7,11 @@ on:
       - "CMakeLists.txt"
       - "cmake/ProcessorC16Image.cmake"
       - "cmake/LinkProcessorC16.cmake"
-      - "docs/processor_c16_abi.md"
+      - "docs/reference/processor_c16_abi.md"
+      - "host/rp86/workload.py"
       - "processor/CMakeLists.txt"
       - "processor/workloads/validation/c16_abi_smoke/**"
-      - "tools/package_workload.py"
-      - "tools/rp86_runtime/workload.py"
+      - "scripts/package_workload.py"
   workflow_dispatch:
 
 jobs:
@@ -130,9 +130,6 @@ jobs:
                   f"end=0x{bss_end:04x} size=0x{bss_size:x}"
               )
 
-          # startup.asm must load WLINK's _edata/_end offsets and then execute
-          # `sub cx,di; xor ax,ax; rep stosb`. Matching these resolved values
-          # against the map proves the linker-derived BSS clearing range.
           clear_sequence = (
               b"\xbf" + bss_start.to_bytes(2, "little") +
               b"\xb9" + bss_end.to_bytes(2, "little") +
@@ -144,9 +141,6 @@ jobs:
                   f"for [0x{bss_start:04x},0x{bss_end:04x})"
               )
 
-          # Keep ISA auditing strictly inside the executable _TEXT bytes. The
-          # raw image also contains DATA/BSS representation, which must never
-          # be interpreted as instructions by the opcode gate.
           text_image = Path("build/c16_abi_smoke.text.bin")
           text_image.write_bytes(image[:text_size])
 

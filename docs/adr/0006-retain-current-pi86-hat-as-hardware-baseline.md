@@ -102,5 +102,5 @@ Costs and limitations:
 - Issue #46 — general address-indexed SRAM ROM service
 - Issue #51 — canonical firmware/runtime consolidation
 - Issue #48 — HAT redesign, closed as not planned
-- [`../architecture.md`](../architecture.md)
+- [`../architecture/README.md`](../architecture/README.md)
 - [`0003-define-physical-timing-boundary.md`](0003-define-physical-timing-boundary.md)
