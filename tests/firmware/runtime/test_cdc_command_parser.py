@@ -5,7 +5,7 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class CdcCommandParserTests(unittest.TestCase):
@@ -16,7 +16,7 @@ class CdcCommandParserTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             executable = Path(temporary) / "test_cdc_command_parser"
             sources = (
-                ROOT / "tests/runtime/test_cdc_command_parser.c",
+                ROOT / "tests/firmware/runtime/test_cdc_command_parser.c",
                 ROOT / "firmware/runtime/cdc_command_parser.c",
             )
             result = subprocess.run(
