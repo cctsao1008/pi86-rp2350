@@ -61,6 +61,28 @@ jobs:
       - name: Build production FreeRTOS artifacts
         run: python3 scripts/build.py workloads --verbose
 
+      - name: Inspect Open Watcom local-symbol tooling
+        shell: bash
+        run: |
+          {
+            echo "=== candidate Open Watcom tools ==="
+            find "$WATCOM/binl" -maxdepth 1 -type f -printf '%f\n' | sort | grep -Ei '(^|w)(dis|dump|obj|nm|lib)' || true
+            echo
+            echo "=== c5_tasks.obj embedded names: PMAX-A ==="
+            strings build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+              | grep -Ei 'prvAddCurrentTaskToDelayedList|xSuspendedTaskList|pxReadyTasksLists|pxCurrentTCB|uxListRemove' || true
+            echo
+            echo "=== c5_tasks.obj embedded names: PMAX-B ==="
+            strings build-workloads/processor/generated/freertos_system_pmax_b/c5_tasks.obj \
+              | grep -Ei 'prvAddCurrentTaskToDelayedList|xSuspendedTaskList|pxReadyTasksLists|pxCurrentTCB|uxListRemove' || true
+            echo
+            echo "=== wdis availability ==="
+            command -v wdis || true
+            if command -v wdis >/dev/null 2>&1; then
+              wdis -? 2>&1 | head -80 || true
+            fi
+          } | tee build-workloads/freertos75-tooling.txt
+
       - name: Probe PMAX-A production binary and map
         shell: bash
         run: |
@@ -79,17 +101,36 @@ jobs:
             --map build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.map \
             --count 96 | tee build-workloads/freertos75-pmax-b-probe.txt
 
+      - name: Compare PMAX task objects
+        shell: bash
+        run: |
+          sha256sum \
+            build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            build-workloads/processor/generated/freertos_system_pmax_b/c5_tasks.obj \
+            | tee build-workloads/freertos75-tasks-object-sha256.txt
+          cmp -s \
+            build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            build-workloads/processor/generated/freertos_system_pmax_b/c5_tasks.obj \
+            && echo "PMAX-A/B tasks.c objects are byte-identical" \
+            || echo "PMAX-A/B tasks.c objects differ"
+
       - name: Upload FreeRTOS #75 binary evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ia16-freertos75-evidence
           path: |
+            build-workloads/freertos75-tooling.txt
+            build-workloads/freertos75-tasks-object-sha256.txt
             build-workloads/freertos75-pmax-a-probe.txt
             build-workloads/freertos75-pmax-b-probe.txt
+            build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj
             build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map
+            build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.lnk
             build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.bin
+            build-workloads/processor/generated/freertos_system_pmax_b/c5_tasks.obj
             build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.map
+            build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.lnk
             build-workloads/processor/generated/freertos_system_pmax_b/freertos_system_pmax_b.bin
             artifacts/workloads/FREERTOS-PMAX-A.P86W
             artifacts/workloads/FREERTOS-PMAX-B.P86W
