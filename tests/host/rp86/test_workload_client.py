@@ -4,15 +4,15 @@ import sys
 import unittest
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.protocol import Message, TYPE_WORKLOAD_STATUS  # noqa: E402
-from rp86_runtime.runtime_state import (  # noqa: E402
+from host.rp86.protocol import Message, TYPE_WORKLOAD_STATUS  # noqa: E402
+from host.rp86.runtime_state import (  # noqa: E402
     RequestSequence,
     WorkloadRuntimeState,
 )
-from rp86_runtime.workload_client import WorkloadClient  # noqa: E402
+from host.rp86.workload_client import WorkloadClient  # noqa: E402
 
 
 class WorkloadClientTests(unittest.TestCase):
