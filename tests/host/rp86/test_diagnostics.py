@@ -6,14 +6,15 @@ import sys
 import tempfile
 import unittest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tools"))
-from rp86_runtime.core import validate_device_reply
-from rp86_runtime.console import CdcDisplayStream
-from rp86_runtime.diagnostics import BusDiagnostics, diagnostics_request
-from rp86_runtime.protocol import Message, TYPE_DIAGNOSTICS_RESULT, STATUS_BAD_STATE
-from rp86_runtime.runtime_state import RequestSequence
-from rp86_runtime.service_client import RuntimeServiceClient
-from rp86_runtime.session_evidence import SessionEvidence
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
+from host.rp86.core import validate_device_reply
+from host.rp86.console import CdcDisplayStream
+from host.rp86.diagnostics import BusDiagnostics, diagnostics_request
+from host.rp86.protocol import Message, TYPE_DIAGNOSTICS_RESULT, STATUS_BAD_STATE
+from host.rp86.runtime_state import RequestSequence
+from host.rp86.service_client import RuntimeServiceClient
+from host.rp86.session_evidence import SessionEvidence
 
 
 class DiagnosticsTests(unittest.TestCase):
