@@ -234,7 +234,7 @@ pointer array
 
 The source PIO waits for a sink-PIO IRQ acknowledgement before publishing the next pointer. This closes the trigger-while-busy race without M33 rearming individual transfers.
 
-The laboratory source now expresses this topology, but physical execution of the lab target is still required before B2 can be marked proven.
+The laboratory source expresses this topology and repository CI checks its static structure. That is implementation evidence only: B2 remains unproven until the explicit lab target is built and run on RP2350 hardware.
 
 ### Phase C — timing-bound synthetic bus
 
