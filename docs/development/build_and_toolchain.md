@@ -13,46 +13,55 @@ scripts/build.ps1     PowerShell wrapper
 scripts/build.cmd     cmd.exe wrapper
 ```
 
-The public build profiles are intentionally small:
+The public build profiles are intentionally configuration-level, not
+per-workload:
 
 ```text
-firmware    RP2350 firmware
-workloads   complete configured native 8086 workload set
-all         firmware + workloads
+firmware    RP2350 firmware (`rp86_rp2350`)
+workloads   complete configured physical-processor workload package set
+all         firmware followed by workloads
 ```
 
-Build generation remains separate from flashing and physical validation.
+This keeps workload inventory in the processor CMake graph. Adding a workload
+that uses an existing packaging backend does not require a new public build
+profile or another entry in `scripts/build.py`.
 
-## Build trees and staged artifacts
-
-The repository uses two canonical CMake build trees:
+The canonical build trees are:
 
 ```text
-build-firmware/     RP2350 firmware configuration
-build-workloads/    processor-only workload configuration
+build-firmware/
+build-workloads/
 ```
 
-`build-workloads/` is an incremental build cache, not a distributable artifact
-registry. After a complete workload build, the driver clears and stages the
-current package set into:
+`build-workloads/` is build cache/intermediate output. It is not the artifact
+interface consumed by operators or runtime tooling.
+
+## Canonical workload artifacts
+
+A canonical workload build collects every configured package target through
+`rp86_workload_packages`, then stages the resulting packages with CMake install
+semantics into:
 
 ```text
 artifacts/workloads/
 ```
 
-Only that staged directory represents the current complete workload artifact
-set. Stale `.P86W` files left in a build tree cannot enter it.
+The staging directory is removed before each canonical staging pass, so stale
+`.P86W` files from an older build cannot masquerade as current output. Every
+staged package is decoded with the runtime workload parser before the build is
+reported successful.
 
-Every workload package is registered by the same CMake package helper that
-creates its package target. The aggregate target is:
+The `.P86W` file remains the authoritative runtime artifact. The build system
+does not maintain a second hand-authored workload catalog or duplicate package
+metadata in Python.
 
-```text
-rp86_workload_packages
-```
+Build completeness, runtime/UI selection, and release publication are separate
+concerns. A package being present in `artifacts/workloads/` means it belongs to
+the configured engineering build, not that it must be exposed in an end-user
+menu.
 
-The driver does not maintain a second list of workload names or package paths.
-Each staged `.P86W` is decoded with the normal workload parser before the build
-is reported PASS; the `.P86W` manifest remains the runtime authority.
+Build generation is intentionally separate from flashing and physical
+validation.
 
 ## Requirements
 
@@ -66,13 +75,13 @@ steps begin:
   Toolchain supported by the pinned Pico SDK. On Linux/WSL the driver can call
   `scripts/bootstrap_tools.sh` when the repository-local picotool is missing.
 - `workloads`: NASM 3.02, Open Watcom C/16 `wcc` and `wlink`, and the
-  repository-pinned `third_party/FreeRTOS-Kernel` revision. This single
-  configuration builds the complete current ASM, C/16, and FreeRTOS workload
-  package graph.
+  repository-pinned `third_party/FreeRTOS-Kernel` revision. These tools cover
+  the complete currently configured ASM and C/16 workload set in one CMake
+  configuration.
 
 Open Watcom discovery accepts `RP86_WCC_EXECUTABLE` and
 `RP86_WLINK_EXECUTABLE`, then checks `WATCOM`, `~/watcom`, the repository-local
-tool area, and `PATH`.
+tool area, and `PATH`. This avoids passing empty tool paths into CMake.
 
 ## Clone or update
 
@@ -102,15 +111,15 @@ git submodule update --init --recursive
 ./scripts/build.sh all
 ```
 
-Canonical outputs are:
+The primary outputs are:
 
 ```text
 build-firmware/firmware/rp86_rp2350.uf2
 artifacts/workloads/*.P86W
 ```
 
-For the established Windows/WSL development flow, use PowerShell for Git and
-Host/physical-runtime operations, and WSL for the native build toolchains.
+For the existing WSL development environment, Bash/WSL is the canonical place
+to generate firmware and 8086 workload artifacts.
 
 ## PowerShell
 
@@ -120,9 +129,10 @@ Host/physical-runtime operations, and WSL for the native build toolchains.
 .\scripts\build.ps1 all
 ```
 
-Native Windows workload builds require native Windows versions of NASM and
-Open Watcom. WSL remains the canonical workload build environment when those
-native tools are not installed.
+Native Windows builds still require native Windows versions of the selected
+profile's toolchain. PowerShell remains suitable for Host runtime and physical
+validation commands when the workload toolchain itself is supplied through
+WSL.
 
 ## cmd.exe
 
@@ -138,23 +148,22 @@ The canonical driver accepts:
 
 ```text
 --clean                 remove the selected build directory before configure
---build-dir <path>      override the selected profile build directory
---target <name>         override the CMake target for expert/debug use
+--build-dir <path>      override one profile's CMake build directory
+--target <name>         build a specific CMake target for developer/debug work
 --jobs <n>              set the parallel build job count
 --verbose               request verbose CMake build output
 ```
 
-`--build-dir` and `--target` are rejected with `all` because firmware and
-processor workloads are separate CMake configurations.
+`--build-dir` and `--target` are intentionally rejected with `all` because
+`firmware` and `workloads` use different CMake configuration modes.
 
-When `workloads --target <name>` is used, the requested target is built but the
-canonical staged artifact set is intentionally left unchanged. To produce the
-complete staged set, run `workloads` without a target override.
+A custom workload `--target` is an escape hatch. It builds the requested CMake
+target but deliberately does not replace the canonical staged
+`artifacts/workloads/` set.
 
-## Legacy firmware wrapper compatibility
+## Legacy wrapper compatibility
 
-Existing firmware invocations without an explicit profile remain accepted. For
-example:
+Existing firmware invocations remain accepted. For example:
 
 ```bash
 ./scripts/build.sh --clean --target rp86_rp2350
@@ -166,29 +175,24 @@ and:
 .\scripts\build.ps1 -Clean -Target rp86_rp2350
 ```
 
-continue to select the firmware profile and historical `build/` directory.
-New development should use the explicit `firmware` profile.
+continue to select the firmware profile and the historical `build/` directory.
+New development should use an explicit public profile.
+
+Historical per-workload public profiles are not part of the canonical
+interface. Use `workloads` for a complete artifact set, or an explicit CMake
+`--target` only for focused developer/debug work.
 
 ## Manual CMake
 
-Manual CMake remains available as the expert escape hatch. Keep processor-only
-and Pico firmware builds in separate build directories.
+Manual CMake remains available for debugging, but is not the normal operator
+interface. Keep processor-only and Pico firmware builds in separate build
+directories and pass explicit tool paths for C/16 work.
 
-After configuring `build-workloads/`, a single package may be rebuilt directly
-without changing the canonical build interface, for example:
+The aggregate workload package target is:
 
-```bash
-cmake --build build-workloads --target fast_invsqrt_package --parallel
+```text
+rp86_workload_packages
 ```
-
-A complete workload package build is:
-
-```bash
-cmake --build build-workloads --target rp86_workload_packages --parallel
-```
-
-Canonical staging is performed by `scripts/build.py workloads` using the CMake
-`workloads` install component.
 
 ## Tests
 
@@ -197,6 +201,10 @@ python3 -m unittest discover -s tests/host_runtime -p 'test_*.py'
 python3 -m unittest discover -s tests/runtime -p 'test_*.py'
 python3 tools/docs/check_docs.py
 ```
+
+Build-pipeline policy tests enforce the public profiles, aggregate package
+registration, absence of a per-workload Python inventory, clean staging, and
+`all = firmware + complete workload set` dispatch semantics.
 
 `execution_clock_runtime` is the dedicated physical validation target for the
 CLOCK_STEPPED/FREE_RUNNING controller transition. It is not the canonical Host
