@@ -72,7 +72,7 @@ class Issue106SramBusModelTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             sram_pointer(0x100000)
 
-    def test_repeated_dma_lab_has_hardware_handshake_and_no_per_vector_loop(self) -> None:
+    def test_repeated_dma_lab_has_hardware_handshake(self) -> None:
         pio_text = (ROOT / "firmware/labs/issue106_dma_alias_read.pio").read_text()
         c_text = (ROOT / "firmware/labs/issue106_dma_alias_read.c").read_text()
 
@@ -81,6 +81,8 @@ class Issue106SramBusModelTests(unittest.TestCase):
         self.assertIn("irq set 0", pio_text)
         self.assertIn("al3_read_addr_trig", c_text)
         self.assertIn("pointer_dma", c_text)
+        self.assertIn("control_dma", c_text)
+        self.assertIn("data_dma", c_text)
         self.assertIn("capture_dma", c_text)
         self.assertIn("ISSUE106_VECTOR_COUNT", c_text)
         self.assertNotIn("run_one_shot", c_text)
