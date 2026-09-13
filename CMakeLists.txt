@@ -71,4 +71,4 @@ pico_sdk_init()
 
 add_subdirectory(processor)
 add_subdirectory(firmware)
-add_subdirectory(tests/execution_clock_runtime)
+add_subdirectory(tests/firmware/runtime/execution_clock)
