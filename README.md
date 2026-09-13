@@ -166,14 +166,14 @@ The runtime also exposes native examples such as interrupt-driven heartbeat, cal
 
 ## 📚 Documentation
 
-- [`docs/architecture.md`](docs/architecture.md) — canonical system architecture
+- [`docs/architecture/README.md`](docs/architecture/README.md) — canonical system architecture
 - [`docs/architecture/repository_structure.md`](docs/architecture/repository_structure.md) — source-tree ownership model
-- [`docs/host_runtime_architecture.md`](docs/host_runtime_architecture.md) — detailed runtime and resource contract
-- [`docs/host_runtime_shell.md`](docs/host_runtime_shell.md) — Host shell command model
-- [`docs/memory_architecture.md`](docs/memory_architecture.md) — memory and shared-storage ownership
-- [`docs/processor_memory_map.md`](docs/processor_memory_map.md) — Intel 8086 / NEC V30 physical address map
-- [`docs/host_protocol.md`](docs/host_protocol.md) — language-independent Host Protocol
-- [`docs/hardware.md`](docs/hardware.md) — board resources, signal mapping, and physical interface contract
+- [`docs/architecture/host_runtime.md`](docs/architecture/host_runtime.md) — detailed runtime and resource contract
+- [`docs/reference/host_runtime_shell.md`](docs/reference/host_runtime_shell.md) — Host shell command model
+- [`docs/architecture/memory.md`](docs/architecture/memory.md) — memory and shared-storage ownership
+- [`docs/reference/processor_memory_map.md`](docs/reference/processor_memory_map.md) — Intel 8086 / NEC V30 physical address map
+- [`docs/reference/host_protocol.md`](docs/reference/host_protocol.md) — language-independent Host Protocol
+- [`docs/architecture/hardware.md`](docs/architecture/hardware.md) — board resources, signal mapping, and physical interface contract
 - [`docs/development/codex_physical_development_loop.md`](docs/development/codex_physical_development_loop.md) — AI-written code through physical processor evidence
 - [`processor/`](processor/) — native runtime and workload source executed by the physical processor
 - [`docs/validation/`](docs/validation/) — physical execution evidence
