@@ -21,7 +21,9 @@
  * RP2350 DMA reloads TRANS_COUNT from its programmed reload value whenever a
  * channel starts a new transfer sequence. Therefore the data channel can keep
  * TRANS_COUNT=1 programmed once and be started repeatedly by dynamic writes to
- * AL3_READ_ADDR_TRIG.
+ * AL3_READ_ADDR_TRIG. The PIO handshake also prevents a trigger from arriving
+ * while the data channel is still busy, because such a trigger would be
+ * ignored by the DMA engine.
  */
 
 #include <inttypes.h>
