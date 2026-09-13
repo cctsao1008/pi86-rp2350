@@ -316,6 +316,9 @@ class DeviceBroker:
         with self._audit_lock:
             self._control_audit.append(entry)
             del self._control_audit[:-CONTROL_AUDIT_LIMIT]
+            self.snapshot["control_audit"] = [
+                dict(item) for item in self._control_audit
+            ]
 
     async def _handle_client(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
