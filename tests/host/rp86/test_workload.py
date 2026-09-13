@@ -1,19 +1,13 @@
 from pathlib import Path
-import sys
 import unittest
 
-
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
-sys.path.insert(0, str(ROOT / "tools" / "runtime"))
-
-from rp86_runtime.protocol import (  # noqa: E402
+from host.rp86.protocol import (
     Message,
     TYPE_WORKLOAD_BEGIN,
     TYPE_WORKLOAD_COMMIT,
     TYPE_WORKLOAD_DATA,
 )
-from rp86_runtime.workload import (  # noqa: E402
+from host.rp86.workload import (
     DATA_BYTES,
     FLAG_SHARED_MEMORY,
     FLAG_STDIO,
@@ -30,6 +24,9 @@ from rp86_runtime.workload import (  # noqa: E402
     workload_from_bytes,
     decode_status_payload,
 )
+
+
+ROOT = Path(__file__).resolve().parents[3]
 
 
 class WorkloadTests(unittest.TestCase):
@@ -146,7 +143,7 @@ class WorkloadTests(unittest.TestCase):
         self.assertEqual(parse_far_pointer("1000:000a"), (0x1000, 0x000A))
 
     def test_flat_load_command_builds_manifest(self) -> None:
-        path = ROOT / "tests" / "runtime" / "sample_workload.bin"
+        path = ROOT / "tests" / "host" / "rp86" / "sample_workload.bin"
         path.write_bytes(b"\x90\xeb\xfd")
         try:
             manifest, image, records = workload_from_command(
@@ -162,7 +159,7 @@ class WorkloadTests(unittest.TestCase):
         self.assertEqual(records[0].sequence, 30)
 
     def test_flat_load_can_request_clock_stepped_execution(self) -> None:
-        path = ROOT / "tests" / "runtime" / "sample_clock_workload.bin"
+        path = ROOT / "tests" / "host" / "rp86" / "sample_clock_workload.bin"
         path.write_bytes(b"\x90\xf4")
         try:
             manifest, _image, _records = workload_from_command(
