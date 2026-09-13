@@ -4,7 +4,7 @@ This is the current operator entry point for the RP86 hardware/runtime.
 
 ## Before power
 
-Read [`hardware.md`](../hardware.md) and [`architecture.md`](../architecture.md).
+Read [`hardware.md`](../architecture/hardware.md) and [`architecture`](../architecture/README.md).
 The Raspberry Pi physical header position is the hardware ABI; Raspberry Pi
 BCM numbers and RP2350 GPIO numbers are not interchangeable.
 
