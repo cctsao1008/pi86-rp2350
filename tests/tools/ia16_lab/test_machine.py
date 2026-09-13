@@ -57,6 +57,20 @@ class IA16MachineTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             machine.write_register("ax", 0x10000)
 
+    def test_observable_out_hook_does_not_model_device_behavior(self):
+        # mov dx,1234h ; mov ax,5678h ; out dx,ax ; nop
+        machine = self._machine(bytes.fromhex("BA 34 12 B8 78 56 EF 90"))
+        writes = []
+        machine.install_io_handlers(
+            on_out=lambda port, size, value: writes.append((port, size, value))
+        )
+
+        machine.run(instruction_count=4)
+        self.assertEqual(writes, [(0x1234, 2, 0x5678)])
+
+        with self.assertRaises(RuntimeError):
+            machine.install_io_handlers(on_out=lambda _port, _size, _value: None)
+
     def test_inject_real_mode_interrupt_builds_8086_frame_and_iret_returns(self):
         # Main code is just NOPs. The handler at 1000:0020 is IRET.
         image = bytearray(b"\x90" * 0x40)
