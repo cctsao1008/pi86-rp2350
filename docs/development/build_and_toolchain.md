@@ -196,17 +196,27 @@ rp86_workload_packages
 
 ## Tests
 
+Repository verification follows source ownership:
+
 ```bash
-python3 -m unittest discover -s tests/host_runtime -p 'test_*.py'
-python3 -m unittest discover -s tests/runtime -p 'test_*.py'
-python3 tools/docs/check_docs.py
+python3 -m unittest discover -s tests/host/rp86 -t . -p 'test_*.py'
+python3 -m unittest discover -s tests/host/apps/cli -t . -p 'test_*.py'
+python3 -m unittest discover -s tests/host/apps/remote -t . -p 'test_*.py'
+python3 -m unittest discover -s tests/firmware/runtime -p 'test_*.py'
+python3 -m unittest discover -s tests/build -p 'test_*.py'
+python3 -m unittest discover -s tests/integration -p 'test_*.py'
+python3 scripts/check_docs.py
 ```
+
+The IA16 laboratory has its own dependency and test path under
+`tests/tools/ia16_lab/`.
 
 Build-pipeline policy tests enforce the public profiles, canonical staging
 path, aggregate package registration, absence of a per-workload Python
-inventory, clean install/verification staging, and
-`all = firmware + complete workload set` dispatch semantics.
+inventory, clean install/verification staging, repository ownership boundaries,
+and `all = firmware + complete workload set` dispatch semantics.
 
-`execution_clock_runtime` is the dedicated physical validation target for the
-CLOCK_STEPPED/FREE_RUNNING controller transition. It is not the canonical Host
-runtime UF2.
+`execution_clock_runtime` remains the dedicated physical validation target for
+the CLOCK_STEPPED/FREE_RUNNING controller transition. Its source lives under
+`tests/firmware/runtime/execution_clock/`; it is not the canonical Host runtime
+UF2.
