@@ -5,11 +5,11 @@ import tempfile
 import unittest
 
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "tools"))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from package_workload import build_package  # noqa: E402
-from rp86_runtime.workload import (  # noqa: E402
+from scripts.package_workload import build_package  # noqa: E402
+from host.rp86.workload import (  # noqa: E402
     FLAG_CLOCK_STEPPED,
     FLAG_PERSISTENT,
     FLAG_SHARED_MEMORY,
