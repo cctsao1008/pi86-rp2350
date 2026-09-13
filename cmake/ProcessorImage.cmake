@@ -6,6 +6,25 @@ set(RP86_NASM_EXECUTABLE
     "Repository-local NASM 3.02 executable"
 )
 
+if(NOT TARGET rp86_workload_packages)
+    add_custom_target(rp86_workload_packages)
+endif()
+
+function(rp86_register_workload_package package_target package_path)
+    if(NOT TARGET "${package_target}")
+        message(FATAL_ERROR
+            "rp86_register_workload_package requires an existing target: ${package_target}"
+        )
+    endif()
+
+    add_dependencies(rp86_workload_packages "${package_target}")
+    install(
+        FILES "${package_path}"
+        DESTINATION workloads
+        COMPONENT workloads
+    )
+endfunction()
+
 function(rp86_add_processor_image target_name)
     set(one_value_args SOURCE SYMBOL METADATA PACKAGE_NAME)
     set(multi_value_args DEPENDS)
@@ -89,7 +108,8 @@ function(rp86_add_processor_image target_name)
             VERBATIM
             COMMENT "Packaging processor workload ${IMAGE_PACKAGE_NAME}"
         )
-        add_custom_target(${target_name}_package ALL DEPENDS "${package_path}")
+        add_custom_target(${target_name}_package DEPENDS "${package_path}")
+        rp86_register_workload_package(${target_name}_package "${package_path}")
         set(${target_name}_PACKAGE "${package_path}" PARENT_SCOPE)
     endif()
 
