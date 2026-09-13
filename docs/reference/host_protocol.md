@@ -1,0 +1,383 @@
+# Host Protocol
+
+## 1. Scope
+
+This document defines the canonical host-facing contract for `pi86-rp2350`.
+
+The Host Protocol connects the **Runtime Controller** to the RP2350
+**Companion Resource and Bus Controller**. The physical Intel 8086 or NEC V30 remains the
+**Bare-Metal Remote Physical Processor**.
+
+The project does **not** require a particular host programming language, SDK, CLI, application framework, Web UI, or AI service.
+
+> **The project defines the wire protocol. Host software is an implementation choice.**
+
+The minimum host interface is:
+
+```text
+Host
+  |
+  +-- USB HID  - structured command / response
+  |
+  `-- USB CDC  - log / diagnostic / observation stream
+        |
+        v
+      RP2350
+```
+
+Sample Python, C, Rust, or other host programs may be provided to demonstrate the protocol, but they are not architectural dependencies.
+
+## 2. Design principles
+
+The host protocol follows these rules:
+
+- runtime operations are language-independent;
+- HID is the initial command/response transport, not the definition of the operations themselves;
+- CDC is an observation stream, not a second control protocol;
+- host latency never enters a current processor bus cycle;
+- a host disconnect is not by itself a runtime-integrity fault;
+- malformed or unsupported Host requests must not silently change runtime state;
+- bulk transfer mechanisms may evolve without changing machine-operation semantics.
+
+## 3. HID command/response transport
+
+The existing validated 64-byte record framing is retained as the version-1 transport foundation.
+
+Every version-1 record is 64 bytes and uses little-endian multibyte fields:
+
+| Offset | Size | Field | Meaning |
+|---:|---:|---|---|
+| `0` | 1 | `version` | protocol version |
+| `1` | 1 | `type` | record or operation class |
+| `2` | 2 | `flags` | version-specific flags |
+| `4` | 4 | `sequence` | transaction identity |
+| `8` | 2 | `length` | valid payload bytes |
+| `10` | 2 | `status` | result/error status |
+| `12` | 52 | `payload` | payload followed by padding |
+
+Equivalent packed layout:
+
+```text
+<BBHIHH52s
+```
+
+The exact currently validated record mechanics, sequence rules, retry behavior, and historical Companion Service message types remain documented in [`companion_service_abi.md`](companion_service_abi.md).
+
+This document defines generic runtime operations rather than BIOS-, OS-, AI-,
+or workload-specific semantics.
+
+## 4. Operation groups
+
+The Host Protocol exposes operations required to load, execute, communicate
+with, inspect, and restart the physical V30 runtime.
+
+### System
+
+Examples:
+
+```text
+SYSTEM_INFO
+CAPABILITIES_GET
+```
+
+Returned capability information should describe available physical resources and implemented functions rather than force host software to assume a fixed configuration.
+
+Examples include External PSRAM availability/capacity, filesystem availability, optional SD presence, supported clock range, and protocol version.
+
+### Runtime and processor control
+
+Prefer operations with explicit physical semantics:
+
+```text
+RESET_ASSERT
+RESET_RELEASE
+CLOCK_SET
+CLOCK_START
+CLOCK_STOP
+STATE_GET
+```
+
+Avoid ambiguous commands such as `HALT` until their physical meaning is explicitly defined. V30 `HLT`, stopping the generated clock, and asserting RESET are different machine actions.
+
+A minimal runtime-state model is:
+
+```text
+EMPTY
+LOADED
+RUNNING
+COMPLETED
+STOPPED
+FAULT
+TIMEOUT
+```
+
+### Memory
+
+Examples:
+
+```text
+MEM_READ
+MEM_WRITE
+MEM_MAP_GET
+```
+
+Host memory operations address assigned processor-visible memory through RP2350
+ownership. They do not grant the Host raw ownership of RP2350 SRAM, PSRAM
+metadata, or bus-controller state.
+
+Memory-map semantics and physical backing are defined in [`memory_architecture.md`](memory_architecture.md).
+
+### Persistent storage
+
+Examples:
+
+```text
+FS_LIST
+FS_READ
+FS_WRITE
+FS_DELETE
+FS_RENAME
+FS_SYNC
+```
+
+The RP2350 remains the sole filesystem owner. Host requests are serialized by firmware rather than directly mounting or mutating the Flash filesystem.
+
+### Workload
+
+Examples:
+
+```text
+WORKLOAD_LOAD
+WORKLOAD_RUN
+WORKLOAD_STOP
+WORKLOAD_RESTART
+```
+
+The initial workload model is intentionally small: raw native 8086-class
+binary plus minimal launch metadata.
+
+`WORKLOAD_STATUS` and `WORKLOAD_RESULT` use one canonical fixed record only:
+
+```text
+64-byte Host Protocol record
+  12-byte header
+  52-byte typed workload status/result payload
+```
+
+The payload contains lifecycle state, execution clock, processor cycles,
+processor flags, result flags, completion reason, processor signature, and a
+bounded native-output field. Short historical workload payloads are invalid;
+the repository does not retain alternate live ABIs.
+
+`WORKLOAD_LOAD` verifies and stages the native image and launch metadata.
+`WORKLOAD_RUN` releases the physical V30 into execution. `WORKLOAD_STOP`
+and `WORKLOAD_RESTART` preserve the Host's ability to recover from a workload
+exit, fault, hang, or timeout.
+
+### Trace / observation control
+
+Examples:
+
+```text
+TRACE_START
+TRACE_STOP
+TRACE_READ
+```
+
+Trace-control requests configure future observation. They must not create a synchronous host dependency in the V30 current-cycle path.
+
+The exact version-1 opcode assignments and payload layouts should be added only when each operation is implemented and tested. This document defines semantics first and intentionally does not reserve speculative numeric opcode values.
+
+## 5. Command completion and errors
+
+The existing sequence-based request/reply model is retained as a useful protocol property:
+
+- a request has a nonambiguous sequence;
+- its response carries the same sequence;
+- malformed length/version requests are rejected;
+- unsupported operations return an explicit error;
+- retry semantics must not execute a mutating operation twice;
+- incomplete records are never published as complete operations.
+
+Two error classes are architecturally distinct.
+
+### Management errors
+
+Examples:
+
+- invalid command;
+- invalid range;
+- file not found;
+- unsupported capability;
+- workload checksum failure.
+
+These return an error and leave the machine in a defined state without silently forcing a machine fault.
+
+### Machine-integrity faults
+
+Examples:
+
+- deterministic response starvation;
+- illegal bus ownership;
+- DMA/PIO state corruption;
+- critical memory-publication inconsistency.
+
+These are runtime/platform faults, not ordinary Host Protocol errors. Firmware
+enters the electrical safe state defined by the architecture and reports
+retained diagnostics when possible.
+
+## 6. Data transfer
+
+Version 1 may use repeated HID records for data larger than one 52-byte payload.
+
+However:
+
+> **Machine-operation semantics must not depend on HID report size or fragmentation.**
+
+A future USB bulk endpoint or other payload transport may therefore accelerate large workload, filesystem, snapshot, or trace transfers while retaining the same logical operations.
+
+Adding such a transport is an optimization, not a new host software architecture.
+
+## 7. CDC observation stream
+
+CDC provides human-readable or lightly structured observation outside the deterministic V30 path.
+
+It is intended for:
+
+- firmware logs;
+- machine-state changes;
+- faults;
+- workload execution events;
+- diagnostic summaries;
+- trace summaries.
+
+A simple baseline format is sufficient:
+
+```text
+timestamp level source message
+```
+
+For example:
+
+```text
+123456 INFO  SYS  reset released
+123500 INFO  V30  workload started
+123620 WARN  BUS  unsupported cycle
+123700 ERROR BUS  deterministic fault
+```
+
+CDC output may be delayed, dropped with accounting, or unavailable without becoming a synchronous dependency of V30 execution.
+
+A binary high-volume trace channel should not be added to CDC merely to avoid defining an appropriate bulk transport later.
+
+## 8. Host disconnect and independence
+
+The Host is a control and observation client, not a realtime component.
+
+If USB disconnects while a workload is running:
+
+```text
+Host unavailable
+       |
+       v
+RP2350 continues physical runtime operation
+       |
+       v
+V30 may continue executing
+```
+
+An active workload may explicitly declare a dependency on a future host service, but that is a workload/service capability and must not become a hidden core-machine dependency.
+
+## 9. Host sample code
+
+Repository tools and scripts are reference users of the protocol, not normative SDK layers.
+
+Sample code should demonstrate:
+
+- HID record encode/decode;
+- command/response sequencing;
+- CDC reading;
+- representative memory, storage, workload, and state operations as they become implemented.
+
+Host APIs may be convenient, for example `machine.reset()` or `machine.fs.list()`, but such APIs are not part of the wire contract and may differ between languages.
+
+## 10. Relationship to the Companion Service ABI
+
+[`companion_service_abi.md`](companion_service_abi.md) records the validated 64-byte Host Bridge framing and V30 mailbox mechanism used by earlier Companion Service experiments.
+
+The record framing remains useful and may be reused by this Host Protocol. The V30 mailbox, BIOS `INT 60h`, PIT heartbeat, and persistent-runtime behavior in that document are **optional validated mechanisms**, not requirements of the core Host Protocol defined here.
+
+Historical validation records using those mechanisms remain authoritative for the tests they describe.
+
+## 11. Stopped-executor diagnostics
+
+`DIAGNOSTICS_REQUEST = 0x60`, `DIAGNOSTICS_RESULT = 0x61`. Both use the
+existing version-1 64-byte record. Request length is 4, containing a little-endian
+`uint32` workload ID; zero selects the current workload. Request flags/status
+must be zero. The response echoes the sequence. On success, length is 52:
+
+| Payload offset | uint32 field | Meaning |
+| ---: | --- | --- |
+| 0 | workload_id | Executed image ID |
+| 4 | boot_id | Processor reset/attempt ID; zero if start failed before reset |
+| 8 | lifecycle | STOPPED, COMPLETED, FAULTED or TIMED_OUT |
+| 12 | completion_reason | Existing workload completion-reason enum |
+| 16 | cycles | Completed bus-cycle count |
+| 20 | last_address | Last observed 20-bit bus address, if valid |
+| 24 | last_data | Low 16 bits contain valid bus data; otherwise zero |
+| 28 | cycle_type | 0 MEM_READ, 1 MEM_WRITE, 2 IO_READ, 3 IO_WRITE, 4 INTERRUPT_ACK, 5 UNSUPPORTED |
+| 32 | lanes | Bit 0 low byte, bit 1 high byte |
+| 36 | flags | Validity and failure flags below |
+| 40–48 | reserved[3] | Zero |
+
+Flag bits 0–7 are CYCLE_VALID, DATA_VALID, NO_CYCLE, UNMAPPED, INVALID_LANE,
+PAD_MISMATCH, CLOCK_FAILURE and INTERRUPT_ACK, respectively. DATA_VALID does
+not imply the bus transaction completed successfully. NO_CYCLE can accompany
+a valid *previous* cycle; it does not invent the missing cycle's address.
+
+Read-only: no bus access or execution-clock change is performed. Executing
+requests receive BAD_STATE; wrong nonzero ID receives BAD_WORKLOAD. Missing,
+replaced, unexecuted or prepared-only diagnostics receive SERVICE_UNAVAILABLE.
+Errors have zero payload length. Reads are repeatable until new execution or
+an accepted upload invalidates the executor's retained data. This service does
+not export the full ring buffer and does not alter existing message layouts.
+
+## 12. Workload execution deadline
+
+`WORKLOAD_TIMEOUT_REQUEST = 0x26`, `WORKLOAD_TIMEOUT_RESULT = 0x27` use the
+same version-1 64-byte records. Requests have length 8 and two little-endian
+`uint32` fields: operation (0 GET, 1 SET), then limit in milliseconds. GET
+requires zero for the second field. SET accepts 0 (OFF) through 86400000
+(24 hours). Request flags/status must be zero. Responses echo the sequence;
+errors have zero payload length. Successful replies have length 52:
+
+| Payload offset | uint32 field | Meaning |
+| ---: | --- | --- |
+| 0 | timeout_ms | Configured per-run limit; zero disables it |
+| 4 | remaining_ms | Remaining time rounded up; zero if unarmed or due |
+| 8 | workload_id | Current workload ID |
+| 12 | boot_id | Last general-executor reset/attempt ID |
+| 16 | armed | 1 while a deadline is active, otherwise 0 |
+| 20–48 | reserved[8] | Zero |
+
+Default OFF; the setting is device-wide RAM state and persists across Host
+reconnect and image replacement until SET or RP2350 reset. A successful
+general-executor reset handoff starts a new deadline for run/restart. GET never
+feeds it. SET while executing recomputes it from the original start, not SET
+time. Stop/completion disarm it without clearing the setting. Due deadlines
+are enforced between bus cycles using the existing safe-stop path, producing
+`TIMED_OUT` with completion reason `EXECUTION_DEADLINE = 6`. This is a
+wall-clock supervisory limit; bus/USB service latency can delay enforcement.
+
+Positive SET while a prepared workload is RUNNING returns BAD_STATE. Prepared
+calculator run/restart with a positive configured limit also returns BAD_STATE
+before changing lifecycle state. GET and SET OFF remain available. The new
+service does not change existing record layouts or bus timing.
+
+## 13. Related documents
+
+- [`architecture.md`](architecture.md) - overall system architecture
+- [`memory_architecture.md`](memory_architecture.md) - memory terminology, V30 Memory Map, and backing resources
+- [`companion_service_abi.md`](companion_service_abi.md) - validated Host Bridge/Companion Service v1 record and mailbox path
+- [`host_runtime_architecture.md`](host_runtime_architecture.md) - detailed runtime contract
+- [`adr/0008-adopt-host-managed-bare-metal-processor-runtime.md`](adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) - current architecture decision
