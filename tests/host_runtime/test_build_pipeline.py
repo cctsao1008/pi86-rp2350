@@ -47,6 +47,10 @@ class BuildPipelineTests(unittest.TestCase):
         ):
             self.assertNotIn(name, text)
 
+    def test_canonical_staged_artifacts_are_not_source_control_inputs(self):
+        gitignore = (ROOT / ".gitignore").read_text().splitlines()
+        self.assertIn("artifacts/", gitignore)
+
     def test_clean_stage_removes_stale_artifacts_without_touching_parent(self):
         build = load_build_driver()
         with tempfile.TemporaryDirectory() as temp:
