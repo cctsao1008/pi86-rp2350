@@ -3,12 +3,12 @@ import sys
 import unittest
 
 
-TOOLS = Path(__file__).resolve().parents[2] / "tools"
-sys.path.insert(0, str(TOOLS))
+ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT))
 
-from rp86_runtime.filesystem import list_request  # noqa: E402
-from rp86_runtime.runtime_state import RequestSequence  # noqa: E402
-from rp86_runtime.service_client import RuntimeServiceClient  # noqa: E402
+from host.rp86.filesystem import list_request  # noqa: E402
+from host.rp86.runtime_state import RequestSequence  # noqa: E402
+from host.rp86.service_client import RuntimeServiceClient  # noqa: E402
 
 
 class RuntimeServiceClientTests(unittest.TestCase):
