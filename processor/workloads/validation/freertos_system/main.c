@@ -12,6 +12,25 @@
 #define RP86_PRODUCER_PERIOD_MS     300U
 #define RP86_QUEUE_WAIT_MS          1000U
 
+#ifndef RP86_LED_PRIORITY
+#define RP86_LED_PRIORITY           1U
+#endif
+#ifndef RP86_PRODUCER_PRIORITY
+#define RP86_PRODUCER_PRIORITY      2U
+#endif
+#ifndef RP86_CONSUMER_PRIORITY
+#define RP86_CONSUMER_PRIORITY      3U
+#endif
+#ifndef RP86_QUEUE_WAIT_FOREVER
+#define RP86_QUEUE_WAIT_FOREVER     0
+#endif
+
+#if RP86_QUEUE_WAIT_FOREVER
+#define RP86_QUEUE_WAIT_TICKS       portMAX_DELAY
+#else
+#define RP86_QUEUE_WAIT_TICKS       pdMS_TO_TICKS( RP86_QUEUE_WAIT_MS )
+#endif
+
 #define RP86_FAIL_CREATE_QUEUE      0x6701U
 #define RP86_FAIL_CREATE_LED        0x6702U
 #define RP86_FAIL_CREATE_PRODUCER   0x6703U
@@ -166,7 +185,7 @@ static void prvConsumerTask( void * pvParameters )
         if( xQueueReceive(
                 xQueue,
                 &usValue,
-                pdMS_TO_TICKS( RP86_QUEUE_WAIT_MS ) ) != pdPASS )
+                RP86_QUEUE_WAIT_TICKS ) != pdPASS )
         {
             prvFatal( RP86_FAIL_QUEUE_RECV );
         }
@@ -207,19 +226,19 @@ uint16_t rp86_freertos_system_main( void )
     }
     prvPublishBootStage( 1U );
 
-    if( xTaskCreate( prvLedTask, "LED", RP86_TASK_STACK_WORDS, NULL, 1U, NULL ) != pdPASS )
+    if( xTaskCreate( prvLedTask, "LED", RP86_TASK_STACK_WORDS, NULL, RP86_LED_PRIORITY, NULL ) != pdPASS )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_LED );
     }
     prvPublishBootStage( 2U );
 
-    if( xTaskCreate( prvProducerTask, "PROD", RP86_TASK_STACK_WORDS, NULL, 2U, NULL ) != pdPASS )
+    if( xTaskCreate( prvProducerTask, "PROD", RP86_TASK_STACK_WORDS, NULL, RP86_PRODUCER_PRIORITY, NULL ) != pdPASS )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_PRODUCER );
     }
     prvPublishBootStage( 3U );
 
-    if( xTaskCreate( prvConsumerTask, "CONS", RP86_TASK_STACK_WORDS, NULL, 3U, NULL ) != pdPASS )
+    if( xTaskCreate( prvConsumerTask, "CONS", RP86_TASK_STACK_WORDS, NULL, RP86_CONSUMER_PRIORITY, NULL ) != pdPASS )
     {
         return prvPreSchedulerFail( RP86_FAIL_CREATE_CONSUMER );
     }
