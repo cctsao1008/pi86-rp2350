@@ -91,6 +91,31 @@ jobs:
             --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
             | tee build-workloads/freertos75-omf-layout.txt
 
+      - name: Resolve production xQueueReceive caller layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.ia16_lab.freertos75_queue_layout \
+            --link build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.lnk \
+            --map build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map \
+            --main-object build-workloads/processor/generated/freertos_system_pmax_a/c1_main.obj \
+            --queue-object build-workloads/processor/generated/freertos_system_pmax_a/c4_queue.obj \
+            --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            | tee build-workloads/freertos75-xqueue-layout.txt
+
+      - name: Execute real xQueueReceive caller to delayed-list boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m tools.ia16_lab.freertos75_queue_fixture \
+            artifacts/workloads/FREERTOS-PMAX-A.P86W \
+            --link build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.lnk \
+            --map build-workloads/processor/generated/freertos_system_pmax_a/freertos_system_pmax_a.map \
+            --main-object build-workloads/processor/generated/freertos_system_pmax_a/c1_main.obj \
+            --queue-object build-workloads/processor/generated/freertos_system_pmax_a/c4_queue.obj \
+            --tasks-object build-workloads/processor/generated/freertos_system_pmax_a/c5_tasks.obj \
+            | tee build-workloads/freertos75-xqueue-boundary.txt
+
       - name: Disassemble exact delayed-list machine-code window
         shell: bash
         run: |
@@ -155,6 +180,8 @@ jobs:
           path: |
             build-workloads/freertos75-tooling.txt
             build-workloads/freertos75-omf-layout.txt
+            build-workloads/freertos75-xqueue-layout.txt
+            build-workloads/freertos75-xqueue-boundary.txt
             build-workloads/freertos75-delayed-list-window.bin
             build-workloads/freertos75-delayed-list-window.ndisasm
             build-workloads/freertos75-real-code-fixture.txt
