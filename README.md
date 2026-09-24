@@ -1,11 +1,28 @@
-# pi86-rp2350
+<p align="center">
+  <img src="docs/images/pi86-mascot.svg" width="240" alt="pi86-rp2350 mascot">
+</p>
 
-> **pi86-rp2350 is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors.**
->
-> **Host-Managed Bare-Metal Physical Processor Runtime**  
-> *A modern remote-processor runtime for a vintage physical CPU.*
+<h1 align="center">pi86-rp2350</h1>
 
-The physical processor is not emulated. An Intel 8086 or NEC V30 executes native IA-16 machine code and owns its registers, control flow, interrupts, faults, and results. A modern Host loads and supervises that work. The RP2350 connects the two worlds through a service plane and a hardware-paced realtime processor-bus data plane.
+<p align="center">
+  <strong>Host-Managed Bare-Metal Physical Processor Runtime</strong>
+</p>
+
+<p align="center">
+  <strong>Real 8086-class silicon. Modern host control. No CPU emulation.</strong>
+</p>
+
+<p align="center">
+  <em>Prepare in software. Serve in realtime. Execute in silicon.</em>
+</p>
+
+<p align="center">
+  🖥️ Orchestrate &nbsp;·&nbsp; ⚡ Serve &nbsp;·&nbsp; 🧠 Execute &nbsp;·&nbsp; 🔬 Validate
+</p>
+
+`pi86-rp2350` is a host-managed bare-metal processor runtime for real Intel 8086 and NEC V30 processors. The physical processor is not emulated: it executes native IA-16 machine code and owns its registers, control flow, interrupts, faults, and results. A modern Host loads and supervises that work, while the RP2350 connects the two worlds through a service plane and a hardware-paced realtime processor-bus data plane.
+
+> **Vintage silicon. Modern runtime. Realtime boundaries stay local.**
 
 <p align="center">
   <img src="docs/images/nec-v30-pi86-hat-rp2350-pizero.jpg" width="500" alt="Physical NEC V30 on the original Pi86 V20/V30 HAT connected to a Waveshare RP2350-PiZero">
@@ -148,7 +165,7 @@ The NEC V30 uses the same Host/RP2350 runtime architecture and Pi86 physical int
 
 The supported processors are nominally 5 V devices. Operation on the original Pi86 HAT at 3.3 V is a project-specific empirical operating condition rather than the nominal Intel or NEC specification.
 
-## Intel 8086 and NEC V30
+## 🧩 Intel 8086 and NEC V30
 
 The runtime supports both physical NEC V30 and Intel 8086 processors on the same Pi86 HAT interface.
 
@@ -209,7 +226,7 @@ Architecture decisions include:
 - [`ADR 0010`](docs/adr/0010-adopt-free-running-and-clock-stepped-execution.md) — historical execution-clock modes
 - [`ADR 0011`](docs/adr/0011-constrain-intel-8086-to-continuous-in-spec-clock.md) — Intel continuous in-spec clock requirement
 
-## Documentation principle
+## 🧭 Documentation principle
 
 > **README explains the system. Issues explain the journey. Code proves the current state.**
 
