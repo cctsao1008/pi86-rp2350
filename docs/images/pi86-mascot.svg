@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 340" role="img" aria-labelledby="title desc">
+  <title id="title">pi86-rp2350 mascot</title>
+  <desc id="desc">A friendly 8086-class DIP processor mascot connected to a small modern RP2350 sidecar, representing real vintage silicon inside a modern host-managed runtime.</desc>
+
+  <defs>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="7" stdDeviation="8" flood-color="#25303a" flood-opacity="0.20"/>
+    </filter>
+    <linearGradient id="cpu" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4b5158"/>
+      <stop offset="1" stop-color="#272c31"/>
+    </linearGradient>
+    <linearGradient id="board" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9ce0dc"/>
+      <stop offset="1" stop-color="#58bfc2"/>
+    </linearGradient>
+    <linearGradient id="pin" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#c99338"/>
+      <stop offset="0.5" stop-color="#f3d37d"/>
+      <stop offset="1" stop-color="#b77b24"/>
+    </linearGradient>
+  </defs>
+
+  <ellipse cx="205" cy="309" rx="98" ry="13" fill="#dce5ea" opacity="0.82"/>
+
+  <g filter="url(#shadow)">
+    <!-- RP2350 sidecar -->
+    <g transform="rotate(5 321 172)">
+      <rect x="287" y="103" width="82" height="132" rx="18" fill="url(#board)" stroke="#31545b" stroke-width="5"/>
+      <rect x="310" y="89" width="37" height="19" rx="7" fill="#d9dde2" stroke="#59656e" stroke-width="4"/>
+      <rect x="303" y="128" width="49" height="38" rx="9" fill="#38434b" stroke="#243039" stroke-width="4"/>
+      <circle cx="316" cy="186" r="5" fill="#f7d45c"/>
+      <circle cx="337" cy="186" r="5" fill="#f28d78"/>
+      <circle cx="349" cy="215" r="4" fill="#31545b"/>
+      <circle cx="334" cy="215" r="4" fill="#31545b"/>
+      <circle cx="319" cy="215" r="4" fill="#31545b"/>
+      <path d="M298 116 h8 M298 124 h8 M359 116 h-8 M359 124 h-8" stroke="#f3d37d" stroke-width="4" stroke-linecap="round"/>
+    </g>
+
+    <!-- bus ribbons -->
+    <path d="M282 136 C300 136 304 138 310 145" fill="none" stroke="#87cfe4" stroke-width="7" stroke-linecap="round"/>
+    <path d="M282 155 C300 155 306 158 311 165" fill="none" stroke="#f2c563" stroke-width="7" stroke-linecap="round"/>
+    <path d="M282 174 C300 174 306 177 311 185" fill="none" stroke="#e9908c" stroke-width="7" stroke-linecap="round"/>
+
+    <!-- DIP pins -->
+    <g stroke="url(#pin)" stroke-width="6" stroke-linecap="round">
+      <path d="M122 86 H82 M122 96 H78 M122 106 H82 M122 116 H78 M122 126 H82 M122 136 H78 M122 146 H82 M122 156 H78 M122 166 H82 M122 176 H78 M122 186 H82 M122 196 H78 M122 206 H82 M122 216 H78 M122 226 H82 M122 236 H78 M122 246 H82 M122 256 H78 M122 266 H82 M122 276 H78"/>
+      <path d="M282 86 H304 M282 96 H308 M282 106 H304 M282 116 H308 M282 126 H304 M282 196 H304 M282 206 H308 M282 216 H304 M282 226 H308 M282 236 H304 M282 246 H308 M282 256 H304 M282 266 H308 M282 276 H304"/>
+    </g>
+
+    <!-- CPU body -->
+    <rect x="116" y="54" width="172" height="238" rx="28" fill="url(#cpu)" stroke="#1d2227" stroke-width="7"/>
+    <path d="M181 54 q0 22 21 22 q21 0 21 -22" fill="#171c20" opacity="0.95"/>
+    <path d="M139 76 Q201 51 267 76" fill="none" stroke="#707a82" stroke-width="5" stroke-linecap="round" opacity="0.55"/>
+
+    <!-- face -->
+    <circle cx="169" cy="137" r="29" fill="#f9fbfc" stroke="#171c20" stroke-width="5"/>
+    <circle cx="237" cy="137" r="29" fill="#f9fbfc" stroke="#171c20" stroke-width="5"/>
+    <circle cx="172" cy="142" r="15" fill="#58bfc2"/>
+    <circle cx="240" cy="142" r="15" fill="#58bfc2"/>
+    <circle cx="177" cy="136" r="6" fill="#ffffff"/>
+    <circle cx="245" cy="136" r="6" fill="#ffffff"/>
+    <path d="M184 180 Q203 198 222 180" fill="none" stroke="#f7f4ed" stroke-width="6" stroke-linecap="round"/>
+
+    <!-- identity mark -->
+    <rect x="169" y="221" width="68" height="38" rx="12" fill="#171c20" stroke="#707a82" stroke-width="3"/>
+    <text x="203" y="248" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="25" font-weight="700" fill="#f3d37d">86</text>
+    <circle cx="144" cy="251" r="6" fill="#f28d78"/>
+    <circle cx="262" cy="251" r="6" fill="#9ce0dc"/>
+  </g>
+
+  <!-- activity marks -->
+  <path d="M62 105 l-15 -10 M58 124 l-19 0 M67 87 l-4 -18" stroke="#87cfe4" stroke-width="7" stroke-linecap="round"/>
+  <path d="M362 64 l12 -13 M372 80 l17 -5 M350 55 l2 -18" stroke="#f2c563" stroke-width="7" stroke-linecap="round"/>
+  <path d="M337 267 q13 10 27 1" fill="none" stroke="#e9908c" stroke-width="5" stroke-linecap="round" opacity="0.9"/>
+</svg>
