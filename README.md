@@ -223,7 +223,7 @@ Architecture decisions include:
 
 - [`ADR 0008`](docs/adr/0008-adopt-host-managed-bare-metal-processor-runtime.md) — runtime identity
 - [`ADR 0009`](docs/adr/0009-extend-runtime-to-intel-8086-and-nec-v30.md) — processor scope
-- [`ADR 0010`](docs/adr/00010-adopt-free-running-and-clock-stepped-execution.md) — historical execution-clock modes
+- [`ADR 0010`](docs/adr/0010-adopt-free-running-and-clock-stepped-execution.md) — historical execution-clock modes
 - [`ADR 0011`](docs/adr/0011-constrain-intel-8086-to-continuous-in-spec-clock.md) — Intel continuous in-spec clock requirement
 
 ## 🧭 Documentation principle
