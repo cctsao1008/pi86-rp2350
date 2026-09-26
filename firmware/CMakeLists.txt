@@ -127,3 +127,70 @@ add_custom_command(TARGET rp86_rp2350 POST_BUILD
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFirmwareSize.cmake
     VERBATIM
 )
+
+# Issue #106 engineering laboratories. EXCLUDE_FROM_ALL keeps them out of the
+# production firmware/default build while making the repeated hardware-paced
+# DMA alias experiments reproducible with explicit target builds.
+add_executable(rp86_issue106_dma_alias_read_lab EXCLUDE_FROM_ALL
+    labs/issue106_dma_alias_read.c
+)
+
+target_link_libraries(rp86_issue106_dma_alias_read_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_dma_alias_read_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_dma_alias_read.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_dma_alias_read_lab 1)
+pico_enable_stdio_uart(rp86_issue106_dma_alias_read_lab 0)
+pico_set_binary_type(rp86_issue106_dma_alias_read_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_dma_alias_read_lab)
+
+add_executable(rp86_issue106_dma_alias_write_lab EXCLUDE_FROM_ALL
+    labs/issue106_dma_alias_write.c
+)
+
+target_link_libraries(rp86_issue106_dma_alias_write_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_dma_alias_write_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_dma_alias_write.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_dma_alias_write_lab 1)
+pico_enable_stdio_uart(rp86_issue106_dma_alias_write_lab 0)
+pico_set_binary_type(rp86_issue106_dma_alias_write_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_dma_alias_write_lab)
+
+# Phase C1a proves the PIO scattered-GPIO permutation primitive using synthetic
+# raw GPIO0..27 snapshots. Physical pad capture is intentionally deferred to
+# the next timing-bound front-end experiment.
+add_executable(rp86_issue106_gpio_repack_lab EXCLUDE_FROM_ALL
+    labs/issue106_gpio_repack.c
+)
+
+target_include_directories(rp86_issue106_gpio_repack_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_gpio_repack_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_gpio_repack_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_gpio_repack.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_gpio_repack_lab 1)
+pico_enable_stdio_uart(rp86_issue106_gpio_repack_lab 0)
+pico_set_binary_type(rp86_issue106_gpio_repack_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_gpio_repack_lab)

@@ -1,0 +1,30 @@
+.program issue106_pointer_source
+; Engineering-only source for Issue #106 Phase B2.
+;
+; A feeder DMA places full 32-bit SRAM pointers in this SM's TX FIFO. The SM
+; publishes exactly one pointer to RX FIFO, then waits for the sink SM to
+; acknowledge that the corresponding SRAM word has reached the response side.
+; This ordering is required because RP2350 DMA ignores a trigger received while
+; the target channel is already busy.
+.wrap_target
+    pull block
+    mov isr, osr
+    push block
+    wait 1 irq 0
+    irq clear 0
+.wrap
+
+.program issue106_word_sink
+; Engineering-only sink for Issue #106 Phase B2.
+;
+; The data DMA writes each fetched SRAM word into this SM's TX FIFO. The SM
+; publishes the word to RX FIFO for a capture DMA and then acknowledges the
+; transaction to issue106_pointer_source through PIO IRQ flag 0. If the RX FIFO
+; is backpressured, PUSH blocks before the acknowledgement, so the next pointer
+; cannot be released early.
+.wrap_target
+    pull block
+    mov isr, osr
+    push block
+    irq set 0
+.wrap
