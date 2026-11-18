@@ -364,3 +364,36 @@ pico_generate_pio_header(rp86_issue106_physical_t1_repack_8mhz_lab
 pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_8mhz_lab 1)
 pico_enable_stdio_uart(rp86_issue106_physical_t1_repack_8mhz_lab 0)
 pico_add_extra_outputs(rp86_issue106_physical_t1_repack_8mhz_lab)
+
+
+# Passive raw reset/bus trace for high-frequency first-cycle diagnosis.
+add_executable(rp86_issue106_reset_raw_trace_8mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_reset_raw_trace.c
+)
+
+target_include_directories(rp86_issue106_reset_raw_trace_8mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_reset_raw_trace_8mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=8000000u
+)
+
+target_link_libraries(rp86_issue106_reset_raw_trace_8mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_reset_raw_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_8mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_8mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_reset_raw_trace_8mhz_lab)
