@@ -1,0 +1,113 @@
+.pio_version rp2350
+
+.program issue106_c23_service_frontend
+; Issue #106 Phase C2+C3 service frontend.
+;
+; Per physical bus cycle:
+;   ASTB/T1 sample -> preserve raw GPIO snapshot
+;   -> build absolute 32-bit SRAM pointer as BASE[31:16] : A15..A0
+;   -> classify A0 + UBE/BHE# in hardware
+;   -> publish pointer only for WORD lane (A0=0, BHE#=0)
+;
+; TX stream per cycle:
+;   1 word  : backing SRAM high 16 bits in bits 15:0
+;   16 words: OUT NULL,n extraction microinstructions for A15..A0
+;   1 word  : JMP finish_pointer
+;
+; RX emits zero or one absolute SRAM pointer per cycle. A DMA control channel
+; writes each emitted pointer to a data channel AL3_READ_ADDR_TRIG alias.
+;
+; jmp_pin must be configured to RP86_PROCESSOR_PIN_UBE (active-low BHE#).
+
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    mov y, isr
+
+    ; Start 32-bit pointer construction with the aligned SRAM base high half.
+    mov isr, null
+    pull block
+    mov x, osr
+    in x, 16
+
+bit_loop:
+    pull block
+    mov x, osr
+    mov osr, y
+    mov exec, x
+    out x, 1
+    in x, 1
+    jmp bit_loop
+
+finish_pointer:
+    ; ISR now contains BASE[31:16] : A15..A0.
+    ; Extract A0 from raw GPIO26 without disturbing ISR.
+    mov osr, y
+    out null, 26
+    out x, 1
+    jmp !x a0_even
+    jmp skip_service
+
+a0_even:
+    ; UBE/BHE# high means low-byte lane only; do not issue a 16-bit SRAM read.
+    jmp pin skip_service
+    push block
+
+skip_service:
+    wait 0 gpio 9
+    jmp next_cycle
+.wrap
+
+
+.program issue106_c23_lane_observer
+; Independent physical evidence path.
+;
+; RX emits two words per cycle:
+;   raw GPIO snapshot
+;   canonical lane code:
+;       0 = INVALID (A0=1, BHE#=1)
+;       1 = LOW     (A0=0, BHE#=1)
+;       2 = HIGH    (A0=1, BHE#=0)
+;       3 = WORD    (A0=0, BHE#=0)
+;
+; jmp_pin must be configured to RP86_PROCESSOR_PIN_UBE.
+
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    mov y, isr
+    push block
+
+    mov osr, y
+    out null, 26
+    out x, 1
+
+    jmp pin bhe_high
+    jmp !x lane_word
+    set y, 2
+    jmp emit_lane
+
+bhe_high:
+    jmp !x lane_low
+    set y, 0
+    jmp emit_lane
+
+lane_low:
+    set y, 1
+    jmp emit_lane
+
+lane_word:
+    set y, 3
+
+emit_lane:
+    mov isr, y
+    push block
+    wait 0 gpio 9
+    jmp observer_next
+.wrap
