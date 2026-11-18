@@ -6,6 +6,7 @@
 ;   pointer = backing[31:16] : A15..A0
 ; Only the first WORD lane is published; then the SM parks.
 
+    wait 0 gpio 16             ; hardware gate: RESET deasserted
     wait 0 gpio 9
     wait 1 gpio 9
     nop [7]
@@ -115,22 +116,21 @@ responder_park:
 
 .program issue106_c4_observer
 ; One-shot independent physical phase observer.
-; RX sequence:
-;   [0] T1 sample (+8 PIO cycles after ASTB rise)
-;   [1] AF: ASTB falling edge
-;   [2] R1
-;   [3] F1
-;   [4] R2
+; RESET deassertion is a hardware gate, so no RESET-time ASTB transition can
+; consume the instrument at high processor clocks.
 ;
-; Exactly 18 instructions including the park loop. Together with the
-; 12-instruction responder and 2-instruction clock this fills one 32-word
-; RP2350 PIO instruction memory without oversubscription.
+; RX sequence:
+;   [0] AF: ASTB falling edge
+;   [1] R1
+;   [2] F1
+;   [3] R2
+;
+; T1/reset-vector identity comes from the frontend pointer path; this observer
+; is strictly the response-phase timing discriminator.
+
+    wait 0 gpio 16             ; RESET deasserted
     wait 0 gpio 9
     wait 1 gpio 9
-    nop [7]
-    mov isr, pins
-    push block
-
     wait 0 gpio 9
     mov isr, pins
     push block
