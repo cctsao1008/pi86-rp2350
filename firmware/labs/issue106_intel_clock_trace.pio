@@ -1,0 +1,23 @@
+.pio_version rp2350
+
+.program issue106_intel_clock_trace
+.side_set 1
+; Intel 8086-2 8 MHz diagnostic clock + synchronous full-bank sampler.
+;
+; One processor period = 5 SM cycles:
+;   HIGH: 2 cycles
+;   LOW : 3 cycles
+;
+; Two raw GPIO snapshots are attempted per processor clock. PUSH is noblock so
+; instrumentation can never stretch or stall the processor clock.
+;
+; sample 0: first HIGH cycle
+; sample 1: first LOW cycle
+
+.wrap_target
+    mov isr, pins side 1
+    push noblock side 1
+    mov isr, pins side 0
+    push noblock side 0
+    nop side 0
+.wrap
