@@ -30,7 +30,7 @@
 #include "hardware/structs/dma.h"
 #include "hardware/structs/sio.h"
 #include "issue106_c4_response_timing.pio.h"
-#include "free_running_clock.pio.h"
+#include "intel_8086_clock.pio.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
@@ -214,9 +214,9 @@ static void init_observer(PIO pio, uint sm, uint offset) {
 
 static void init_clock(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
-        rp86_free_running_clock_program_get_default_config(offset);
+        rp86_intel_8086_clock_program_get_default_config(offset);
     const float divider =
-        (float)clock_get_hz(clk_sys) / (2.0f * (float)ISSUE106_PROCESSOR_HZ);
+        (float)clock_get_hz(clk_sys) / (5.0f * (float)ISSUE106_PROCESSOR_HZ);
     sm_config_set_set_pins(&c, RP86_PROCESSOR_PIN_CLK, 1u);
     sm_config_set_clkdiv(&c, divider);
     pio_gpio_init(pio, RP86_PROCESSOR_PIN_CLK);
@@ -287,7 +287,7 @@ int main(void) {
     const uint builder_offset =
         pio_add_program(builder_pio, &issue106_c4_byte_lut_pointers_program);
     const uint clock_offset =
-        pio_add_program(builder_pio, &rp86_free_running_clock_program);
+        pio_add_program(builder_pio, &rp86_intel_8086_clock_program);
     init_byte_lut_builder(builder_pio, builder_sm, builder_offset);
 
     PIO io_pio = pio2;
