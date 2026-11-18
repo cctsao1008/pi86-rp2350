@@ -121,8 +121,9 @@ responder_park:
 ;   [2] R1
 ;   [3] F1
 ;   [4] R2
-;   [5] F2
-;   [6] R3
+;
+; C4 deliberately stops at R2 so responder + observer + clock fit exactly in
+; one RP2350 PIO block's 32-instruction memory.
     wait 0 gpio 9
     wait 1 gpio 9
     nop [7]
