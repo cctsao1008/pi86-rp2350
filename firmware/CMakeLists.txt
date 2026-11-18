@@ -387,11 +387,7 @@ target_link_libraries(rp86_issue106_reset_raw_trace_8mhz_lab
 )
 
 pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_reset_raw_trace.pio
-)
-
-pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
 )
 
 pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_8mhz_lab 1)
