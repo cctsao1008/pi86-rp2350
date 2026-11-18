@@ -33,6 +33,7 @@
 #include "hardware/pio.h"
 #include "issue106_gpio_repack.pio.h"
 #include "pico/stdlib.h"
+#include "pico/stdio_usb.h"
 
 #define ISSUE106_VECTOR_COUNT 16u
 #define ISSUE106_ADDRESS_BITS 20u
@@ -185,7 +186,17 @@ static bool run_repack_lab(PIO pio, uint sm, uint feeder_dma,
 
 int main(void) {
     stdio_init_all();
-    sleep_ms(1500);
+
+    /*
+     * picotool -f -x re-enumerates the device before the host can reopen the
+     * CDC port. Do not emit one-shot physical evidence until a host has
+     * actually attached, otherwise the complete result can be lost before
+     * miniterm opens the new COM port.
+     */
+    while (!stdio_usb_connected()) {
+        sleep_ms(10);
+    }
+    sleep_ms(50);
 
     printf("issue106 scattered-GPIO PIO repack lab\n");
     printf("scope: synthetic raw GPIO bitmap -> PIO microcoded repack -> A19..A0\n");
