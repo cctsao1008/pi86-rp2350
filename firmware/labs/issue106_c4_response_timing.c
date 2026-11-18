@@ -198,14 +198,8 @@ static void init_responder(PIO pio, uint sm, uint offset) {
 
     pio_sm_set_consecutive_pindirs(pio, sm, 0u, 28u, false);
     pio_sm_clear_fifos(pio, sm);
-    /*
-     * Y is the CLK-only direction mask. The responder follows the already
-     * validated prepared-responder ownership model:
-     *   drive   -> MOV PINDIRS,~NULL (AD + CLK stay outputs)
-     *   release -> MOV PINDIRS,Y     (CLK stays output, AD returns high-Z)
-     */
-    pio_sm_put_blocking(
-        pio, sm, (1u << RP86_PROCESSOR_PIN_CLK));
+    /* Clock lives on PIO1; responder owns only the scattered AD pins. */
+    pio_sm_put_blocking(pio, sm, RP86_PROCESSOR_AD_BUS_MASK);
     pio_sm_set_enabled(pio, sm, true);
 }
 
@@ -290,20 +284,20 @@ int main(void) {
 
     PIO builder_pio = pio1;
     const uint builder_sm = pio_claim_unused_sm(builder_pio, true);
+    const uint clock_sm = pio_claim_unused_sm(builder_pio, true);
     const uint builder_offset =
         pio_add_program(builder_pio, &issue106_c4_byte_lut_pointers_program);
+    const uint clock_offset =
+        pio_add_program(builder_pio, &rp86_free_running_clock_program);
     init_byte_lut_builder(builder_pio, builder_sm, builder_offset);
 
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
     const uint observer_sm = pio_claim_unused_sm(io_pio, true);
-    const uint clock_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
         pio_add_program(io_pio, &issue106_c4_responder_program);
     const uint observer_offset =
         pio_add_program(io_pio, &issue106_c4_observer_program);
-    const uint clock_offset =
-        pio_add_program(io_pio, &rp86_free_running_clock_program);
     init_responder(io_pio, responder_sm, responder_offset);
     init_observer(io_pio, observer_sm, observer_offset);
 
@@ -461,15 +455,10 @@ int main(void) {
         (1u << low_control_dma) |
         (1u << observer_dma));
 
-    init_clock(io_pio, clock_sm, clock_offset);
-
-    const bool reset_clock_ok = wait_reset_clocks(8u);
-
     /*
-     * Arm capture only after reset qualification. This prevents either SM
-     * from consuming a RESET-time ASTB transition or initialization glitch.
-     * Both start from the same clean first-cycle boundary immediately before
-     * RESET is released.
+     * Arm both capture state machines before the clock starts. Their first
+     * instruction is WAIT RESET=0, so reset-time ASTB activity cannot advance
+     * either instrument regardless of processor frequency.
      */
     pio_sm_restart(frontend_pio, frontend_sm);
     pio_sm_exec(frontend_pio, frontend_sm,
@@ -480,6 +469,9 @@ int main(void) {
     pio_sm_set_enabled(frontend_pio, frontend_sm, true);
     pio_sm_set_enabled(io_pio, observer_sm, true);
 
+    init_clock(builder_pio, clock_sm, clock_offset);
+
+    const bool reset_clock_ok = wait_reset_clocks(8u);
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
 
     const uint64_t deadline = time_us_64() + ISSUE106_TIMEOUT_US;
@@ -489,7 +481,7 @@ int main(void) {
 
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
     (void)wait_reset_clocks(8u);
-    pio_sm_set_enabled(io_pio, clock_sm, false);
+    pio_sm_set_enabled(builder_pio, clock_sm, false);
 
     for (uint bit = 0u; bit < 16u; ++bit)
         gpio_set_function(ad_gpio[bit], GPIO_FUNC_SIO);
