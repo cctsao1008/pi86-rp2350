@@ -3,10 +3,7 @@
 .program issue106_intel_clock_reset
 .side_set 1
 ; Intel 8086-2 clock + deterministic RESET release.
-; PIO owns CLK (side-set GPIO21) and RESET (SET GPIO16).
-; Eight complete 2-high/3-low clocks are unrolled while RESET is asserted.
-; IRQ0 is raised immediately after RESET deassertion so a companion observer
-; can arm on the exact hardware boundary.
+; PIO0 owns CLK (side-set GPIO21) and RESET (SET GPIO16).
 
     set pins, 1                side 0
 
@@ -28,7 +25,6 @@
     nop                        side 0 [2]
 
     set pins, 0                side 0
-    irq 0                      side 0
 
 .wrap_target
     nop                        side 1 [1]
@@ -37,18 +33,44 @@
 
 
 .program issue106_post_reset_t1_observer
-; Hardware-gated companion observer.
-; Wait for the clock/reset SM IRQ, then capture each bus address at ASTB falling
-; edge (AF), i.e. near the end of T1 after the multiplexed address has settled.
-; This avoids the too-early ASTB-rise snapshots seen at 8 MHz.
+; First-cycle T1 aperture scan.
+;
+; Run on a different PIO block from the clock/reset SM. The observer is enabled
+; before clock start and waits on physical RESET deassertion, then on the first
+; ASTB rise. Twelve full-bank snapshots are taken every two PIO cycles:
+;   2 / 150 MHz ~= 13.3 ns between samples.
+;
+; This directly exposes the interval in which A19..A16 and AD15..AD0 are valid
+; as address before the multiplexed pins transition into T2/status/data.
 
-    wait 1 irq 0
-    irq clear 0
+    wait 0 gpio 16
     wait 0 gpio 9
-
-.wrap_target
     wait 1 gpio 9
-    wait 0 gpio 9
+
     mov isr, pins
-    push block
-.wrap
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+
+observer_park:
+    jmp observer_park
