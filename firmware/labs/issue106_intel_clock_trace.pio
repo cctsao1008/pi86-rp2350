@@ -4,29 +4,38 @@
 .side_set 1
 ; Intel 8086-2 synchronous reset + clock + raw bus trace.
 ;
-; PIO owns both:
-;   side-set pin -> CLK (GPIO21)
+; PIO owns:
+;   side-set pin -> CLK   (GPIO21)
 ;   SET pin      -> RESET (GPIO16)
 ;
-; One processor period = 5 SM cycles:
+; Processor period = 5 SM cycles:
 ;   HIGH: 2 cycles
 ;   LOW : 3 cycles
 ;
-; RESET is held asserted for eight complete processor clocks entirely in PIO.
-; It is then deasserted at a deterministic LOW-clock boundary before any trace
-; samples are pushed. No M33 polling or gpio_put participates in this boundary.
+; Eight complete reset clocks are deliberately unrolled. A JMP-based counter
+; would add an extra low-phase instruction cycle and distort the Intel clock.
+; RESET is deasserted at a deterministic low-clock boundary before tracing.
 ;
-; TX preload:
-;   one word whose low 5 bits are reset-period count minus one (=7).
+; Trace pushes are noblock so instrumentation can never stall the clock.
 
-    pull block                 side 0
-    mov x, osr                 side 0
     set pins, 1                side 0  ; RESET asserted
 
-reset_clock_loop:
-    nop                        side 1 [1] ; HIGH 2 cycles
-    nop                        side 0 [2] ; LOW  3 cycles
-    jmp x-- reset_clock_loop   side 0
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
 
     set pins, 0                side 0  ; deterministic RESET deassert
 
