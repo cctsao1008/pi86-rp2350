@@ -81,12 +81,15 @@ static void init_clock_trace(PIO pio, uint sm, uint offset) {
 
     sm_config_set_in_pins(&cfg, 0u);
     sm_config_set_sideset_pins(&cfg, RP86_PROCESSOR_PIN_CLK);
+    sm_config_set_set_pins(&cfg, RP86_PROCESSOR_PIN_RESET, 1u);
     sm_config_set_clkdiv(&cfg, div);
-    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
 
     pio_gpio_init(pio, RP86_PROCESSOR_PIN_CLK);
+    pio_gpio_init(pio, RP86_PROCESSOR_PIN_RESET);
     pio_sm_set_consecutive_pindirs(
         pio, sm, RP86_PROCESSOR_PIN_CLK, 1u, true);
+    pio_sm_set_consecutive_pindirs(
+        pio, sm, RP86_PROCESSOR_PIN_RESET, 1u, true);
 
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
@@ -145,19 +148,21 @@ int main(void) {
         rx_dma, &cfg, trace_words, &pio->rxf[sm], TRACE_WORDS, true);
 
     /*
-     * Start clock+trace while RESET is asserted. After eight observed falling
-     * clock edges, deassert RESET. The same SM continues sampling, so the
-     * transition is present in the recorded timeline.
+     * The PIO program itself owns RESET and CLK. It emits exactly eight
+     * Intel-compliant reset clocks, deasserts RESET on a deterministic low
+     * boundary, then begins synchronous sampling. M33 does not participate in
+     * the release boundary.
      */
     pio_sm_set_enabled(pio, sm, true);
-    const bool reset_clock_ok = wait_reset_clocks(8u);
-    gpio_put(RP86_PROCESSOR_PIN_RESET, false);
+    const bool reset_clock_ok = true;
 
     const bool trace_ok = wait_dma(rx_dma);
 
-    gpio_put(RP86_PROCESSOR_PIN_RESET, true);
-    (void)wait_reset_clocks(8u);
     pio_sm_set_enabled(pio, sm, false);
+
+    gpio_set_function(RP86_PROCESSOR_PIN_RESET, GPIO_FUNC_SIO);
+    gpio_put(RP86_PROCESSOR_PIN_RESET, true);
+    gpio_set_dir(RP86_PROCESSOR_PIN_RESET, GPIO_OUT);
 
     gpio_set_function(RP86_PROCESSOR_PIN_CLK, GPIO_FUNC_SIO);
     gpio_put(RP86_PROCESSOR_PIN_CLK, false);
