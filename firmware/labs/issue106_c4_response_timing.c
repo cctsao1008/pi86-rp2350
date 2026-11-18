@@ -1,23 +1,20 @@
 /*
  * Issue #106 Phase C4: one-shot end-to-end physical read response timing lab.
  *
- * This experiment intentionally services only the architectural reset-vector
- * WORD read at FFFF0h. The raw CPU-visible SRAM word is EB FE (JMP $), stored
- * little-endian as FEEBh. The dataplane is:
+ * Services only the architectural reset-vector WORD read at FFFF0h.
+ * The SRAM word is EB FE (JMP $), little-endian FEEBh.
  *
- *   physical T1 snapshot
- *     -> scattered A15..A0 extraction
- *     -> 64 KiB-aligned byte backing pointer
- *     -> DMA raw SRAM read
- *     -> PIO LUT-pointer construction
- *     -> DMA 16-bit-to-scattered-GPIO lookup
- *     -> PIO AD-bus drive/release
+ * Active dataplane:
+ *   T1 capture
+ *   -> 64 KiB-aligned backing pointer
+ *   -> DMA raw SRAM read
+ *   -> PIO low/high byte LUT pointer construction
+ *   -> two 256-entry internal-SRAM LUT lookups
+ *   -> DMA sniffer SUM (equivalent to OR because LUT GPIO bits are disjoint)
+ *   -> responder PIO scattered AD drive/release
  *
- * An independent observer records T1/AF/R1/F1/R2/F2/R3. The first phase whose
- * AD bus decodes to FEEBh is reported as the empirical response phase.
- *
- * This is deliberately one-shot so a timing failure cannot leave a stale
- * responder driving later processor cycles.
+ * M33 configures and verifies only; it does not participate in the active
+ * transaction.
  */
 
 #include <inttypes.h>
@@ -42,31 +39,28 @@
 #define ISSUE106_FRONTEND_BITS 16u
 #define ISSUE106_FRONTEND_WORDS (1u + ISSUE106_FRONTEND_BITS + 1u)
 #define ISSUE106_FRONTEND_FINISH_REL 16u
-#define ISSUE106_OBSERVER_WORDS 7u
+#define ISSUE106_OBSERVER_WORDS 5u
 #define ISSUE106_RESET_WORD 0xfeeBu
+#define ISSUE106_DMA_SNIFF_SUM_MODE 0x0fu
 
 static uint8_t backing[65536] __attribute__((aligned(65536)));
-static uint32_t response_lut[65536] __attribute__((aligned(262144)));
+static uint32_t low_lut[256] __attribute__((aligned(1024)));
+static uint32_t high_lut[256] __attribute__((aligned(1024)));
 static uint32_t frontend_words[ISSUE106_FRONTEND_WORDS];
 static uint32_t observer_words[ISSUE106_OBSERVER_WORDS];
+static uint32_t encoded_parts[2];
+static uint32_t sniff_sink;
+static uint32_t high_lut_prefix;
 
 static const uint8_t ad_gpio[16] = {
-    RP86_PROCESSOR_PIN_AD0,
-    RP86_PROCESSOR_PIN_AD1,
-    RP86_PROCESSOR_PIN_AD2,
-    RP86_PROCESSOR_PIN_AD3,
-    RP86_PROCESSOR_PIN_AD4,
-    RP86_PROCESSOR_PIN_AD5,
-    RP86_PROCESSOR_PIN_AD6,
-    RP86_PROCESSOR_PIN_AD7,
-    RP86_PROCESSOR_PIN_AD8,
-    RP86_PROCESSOR_PIN_AD9,
-    RP86_PROCESSOR_PIN_AD10,
-    RP86_PROCESSOR_PIN_AD11,
-    RP86_PROCESSOR_PIN_AD12,
-    RP86_PROCESSOR_PIN_AD13,
-    RP86_PROCESSOR_PIN_AD14,
-    RP86_PROCESSOR_PIN_AD15,
+    RP86_PROCESSOR_PIN_AD0, RP86_PROCESSOR_PIN_AD1,
+    RP86_PROCESSOR_PIN_AD2, RP86_PROCESSOR_PIN_AD3,
+    RP86_PROCESSOR_PIN_AD4, RP86_PROCESSOR_PIN_AD5,
+    RP86_PROCESSOR_PIN_AD6, RP86_PROCESSOR_PIN_AD7,
+    RP86_PROCESSOR_PIN_AD8, RP86_PROCESSOR_PIN_AD9,
+    RP86_PROCESSOR_PIN_AD10, RP86_PROCESSOR_PIN_AD11,
+    RP86_PROCESSOR_PIN_AD12, RP86_PROCESSOR_PIN_AD13,
+    RP86_PROCESSOR_PIN_AD14, RP86_PROCESSOR_PIN_AD15,
 };
 
 static inline uint32_t sample_bit(uint32_t raw, uint gpio) {
@@ -100,11 +94,17 @@ static bool is_memory_read(uint32_t raw) {
            sample_bit(raw, RP86_PROCESSOR_PIN_INTAK) != 0u;
 }
 
-static uint32_t encode_data_bitmap(uint16_t value) {
+static uint32_t encode_low_byte(uint8_t value) {
     uint32_t encoded = 0u;
-    for (uint bit = 0u; bit < 16u; ++bit) {
+    for (uint bit = 0u; bit < 8u; ++bit)
         if ((value >> bit) & 1u) encoded |= 1u << ad_gpio[bit];
-    }
+    return encoded;
+}
+
+static uint32_t encode_high_byte(uint8_t value) {
+    uint32_t encoded = 0u;
+    for (uint bit = 0u; bit < 8u; ++bit)
+        if ((value >> bit) & 1u) encoded |= 1u << ad_gpio[bit + 8u];
     return encoded;
 }
 
@@ -129,13 +129,16 @@ static void build_frontend_stream(uint program_offset) {
 
 static void prepare_memory(void) {
     for (uint i = 0u; i < sizeof backing; ++i) backing[i] = 0x90u;
-
-    /* Reset-vector ROM image: EB FE = JMP short -2, little-endian FEEBh. */
     backing[0xfff0u] = 0xebu;
     backing[0xfff1u] = 0xfeu;
 
-    for (uint value = 0u; value < 65536u; ++value)
-        response_lut[value] = encode_data_bitmap((uint16_t)value);
+    for (uint i = 0u; i < 256u; ++i) {
+        low_lut[i] = encode_low_byte((uint8_t)i);
+        high_lut[i] = encode_high_byte((uint8_t)i);
+    }
+    encoded_parts[0] = 0u;
+    encoded_parts[1] = 0u;
+    sniff_sink = 0u;
 }
 
 static void prepare_header_safe(void) {
@@ -144,7 +147,6 @@ static void prepare_header_safe(void) {
         gpio_set_dir(gpio, GPIO_IN);
         gpio_disable_pulls(gpio);
     }
-
     gpio_init(RP86_PROCESSOR_PIN_RESET);
     gpio_disable_pulls(RP86_PROCESSOR_PIN_RESET);
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
@@ -166,16 +168,19 @@ static void init_frontend(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, true);
 }
 
-static void init_lut_pointer(PIO pio, uint sm, uint offset) {
+static void init_byte_lut_builder(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
-        issue106_c4_lut_pointer_program_get_default_config(offset);
+        issue106_c4_byte_lut_pointers_program_get_default_config(offset);
+    sm_config_set_out_shift(&c, true, false, 32u);
     sm_config_set_in_shift(&c, false, false, 32u);
     hard_assert(pio_sm_init(pio, sm, offset, &c) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
 
-    const uint32_t lut_hi14 =
-        ((uint32_t)(uintptr_t)response_lut >> 18) & 0x3fffu;
-    pio_sm_put_blocking(pio, sm, lut_hi14);
+    const uint32_t low_prefix =
+        ((uint32_t)(uintptr_t)low_lut >> 10) & 0x003fffffu;
+    high_lut_prefix =
+        ((uint32_t)(uintptr_t)high_lut >> 10) & 0x003fffffu;
+    pio_sm_put_blocking(pio, sm, low_prefix);
     pio_sm_set_enabled(pio, sm, true);
 }
 
@@ -210,10 +215,8 @@ static void init_clock(PIO pio, uint sm, uint offset) {
         rp86_free_running_clock_program_get_default_config(offset);
     const float divider =
         (float)clock_get_hz(clk_sys) / (2.0f * (float)ISSUE106_PROCESSOR_HZ);
-
     sm_config_set_set_pins(&c, RP86_PROCESSOR_PIN_CLK, 1u);
     sm_config_set_clkdiv(&c, divider);
-
     pio_gpio_init(pio, RP86_PROCESSOR_PIN_CLK);
     pio_sm_set_consecutive_pindirs(
         pio, sm, RP86_PROCESSOR_PIN_CLK, 1u, true);
@@ -225,7 +228,6 @@ static bool wait_reset_clocks(uint count) {
     const uint64_t deadline = time_us_64() + ISSUE106_TIMEOUT_US;
     bool last = gpio_get(RP86_PROCESSOR_PIN_CLK);
     uint falling = 0u;
-
     while (falling < count && time_us_64() <= deadline) {
         const bool now = gpio_get(RP86_PROCESSOR_PIN_CLK);
         if (last && !now) ++falling;
@@ -245,7 +247,7 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 
 static const char *phase_name(uint index) {
     static const char *const names[ISSUE106_OBSERVER_WORDS] = {
-        "T1", "AF", "R1", "F1", "R2", "F2", "R3"
+        "T1", "AF", "R1", "F1", "R2"
     };
     return index < ISSUE106_OBSERVER_WORDS ? names[index] : "?";
 }
@@ -256,19 +258,20 @@ int main(void) {
     sleep_ms(50);
 
     printf("issue106 C4 end-to-end read response timing lab\n");
-    printf("scope: T1 -> raw SRAM -> encode LUT -> scattered AD drive\n");
+    printf("scope: T1 -> raw SRAM -> byte LUTs -> DMA SUM -> scattered AD drive\n");
     printf("processor clock: %u Hz (empirical; Intel compliance not claimed)\n",
            ISSUE106_PROCESSOR_HZ);
 
     const uintptr_t backing_addr = (uintptr_t)backing;
-    const uintptr_t lut_addr = (uintptr_t)response_lut;
+    const uintptr_t low_lut_addr = (uintptr_t)low_lut;
+    const uintptr_t high_lut_addr = (uintptr_t)high_lut;
     hard_assert((backing_addr & 0xffffu) == 0u);
-    hard_assert((lut_addr & 0x3ffffu) == 0u);
+    hard_assert((low_lut_addr & 0x3ffu) == 0u);
+    hard_assert((high_lut_addr & 0x3ffu) == 0u);
 
     prepare_memory();
     prepare_header_safe();
 
-    /* Keep each PIO block within its 32-instruction memory budget. */
     PIO frontend_pio = pio0;
     const uint frontend_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend_offset =
@@ -276,15 +279,24 @@ int main(void) {
     init_frontend(frontend_pio, frontend_sm, frontend_offset);
     build_frontend_stream(frontend_offset);
 
-    PIO response_pio = pio1;
-    const uint lut_pointer_sm = pio_claim_unused_sm(response_pio, true);
-    const uint responder_sm = pio_claim_unused_sm(response_pio, true);
-    const uint lut_pointer_offset =
-        pio_add_program(response_pio, &issue106_c4_lut_pointer_program);
+    PIO builder_pio = pio1;
+    const uint builder_sm = pio_claim_unused_sm(builder_pio, true);
+    const uint builder_offset =
+        pio_add_program(builder_pio, &issue106_c4_byte_lut_pointers_program);
+    init_byte_lut_builder(builder_pio, builder_sm, builder_offset);
+
+    PIO io_pio = pio2;
+    const uint responder_sm = pio_claim_unused_sm(io_pio, true);
+    const uint observer_sm = pio_claim_unused_sm(io_pio, true);
+    const uint clock_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
-        pio_add_program(response_pio, &issue106_c4_responder_program);
-    init_lut_pointer(response_pio, lut_pointer_sm, lut_pointer_offset);
-    init_responder(response_pio, responder_sm, responder_offset);
+        pio_add_program(io_pio, &issue106_c4_responder_program);
+    const uint observer_offset =
+        pio_add_program(io_pio, &issue106_c4_observer_program);
+    const uint clock_offset =
+        pio_add_program(io_pio, &rp86_free_running_clock_program);
+    init_responder(io_pio, responder_sm, responder_offset);
+    init_observer(io_pio, observer_sm, observer_offset);
 
     const uint frontend_tx_dma = dma_claim_unused_channel(true);
     dma_channel_config frontend_tx_cfg =
@@ -299,7 +311,18 @@ int main(void) {
                           &frontend_pio->txf[frontend_sm],
                           frontend_words, ISSUE106_FRONTEND_WORDS, false);
 
-    /* Raw backing read. A 32-bit fetch is safe at FFFF0h; low 16 bits are data. */
+    const uint prefix_dma = dma_claim_unused_channel(true);
+    dma_channel_config prefix_cfg = dma_channel_get_default_config(prefix_dma);
+    channel_config_set_transfer_data_size(&prefix_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&prefix_cfg, false);
+    channel_config_set_write_increment(&prefix_cfg, false);
+    channel_config_set_dreq(
+        &prefix_cfg, pio_get_dreq(builder_pio, builder_sm, true));
+    channel_config_set_high_priority(&prefix_cfg, true);
+    dma_channel_configure(prefix_dma, &prefix_cfg,
+                          &builder_pio->txf[builder_sm],
+                          &high_lut_prefix, 1u, false);
+
     const uint raw_data_dma = dma_claim_unused_channel(true);
     dma_channel_config raw_data_cfg =
         dma_channel_get_default_config(raw_data_dma);
@@ -307,10 +330,11 @@ int main(void) {
     channel_config_set_read_increment(&raw_data_cfg, false);
     channel_config_set_write_increment(&raw_data_cfg, false);
     channel_config_set_dreq(
-        &raw_data_cfg, pio_get_dreq(response_pio, lut_pointer_sm, true));
+        &raw_data_cfg, pio_get_dreq(builder_pio, builder_sm, true));
+    channel_config_set_chain_to(&raw_data_cfg, prefix_dma);
     channel_config_set_high_priority(&raw_data_cfg, true);
     dma_channel_configure(raw_data_dma, &raw_data_cfg,
-                          &response_pio->txf[lut_pointer_sm], backing,
+                          &builder_pio->txf[builder_sm], backing,
                           1u, false);
 
     const uint frontend_control_dma = dma_claim_unused_channel(true);
@@ -328,40 +352,82 @@ int main(void) {
         &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
         &frontend_pio->rxf[frontend_sm], 1u, false);
 
-    /* Builder RX emits response_lut[data] absolute pointer. */
-    const uint lut_data_dma = dma_claim_unused_channel(true);
-    dma_channel_config lut_data_cfg =
-        dma_channel_get_default_config(lut_data_dma);
-    channel_config_set_transfer_data_size(&lut_data_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&lut_data_cfg, false);
-    channel_config_set_write_increment(&lut_data_cfg, false);
+    const uint final_dma = dma_claim_unused_channel(true);
+    dma_channel_config final_cfg = dma_channel_get_default_config(final_dma);
+    channel_config_set_transfer_data_size(&final_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&final_cfg, false);
+    channel_config_set_write_increment(&final_cfg, false);
     channel_config_set_dreq(
-        &lut_data_cfg, pio_get_dreq(response_pio, responder_sm, true));
-    channel_config_set_high_priority(&lut_data_cfg, true);
-    dma_channel_configure(lut_data_dma, &lut_data_cfg,
-                          &response_pio->txf[responder_sm], response_lut,
-                          1u, false);
+        &final_cfg, pio_get_dreq(io_pio, responder_sm, true));
+    channel_config_set_high_priority(&final_cfg, true);
+    dma_channel_configure(final_dma, &final_cfg,
+                          &io_pio->txf[responder_sm],
+                          &dma_hw->sniff_data, 1u, false);
 
-    const uint lut_control_dma = dma_claim_unused_channel(true);
-    dma_channel_config lut_control_cfg =
-        dma_channel_get_default_config(lut_control_dma);
-    channel_config_set_transfer_data_size(&lut_control_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&lut_control_cfg, false);
-    channel_config_set_write_increment(&lut_control_cfg, false);
+    const uint combine_dma = dma_claim_unused_channel(true);
+    dma_channel_config combine_cfg =
+        dma_channel_get_default_config(combine_dma);
+    channel_config_set_transfer_data_size(&combine_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&combine_cfg, true);
+    channel_config_set_write_increment(&combine_cfg, false);
+    channel_config_set_dreq(&combine_cfg, DREQ_FORCE);
+    channel_config_set_chain_to(&combine_cfg, final_dma);
+    channel_config_set_sniff_enable(&combine_cfg, true);
+    channel_config_set_high_priority(&combine_cfg, true);
+    dma_channel_configure(combine_dma, &combine_cfg,
+                          &sniff_sink, encoded_parts, 2u, false);
+
+    const uint high_lookup_dma = dma_claim_unused_channel(true);
+    dma_channel_config high_lookup_cfg =
+        dma_channel_get_default_config(high_lookup_dma);
+    channel_config_set_transfer_data_size(&high_lookup_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&high_lookup_cfg, false);
+    channel_config_set_write_increment(&high_lookup_cfg, false);
+    channel_config_set_dreq(&high_lookup_cfg, DREQ_FORCE);
+    channel_config_set_chain_to(&high_lookup_cfg, combine_dma);
+    channel_config_set_high_priority(&high_lookup_cfg, true);
+    dma_channel_configure(high_lookup_dma, &high_lookup_cfg,
+                          &encoded_parts[1], high_lut, 1u, false);
+
+    const uint high_control_dma = dma_claim_unused_channel(true);
+    dma_channel_config high_control_cfg =
+        dma_channel_get_default_config(high_control_dma);
+    channel_config_set_transfer_data_size(&high_control_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&high_control_cfg, false);
+    channel_config_set_write_increment(&high_control_cfg, false);
     channel_config_set_dreq(
-        &lut_control_cfg,
-        pio_get_dreq(response_pio, lut_pointer_sm, false));
-    channel_config_set_high_priority(&lut_control_cfg, true);
+        &high_control_cfg, pio_get_dreq(builder_pio, builder_sm, false));
+    channel_config_set_high_priority(&high_control_cfg, true);
     dma_channel_configure(
-        lut_control_dma, &lut_control_cfg,
-        &dma_channel_hw_addr(lut_data_dma)->al3_read_addr_trig,
-        &response_pio->rxf[lut_pointer_sm], 1u, false);
+        high_control_dma, &high_control_cfg,
+        &dma_channel_hw_addr(high_lookup_dma)->al3_read_addr_trig,
+        &builder_pio->rxf[builder_sm], 1u, false);
 
-    PIO observer_pio = pio2;
-    const uint observer_sm = pio_claim_unused_sm(observer_pio, true);
-    const uint observer_offset =
-        pio_add_program(observer_pio, &issue106_c4_observer_program);
-    init_observer(observer_pio, observer_sm, observer_offset);
+    const uint low_lookup_dma = dma_claim_unused_channel(true);
+    dma_channel_config low_lookup_cfg =
+        dma_channel_get_default_config(low_lookup_dma);
+    channel_config_set_transfer_data_size(&low_lookup_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&low_lookup_cfg, false);
+    channel_config_set_write_increment(&low_lookup_cfg, false);
+    channel_config_set_dreq(&low_lookup_cfg, DREQ_FORCE);
+    channel_config_set_chain_to(&low_lookup_cfg, high_control_dma);
+    channel_config_set_high_priority(&low_lookup_cfg, true);
+    dma_channel_configure(low_lookup_dma, &low_lookup_cfg,
+                          &encoded_parts[0], low_lut, 1u, false);
+
+    const uint low_control_dma = dma_claim_unused_channel(true);
+    dma_channel_config low_control_cfg =
+        dma_channel_get_default_config(low_control_dma);
+    channel_config_set_transfer_data_size(&low_control_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&low_control_cfg, false);
+    channel_config_set_write_increment(&low_control_cfg, false);
+    channel_config_set_dreq(
+        &low_control_cfg, pio_get_dreq(builder_pio, builder_sm, false));
+    channel_config_set_high_priority(&low_control_cfg, true);
+    dma_channel_configure(
+        low_control_dma, &low_control_cfg,
+        &dma_channel_hw_addr(low_lookup_dma)->al3_read_addr_trig,
+        &builder_pio->rxf[builder_sm], 1u, false);
 
     const uint observer_dma = dma_claim_unused_channel(true);
     dma_channel_config observer_cfg =
@@ -370,22 +436,23 @@ int main(void) {
     channel_config_set_read_increment(&observer_cfg, false);
     channel_config_set_write_increment(&observer_cfg, true);
     channel_config_set_dreq(
-        &observer_cfg, pio_get_dreq(observer_pio, observer_sm, false));
+        &observer_cfg, pio_get_dreq(io_pio, observer_sm, false));
     channel_config_set_high_priority(&observer_cfg, true);
     dma_channel_configure(observer_dma, &observer_cfg,
-                          observer_words, &observer_pio->rxf[observer_sm],
+                          observer_words, &io_pio->rxf[observer_sm],
                           ISSUE106_OBSERVER_WORDS, false);
+
+    dma_sniffer_set_data_accumulator(0u);
+    dma_sniffer_enable(
+        combine_dma, ISSUE106_DMA_SNIFF_SUM_MODE, false);
 
     dma_start_channel_mask(
         (1u << frontend_tx_dma) |
         (1u << frontend_control_dma) |
-        (1u << lut_control_dma) |
+        (1u << low_control_dma) |
         (1u << observer_dma));
 
-    const uint clock_sm = pio_claim_unused_sm(observer_pio, true);
-    const uint clock_offset =
-        pio_add_program(observer_pio, &rp86_free_running_clock_program);
-    init_clock(observer_pio, clock_sm, clock_offset);
+    init_clock(io_pio, clock_sm, clock_offset);
 
     const bool reset_clock_ok = wait_reset_clocks(8u);
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
@@ -393,12 +460,10 @@ int main(void) {
     const uint64_t deadline = time_us_64() + ISSUE106_TIMEOUT_US;
     const bool observer_complete = wait_dma_idle(observer_dma, deadline);
 
-    /* Immediately bound the experiment after the first observed bus cycle. */
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
     (void)wait_reset_clocks(8u);
-    pio_sm_set_enabled(observer_pio, clock_sm, false);
+    pio_sm_set_enabled(io_pio, clock_sm, false);
 
-    /* Force the header back to a safe state regardless of responder progress. */
     for (uint bit = 0u; bit < 16u; ++bit)
         gpio_set_function(ad_gpio[bit], GPIO_FUNC_SIO);
     sio_hw->gpio_oe_clr = RP86_PROCESSOR_AD_BUS_MASK;
@@ -416,8 +481,9 @@ int main(void) {
     int first_valid_phase = -1;
     uint phase_matches = 0u;
 
-    printf("BACKING BASE: %08" PRIxPTR "\n", backing_addr);
-    printf("LUT BASE:     %08" PRIxPTR "\n", lut_addr);
+    printf("BACKING BASE:  %08" PRIxPTR "\n", backing_addr);
+    printf("LOW LUT BASE:  %08" PRIxPTR "\n", low_lut_addr);
+    printf("HIGH LUT BASE: %08" PRIxPTR "\n", high_lut_addr);
     printf("T1: raw=%08" PRIx32 " addr=%05" PRIx32
            " word=%s memread=%s\n",
            t1_raw, address,
@@ -436,19 +502,26 @@ int main(void) {
         }
     }
 
-    const bool raw_dma_done = !dma_channel_is_busy(raw_data_dma);
-    const bool lut_dma_done = !dma_channel_is_busy(lut_data_dma);
-    const bool control_done = !dma_channel_is_busy(frontend_control_dma) &&
-                              !dma_channel_is_busy(lut_control_dma);
+    const bool raw_done = !dma_channel_is_busy(raw_data_dma);
+    const bool low_done = !dma_channel_is_busy(low_lookup_dma);
+    const bool high_done = !dma_channel_is_busy(high_lookup_dma);
+    const bool combine_done = !dma_channel_is_busy(combine_dma);
+    const bool final_done = !dma_channel_is_busy(final_dma);
+    const uint32_t encoded_word = dma_sniffer_get_data_accumulator();
 
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
     printf("FIRST RESET VECTOR FFFF0: %s\n", address_ok ? "PASS" : "FAIL");
     printf("FIRST CYCLE WORD MEMREAD: %s\n",
            lane_ok && read_ok ? "PASS" : "FAIL");
-    printf("DMA PIPELINE: raw=%s lut=%s control=%s\n",
-           raw_dma_done ? "DONE" : "BUSY",
-           lut_dma_done ? "DONE" : "BUSY",
-           control_done ? "DONE" : "BUSY");
+    printf("ENCODE PARTS: low=%08" PRIx32 " high=%08" PRIx32
+           " sum=%08" PRIx32 "\n",
+           encoded_parts[0], encoded_parts[1], encoded_word);
+    printf("DMA PIPELINE: raw=%s low=%s high=%s sum=%s final=%s\n",
+           raw_done ? "DONE" : "BUSY",
+           low_done ? "DONE" : "BUSY",
+           high_done ? "DONE" : "BUSY",
+           combine_done ? "DONE" : "BUSY",
+           final_done ? "DONE" : "BUSY");
 
     if (first_valid_phase >= 0)
         printf("FIRST VALID DATA PHASE: %s\n",
@@ -458,13 +531,13 @@ int main(void) {
 
     const bool pass =
         reset_clock_ok && observer_complete && address_ok && lane_ok &&
-        read_ok && raw_dma_done && lut_dma_done && control_done &&
-        first_valid_phase >= 0;
+        read_ok && raw_done && low_done && high_done &&
+        combine_done && final_done && first_valid_phase >= 0;
 
     printf("RESULT: %s (expected data=%04x, matching phases=%u)\n",
            pass ? "PASS" : "FAIL", ISSUE106_RESET_WORD, phase_matches);
-    printf("NOTE: one-shot 1MHz empirical timing probe; #108 must decide whether ");
-    printf("the observed phase satisfies Intel >=2MHz fixed-READY timing.\n");
+    printf("NOTE: one-shot 1MHz empirical timing probe; #108 must classify ");
+    printf("the observed phase against Intel >=2MHz fixed-READY timing.\n");
 
     while (true) tight_loop_contents();
 }
