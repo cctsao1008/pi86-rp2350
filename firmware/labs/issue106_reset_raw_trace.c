@@ -1,9 +1,8 @@
 /*
- * Issue #106: passive raw reset/bus trace for high-frequency diagnostics.
+ * Issue #106: synchronous Intel clock + passive raw bus trace.
  *
- * Samples GPIO0..31 on every processor CLK edge after RESET deassertion.
- * No realtime repack and no bus response are performed. M33 decodes the
- * captured samples only after the finite trace is complete.
+ * The same PIO state machine generates the Intel 8086 clock and samples the
+ * complete GPIO bank. This removes cross-SM arming/phase ambiguity.
  */
 
 #include <inttypes.h>
@@ -17,8 +16,7 @@
 #include "hardware/gpio.h"
 #include "hardware/pio.h"
 #include "hardware/structs/dma.h"
-#include "issue106_reset_raw_trace.pio.h"
-#include "intel_8086_clock.pio.h"
+#include "issue106_intel_clock_trace.pio.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
@@ -26,7 +24,7 @@
 #define ISSUE106_PROCESSOR_HZ 8000000u
 #endif
 
-#define TRACE_WORDS 64u
+#define TRACE_WORDS 128u
 #define TIMEOUT_US 100000u
 
 static uint32_t trace_words[TRACE_WORDS];
@@ -44,14 +42,14 @@ static const uint8_t address_gpio[20] = {
     RP86_PROCESSOR_PIN_A18, RP86_PROCESSOR_PIN_A19,
 };
 
-static inline uint32_t bit(uint32_t raw, uint gpio) {
+static inline uint32_t sample_bit(uint32_t raw, uint gpio) {
     return (raw >> gpio) & 1u;
 }
 
 static uint32_t decode_address(uint32_t raw) {
     uint32_t address = 0u;
-    for (uint i = 0; i < 20u; ++i)
-        address |= bit(raw, address_gpio[i]) << i;
+    for (uint i = 0u; i < 20u; ++i)
+        address |= sample_bit(raw, address_gpio[i]) << i;
     return address & 0xfffffu;
 }
 
@@ -73,42 +71,35 @@ static void prepare_header_safe(void) {
     gpio_set_dir(RP86_PROCESSOR_PIN_INTR, GPIO_OUT);
 }
 
-static void init_trace(PIO pio, uint sm, uint offset) {
+static void init_clock_trace(PIO pio, uint sm, uint offset) {
     pio_sm_config cfg =
-        issue106_reset_raw_trace_program_get_default_config(offset);
-    sm_config_set_in_pins(&cfg, 0u);
-    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
-    hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
-    pio_sm_clear_fifos(pio, sm);
-    /*
-     * Run continuously from the asserted-RESET epoch. Each captured ASTB/T1
-     * snapshot includes GPIO16 (RESET), so post-processing can identify the
-     * first formal bus cycle after RESET deassertion without an arming race.
-     */
-    pio_sm_set_enabled(pio, sm, true);
-}
+        issue106_intel_clock_trace_program_get_default_config(offset);
 
-static void init_clock(PIO pio, uint sm, uint offset) {
-    pio_sm_config cfg =
-        rp86_intel_8086_clock_program_get_default_config(offset);
     const float div =
-        (float)clock_get_hz(clk_sys) / (5.0f * (float)ISSUE106_PROCESSOR_HZ);
+        (float)clock_get_hz(clk_sys) /
+        (5.0f * (float)ISSUE106_PROCESSOR_HZ);
 
-    sm_config_set_set_pins(&cfg, RP86_PROCESSOR_PIN_CLK, 1u);
+    sm_config_set_in_pins(&cfg, 0u);
+    sm_config_set_sideset_pins(&cfg, RP86_PROCESSOR_PIN_CLK);
     sm_config_set_clkdiv(&cfg, div);
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
+
     pio_gpio_init(pio, RP86_PROCESSOR_PIN_CLK);
     pio_sm_set_consecutive_pindirs(
         pio, sm, RP86_PROCESSOR_PIN_CLK, 1u, true);
+
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
-    pio_sm_set_enabled(pio, sm, true);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_set_enabled(pio, sm, false);
 }
 
 static bool wait_reset_clocks(uint count) {
     const uint64_t deadline = time_us_64() + TIMEOUT_US;
     bool last = gpio_get(RP86_PROCESSOR_PIN_CLK);
     uint falling = 0u;
+
     while (falling < count && time_us_64() <= deadline) {
-        bool now = gpio_get(RP86_PROCESSOR_PIN_CLK);
+        const bool now = gpio_get(RP86_PROCESSOR_PIN_CLK);
         if (last && !now) ++falling;
         last = now;
         tight_loop_contents();
@@ -116,9 +107,9 @@ static bool wait_reset_clocks(uint count) {
     return falling == count;
 }
 
-static bool wait_dma(uint ch) {
+static bool wait_dma(uint channel) {
     const uint64_t deadline = time_us_64() + TIMEOUT_US;
-    while (dma_channel_is_busy(ch)) {
+    while (dma_channel_is_busy(channel)) {
         if (time_us_64() > deadline) return false;
         tight_loop_contents();
     }
@@ -130,70 +121,108 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
-    printf("issue106 passive reset raw trace\n");
-    printf("processor clock: %u Hz\n", ISSUE106_PROCESSOR_HZ);
+    printf("issue106 synchronous Intel clock/raw trace\n");
+    printf("processor clock: %u Hz (2-high/3-low PIO waveform)\n",
+           ISSUE106_PROCESSOR_HZ);
 
     prepare_header_safe();
 
-    PIO trace_pio = pio0;
-    uint trace_sm = pio_claim_unused_sm(trace_pio, true);
-    uint trace_off =
-        pio_add_program(trace_pio, &issue106_reset_raw_trace_program);
-    init_trace(trace_pio, trace_sm, trace_off);
+    PIO pio = pio0;
+    const uint sm = pio_claim_unused_sm(pio, true);
+    const uint offset =
+        pio_add_program(pio, &issue106_intel_clock_trace_program);
+    init_clock_trace(pio, sm, offset);
 
-    uint rx_dma = dma_claim_unused_channel(true);
-    dma_channel_config rx_cfg = dma_channel_get_default_config(rx_dma);
-    channel_config_set_transfer_data_size(&rx_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&rx_cfg, false);
-    channel_config_set_write_increment(&rx_cfg, true);
-    channel_config_set_dreq(
-        &rx_cfg, pio_get_dreq(trace_pio, trace_sm, false));
-    channel_config_set_high_priority(&rx_cfg, true);
-    dma_channel_configure(rx_dma, &rx_cfg,
-                          trace_words, &trace_pio->rxf[trace_sm],
-                          TRACE_WORDS, true);
+    const uint rx_dma = dma_claim_unused_channel(true);
+    dma_channel_config cfg = dma_channel_get_default_config(rx_dma);
+    channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&cfg, false);
+    channel_config_set_write_increment(&cfg, true);
+    channel_config_set_dreq(&cfg, pio_get_dreq(pio, sm, false));
+    channel_config_set_high_priority(&cfg, true);
 
-    PIO clock_pio = pio1;
-    uint clock_sm = pio_claim_unused_sm(clock_pio, true);
-    uint clock_off =
-        pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
-    init_clock(clock_pio, clock_sm, clock_off);
+    dma_channel_configure(
+        rx_dma, &cfg, trace_words, &pio->rxf[sm], TRACE_WORDS, true);
 
-    bool reset_clock_ok = wait_reset_clocks(8u);
+    /*
+     * Start clock+trace while RESET is asserted. After eight observed falling
+     * clock edges, deassert RESET. The same SM continues sampling, so the
+     * transition is present in the recorded timeline.
+     */
+    pio_sm_set_enabled(pio, sm, true);
+    const bool reset_clock_ok = wait_reset_clocks(8u);
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
 
-    bool trace_ok = wait_dma(rx_dma);
+    const bool trace_ok = wait_dma(rx_dma);
 
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
     (void)wait_reset_clocks(8u);
-    pio_sm_set_enabled(clock_pio, clock_sm, false);
+    pio_sm_set_enabled(pio, sm, false);
 
     gpio_set_function(RP86_PROCESSOR_PIN_CLK, GPIO_FUNC_SIO);
     gpio_put(RP86_PROCESSOR_PIN_CLK, false);
     gpio_set_dir(RP86_PROCESSOR_PIN_CLK, GPIO_OUT);
 
-    uint32_t remaining =
+    const uint32_t remaining =
         dma_channel_hw_addr(rx_dma)->transfer_count & 0x0fffffffu;
-    uint32_t captured = TRACE_WORDS - remaining;
+    const uint32_t captured = TRACE_WORDS - remaining;
 
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
     printf("TRACE: %s (%" PRIu32 "/%u samples)\n",
            trace_ok ? "COMPLETE" : "TIMEOUT", captured, TRACE_WORDS);
 
-    for (uint i = 0u; i < captured; ++i) {
-        uint32_t raw = trace_words[i];
-        printf("[%02u] RESET=%u addr=%05" PRIx32
-               " IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32 "\n",
-               i, bit(raw, RP86_PROCESSOR_PIN_RESET),
-               decode_address(raw),
-               bit(raw, RP86_PROCESSOR_PIN_IOM),
-               bit(raw, RP86_PROCESSOR_PIN_BUFRW),
-               bit(raw, RP86_PROCESSOR_PIN_INTAK),
-               raw);
+    int first_reset_low = -1;
+    int first_post_reset_astb = -1;
+    bool prev_astb = false;
+
+    for (uint32_t i = 0u; i < captured; ++i) {
+        const uint32_t raw = trace_words[i];
+        const bool reset = sample_bit(raw, RP86_PROCESSOR_PIN_RESET);
+        const bool astb = sample_bit(raw, RP86_PROCESSOR_PIN_ASTB);
+
+        if (first_reset_low < 0 && !reset)
+            first_reset_low = (int)i;
+
+        if (first_reset_low >= 0 && first_post_reset_astb < 0 &&
+            astb && !prev_astb)
+            first_post_reset_astb = (int)i;
+
+        prev_astb = astb;
     }
 
+    printf("FIRST RESET=0 SAMPLE: %d\n", first_reset_low);
+    printf("FIRST POST-RESET ASTB RISE SAMPLE: %d\n",
+           first_post_reset_astb);
 
-    printf("NOTE: passive settled-T1 ASTB trace only; no responder is active.\n");
+    int begin = first_reset_low >= 4 ? first_reset_low - 4 : 0;
+    int end = first_reset_low >= 0 ? first_reset_low + 32 : (int)captured;
+    if (end > (int)captured) end = (int)captured;
+
+    for (int i = begin; i < end; ++i) {
+        const uint32_t raw = trace_words[i];
+        printf("[%03d] phase=%c RESET=%u ASTB=%u addr=%05" PRIx32
+               " IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32 "%s\n",
+               i, (i & 1) ? 'L' : 'H',
+               sample_bit(raw, RP86_PROCESSOR_PIN_RESET),
+               sample_bit(raw, RP86_PROCESSOR_PIN_ASTB),
+               decode_address(raw),
+               sample_bit(raw, RP86_PROCESSOR_PIN_IOM),
+               sample_bit(raw, RP86_PROCESSOR_PIN_BUFRW),
+               sample_bit(raw, RP86_PROCESSOR_PIN_INTAK),
+               raw,
+               i == first_post_reset_astb ? "  <FIRST-POST-RESET-ASTB>" : "");
+    }
+
+    if (first_post_reset_astb >= 0) {
+        const uint32_t first =
+            trace_words[(uint32_t)first_post_reset_astb];
+        printf("FIRST POST-RESET T1 ADDRESS: %05" PRIx32 "\n",
+               decode_address(first));
+    } else {
+        printf("FIRST POST-RESET T1 ADDRESS: NONE\n");
+    }
+
+    printf("NOTE: clock generation and observation share one PIO timeline.\n");
 
     while (true) tight_loop_contents();
 }
