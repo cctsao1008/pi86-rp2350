@@ -225,3 +225,34 @@ pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_lab 1)
 pico_enable_stdio_uart(rp86_issue106_physical_t1_repack_lab 0)
 pico_set_binary_type(rp86_issue106_physical_t1_repack_lab copy_to_ram)
 pico_add_extra_outputs(rp86_issue106_physical_t1_repack_lab)
+
+
+# Phase C2+C3 integrates the real T1 frontend with hardware lane
+# classification and a 64 KiB mirrored internal-SRAM DMA read path.
+add_executable(rp86_issue106_c23_integration_lab EXCLUDE_FROM_ALL
+    labs/issue106_c23_integration.c
+)
+
+target_include_directories(rp86_issue106_c23_integration_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_c23_integration_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_c23_integration_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c23_integration.pio
+)
+
+pico_generate_pio_header(rp86_issue106_c23_integration_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_c23_integration_lab 1)
+pico_enable_stdio_uart(rp86_issue106_c23_integration_lab 0)
+pico_set_binary_type(rp86_issue106_c23_integration_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_c23_integration_lab)
