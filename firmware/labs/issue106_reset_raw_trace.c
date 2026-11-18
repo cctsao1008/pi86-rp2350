@@ -26,7 +26,7 @@
 #define ISSUE106_PROCESSOR_HZ 6000000u
 #endif
 
-#define TRACE_WORDS 16u
+#define TRACE_WORDS 12u
 #define TIMEOUT_US 100000u
 
 static uint32_t trace_words[TRACE_WORDS];
@@ -122,23 +122,25 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
-    printf("issue106 synchronous Intel reset + AF address observer\n");
+    printf("issue106 synchronous Intel reset + T1 aperture scan\n");
     printf("processor clock: %u Hz (2-high/3-low PIO waveform)\n",
            ISSUE106_PROCESSOR_HZ);
 
     prepare_header_safe();
 
-    PIO pio = pio0;
-    const uint clock_sm = pio_claim_unused_sm(pio, true);
-    const uint observer_sm = pio_claim_unused_sm(pio, true);
+    PIO clock_pio = pio0;
+    PIO observer_pio = pio1;
+
+    const uint clock_sm = pio_claim_unused_sm(clock_pio, true);
+    const uint observer_sm = pio_claim_unused_sm(observer_pio, true);
 
     const uint clock_offset =
-        pio_add_program(pio, &issue106_intel_clock_reset_program);
+        pio_add_program(clock_pio, &issue106_intel_clock_reset_program);
     const uint observer_offset =
-        pio_add_program(pio, &issue106_post_reset_t1_observer_program);
+        pio_add_program(observer_pio, &issue106_post_reset_t1_observer_program);
 
-    init_clock_reset(pio, clock_sm, clock_offset);
-    init_observer(pio, observer_sm, observer_offset);
+    init_clock_reset(clock_pio, clock_sm, clock_offset);
+    init_observer(observer_pio, observer_sm, observer_offset);
 
     const uint rx_dma = dma_claim_unused_channel(true);
     dma_channel_config cfg = dma_channel_get_default_config(rx_dma);
@@ -157,14 +159,13 @@ int main(void) {
      * The clock/reset SM emits eight compliant reset clocks, deasserts RESET,
      * raises IRQ0, and continues free-running. No M33 boundary action exists.
      */
-    pio_interrupt_clear(pio, 0u);
-    pio_sm_set_enabled(pio, observer_sm, true);
-    pio_sm_set_enabled(pio, clock_sm, true);
+    pio_sm_set_enabled(observer_pio, observer_sm, true);
+    pio_sm_set_enabled(clock_pio, clock_sm, true);
 
     const bool trace_ok = wait_dma(rx_dma);
 
-    pio_sm_set_enabled(pio, clock_sm, false);
-    pio_sm_set_enabled(pio, observer_sm, false);
+    pio_sm_set_enabled(clock_pio, clock_sm, false);
+    pio_sm_set_enabled(observer_pio, observer_sm, false);
 
     gpio_set_function(RP86_PROCESSOR_PIN_RESET, GPIO_FUNC_SIO);
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
@@ -179,35 +180,44 @@ int main(void) {
     const uint32_t captured = TRACE_WORDS - remaining;
 
     printf("RESET SEQUENCE: HARDWARE-SYNCHRONOUS 8 CLOCKS\n");
-    printf("TRACE: %s (%" PRIu32 "/%u AF samples)\n",
+    printf("TRACE: %s (%" PRIu32 "/%u aperture samples)\n",
            trace_ok ? "COMPLETE" : "TIMEOUT", captured, TRACE_WORDS);
 
     for (uint32_t i = 0u; i < captured; ++i) {
         const uint32_t raw = trace_words[i];
-        printf("[%02" PRIu32 "] addr=%05" PRIx32
-               " RESET=%u ASTB=%u IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32
-               "%s\n",
-               i, decode_address(raw),
-               sample_bit(raw, RP86_PROCESSOR_PIN_RESET),
+        const uint32_t addr = decode_address(raw);
+        printf("[%02" PRIu32 "] t=%.1f ns addr=%05" PRIx32
+               " A19..16=%x AD15..0=%04" PRIx32
+               " ASTB=%u RESET=%u raw=%08" PRIx32 "%s\n",
+               i, (double)i * (2.0 * 1000000000.0 / (double)clock_get_hz(clk_sys)),
+               addr, (unsigned)((addr >> 16) & 0xfu), addr & 0xffffu,
                sample_bit(raw, RP86_PROCESSOR_PIN_ASTB),
-               sample_bit(raw, RP86_PROCESSOR_PIN_IOM),
-               sample_bit(raw, RP86_PROCESSOR_PIN_BUFRW),
-               sample_bit(raw, RP86_PROCESSOR_PIN_INTAK),
+               sample_bit(raw, RP86_PROCESSOR_PIN_RESET),
                raw,
-               i == 0u ? "  <FIRST-POST-RESET-AF>" : "");
+               addr == 0xffff0u ? "  <FFFF0>" : "");
     }
 
-    if (captured > 0u) {
-        printf("FIRST POST-RESET AF ADDRESS: %05" PRIx32 "\n",
-               decode_address(trace_words[0]));
-        printf("FIRST RESET VECTOR FFFF0: %s\n",
-               decode_address(trace_words[0]) == 0xffff0u ? "PASS" : "FAIL");
+    bool saw_ffff0 = false;
+    uint32_t first_ffff0 = 0u;
+    for (uint32_t i = 0u; i < captured; ++i) {
+        if (decode_address(trace_words[i]) == 0xffff0u) {
+            saw_ffff0 = true;
+            first_ffff0 = i;
+            break;
+        }
+    }
+
+    if (saw_ffff0) {
+        printf("RESET VECTOR APERTURE: PASS at sample %" PRIu32
+               " (t=%.1f ns)\n",
+               first_ffff0,
+               (double)first_ffff0 *
+                   (2.0 * 1000000000.0 / (double)clock_get_hz(clk_sys)));
     } else {
-        printf("FIRST POST-RESET AF ADDRESS: NONE\n");
-        printf("FIRST RESET VECTOR FFFF0: FAIL\n");
+        printf("RESET VECTOR APERTURE: FFFF0 NOT OBSERVED\n");
     }
 
-    printf("NOTE: RESET release is PIO-synchronous; address is sampled at ASTB falling edge.\n");
+    printf("NOTE: observer samples every two PIO cycles after first ASTB rise; no realtime repack.\n");
 
     while (true) tight_loop_contents();
 }
