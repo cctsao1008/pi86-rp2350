@@ -80,7 +80,8 @@ static void init_trace(PIO pio, uint sm, uint offset) {
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
-    pio_sm_set_enabled(pio, sm, true);
+    /* Armed explicitly at the RESET-release boundary in main(). */
+    pio_sm_set_enabled(pio, sm, false);
 }
 
 static void init_clock(PIO pio, uint sm, uint offset) {
@@ -155,6 +156,16 @@ int main(void) {
     init_clock(clock_pio, clock_sm, clock_off);
 
     bool reset_clock_ok = wait_reset_clocks(8u);
+
+    /*
+     * Arm the passive trace at the final RESET-release boundary. Keeping the
+     * SM disabled during reset qualification prevents RESET-time ASTB activity
+     * from consuming capture slots. DMA is already armed and waiting on RX
+     * DREQ before this point.
+     */
+    pio_sm_restart(trace_pio, trace_sm);
+    pio_sm_exec(trace_pio, trace_sm, pio_encode_jmp(trace_off));
+    pio_sm_set_enabled(trace_pio, trace_sm, true);
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
 
     bool trace_ok = wait_dma(rx_dma);
