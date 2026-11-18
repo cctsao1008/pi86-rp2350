@@ -1,24 +1,14 @@
 .pio_version rp2350
 
-.program issue106_intel_clock_trace
+.program issue106_intel_clock_reset
 .side_set 1
-; Intel 8086-2 synchronous reset + clock + raw bus trace.
-;
-; PIO owns:
-;   side-set pin -> CLK   (GPIO21)
-;   SET pin      -> RESET (GPIO16)
-;
-; Processor period = 5 SM cycles:
-;   HIGH: 2 cycles
-;   LOW : 3 cycles
-;
-; Eight complete reset clocks are deliberately unrolled. A JMP-based counter
-; would add an extra low-phase instruction cycle and distort the Intel clock.
-; RESET is deasserted at a deterministic low-clock boundary before tracing.
-;
-; Trace pushes are noblock so instrumentation can never stall the clock.
+; Intel 8086-2 clock + deterministic RESET release.
+; PIO owns CLK (side-set GPIO21) and RESET (SET GPIO16).
+; Eight complete 2-high/3-low clocks are unrolled while RESET is asserted.
+; IRQ0 is raised immediately after RESET deassertion so a companion observer
+; can arm on the exact hardware boundary.
 
-    set pins, 1                side 0  ; RESET asserted
+    set pins, 1                side 0
 
     nop                        side 1 [1]
     nop                        side 0 [2]
@@ -37,12 +27,29 @@
     nop                        side 1 [1]
     nop                        side 0 [2]
 
-    set pins, 0                side 0  ; deterministic RESET deassert
+    set pins, 0                side 0
+    irq 0                      side 0
 
 .wrap_target
-    mov isr, pins              side 1
-    push noblock               side 1
-    mov isr, pins              side 0
-    push noblock               side 0
-    nop                        side 0
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+.wrap
+
+
+.program issue106_post_reset_t1_observer
+; Hardware-gated companion observer.
+; Wait for the clock/reset SM IRQ, then capture settled T1 snapshots directly
+; from ASTB. The ~26.7 ns delay is four PIO cycles at 150 MHz and is outside
+; the processor-clock generator, so it cannot distort CLK duty cycle.
+
+    wait 1 irq 0
+    irq clear 0
+    wait 0 gpio 9
+
+.wrap_target
+    wait 1 gpio 9
+    nop [3]
+    mov isr, pins
+    push block
+    wait 0 gpio 9
 .wrap
