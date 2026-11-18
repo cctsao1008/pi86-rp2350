@@ -38,9 +38,9 @@
 
 .program issue106_post_reset_t1_observer
 ; Hardware-gated companion observer.
-; Wait for the clock/reset SM IRQ, then capture settled T1 snapshots directly
-; from ASTB. The ~26.7 ns delay is four PIO cycles at 150 MHz and is outside
-; the processor-clock generator, so it cannot distort CLK duty cycle.
+; Wait for the clock/reset SM IRQ, then capture each bus address at ASTB falling
+; edge (AF), i.e. near the end of T1 after the multiplexed address has settled.
+; This avoids the too-early ASTB-rise snapshots seen at 8 MHz.
 
     wait 1 irq 0
     irq clear 0
@@ -48,8 +48,7 @@
 
 .wrap_target
     wait 1 gpio 9
-    nop [3]
+    wait 0 gpio 9
     mov isr, pins
     push block
-    wait 0 gpio 9
 .wrap
