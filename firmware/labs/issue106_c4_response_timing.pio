@@ -48,21 +48,45 @@ park:
     jmp park
 
 
-.program issue106_c4_lut_pointer
-; Initial TX word: response_lut base >> 18 (14 bits).
-; Subsequent TX word: raw SRAM data word (D15:D0 in low 16 bits).
-; RX word: absolute address of response_lut[data].
+.program issue106_c4_byte_lut_pointers
+; Convert one raw SRAM word into two absolute 1 KiB LUT pointers.
+;
+; TX order:
+;   [0] low_lut base >> 10 (22 significant bits), preloaded by M33
+;   [1] raw SRAM word, delivered by dynamic SRAM-read DMA
+;   [2] high_lut base >> 10, delivered by a chained one-word DMA
+;
+; RX order:
+;   [0] &low_lut[D7:D0]
+;   [1] &high_lut[D15:D8]
+;
+; Both LUTs are 1024-byte aligned and contain 256 x uint32_t entries.
     pull block
-    mov y, osr
-.wrap_target
+    mov x, osr                 ; low LUT base >> 10
     pull block
-    mov x, osr
+    mov y, osr                 ; preserve raw SRAM word
+
     mov isr, null
-    in y, 14
-    in x, 16
+    in x, 22
+    mov osr, y
+    out x, 8                   ; low byte
+    in x, 8
+    in null, 2                 ; uint32_t index scaling
+    push block
+
+    pull block
+    mov x, osr                 ; high LUT base >> 10
+    mov isr, null
+    in x, 22
+    mov osr, y
+    out null, 8
+    out x, 8                   ; high byte
+    in x, 8
     in null, 2
     push block
-.wrap
+
+builder_park:
+    jmp builder_park
 
 
 .program issue106_c4_responder
