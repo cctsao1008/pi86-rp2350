@@ -268,22 +268,23 @@ int main(void) {
     prepare_memory();
     prepare_header_safe();
 
-    PIO service_pio = pio0;
-    const uint frontend_sm = pio_claim_unused_sm(service_pio, true);
-    const uint lut_pointer_sm = pio_claim_unused_sm(service_pio, true);
-    const uint responder_sm = pio_claim_unused_sm(service_pio, true);
-
+    /* Keep each PIO block within its 32-instruction memory budget. */
+    PIO frontend_pio = pio0;
+    const uint frontend_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend_offset =
-        pio_add_program(service_pio, &issue106_c4_frontend_program);
-    const uint lut_pointer_offset =
-        pio_add_program(service_pio, &issue106_c4_lut_pointer_program);
-    const uint responder_offset =
-        pio_add_program(service_pio, &issue106_c4_responder_program);
-
-    init_frontend(service_pio, frontend_sm, frontend_offset);
-    init_lut_pointer(service_pio, lut_pointer_sm, lut_pointer_offset);
-    init_responder(service_pio, responder_sm, responder_offset);
+        pio_add_program(frontend_pio, &issue106_c4_frontend_program);
+    init_frontend(frontend_pio, frontend_sm, frontend_offset);
     build_frontend_stream(frontend_offset);
+
+    PIO response_pio = pio1;
+    const uint lut_pointer_sm = pio_claim_unused_sm(response_pio, true);
+    const uint responder_sm = pio_claim_unused_sm(response_pio, true);
+    const uint lut_pointer_offset =
+        pio_add_program(response_pio, &issue106_c4_lut_pointer_program);
+    const uint responder_offset =
+        pio_add_program(response_pio, &issue106_c4_responder_program);
+    init_lut_pointer(response_pio, lut_pointer_sm, lut_pointer_offset);
+    init_responder(response_pio, responder_sm, responder_offset);
 
     const uint frontend_tx_dma = dma_claim_unused_channel(true);
     dma_channel_config frontend_tx_cfg =
@@ -292,10 +293,10 @@ int main(void) {
     channel_config_set_read_increment(&frontend_tx_cfg, true);
     channel_config_set_write_increment(&frontend_tx_cfg, false);
     channel_config_set_dreq(
-        &frontend_tx_cfg, pio_get_dreq(service_pio, frontend_sm, true));
+        &frontend_tx_cfg, pio_get_dreq(frontend_pio, frontend_sm, true));
     channel_config_set_high_priority(&frontend_tx_cfg, true);
     dma_channel_configure(frontend_tx_dma, &frontend_tx_cfg,
-                          &service_pio->txf[frontend_sm],
+                          &frontend_pio->txf[frontend_sm],
                           frontend_words, ISSUE106_FRONTEND_WORDS, false);
 
     /* Raw backing read. A 32-bit fetch is safe at FFFF0h; low 16 bits are data. */
@@ -306,10 +307,10 @@ int main(void) {
     channel_config_set_read_increment(&raw_data_cfg, false);
     channel_config_set_write_increment(&raw_data_cfg, false);
     channel_config_set_dreq(
-        &raw_data_cfg, pio_get_dreq(service_pio, lut_pointer_sm, true));
+        &raw_data_cfg, pio_get_dreq(response_pio, lut_pointer_sm, true));
     channel_config_set_high_priority(&raw_data_cfg, true);
     dma_channel_configure(raw_data_dma, &raw_data_cfg,
-                          &service_pio->txf[lut_pointer_sm], backing,
+                          &response_pio->txf[lut_pointer_sm], backing,
                           1u, false);
 
     const uint frontend_control_dma = dma_claim_unused_channel(true);
@@ -320,12 +321,12 @@ int main(void) {
     channel_config_set_write_increment(&frontend_control_cfg, false);
     channel_config_set_dreq(
         &frontend_control_cfg,
-        pio_get_dreq(service_pio, frontend_sm, false));
+        pio_get_dreq(frontend_pio, frontend_sm, false));
     channel_config_set_high_priority(&frontend_control_cfg, true);
     dma_channel_configure(
         frontend_control_dma, &frontend_control_cfg,
         &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
-        &service_pio->rxf[frontend_sm], 1u, false);
+        &frontend_pio->rxf[frontend_sm], 1u, false);
 
     /* Builder RX emits response_lut[data] absolute pointer. */
     const uint lut_data_dma = dma_claim_unused_channel(true);
@@ -335,10 +336,10 @@ int main(void) {
     channel_config_set_read_increment(&lut_data_cfg, false);
     channel_config_set_write_increment(&lut_data_cfg, false);
     channel_config_set_dreq(
-        &lut_data_cfg, pio_get_dreq(service_pio, responder_sm, true));
+        &lut_data_cfg, pio_get_dreq(response_pio, responder_sm, true));
     channel_config_set_high_priority(&lut_data_cfg, true);
     dma_channel_configure(lut_data_dma, &lut_data_cfg,
-                          &service_pio->txf[responder_sm], response_lut,
+                          &response_pio->txf[responder_sm], response_lut,
                           1u, false);
 
     const uint lut_control_dma = dma_claim_unused_channel(true);
@@ -349,14 +350,14 @@ int main(void) {
     channel_config_set_write_increment(&lut_control_cfg, false);
     channel_config_set_dreq(
         &lut_control_cfg,
-        pio_get_dreq(service_pio, lut_pointer_sm, false));
+        pio_get_dreq(response_pio, lut_pointer_sm, false));
     channel_config_set_high_priority(&lut_control_cfg, true);
     dma_channel_configure(
         lut_control_dma, &lut_control_cfg,
         &dma_channel_hw_addr(lut_data_dma)->al3_read_addr_trig,
-        &service_pio->rxf[lut_pointer_sm], 1u, false);
+        &response_pio->rxf[lut_pointer_sm], 1u, false);
 
-    PIO observer_pio = pio1;
+    PIO observer_pio = pio2;
     const uint observer_sm = pio_claim_unused_sm(observer_pio, true);
     const uint observer_offset =
         pio_add_program(observer_pio, &issue106_c4_observer_program);
