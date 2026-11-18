@@ -218,7 +218,7 @@ pico_generate_pio_header(rp86_issue106_physical_t1_repack_lab
 )
 
 pico_generate_pio_header(rp86_issue106_physical_t1_repack_lab
-    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
 )
 
 pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_lab 1)
@@ -281,7 +281,7 @@ pico_generate_pio_header(rp86_issue106_c4_response_timing_lab
 )
 
 pico_generate_pio_header(rp86_issue106_c4_response_timing_lab
-    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
 )
 
 pico_enable_stdio_usb(rp86_issue106_c4_response_timing_lab 1)
@@ -324,7 +324,7 @@ foreach(_mhz IN ITEMS 2 4 6 8)
     )
 
     pico_generate_pio_header(${_target}
-        ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
     )
 
     pico_enable_stdio_usb(${_target} 1)
@@ -358,7 +358,7 @@ pico_generate_pio_header(rp86_issue106_physical_t1_repack_8mhz_lab
 )
 
 pico_generate_pio_header(rp86_issue106_physical_t1_repack_8mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
 )
 
 pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_8mhz_lab 1)
@@ -391,7 +391,7 @@ pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
 )
 
 pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
 )
 
 pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_8mhz_lab 1)
