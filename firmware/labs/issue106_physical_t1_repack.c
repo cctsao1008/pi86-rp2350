@@ -21,7 +21,7 @@
 #include "hardware/pio.h"
 #include "hardware/structs/dma.h"
 #include "issue106_physical_t1_repack.pio.h"
-#include "free_running_clock.pio.h"
+#include "intel_8086_clock.pio.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
@@ -126,9 +126,9 @@ static void init_capture_sm(PIO pio, uint sm, uint offset) {
 
 static void init_clock_sm(PIO pio, uint sm, uint offset) {
     pio_sm_config config =
-        rp86_free_running_clock_program_get_default_config(offset);
+        rp86_intel_8086_clock_program_get_default_config(offset);
     const float divider =
-        (float)clock_get_hz(clk_sys) / (2.0f * (float)ISSUE106_PROCESSOR_HZ);
+        (float)clock_get_hz(clk_sys) / (5.0f * (float)ISSUE106_PROCESSOR_HZ);
 
     sm_config_set_set_pins(&config, RP86_PROCESSOR_PIN_CLK, 1u);
     sm_config_set_clkdiv(&config, divider);
@@ -210,7 +210,7 @@ int main(void) {
     PIO clock_pio = pio1;
     const uint clock_sm = pio_claim_unused_sm(clock_pio, true);
     const uint clock_offset =
-        pio_add_program(clock_pio, &rp86_free_running_clock_program);
+        pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
     init_clock_sm(clock_pio, clock_sm, clock_offset);
 
     const bool reset_clock_ok = wait_reset_clocks(8u);
