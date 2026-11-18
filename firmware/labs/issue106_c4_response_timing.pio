@@ -100,7 +100,7 @@ builder_park:
     pull block
     wait 0 gpio 9
     out pins, 28
-    mov pindirs, y
+    mov pindirs, ~null
 
     set x, 1
 hold_fall_loop:
@@ -108,7 +108,7 @@ hold_fall_loop:
     wait 0 gpio 21
     jmp x-- hold_fall_loop
 
-    mov pindirs, null
+    mov pindirs, y
 responder_park:
     jmp responder_park
 
