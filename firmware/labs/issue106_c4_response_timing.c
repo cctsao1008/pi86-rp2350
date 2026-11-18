@@ -199,7 +199,6 @@ static void init_responder(PIO pio, uint sm, uint offset) {
     pio_sm_set_consecutive_pindirs(pio, sm, 0u, 28u, false);
     pio_sm_clear_fifos(pio, sm);
     /* Clock lives on PIO1; responder owns only the scattered AD pins. */
-    pio_sm_put_blocking(pio, sm, RP86_PROCESSOR_AD_BUS_MASK);
     pio_sm_set_enabled(pio, sm, true);
 }
 
