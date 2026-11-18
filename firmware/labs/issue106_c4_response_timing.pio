@@ -6,8 +6,11 @@
 ;   pointer = backing[31:16] : A15..A0
 ; Only the first WORD lane is published; then the SM parks.
 
-    wait 0 gpio 16             ; hardware gate: RESET deasserted
-    wait 1 gpio 9              ; accept first ASTB even if already high
+    wait 0 gpio 16             ; RESET deasserted
+    wait 1 gpio 21             ; establish a clean post-reset clock phase
+    wait 0 gpio 21
+    wait 0 gpio 9              ; reject RESET-release/transient ASTB high
+    wait 1 gpio 9              ; first clock-qualified bus-cycle ASTB rise
     nop [7]
     mov isr, pins
     mov y, isr
@@ -96,17 +99,14 @@ builder_park:
 ; edges; the observer independently determines which CPU phase first saw the
 ; correct word.
     pull block
-    mov y, osr
-    pull block
     wait 0 gpio 9
     out pins, 28
-    mov pindirs, y
+    mov pindirs, ~null
 
-    set x, 1
-hold_fall_loop:
     wait 1 gpio 21
     wait 0 gpio 21
-    jmp x-- hold_fall_loop
+    wait 1 gpio 21
+    wait 0 gpio 21
 
     mov pindirs, null
 responder_park:
@@ -129,7 +129,10 @@ responder_park:
 ; 32 instructions in PIO2. The free-running clock therefore lives on PIO1.
 
     wait 0 gpio 16             ; RESET deasserted
-    wait 1 gpio 9              ; accept first ASTB even if already high
+    wait 1 gpio 21             ; establish a clean post-reset clock phase
+    wait 0 gpio 21
+    wait 0 gpio 9              ; reject RESET-release/transient ASTB high
+    wait 1 gpio 9              ; first clock-qualified bus-cycle ASTB rise
     nop [7]
     mov isr, pins
     push block
