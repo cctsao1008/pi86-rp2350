@@ -122,7 +122,7 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
-    printf("issue106 synchronous Intel reset + settled T1 observer\n");
+    printf("issue106 synchronous Intel reset + AF address observer\n");
     printf("processor clock: %u Hz (2-high/3-low PIO waveform)\n",
            ISSUE106_PROCESSOR_HZ);
 
@@ -179,7 +179,7 @@ int main(void) {
     const uint32_t captured = TRACE_WORDS - remaining;
 
     printf("RESET SEQUENCE: HARDWARE-SYNCHRONOUS 8 CLOCKS\n");
-    printf("TRACE: %s (%" PRIu32 "/%u T1 samples)\n",
+    printf("TRACE: %s (%" PRIu32 "/%u AF samples)\n",
            trace_ok ? "COMPLETE" : "TIMEOUT", captured, TRACE_WORDS);
 
     for (uint32_t i = 0u; i < captured; ++i) {
@@ -194,20 +194,20 @@ int main(void) {
                sample_bit(raw, RP86_PROCESSOR_PIN_BUFRW),
                sample_bit(raw, RP86_PROCESSOR_PIN_INTAK),
                raw,
-               i == 0u ? "  <FIRST-POST-RESET-T1>" : "");
+               i == 0u ? "  <FIRST-POST-RESET-AF>" : "");
     }
 
     if (captured > 0u) {
-        printf("FIRST POST-RESET T1 ADDRESS: %05" PRIx32 "\n",
+        printf("FIRST POST-RESET AF ADDRESS: %05" PRIx32 "\n",
                decode_address(trace_words[0]));
         printf("FIRST RESET VECTOR FFFF0: %s\n",
                decode_address(trace_words[0]) == 0xffff0u ? "PASS" : "FAIL");
     } else {
-        printf("FIRST POST-RESET T1 ADDRESS: NONE\n");
+        printf("FIRST POST-RESET AF ADDRESS: NONE\n");
         printf("FIRST RESET VECTOR FFFF0: FAIL\n");
     }
 
-    printf("NOTE: RESET release is PIO-synchronous; T1 capture is IRQ-gated and settled.\n");
+    printf("NOTE: RESET release is PIO-synchronous; address is sampled at ASTB falling edge.\n");
 
     while (true) tight_loop_contents();
 }
