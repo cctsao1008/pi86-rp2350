@@ -26,7 +26,7 @@
 #define ISSUE106_PROCESSOR_HZ 8000000u
 #endif
 
-#define TRACE_WORDS 16u
+#define TRACE_WORDS 64u
 #define TIMEOUT_US 100000u
 
 static uint32_t trace_words[TRACE_WORDS];
@@ -80,8 +80,12 @@ static void init_trace(PIO pio, uint sm, uint offset) {
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
-    /* Armed explicitly at the RESET-release boundary in main(). */
-    pio_sm_set_enabled(pio, sm, false);
+    /*
+     * Run continuously from the asserted-RESET epoch. Each captured ASTB/T1
+     * snapshot includes GPIO16 (RESET), so post-processing can identify the
+     * first formal bus cycle after RESET deassertion without an arming race.
+     */
+    pio_sm_set_enabled(pio, sm, true);
 }
 
 static void init_clock(PIO pio, uint sm, uint offset) {
@@ -156,16 +160,6 @@ int main(void) {
     init_clock(clock_pio, clock_sm, clock_off);
 
     bool reset_clock_ok = wait_reset_clocks(8u);
-
-    /*
-     * Arm the passive trace at the final RESET-release boundary. Keeping the
-     * SM disabled during reset qualification prevents RESET-time ASTB activity
-     * from consuming capture slots. DMA is already armed and waiting on RX
-     * DREQ before this point.
-     */
-    pio_sm_restart(trace_pio, trace_sm);
-    pio_sm_exec(trace_pio, trace_sm, pio_encode_jmp(trace_off));
-    pio_sm_set_enabled(trace_pio, trace_sm, true);
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
 
     bool trace_ok = wait_dma(rx_dma);
@@ -188,9 +182,10 @@ int main(void) {
 
     for (uint i = 0u; i < captured; ++i) {
         uint32_t raw = trace_words[i];
-        printf("[%02u] addr=%05" PRIx32
+        printf("[%02u] RESET=%u addr=%05" PRIx32
                " IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32 "\n",
-               i, decode_address(raw),
+               i, bit(raw, RP86_PROCESSOR_PIN_RESET),
+               decode_address(raw),
                bit(raw, RP86_PROCESSOR_PIN_IOM),
                bit(raw, RP86_PROCESSOR_PIN_BUFRW),
                bit(raw, RP86_PROCESSOR_PIN_INTAK),
