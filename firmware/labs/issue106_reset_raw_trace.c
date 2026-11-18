@@ -18,7 +18,7 @@
 #include "hardware/pio.h"
 #include "hardware/structs/dma.h"
 #include "issue106_reset_raw_trace.pio.h"
-#include "free_running_clock.pio.h"
+#include "intel_8086_clock.pio.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
@@ -86,9 +86,9 @@ static void init_trace(PIO pio, uint sm, uint offset) {
 
 static void init_clock(PIO pio, uint sm, uint offset) {
     pio_sm_config cfg =
-        rp86_free_running_clock_program_get_default_config(offset);
+        rp86_intel_8086_clock_program_get_default_config(offset);
     const float div =
-        (float)clock_get_hz(clk_sys) / (2.0f * (float)ISSUE106_PROCESSOR_HZ);
+        (float)clock_get_hz(clk_sys) / (5.0f * (float)ISSUE106_PROCESSOR_HZ);
 
     sm_config_set_set_pins(&cfg, RP86_PROCESSOR_PIN_CLK, 1u);
     sm_config_set_clkdiv(&cfg, div);
@@ -152,7 +152,7 @@ int main(void) {
     PIO clock_pio = pio1;
     uint clock_sm = pio_claim_unused_sm(clock_pio, true);
     uint clock_off =
-        pio_add_program(clock_pio, &rp86_free_running_clock_program);
+        pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
     init_clock(clock_pio, clock_sm, clock_off);
 
     bool reset_clock_ok = wait_reset_clocks(8u);
