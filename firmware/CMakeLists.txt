@@ -366,30 +366,36 @@ pico_enable_stdio_uart(rp86_issue106_physical_t1_repack_8mhz_lab 0)
 pico_add_extra_outputs(rp86_issue106_physical_t1_repack_8mhz_lab)
 
 
-# Passive raw reset/bus trace for high-frequency first-cycle diagnosis.
-add_executable(rp86_issue106_reset_raw_trace_8mhz_lab EXCLUDE_FROM_ALL
-    labs/issue106_reset_raw_trace.c
-)
+# Hardware-synchronous Intel RESET + first-T1 aperture diagnostics.
+# Keep the probe identical across the sweep so frequency is the only variable.
+foreach(_mhz IN ITEMS 2 4 6 8)
+    set(_target rp86_issue106_reset_raw_trace_${_mhz}mhz_lab)
 
-target_include_directories(rp86_issue106_reset_raw_trace_8mhz_lab PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
-)
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_reset_raw_trace.c
+    )
 
-target_compile_definitions(rp86_issue106_reset_raw_trace_8mhz_lab PRIVATE
-    ISSUE106_PROCESSOR_HZ=8000000u
-)
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
 
-target_link_libraries(rp86_issue106_reset_raw_trace_8mhz_lab
-    pico_stdlib
-    hardware_clocks
-    hardware_dma
-    hardware_pio
-)
+    math(EXPR _processor_hz "${_mhz} * 1000000")
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_processor_hz}u
+    )
 
-pico_generate_pio_header(rp86_issue106_reset_raw_trace_8mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
-)
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
 
-pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_8mhz_lab 1)
-pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_8mhz_lab 0)
-pico_add_extra_outputs(rp86_issue106_reset_raw_trace_8mhz_lab)
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
