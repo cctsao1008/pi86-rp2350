@@ -196,7 +196,14 @@ static void init_responder(PIO pio, uint sm, uint offset) {
 
     pio_sm_set_consecutive_pindirs(pio, sm, 0u, 28u, false);
     pio_sm_clear_fifos(pio, sm);
-    pio_sm_put_blocking(pio, sm, RP86_PROCESSOR_AD_BUS_MASK);
+    /*
+     * PIO2 also owns the free-running processor clock on GPIO21. Preserve
+     * that direction bit whenever the responder changes PINDIRS; otherwise
+     * enabling AD would accidentally tri-state CLK and truncate the cycle.
+     */
+    pio_sm_put_blocking(
+        pio, sm,
+        RP86_PROCESSOR_AD_BUS_MASK | (1u << RP86_PROCESSOR_PIN_CLK));
     pio_sm_set_enabled(pio, sm, true);
 }
 
