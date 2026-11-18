@@ -180,7 +180,6 @@ static void init_service_frontend(PIO pio, uint sm, uint offset) {
     sm_config_set_in_pins(&config, 0u);
     sm_config_set_out_shift(&config, true, false, 32u);
     sm_config_set_in_shift(&config, false, false, 32u);
-    sm_config_set_jmp_pin(&config, RP86_PROCESSOR_PIN_UBE);
     sm_config_set_fifo_join(&config, PIO_FIFO_JOIN_NONE);
 
     hard_assert(pio_sm_init(pio, sm, offset, &config) == PICO_OK);
