@@ -2,18 +2,20 @@
 
 .program issue106_reset_raw_trace
 ; Passive high-speed reset/T1 trace.
-; After RESET deasserts, capture one settled full-bank GPIO snapshot per ASTB
-; pulse. No address repack and no pin driving occur in the realtime path.
 ;
-; At 8 MHz, sampling exactly on a CLK edge can be too early for A16..A19.
-; Wait four PIO cycles after ASTB rise (~26.7 ns at 150 MHz) before sampling.
+; The SM is armed while RESET is already asserted and before the processor
+; clock starts. ASTB must be inactive-low in this bounded reset state, so the
+; first ASTB rising edge observed after clock/reset release is the first formal
+; processor bus cycle. This avoids RESET-readback latency in the capture path.
+;
+; Capture one settled full-bank GPIO snapshot per ASTB pulse. No address repack
+; and no pin driving occur in the realtime path.
 
-    wait 0 gpio 16             ; RESET deasserted
-    wait 0 gpio 9              ; establish ASTB-low baseline
+    wait 0 gpio 9              ; establish inactive ASTB baseline under RESET
 
 .wrap_target
-    wait 1 gpio 9              ; T1 / ASTB rise
-    nop [3]                    ; settle scattered address/control pins
+    wait 1 gpio 9              ; first/next formal T1
+    nop [3]                    ; ~26.7 ns settle at 150 MHz PIO clock
     mov isr, pins
     push block
     wait 0 gpio 9
