@@ -1,0 +1,22 @@
+.pio_version rp2350
+
+.program rp86_intel_8086_clock
+; Intel 8086/8086-2 compatible asymmetric processor clock.
+;
+; One processor clock period consumes five PIO SM cycles:
+;   HIGH: 2 cycles
+;   LOW : 3 cycles
+;
+; At 8 MHz processor clock:
+;   PIO SM = 40 MHz
+;   HIGH   = 50 ns
+;   LOW    = 75 ns
+;   PERIOD = 125 ns
+;
+; This satisfies the 8086-2 8 MHz minima (HIGH >=44 ns, LOW >=68 ns)
+; while preserving a bounded deterministic waveform.
+
+.wrap_target
+    set pins, 1 [1]    ; 2 SM cycles high
+    set pins, 0 [2]    ; 3 SM cycles low
+.wrap
