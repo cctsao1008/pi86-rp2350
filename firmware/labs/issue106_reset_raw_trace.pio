@@ -1,18 +1,20 @@
 .pio_version rp2350
 
 .program issue106_reset_raw_trace
-; Passive high-speed reset/bus trace.
-; After RESET deasserts, sample the full GPIO bank on each CLK edge.
-; No pin is driven by this SM.
+; Passive high-speed reset/T1 trace.
+; After RESET deasserts, capture one settled full-bank GPIO snapshot per ASTB
+; pulse. No address repack and no pin driving occur in the realtime path.
+;
+; At 8 MHz, sampling exactly on a CLK edge can be too early for A16..A19.
+; Wait four PIO cycles after ASTB rise (~26.7 ns at 150 MHz) before sampling.
 
-    wait 0 gpio 16
+    wait 0 gpio 16             ; RESET deasserted
+    wait 0 gpio 9              ; establish ASTB-low baseline
 
 .wrap_target
-    wait 1 gpio 21
+    wait 1 gpio 9              ; T1 / ASTB rise
+    nop [3]                    ; settle scattered address/control pins
     mov isr, pins
     push block
-
-    wait 0 gpio 21
-    mov isr, pins
-    push block
+    wait 0 gpio 9
 .wrap
