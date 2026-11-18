@@ -400,6 +400,35 @@ foreach(_mhz IN ITEMS 2 4 6 7 8)
     pico_add_extra_outputs(${_target})
 endforeach()
 
+
+
+# Quarter-point discriminator between 7.0 MHz PASS and 7.5 MHz FAIL.
+add_executable(rp86_issue106_reset_raw_trace_7_25mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_reset_raw_trace.c
+)
+
+target_include_directories(rp86_issue106_reset_raw_trace_7_25mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_reset_raw_trace_7_25mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=7250000u
+)
+
+target_link_libraries(rp86_issue106_reset_raw_trace_7_25mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_7_25mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_7_25mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_7_25mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_reset_raw_trace_7_25mhz_lab)
 # Midpoint discriminator between 7 MHz PASS and 8 MHz FAIL.
 add_executable(rp86_issue106_reset_raw_trace_7_5mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_reset_raw_trace.c
