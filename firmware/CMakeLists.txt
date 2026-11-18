@@ -297,7 +297,7 @@ pico_add_extra_outputs(rp86_issue106_c4_response_timing_lab)
 # C4 frequency variants for Intel P8086-2 fixed-READY timing characterization.
 # The 1 MHz target remains the empirical baseline. These variants keep the
 # dataplane identical and only change the free-running processor clock.
-foreach(_mhz IN ITEMS 2 4 6 7 8)
+foreach(_mhz IN ITEMS 2 4 6 8)
     set(_target rp86_issue106_c4_response_timing_${_mhz}mhz_lab)
 
     add_executable(${_target} EXCLUDE_FROM_ALL
@@ -368,7 +368,7 @@ pico_add_extra_outputs(rp86_issue106_physical_t1_repack_8mhz_lab)
 
 # Hardware-synchronous Intel RESET + first-T1 aperture diagnostics.
 # Keep the probe identical across the sweep so frequency is the only variable.
-foreach(_mhz IN ITEMS 2 4 6 8)
+foreach(_mhz IN ITEMS 2 4 6 7 8)
     set(_target rp86_issue106_reset_raw_trace_${_mhz}mhz_lab)
 
     add_executable(${_target} EXCLUDE_FROM_ALL
