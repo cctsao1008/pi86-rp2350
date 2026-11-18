@@ -1,0 +1,133 @@
+.pio_version rp2350
+
+.program issue106_c4_frontend
+; One-shot physical T1 -> backing SRAM pointer frontend.
+; backing is 64 KiB aligned and byte-addressed:
+;   pointer = backing[31:16] : A15..A0
+; Only the first WORD lane is published; then the SM parks.
+
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    mov y, isr
+
+    mov isr, null
+    pull block              ; backing base high 16
+    mov x, osr
+    in x, 16
+
+bit_loop:
+    pull block
+    mov x, osr
+    mov osr, y
+    mov exec, x
+    out x, 1
+    in x, 1
+    jmp bit_loop
+
+finish_pointer:
+    ; WORD qualification from the same saved T1 snapshot.
+    mov osr, y
+    out null, 25           ; BHE#
+    out x, 1
+    jmp !x bhe_asserted
+    jmp park
+
+bhe_asserted:
+    mov osr, y
+    out null, 26           ; A0
+    out x, 1
+    jmp !x word_lane
+    jmp park
+
+word_lane:
+    push block
+
+park:
+    jmp park
+
+
+.program issue106_c4_lut_pointer
+; Initial TX word: response_lut base >> 18 (14 bits).
+; Subsequent TX word: raw SRAM data word (D15:D0 in low 16 bits).
+; RX word: absolute address of response_lut[data].
+    pull block
+    mov y, osr
+.wrap_target
+    pull block
+    mov x, osr
+    mov isr, null
+    in y, 14
+    in x, 16
+    in null, 2
+    push block
+.wrap
+
+
+.program issue106_c4_responder
+; Initial TX word is the full scattered AD direction mask.
+; Next TX word is a pre-encoded GPIO0..27 data bitmap from response_lut.
+; The response is one-shot. AD is released after two post-drive falling CLK
+; edges; the observer independently determines which CPU phase first saw the
+; correct word.
+    pull block
+    mov y, osr
+    pull block
+    wait 0 gpio 9
+    out pins, 28
+    mov pindirs, y
+
+    set x, 1
+hold_fall_loop:
+    wait 1 gpio 21
+    wait 0 gpio 21
+    jmp x-- hold_fall_loop
+
+    mov pindirs, null
+responder_park:
+    jmp responder_park
+
+
+.program issue106_c4_observer
+; One-shot independent physical phase observer.
+; RX sequence:
+;   [0] T1 sample (+8 PIO cycles after ASTB rise)
+;   [1] AF: ASTB falling edge
+;   [2] R1
+;   [3] F1
+;   [4] R2
+;   [5] F2
+;   [6] R3
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9
+    mov isr, pins
+    push block
+
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+
+observer_park:
+    jmp observer_park
