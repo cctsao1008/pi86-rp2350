@@ -122,8 +122,9 @@ responder_park:
 ;   [3] F1
 ;   [4] R2
 ;
-; C4 deliberately stops at R2 so responder + observer + clock fit exactly in
-; one RP2350 PIO block's 32-instruction memory.
+; Exactly 18 instructions including the park loop. Together with the
+; 12-instruction responder and 2-instruction clock this fills one 32-word
+; RP2350 PIO instruction memory without oversubscription.
     wait 0 gpio 9
     wait 1 gpio 9
     nop [7]
@@ -131,14 +132,6 @@ responder_park:
     push block
 
     wait 0 gpio 9
-    mov isr, pins
-    push block
-
-    wait 1 gpio 21
-    mov isr, pins
-    push block
-
-    wait 0 gpio 21
     mov isr, pins
     push block
 
