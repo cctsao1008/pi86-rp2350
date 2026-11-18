@@ -101,7 +101,7 @@ builder_park:
     pull block
     wait 0 gpio 9
     out pins, 28
-    mov pindirs, ~null
+    mov pindirs, y
 
     set x, 1
 hold_fall_loop:
@@ -109,7 +109,7 @@ hold_fall_loop:
     wait 0 gpio 21
     jmp x-- hold_fall_loop
 
-    mov pindirs, y
+    mov pindirs, null
 responder_park:
     jmp responder_park
 
@@ -120,17 +120,22 @@ responder_park:
 ; consume the instrument at high processor clocks.
 ;
 ; RX sequence:
-;   [0] AF: ASTB falling edge
-;   [1] R1
-;   [2] F1
-;   [3] R2
+;   [0] T1 sample (+8 PIO cycles after ASTB rise)
+;   [1] AF: ASTB falling edge
+;   [2] R1
+;   [3] F1
+;   [4] R2
 ;
-; T1/reset-vector identity comes from the frontend pointer path; this observer
-; is strictly the response-phase timing discriminator.
+; With the responder (12 instructions), this observer (19) occupies 31 of the
+; 32 instructions in PIO2. The free-running clock therefore lives on PIO1.
 
     wait 0 gpio 16             ; RESET deasserted
     wait 0 gpio 9
     wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
     wait 0 gpio 9
     mov isr, pins
     push block
