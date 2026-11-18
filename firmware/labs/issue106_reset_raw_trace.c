@@ -26,7 +26,7 @@
 #define ISSUE106_PROCESSOR_HZ 8000000u
 #endif
 
-#define TRACE_WORDS 64u
+#define TRACE_WORDS 16u
 #define TIMEOUT_US 100000u
 
 static uint32_t trace_words[TRACE_WORDS];
@@ -175,31 +175,19 @@ int main(void) {
     printf("TRACE: %s (%" PRIu32 "/%u samples)\n",
            trace_ok ? "COMPLETE" : "TIMEOUT", captured, TRACE_WORDS);
 
-    bool prev_astb = false;
-    uint astb_rises = 0u;
     for (uint i = 0u; i < captured; ++i) {
         uint32_t raw = trace_words[i];
-        bool astb = bit(raw, RP86_PROCESSOR_PIN_ASTB);
-        bool clk = bit(raw, RP86_PROCESSOR_PIN_CLK);
-        bool iom = bit(raw, RP86_PROCESSOR_PIN_IOM);
-        bool bufrw = bit(raw, RP86_PROCESSOR_PIN_BUFRW);
-        bool intak = bit(raw, RP86_PROCESSOR_PIN_INTAK);
-        bool rise = astb && !prev_astb;
-
-        if (rise || astb) {
-            printf("[%02u] edge=%c CLK=%u ASTB=%u addr=%05" PRIx32
-                   " IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32 "%s\n",
-                   i, (i & 1u) ? 'F' : 'R',
-                   clk, astb, decode_address(raw),
-                   iom, bufrw, intak, raw,
-                   rise ? "  <ASTB-RISE>" : "");
-        }
-        if (rise) ++astb_rises;
-        prev_astb = astb;
+        printf("[%02u] addr=%05" PRIx32
+               " IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32 "\n",
+               i, decode_address(raw),
+               bit(raw, RP86_PROCESSOR_PIN_IOM),
+               bit(raw, RP86_PROCESSOR_PIN_BUFRW),
+               bit(raw, RP86_PROCESSOR_PIN_INTAK),
+               raw);
     }
 
-    printf("ASTB RISES SEEN: %u\n", astb_rises);
-    printf("NOTE: passive raw clock-edge trace only; no responder is active.\n");
+
+    printf("NOTE: passive settled-T1 ASTB trace only; no responder is active.\n");
 
     while (true) tight_loop_contents();
 }
