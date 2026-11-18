@@ -23,7 +23,7 @@
 #include "pico/stdio_usb.h"
 
 #ifndef ISSUE106_PROCESSOR_HZ
-#define ISSUE106_PROCESSOR_HZ 8000000u
+#define ISSUE106_PROCESSOR_HZ 6000000u
 #endif
 
 #define TRACE_WORDS 16u
@@ -184,7 +184,7 @@ int main(void) {
 
     for (uint32_t i = 0u; i < captured; ++i) {
         const uint32_t raw = trace_words[i];
-        printf("[%02" PRIu32 "] addr=%05" PRIx32
+        printf("[%" PRIu32 "] addr=%05" PRIx32
                " RESET=%u ASTB=%u IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32
                "%s\n",
                i, decode_address(raw),
