@@ -44,16 +44,22 @@ bit_loop:
 
 finish_pointer:
     ; ISR now contains BASE[31:16] : A15..A0.
-    ; Extract A0 from raw GPIO26 without disturbing ISR.
+    ; Qualify WORD lane from the SAME saved T1 snapshot:
+    ;   BHE# (GPIO25) == 0 and A0 (GPIO26) == 0.
+    mov osr, y
+    out null, 25
+    out x, 1
+    jmp !x bhe_asserted
+    jmp skip_service
+
+bhe_asserted:
     mov osr, y
     out null, 26
     out x, 1
-    jmp !x a0_even
+    jmp !x word_lane
     jmp skip_service
 
-a0_even:
-    ; UBE/BHE# high means low-byte lane only; do not issue a 16-bit SRAM read.
-    jmp pin skip_service
+word_lane:
     push block
 
 skip_service:
@@ -84,18 +90,28 @@ observer_next:
     mov y, isr
     push block
 
+    ; Classify both BHE# and A0 from the saved T1 snapshot, never from a
+    ; later live-pin value.
+    mov osr, y
+    out null, 25
+    out x, 1
+    jmp !x bhe_asserted_obs
+
+    ; BHE#=1: LOW if A0=0, otherwise INVALID.
     mov osr, y
     out null, 26
     out x, 1
-
-    jmp pin bhe_high
-    jmp !x lane_word
-    set y, 2
-    jmp emit_lane
-
-bhe_high:
     jmp !x lane_low
     set y, 0
+    jmp emit_lane
+
+bhe_asserted_obs:
+    ; BHE#=0: WORD if A0=0, otherwise HIGH.
+    mov osr, y
+    out null, 26
+    out x, 1
+    jmp !x lane_word
+    set y, 2
     jmp emit_lane
 
 lane_low:
