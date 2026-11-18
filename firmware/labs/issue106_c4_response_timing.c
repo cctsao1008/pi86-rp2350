@@ -165,7 +165,7 @@ static void init_frontend(PIO pio, uint sm, uint offset) {
     sm_config_set_in_shift(&c, false, false, 32u);
     hard_assert(pio_sm_init(pio, sm, offset, &c) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
-    pio_sm_set_enabled(pio, sm, true);
+    pio_sm_set_enabled(pio, sm, false);
 }
 
 static void init_byte_lut_builder(PIO pio, uint sm, uint offset) {
@@ -207,7 +207,7 @@ static void init_observer(PIO pio, uint sm, uint offset) {
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(pio, sm, offset, &c) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
-    pio_sm_set_enabled(pio, sm, true);
+    pio_sm_set_enabled(pio, sm, false);
 }
 
 static void init_clock(PIO pio, uint sm, uint offset) {
@@ -285,20 +285,18 @@ int main(void) {
         pio_add_program(builder_pio, &issue106_c4_byte_lut_pointers_program);
     init_byte_lut_builder(builder_pio, builder_sm, builder_offset);
 
-    /* Keep physical observation off the responder/clock PIO block. */
-    const uint observer_sm = pio_claim_unused_sm(frontend_pio, true);
-    const uint observer_offset =
-        pio_add_program(frontend_pio, &issue106_c4_observer_program);
-    init_observer(frontend_pio, observer_sm, observer_offset);
-
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
+    const uint observer_sm = pio_claim_unused_sm(io_pio, true);
     const uint clock_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
         pio_add_program(io_pio, &issue106_c4_responder_program);
+    const uint observer_offset =
+        pio_add_program(io_pio, &issue106_c4_observer_program);
     const uint clock_offset =
         pio_add_program(io_pio, &rp86_free_running_clock_program);
     init_responder(io_pio, responder_sm, responder_offset);
+    init_observer(io_pio, observer_sm, observer_offset);
 
     const uint frontend_tx_dma = dma_claim_unused_channel(true);
     dma_channel_config frontend_tx_cfg =
@@ -438,10 +436,10 @@ int main(void) {
     channel_config_set_read_increment(&observer_cfg, false);
     channel_config_set_write_increment(&observer_cfg, true);
     channel_config_set_dreq(
-        &observer_cfg, pio_get_dreq(frontend_pio, observer_sm, false));
+        &observer_cfg, pio_get_dreq(io_pio, observer_sm, false));
     channel_config_set_high_priority(&observer_cfg, true);
     dma_channel_configure(observer_dma, &observer_cfg,
-                          observer_words, &frontend_pio->rxf[observer_sm],
+                          observer_words, &io_pio->rxf[observer_sm],
                           ISSUE106_OBSERVER_WORDS, false);
 
     dma_sniffer_set_data_accumulator(0u);
@@ -457,6 +455,22 @@ int main(void) {
     init_clock(io_pio, clock_sm, clock_offset);
 
     const bool reset_clock_ok = wait_reset_clocks(8u);
+
+    /*
+     * Arm capture only after reset qualification. This prevents either SM
+     * from consuming a RESET-time ASTB transition or initialization glitch.
+     * Both start from the same clean first-cycle boundary immediately before
+     * RESET is released.
+     */
+    pio_sm_restart(frontend_pio, frontend_sm);
+    pio_sm_exec(frontend_pio, frontend_sm,
+                pio_encode_jmp(frontend_offset));
+    pio_sm_restart(io_pio, observer_sm);
+    pio_sm_exec(io_pio, observer_sm,
+                pio_encode_jmp(observer_offset));
+    pio_sm_set_enabled(frontend_pio, frontend_sm, true);
+    pio_sm_set_enabled(io_pio, observer_sm, true);
+
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
 
     const uint64_t deadline = time_us_64() + ISSUE106_TIMEOUT_US;
