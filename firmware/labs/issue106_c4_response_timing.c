@@ -34,7 +34,9 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
+#ifndef ISSUE106_PROCESSOR_HZ
 #define ISSUE106_PROCESSOR_HZ 1000000u
+#endif
 #define ISSUE106_TIMEOUT_US 100000u
 #define ISSUE106_FRONTEND_BITS 16u
 #define ISSUE106_FRONTEND_WORDS (1u + ISSUE106_FRONTEND_BITS + 1u)
