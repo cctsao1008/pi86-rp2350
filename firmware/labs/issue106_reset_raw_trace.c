@@ -1,8 +1,10 @@
 /*
- * Issue #106: synchronous Intel clock + passive raw bus trace.
+ * Issue #106: synchronous Intel clock/reset + settled post-reset T1 observer.
  *
- * The same PIO state machine generates the Intel 8086 clock and samples the
- * complete GPIO bank. This removes cross-SM arming/phase ambiguity.
+ * One PIO SM owns Intel-compliant CLK/RESET sequencing and raises IRQ0 at the
+ * exact RESET-deassert boundary. A second SM waits on IRQ0 and captures settled
+ * ASTB/T1 snapshots after a short fixed delay. No M33 action participates in
+ * the active reset-to-first-cycle boundary.
  */
 
 #include <inttypes.h>
@@ -24,7 +26,7 @@
 #define ISSUE106_PROCESSOR_HZ 8000000u
 #endif
 
-#define TRACE_WORDS 128u
+#define TRACE_WORDS 16u
 #define TIMEOUT_US 100000u
 
 static uint32_t trace_words[TRACE_WORDS];
@@ -71,15 +73,14 @@ static void prepare_header_safe(void) {
     gpio_set_dir(RP86_PROCESSOR_PIN_INTR, GPIO_OUT);
 }
 
-static void init_clock_trace(PIO pio, uint sm, uint offset) {
+static void init_clock_reset(PIO pio, uint sm, uint offset) {
     pio_sm_config cfg =
-        issue106_intel_clock_trace_program_get_default_config(offset);
+        issue106_intel_clock_reset_program_get_default_config(offset);
 
     const float div =
         (float)clock_get_hz(clk_sys) /
         (5.0f * (float)ISSUE106_PROCESSOR_HZ);
 
-    sm_config_set_in_pins(&cfg, 0u);
     sm_config_set_sideset_pins(&cfg, RP86_PROCESSOR_PIN_CLK);
     sm_config_set_set_pins(&cfg, RP86_PROCESSOR_PIN_RESET, 1u);
     sm_config_set_clkdiv(&cfg, div);
@@ -92,22 +93,19 @@ static void init_clock_trace(PIO pio, uint sm, uint offset) {
         pio, sm, RP86_PROCESSOR_PIN_RESET, 1u, true);
 
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
-    pio_sm_clear_fifos(pio, sm);
     pio_sm_set_enabled(pio, sm, false);
 }
 
-static bool wait_reset_clocks(uint count) {
-    const uint64_t deadline = time_us_64() + TIMEOUT_US;
-    bool last = gpio_get(RP86_PROCESSOR_PIN_CLK);
-    uint falling = 0u;
+static void init_observer(PIO pio, uint sm, uint offset) {
+    pio_sm_config cfg =
+        issue106_post_reset_t1_observer_program_get_default_config(offset);
 
-    while (falling < count && time_us_64() <= deadline) {
-        const bool now = gpio_get(RP86_PROCESSOR_PIN_CLK);
-        if (last && !now) ++falling;
-        last = now;
-        tight_loop_contents();
-    }
-    return falling == count;
+    sm_config_set_in_pins(&cfg, 0u);
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
+
+    hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_set_enabled(pio, sm, false);
 }
 
 static bool wait_dma(uint channel) {
@@ -124,41 +122,49 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
-    printf("issue106 synchronous Intel clock/raw trace\n");
+    printf("issue106 synchronous Intel reset + settled T1 observer\n");
     printf("processor clock: %u Hz (2-high/3-low PIO waveform)\n",
            ISSUE106_PROCESSOR_HZ);
 
     prepare_header_safe();
 
     PIO pio = pio0;
-    const uint sm = pio_claim_unused_sm(pio, true);
-    const uint offset =
-        pio_add_program(pio, &issue106_intel_clock_trace_program);
-    init_clock_trace(pio, sm, offset);
+    const uint clock_sm = pio_claim_unused_sm(pio, true);
+    const uint observer_sm = pio_claim_unused_sm(pio, true);
+
+    const uint clock_offset =
+        pio_add_program(pio, &issue106_intel_clock_reset_program);
+    const uint observer_offset =
+        pio_add_program(pio, &issue106_post_reset_t1_observer_program);
+
+    init_clock_reset(pio, clock_sm, clock_offset);
+    init_observer(pio, observer_sm, observer_offset);
 
     const uint rx_dma = dma_claim_unused_channel(true);
     dma_channel_config cfg = dma_channel_get_default_config(rx_dma);
     channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&cfg, false);
     channel_config_set_write_increment(&cfg, true);
-    channel_config_set_dreq(&cfg, pio_get_dreq(pio, sm, false));
+    channel_config_set_dreq(&cfg, pio_get_dreq(pio, observer_sm, false));
     channel_config_set_high_priority(&cfg, true);
 
     dma_channel_configure(
-        rx_dma, &cfg, trace_words, &pio->rxf[sm], TRACE_WORDS, true);
+        rx_dma, &cfg, trace_words, &pio->rxf[observer_sm],
+        TRACE_WORDS, true);
 
     /*
-     * The PIO program itself owns RESET and CLK. It emits exactly eight
-     * Intel-compliant reset clocks, deasserts RESET on a deterministic low
-     * boundary, then begins synchronous sampling. M33 does not participate in
-     * the release boundary.
+     * Observer is already blocked on IRQ0 before the clock/reset SM starts.
+     * The clock/reset SM emits eight compliant reset clocks, deasserts RESET,
+     * raises IRQ0, and continues free-running. No M33 boundary action exists.
      */
-    pio_sm_set_enabled(pio, sm, true);
-    const bool reset_clock_ok = true;
+    pio_interrupt_clear(pio, 0u);
+    pio_sm_set_enabled(pio, observer_sm, true);
+    pio_sm_set_enabled(pio, clock_sm, true);
 
     const bool trace_ok = wait_dma(rx_dma);
 
-    pio_sm_set_enabled(pio, sm, false);
+    pio_sm_set_enabled(pio, clock_sm, false);
+    pio_sm_set_enabled(pio, observer_sm, false);
 
     gpio_set_function(RP86_PROCESSOR_PIN_RESET, GPIO_FUNC_SIO);
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
@@ -172,62 +178,36 @@ int main(void) {
         dma_channel_hw_addr(rx_dma)->transfer_count & 0x0fffffffu;
     const uint32_t captured = TRACE_WORDS - remaining;
 
-    printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
-    printf("TRACE: %s (%" PRIu32 "/%u samples)\n",
+    printf("RESET SEQUENCE: HARDWARE-SYNCHRONOUS 8 CLOCKS\n");
+    printf("TRACE: %s (%" PRIu32 "/%u T1 samples)\n",
            trace_ok ? "COMPLETE" : "TIMEOUT", captured, TRACE_WORDS);
-
-    int first_reset_low = -1;
-    int first_post_reset_astb = -1;
-    bool prev_astb = false;
 
     for (uint32_t i = 0u; i < captured; ++i) {
         const uint32_t raw = trace_words[i];
-        const bool reset = sample_bit(raw, RP86_PROCESSOR_PIN_RESET);
-        const bool astb = sample_bit(raw, RP86_PROCESSOR_PIN_ASTB);
-
-        if (first_reset_low < 0 && !reset)
-            first_reset_low = (int)i;
-
-        if (first_reset_low >= 0 && first_post_reset_astb < 0 &&
-            astb && !prev_astb)
-            first_post_reset_astb = (int)i;
-
-        prev_astb = astb;
-    }
-
-    printf("FIRST RESET=0 SAMPLE: %d\n", first_reset_low);
-    printf("FIRST POST-RESET ASTB RISE SAMPLE: %d\n",
-           first_post_reset_astb);
-
-    int begin = first_reset_low >= 4 ? first_reset_low - 4 : 0;
-    int end = first_reset_low >= 0 ? first_reset_low + 32 : (int)captured;
-    if (end > (int)captured) end = (int)captured;
-
-    for (int i = begin; i < end; ++i) {
-        const uint32_t raw = trace_words[i];
-        printf("[%03d] phase=%c RESET=%u ASTB=%u addr=%05" PRIx32
-               " IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32 "%s\n",
-               i, (i & 1) ? 'L' : 'H',
+        printf("[%02" PRIu32 "] addr=%05" PRIx32
+               " RESET=%u ASTB=%u IOM=%u BUFRW=%u INTAK=%u raw=%08" PRIx32
+               "%s\n",
+               i, decode_address(raw),
                sample_bit(raw, RP86_PROCESSOR_PIN_RESET),
                sample_bit(raw, RP86_PROCESSOR_PIN_ASTB),
-               decode_address(raw),
                sample_bit(raw, RP86_PROCESSOR_PIN_IOM),
                sample_bit(raw, RP86_PROCESSOR_PIN_BUFRW),
                sample_bit(raw, RP86_PROCESSOR_PIN_INTAK),
                raw,
-               i == first_post_reset_astb ? "  <FIRST-POST-RESET-ASTB>" : "");
+               i == 0u ? "  <FIRST-POST-RESET-T1>" : "");
     }
 
-    if (first_post_reset_astb >= 0) {
-        const uint32_t first =
-            trace_words[(uint32_t)first_post_reset_astb];
+    if (captured > 0u) {
         printf("FIRST POST-RESET T1 ADDRESS: %05" PRIx32 "\n",
-               decode_address(first));
+               decode_address(trace_words[0]));
+        printf("FIRST RESET VECTOR FFFF0: %s\n",
+               decode_address(trace_words[0]) == 0xffff0u ? "PASS" : "FAIL");
     } else {
         printf("FIRST POST-RESET T1 ADDRESS: NONE\n");
+        printf("FIRST RESET VECTOR FFFF0: FAIL\n");
     }
 
-    printf("NOTE: clock generation and observation share one PIO timeline.\n");
+    printf("NOTE: RESET release is PIO-synchronous; T1 capture is IRQ-gated and settled.\n");
 
     while (true) tight_loop_contents();
 }
