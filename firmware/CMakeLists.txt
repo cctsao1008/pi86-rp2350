@@ -286,5 +286,9 @@ pico_generate_pio_header(rp86_issue106_c4_response_timing_lab
 
 pico_enable_stdio_usb(rp86_issue106_c4_response_timing_lab 1)
 pico_enable_stdio_uart(rp86_issue106_c4_response_timing_lab 0)
-pico_set_binary_type(rp86_issue106_c4_response_timing_lab copy_to_ram)
+
+# C4 intentionally keeps M33 code in XIP flash. The measured active path is
+# entirely PIO+DMA; the 64 KiB backing window and 256 KiB data->GPIO LUT stay
+# in internal SRAM. Copying the whole executable into SRAM would consume the
+# same bounded-memory resource being measured and overcommit RP2350 SRAM.
 pico_add_extra_outputs(rp86_issue106_c4_response_timing_lab)
