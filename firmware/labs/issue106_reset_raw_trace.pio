@@ -1,0 +1,18 @@
+.pio_version rp2350
+
+.program issue106_reset_raw_trace
+; Passive high-speed reset/bus trace.
+; After RESET deasserts, sample the full GPIO bank on each CLK edge.
+; No pin is driven by this SM.
+
+    wait 0 gpio 16
+
+.wrap_target
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+.wrap
