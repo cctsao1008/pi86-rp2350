@@ -402,6 +402,35 @@ endforeach()
 
 
 
+
+
+# Eighth-point discriminator between 7.0 MHz PASS and 7.25 MHz FAIL.
+add_executable(rp86_issue106_reset_raw_trace_7_125mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_reset_raw_trace.c
+)
+
+target_include_directories(rp86_issue106_reset_raw_trace_7_125mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_reset_raw_trace_7_125mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=7125000u
+)
+
+target_link_libraries(rp86_issue106_reset_raw_trace_7_125mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_7_125mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_7_125mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_7_125mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_reset_raw_trace_7_125mhz_lab)
 # Quarter-point discriminator between 7.0 MHz PASS and 7.5 MHz FAIL.
 add_executable(rp86_issue106_reset_raw_trace_7_25mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_reset_raw_trace.c
