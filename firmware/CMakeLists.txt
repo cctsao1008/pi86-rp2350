@@ -194,3 +194,34 @@ pico_enable_stdio_usb(rp86_issue106_gpio_repack_lab 1)
 pico_enable_stdio_uart(rp86_issue106_gpio_repack_lab 0)
 pico_set_binary_type(rp86_issue106_gpio_repack_lab copy_to_ram)
 pico_add_extra_outputs(rp86_issue106_gpio_repack_lab)
+
+
+# Phase C1b replaces the synthetic raw snapshot with a real passive ASTB/T1
+# GPIO-bank capture, then runs the same proven scattered-address permutation.
+add_executable(rp86_issue106_physical_t1_repack_lab EXCLUDE_FROM_ALL
+    labs/issue106_physical_t1_repack.c
+)
+
+target_include_directories(rp86_issue106_physical_t1_repack_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_physical_t1_repack_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_physical_t1_repack_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_physical_t1_repack.pio
+)
+
+pico_generate_pio_header(rp86_issue106_physical_t1_repack_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_lab 1)
+pico_enable_stdio_uart(rp86_issue106_physical_t1_repack_lab 0)
+pico_set_binary_type(rp86_issue106_physical_t1_repack_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_physical_t1_repack_lab)
