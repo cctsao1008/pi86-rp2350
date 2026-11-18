@@ -285,18 +285,20 @@ int main(void) {
         pio_add_program(builder_pio, &issue106_c4_byte_lut_pointers_program);
     init_byte_lut_builder(builder_pio, builder_sm, builder_offset);
 
+    /* Keep physical observation off the responder/clock PIO block. */
+    const uint observer_sm = pio_claim_unused_sm(frontend_pio, true);
+    const uint observer_offset =
+        pio_add_program(frontend_pio, &issue106_c4_observer_program);
+    init_observer(frontend_pio, observer_sm, observer_offset);
+
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
-    const uint observer_sm = pio_claim_unused_sm(io_pio, true);
     const uint clock_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
         pio_add_program(io_pio, &issue106_c4_responder_program);
-    const uint observer_offset =
-        pio_add_program(io_pio, &issue106_c4_observer_program);
     const uint clock_offset =
         pio_add_program(io_pio, &rp86_free_running_clock_program);
     init_responder(io_pio, responder_sm, responder_offset);
-    init_observer(io_pio, observer_sm, observer_offset);
 
     const uint frontend_tx_dma = dma_claim_unused_channel(true);
     dma_channel_config frontend_tx_cfg =
@@ -436,10 +438,10 @@ int main(void) {
     channel_config_set_read_increment(&observer_cfg, false);
     channel_config_set_write_increment(&observer_cfg, true);
     channel_config_set_dreq(
-        &observer_cfg, pio_get_dreq(io_pio, observer_sm, false));
+        &observer_cfg, pio_get_dreq(frontend_pio, observer_sm, false));
     channel_config_set_high_priority(&observer_cfg, true);
     dma_channel_configure(observer_dma, &observer_cfg,
-                          observer_words, &io_pio->rxf[observer_sm],
+                          observer_words, &frontend_pio->rxf[observer_sm],
                           ISSUE106_OBSERVER_WORDS, false);
 
     dma_sniffer_set_data_accumulator(0u);
@@ -459,6 +461,8 @@ int main(void) {
 
     const uint64_t deadline = time_us_64() + ISSUE106_TIMEOUT_US;
     const bool observer_complete = wait_dma_idle(observer_dma, deadline);
+    const uint32_t observer_remaining =
+        dma_channel_hw_addr(observer_dma)->transfer_count & 0x0fffffffu;
 
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
     (void)wait_reset_clocks(8u);
@@ -509,6 +513,10 @@ int main(void) {
     const bool final_done = !dma_channel_is_busy(final_dma);
     const uint32_t encoded_word = dma_sniffer_get_data_accumulator();
 
+    printf("OBSERVER: %s (%u/%u words captured)\n",
+           observer_complete ? "COMPLETE" : "TIMEOUT",
+           ISSUE106_OBSERVER_WORDS - observer_remaining,
+           ISSUE106_OBSERVER_WORDS);
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
     printf("FIRST RESET VECTOR FFFF0: %s\n", address_ok ? "PASS" : "FAIL");
     printf("FIRST CYCLE WORD MEMREAD: %s\n",
