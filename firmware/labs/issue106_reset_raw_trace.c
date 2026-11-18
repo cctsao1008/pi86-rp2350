@@ -147,11 +147,11 @@ int main(void) {
     channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
     channel_config_set_read_increment(&cfg, false);
     channel_config_set_write_increment(&cfg, true);
-    channel_config_set_dreq(&cfg, pio_get_dreq(pio, observer_sm, false));
+    channel_config_set_dreq(&cfg, pio_get_dreq(observer_pio, observer_sm, false));
     channel_config_set_high_priority(&cfg, true);
 
     dma_channel_configure(
-        rx_dma, &cfg, trace_words, &pio->rxf[observer_sm],
+        rx_dma, &cfg, trace_words, &observer_pio->rxf[observer_sm],
         TRACE_WORDS, true);
 
     /*
