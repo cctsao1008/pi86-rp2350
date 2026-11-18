@@ -292,3 +292,42 @@ pico_enable_stdio_uart(rp86_issue106_c4_response_timing_lab 0)
 # in internal SRAM. Copying the whole executable into SRAM would consume the
 # same bounded-memory resource being measured and overcommit RP2350 SRAM.
 pico_add_extra_outputs(rp86_issue106_c4_response_timing_lab)
+
+
+# C4 frequency variants for Intel P8086-2 fixed-READY timing characterization.
+# The 1 MHz target remains the empirical baseline. These variants keep the
+# dataplane identical and only change the free-running processor clock.
+foreach(_mhz IN ITEMS 2 4 6 8)
+    set(_target rp86_issue106_c4_response_timing_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c4_response_timing.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c4_response_timing.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
