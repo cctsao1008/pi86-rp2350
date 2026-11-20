@@ -424,7 +424,7 @@ endforeach()
 # T0: T1 -> direct encoded-data DMA -> responder.
 # T1: T1 -> fixed SRAM pointer control DMA -> SRAM DMA -> responder.
 # These keep the same physical timing observer and R2 acceptance boundary.
-foreach(_mode IN ITEMS 0 1)
+foreach(_mode IN ITEMS 0 1 2)
     foreach(_mhz IN ITEMS 4 6)
         set(_target rp86_issue106_c5_tail_t${_mode}_${_mhz}mhz_lab)
 
