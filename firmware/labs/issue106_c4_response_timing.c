@@ -527,6 +527,29 @@ int main(void) {
     const bool final_done = !dma_channel_is_busy(final_dma);
     const uint32_t encoded_word = dma_sniffer_get_data_accumulator();
 
+    const uint32_t frontend_control_remaining =
+        dma_channel_hw_addr(frontend_control_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t raw_remaining =
+        dma_channel_hw_addr(raw_data_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t prefix_remaining =
+        dma_channel_hw_addr(prefix_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t low_control_remaining =
+        dma_channel_hw_addr(low_control_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t low_remaining =
+        dma_channel_hw_addr(low_lookup_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t high_control_remaining =
+        dma_channel_hw_addr(high_control_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t high_remaining =
+        dma_channel_hw_addr(high_lookup_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t combine_remaining =
+        dma_channel_hw_addr(combine_dma)->transfer_count & 0x0fffffffu;
+    const uint32_t final_remaining =
+        dma_channel_hw_addr(final_dma)->transfer_count & 0x0fffffffu;
+    const uint frontend_rx_level =
+        pio_sm_get_rx_fifo_level(frontend_pio, frontend_sm);
+    const uint builder_rx_level =
+        pio_sm_get_rx_fifo_level(builder_pio, builder_sm);
+
     const uintptr_t raw_effective =
         (uintptr_t)dma_channel_hw_addr(raw_data_dma)->read_addr;
     const uintptr_t low_effective =
@@ -558,6 +581,17 @@ int main(void) {
            high_done ? "DONE" : "BUSY",
            combine_done ? "DONE" : "BUSY",
            final_done ? "DONE" : "BUSY");
+
+    printf("DMA REMAIN: frontctl=%" PRIu32 " raw=%" PRIu32
+           " prefix=%" PRIu32 " lowctl=%" PRIu32 " low=%" PRIu32
+           " highctl=%" PRIu32 " high=%" PRIu32 " sum=%" PRIu32
+           " final=%" PRIu32 "\n",
+           frontend_control_remaining, raw_remaining, prefix_remaining,
+           low_control_remaining, low_remaining,
+           high_control_remaining, high_remaining,
+           combine_remaining, final_remaining);
+    printf("PIO FIFO: frontend_rx=%u builder_rx=%u\n",
+           frontend_rx_level, builder_rx_level);
 
     printf("DMA ADDR: raw=%08" PRIxPTR " expected=%08" PRIxPTR "\n",
            raw_effective, expected_raw);
