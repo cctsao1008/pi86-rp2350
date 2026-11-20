@@ -478,6 +478,33 @@ int main(void) {
     const uint32_t observer_remaining =
         dma_channel_hw_addr(observer_dma)->transfer_count & 0x0fffffffu;
 
+    /*
+     * Diagnostic-only post-window settling:
+     * observer completion defines the last CPU-valid response phase.  Do not
+     * extend that acceptance window, but allow the hardware pipeline to finish
+     * afterwards so we can distinguish a wrong pointer/lookup chain from a
+     * correct chain that simply missed the 6 MHz bus deadline.
+     */
+    const uint64_t pipeline_deadline = time_us_64() + ISSUE106_TIMEOUT_US;
+    const bool frontend_control_complete =
+        wait_dma_idle(frontend_control_dma, pipeline_deadline);
+    const bool raw_complete =
+        wait_dma_idle(raw_data_dma, pipeline_deadline);
+    const bool prefix_complete =
+        wait_dma_idle(prefix_dma, pipeline_deadline);
+    const bool low_control_complete =
+        wait_dma_idle(low_control_dma, pipeline_deadline);
+    const bool low_complete =
+        wait_dma_idle(low_lookup_dma, pipeline_deadline);
+    const bool high_control_complete =
+        wait_dma_idle(high_control_dma, pipeline_deadline);
+    const bool high_complete =
+        wait_dma_idle(high_lookup_dma, pipeline_deadline);
+    const bool combine_complete =
+        wait_dma_idle(combine_dma, pipeline_deadline);
+    const bool final_complete =
+        wait_dma_idle(final_dma, pipeline_deadline);
+
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
     (void)wait_reset_clocks(8u);
     pio_sm_set_enabled(builder_pio, clock_sm, false);
@@ -581,6 +608,17 @@ int main(void) {
            high_done ? "DONE" : "BUSY",
            combine_done ? "DONE" : "BUSY",
            final_done ? "DONE" : "BUSY");
+    printf("POST-WINDOW SETTLE: frontctl=%s raw=%s prefix=%s "
+           "lowctl=%s low=%s highctl=%s high=%s sum=%s final=%s\n",
+           frontend_control_complete ? "DONE" : "TIMEOUT",
+           raw_complete ? "DONE" : "TIMEOUT",
+           prefix_complete ? "DONE" : "TIMEOUT",
+           low_control_complete ? "DONE" : "TIMEOUT",
+           low_complete ? "DONE" : "TIMEOUT",
+           high_control_complete ? "DONE" : "TIMEOUT",
+           high_complete ? "DONE" : "TIMEOUT",
+           combine_complete ? "DONE" : "TIMEOUT",
+           final_complete ? "DONE" : "TIMEOUT");
 
     printf("DMA REMAIN: frontctl=%" PRIu32 " raw=%" PRIu32
            " prefix=%" PRIu32 " lowctl=%" PRIu32 " low=%" PRIu32
