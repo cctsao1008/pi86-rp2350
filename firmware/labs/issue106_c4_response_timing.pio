@@ -121,12 +121,12 @@ responder_park:
 ; RX sequence:
 ;   [0] T1 sample (+8 PIO cycles after ASTB rise)
 ;   [1] AF: ASTB falling edge
-;   [2] R1
-;   [3] F1
-;   [4] R2
+;   [2..17] R1/F1 through R8/F8
 ;
-; With the responder (12 instructions), this observer (19) occupies 31 of the
-; 32 instructions in PIO2. The free-running clock therefore lives on PIO1.
+; The extended half-cycle window is diagnostic only. Acceptance still depends
+; on whether the expected word appears within the architecturally valid first
+; bus-cycle data phase; later matches merely quantify how far the dataplane
+; missed the fixed-READY deadline.
 
     wait 0 gpio 16             ; RESET deasserted
     wait 1 gpio 21             ; establish a clean post-reset clock phase
@@ -141,17 +141,15 @@ responder_park:
     mov isr, pins
     push block
 
+    set x, 7                   ; capture 8 rising/falling clock pairs
+phase_loop:
     wait 1 gpio 21
     mov isr, pins
     push block
-
     wait 0 gpio 21
     mov isr, pins
     push block
-
-    wait 1 gpio 21
-    mov isr, pins
-    push block
+    jmp x-- phase_loop
 
 observer_park:
     jmp observer_park
