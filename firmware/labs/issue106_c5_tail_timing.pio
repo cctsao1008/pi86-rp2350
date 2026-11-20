@@ -1,0 +1,74 @@
+.pio_version rp2350
+
+.program issue106_c5_tail_trigger
+; One-shot known-value trigger emitted from the same T1 qualification point used
+; by C5. TX preload is copied into Y before RESET release; RX publishes it
+; after the first real ASTB/T1 sample point.
+;
+; The C harness interprets the value either as:
+;   T0: pre-encoded response data
+;   T1: absolute SRAM read pointer
+
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+
+    mov isr, y
+    push block
+
+trigger_park:
+    jmp trigger_park
+
+
+.program issue106_c5_tail_responder
+; One-shot scattered-AD response.
+
+    pull block
+    wait 0 gpio 9
+    out pins, 28
+    mov pindirs, ~null
+
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+
+    mov pindirs, null
+responder_park:
+    jmp responder_park
+
+
+.program issue106_c5_tail_observer
+; Same physical phase observer as C5A/B.
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9
+    mov isr, pins
+    push block
+
+    set x, 7
+phase_loop:
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+    jmp x-- phase_loop
+
+observer_park:
+    jmp observer_park
