@@ -333,7 +333,7 @@ int main(void) {
     init_frontend(frontend_pio, frontend1_sm, frontend_offset, 14u, lut1_base);
 
     /*
-     * PIO2 owns only the responder. C7's expanded 5-word observer no longer
+     * PIO2 owns only the responder. C8 reuses the expanded 5-word observer no longer
      * fits beside the responder in one 32-instruction PIO block, so keep the
      * observer on PIO1 with the compact processor clock program.
      */
