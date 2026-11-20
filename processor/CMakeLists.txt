@@ -48,6 +48,15 @@ rp86_add_processor_image(fast_invsqrt
     PACKAGE_NAME "INVSQRT.P86W"
 )
 
+# Sustained physical-processor arithmetic witness.  This workload continuously
+# recomputes pi with pure 8086 integer arithmetic and publishes RAM telemetry.
+rp86_add_processor_image(pi_stress
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-stress/pi_stress.asm"
+    SYMBOL pi_stress_workload
+    METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-stress/workload.json"
+    PACKAGE_NAME "PI-STRESS.P86W"
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
