@@ -333,6 +333,50 @@ foreach(_mhz IN ITEMS 2 4 6 8)
 endforeach()
 
 
+# Phase C5A speed-first dynamic WORD-read timing experiment.
+# Replaces the C4 serial address repack with two parallel 14-bit raw-GPIO LUT
+# frontends. The backing stores pre-encoded scattered-GPIO response words so
+# this gate isolates address translation + SRAM + physical response latency.
+foreach(_mhz IN ITEMS 4 6)
+    set(_target rp86_issue106_c5_fast_read_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c5_fast_read.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_fast_read.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+
+    # Keep code in XIP: C5A intentionally spends SRAM on two 64 KiB address
+    # LUTs plus a 128 KiB pre-encoded WORD backing for the speed feasibility
+    # gate. This representation is not the final canonical memory format.
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
