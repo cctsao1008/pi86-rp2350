@@ -527,6 +527,20 @@ int main(void) {
     const bool final_done = !dma_channel_is_busy(final_dma);
     const uint32_t encoded_word = dma_sniffer_get_data_accumulator();
 
+    const uintptr_t raw_effective =
+        (uintptr_t)dma_channel_hw_addr(raw_data_dma)->read_addr;
+    const uintptr_t low_effective =
+        (uintptr_t)dma_channel_hw_addr(low_lookup_dma)->read_addr;
+    const uintptr_t high_effective =
+        (uintptr_t)dma_channel_hw_addr(high_lookup_dma)->read_addr;
+    const uintptr_t expected_raw =
+        backing_addr + (address & 0xffffu);
+    const uintptr_t expected_low =
+        low_lut_addr + ((ISSUE106_RESET_WORD & 0xffu) * sizeof(uint32_t));
+    const uintptr_t expected_high =
+        high_lut_addr + (((ISSUE106_RESET_WORD >> 8u) & 0xffu) *
+                         sizeof(uint32_t));
+
     printf("OBSERVER: %s (%u/%u words captured)\n",
            observer_complete ? "COMPLETE" : "TIMEOUT",
            ISSUE106_OBSERVER_WORDS - observer_remaining,
@@ -545,6 +559,12 @@ int main(void) {
            combine_done ? "DONE" : "BUSY",
            final_done ? "DONE" : "BUSY");
 
+    printf("DMA ADDR: raw=%08" PRIxPTR " expected=%08" PRIxPTR "\n",
+           raw_effective, expected_raw);
+    printf("LUT ADDR: low=%08" PRIxPTR " expected=%08" PRIxPTR
+           " high=%08" PRIxPTR " expected=%08" PRIxPTR "\n",
+           low_effective, expected_low, high_effective, expected_high);
+
     if (first_valid_phase >= 0)
         printf("FIRST VALID DATA PHASE: %s\n",
                phase_name((uint)first_valid_phase));
@@ -558,7 +578,8 @@ int main(void) {
 
     printf("RESULT: %s (expected data=%04x, matching phases=%u)\n",
            pass ? "PASS" : "FAIL", ISSUE106_RESET_WORD, phase_matches);
-    printf("NOTE: one-shot 1MHz empirical timing probe; #108 must classify ");
+    printf("NOTE: one-shot %u Hz empirical timing probe; #108 must classify ",
+           ISSUE106_PROCESSOR_HZ);
     printf("the observed phase against Intel >=2MHz fixed-READY timing.\n");
 
     while (true) tight_loop_contents();
