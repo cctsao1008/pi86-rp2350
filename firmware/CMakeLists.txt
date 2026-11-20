@@ -638,6 +638,39 @@ pico_enable_stdio_uart(rp86_issue112_c8_sustained_rw_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c8_sustained_rw_4mhz_lab)
 
 
+# Issue #112 C8B: post-read write sidecar at 4 MHz.
+# The proven read critical path is unchanged through raw_data_dma. Only after
+# the SRAM read completes is the current backing pointer echoed into a separate
+# PIO router. Read cycles discard it; write cycles publish it to a write-only
+# pointer FIFO that drives AL2_WRITE_ADDR_TRIG for the reusable write DMA.
+add_executable(rp86_issue112_c8b_postread_write_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c8b_postread_write.c
+)
+
+target_include_directories(rp86_issue112_c8b_postread_write_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c8b_postread_write_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8b_postread_write_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8b_postread_write.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8b_postread_write_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c8b_postread_write_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c8b_postread_write_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c8b_postread_write_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
