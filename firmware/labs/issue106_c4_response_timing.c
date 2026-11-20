@@ -42,6 +42,7 @@
 #define ISSUE106_FRONTEND_WORDS (1u + ISSUE106_FRONTEND_BITS + 1u)
 #define ISSUE106_FRONTEND_FINISH_REL 19u
 #define ISSUE106_OBSERVER_WORDS 18u
+#define ISSUE106_ACCEPTANCE_LAST_PHASE 4u /* R2 */
 #define ISSUE106_RESET_WORD 0xfeeBu
 #define ISSUE106_DMA_SNIFF_SUM_MODE 0x0fu
 
@@ -532,7 +533,9 @@ int main(void) {
     const bool read_ok = is_memory_read(t1_raw);
 
     int first_valid_phase = -1;
+    int first_late_phase = -1;
     uint phase_matches = 0u;
+    uint late_phase_matches = 0u;
 
     printf("BACKING BASE:  %08" PRIxPTR "\n", backing_addr);
     printf("LOW LUT BASE:  %08" PRIxPTR "\n", low_lut_addr);
@@ -550,8 +553,13 @@ int main(void) {
                phase_name(i), observer_words[i], data,
                match ? "MATCH" : "----");
         if (match) {
-            ++phase_matches;
-            if (first_valid_phase < 0) first_valid_phase = (int)i;
+            if (i <= ISSUE106_ACCEPTANCE_LAST_PHASE) {
+                ++phase_matches;
+                if (first_valid_phase < 0) first_valid_phase = (int)i;
+            } else {
+                ++late_phase_matches;
+                if (first_late_phase < 0) first_late_phase = (int)i;
+            }
         }
     }
 
@@ -661,6 +669,12 @@ int main(void) {
                phase_name((uint)first_valid_phase));
     else
         printf("FIRST VALID DATA PHASE: NONE\n");
+
+    if (first_late_phase >= 0)
+        printf("FIRST LATE DATA PHASE: %s (%u late matches)\n",
+               phase_name((uint)first_late_phase), late_phase_matches);
+    else
+        printf("FIRST LATE DATA PHASE: NONE\n");
 
     const bool pass =
         reset_clock_ok && observer_complete && address_ok && lane_ok &&
