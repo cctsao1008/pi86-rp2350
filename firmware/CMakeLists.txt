@@ -574,6 +574,38 @@ pico_enable_stdio_uart(rp86_issue112_c6b_write_phase_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c6b_write_phase_4mhz_lab)
 
 
+# Issue #112 C7: first physical 4 MHz SRAM write commit + CPU readback.
+# The first WORD write to 10800h is sampled at R2, committed by DMA into the
+# mirrored pre-encoded backing, then the physical 8086 reads it back and echoes
+# the value with an observer-only write to 10802h.
+add_executable(rp86_issue112_c7_write_commit_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c7_write_commit.c
+)
+
+target_include_directories(rp86_issue112_c7_write_commit_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c7_write_commit_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c7_write_commit_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c7_write_commit.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c7_write_commit_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c7_write_commit_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c7_write_commit_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c7_write_commit_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
