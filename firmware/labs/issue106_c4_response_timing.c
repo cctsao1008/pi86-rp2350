@@ -40,7 +40,7 @@
 #define ISSUE106_TIMEOUT_US 100000u
 #define ISSUE106_FRONTEND_BITS 16u
 #define ISSUE106_FRONTEND_WORDS (1u + ISSUE106_FRONTEND_BITS + 1u)
-#define ISSUE106_FRONTEND_FINISH_REL 16u
+#define ISSUE106_FRONTEND_FINISH_REL 19u
 #define ISSUE106_OBSERVER_WORDS 5u
 #define ISSUE106_RESET_WORD 0xfeeBu
 #define ISSUE106_DMA_SNIFF_SUM_MODE 0x0fu
@@ -114,6 +114,12 @@ static uint16_t extraction_instruction(uint gpio) {
     return gpio == 0u ? pio_encode_nop() : pio_encode_out(pio_null, gpio);
 }
 
+/*
+ * Keep this synchronized with issue106_c4_frontend.pio. C4 adds RESET and
+ * clean-clock qualification ahead of the C23-style address repack loop, so
+ * finish_pointer is instruction 19 relative to the program origin (not 16 as
+ * in the earlier C23 frontend).
+ */
 static void build_frontend_stream(uint program_offset) {
     const uint32_t backing_hi =
         ((uint32_t)(uintptr_t)backing >> 16) & 0xffffu;
