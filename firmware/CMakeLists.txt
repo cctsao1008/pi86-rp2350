@@ -541,6 +541,39 @@ pico_enable_stdio_uart(rp86_issue112_c6_continuous_rw_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c6_continuous_rw_4mhz_lab)
 
 
+# Issue #112 C6B: deterministic 4 MHz write-phase discriminator.
+# Uses a CS-relative immediate WORD store so the expected physical write
+# address is fixed at 10800h once entry 1000:0000 has been reached. Captures
+# R2/F2/R3/F3 to measure the physical CPU write-data phase instead of assuming
+# R2. The write remains observe-only in this gate.
+add_executable(rp86_issue112_c6b_write_phase_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c6b_write_phase.c
+)
+
+target_include_directories(rp86_issue112_c6b_write_phase_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c6b_write_phase_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6b_write_phase_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c6b_write_phase.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6b_write_phase_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c6b_write_phase_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c6b_write_phase_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c6b_write_phase_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
