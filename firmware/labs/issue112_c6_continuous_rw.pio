@@ -34,6 +34,7 @@ next_cycle:
 ; pin: LOW=read, HIGH=write. Read cycles drive AD during the proven C5 window.
 ; Write cycles discard the speculative read value and keep AD high-Z.
 .wrap_target
+response_loop:
     pull block
     wait 0 gpio 9
     jmp pin write_cycle
@@ -46,12 +47,11 @@ read_cycle:
     wait 1 gpio 21
     wait 0 gpio 21
     mov pindirs, null
-    jmp next_response
+    jmp response_loop
 
 write_cycle:
     mov pindirs, null
-
-next_response:
+    jmp response_loop
 .wrap
 
 
