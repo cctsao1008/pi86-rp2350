@@ -377,6 +377,49 @@ foreach(_mhz IN ITEMS 4 6)
 endforeach()
 
 
+# Phase C5B parallel-lookup latency probe.
+# Same C5 speed-first data representation, but both 14-bit lookup legs are
+# armed before RESET release. Low leg is high-priority; high leg is
+# low-priority and triggers combine when it completes. This intentionally
+# probes whether removing the C5A low->high chain recovers the missing
+# half-cycle at 6 MHz.
+foreach(_mhz IN ITEMS 4 6)
+    set(_target rp86_issue106_c5b_parallel_read_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c5_fast_read.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+        ISSUE106_PARALLEL_LOOKUPS=1
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_fast_read.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
