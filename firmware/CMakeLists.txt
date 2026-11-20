@@ -504,6 +504,43 @@ foreach(_mhz IN ITEMS 4 6)
 endforeach()
 
 
+# Issue #112 C6: 4 MHz workload-oriented continuous bus proof.
+# Extends the C5C one-shot read dataplane into a finite consecutive-cycle
+# experiment. The physical 8086 executes a tiny native program from a 64 KiB
+# mirrored, pre-encoded backing and must produce WORD MEM_WRITE 10800h=1234h.
+# The write is observed only in C6; C7 will connect the repeated B3 SRAM-write
+# primitive before PI-STRESS is attempted.
+add_executable(rp86_issue112_c6_continuous_rw_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c6_continuous_rw.c
+)
+
+target_include_directories(rp86_issue112_c6_continuous_rw_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c6_continuous_rw_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6_continuous_rw_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c6_continuous_rw.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6_continuous_rw_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c6_continuous_rw_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c6_continuous_rw_4mhz_lab 0)
+
+# Keep C6 code in XIP. SRAM is intentionally reserved for the two 64 KiB
+# address LUTs plus the 128 KiB pre-encoded mirrored backing.
+pico_add_extra_outputs(rp86_issue112_c6_continuous_rw_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
