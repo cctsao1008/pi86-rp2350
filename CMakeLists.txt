@@ -62,10 +62,20 @@ option(RP86_HAS_DVI
 option(RP86_HAS_PIO_USB
        "The onboard GPIO28/29 PIO-USB connector is present" ON)
 
+set(RP86_PROCESSOR_HZ "1000000" CACHE STRING
+    "Canonical physical processor free-running clock in Hz")
+if(NOT RP86_PROCESSOR_HZ MATCHES "^[0-9]+$")
+    message(FATAL_ERROR "RP86_PROCESSOR_HZ must be an integer frequency in Hz")
+endif()
+if(RP86_PROCESSOR_HZ LESS 1)
+    message(FATAL_ERROR "RP86_PROCESSOR_HZ must be greater than zero")
+endif()
+
 message(STATUS "RP86 external PSRAM: ${RP86_HAS_EXTERNAL_PSRAM}")
 message(STATUS "RP86 MicroSD:       ${RP86_HAS_SDCARD}")
 message(STATUS "RP86 Mini HDMI/DVI: ${RP86_HAS_DVI}")
 message(STATUS "RP86 PIO-USB:       ${RP86_HAS_PIO_USB}")
+message(STATUS "RP86 processor Hz:  ${RP86_PROCESSOR_HZ}")
 
 pico_sdk_init()
 
