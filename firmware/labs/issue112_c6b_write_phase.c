@@ -322,20 +322,25 @@ int main(void) {
     init_frontend(frontend_pio, frontend0_sm, frontend_offset, 0u, lut0_base);
     init_frontend(frontend_pio, frontend1_sm, frontend_offset, 14u, lut1_base);
 
+    /*
+     * PIO2 owns only the responder. C6B's expanded 5-word observer no longer
+     * fits beside the responder in one 32-instruction PIO block, so keep the
+     * observer on PIO1 with the compact processor clock program.
+     */
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
-    const uint observer_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
         pio_add_program(io_pio, &issue112_c6b_responder_program);
-    const uint observer_offset =
-        pio_add_program(io_pio, &issue112_c6b_observer_program);
     init_responder(io_pio, responder_sm, responder_offset);
-    init_observer(io_pio, observer_sm, observer_offset);
 
     PIO clock_pio = pio1;
+    const uint observer_sm = pio_claim_unused_sm(clock_pio, true);
     const uint clock_sm = pio_claim_unused_sm(clock_pio, true);
+    const uint observer_offset =
+        pio_add_program(clock_pio, &issue112_c6b_observer_program);
     const uint clock_offset =
         pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
+    init_observer(clock_pio, observer_sm, observer_offset);
 
     const uint low_control_dma = dma_claim_unused_channel(true);
     const uint low_lookup_dma = dma_claim_unused_channel(true);
@@ -431,11 +436,11 @@ int main(void) {
     channel_config_set_read_increment(&observer_cfg, false);
     channel_config_set_write_increment(&observer_cfg, true);
     channel_config_set_dreq(
-        &observer_cfg, pio_get_dreq(io_pio, observer_sm, false));
+        &observer_cfg, pio_get_dreq(clock_pio, observer_sm, false));
     channel_config_set_high_priority(&observer_cfg, true);
     dma_channel_configure(
         observer_dma, &observer_cfg,
-        observer_words, &io_pio->rxf[observer_sm],
+        observer_words, &clock_pio->rxf[observer_sm],
         ISSUE112_OBSERVER_WORDS, false);
 
     dma_sniffer_set_data_accumulator(0u);
@@ -450,13 +455,13 @@ int main(void) {
     pio_sm_exec(frontend_pio, frontend1_sm, pio_encode_jmp(frontend_offset));
     pio_sm_restart(io_pio, responder_sm);
     pio_sm_exec(io_pio, responder_sm, pio_encode_jmp(responder_offset));
-    pio_sm_restart(io_pio, observer_sm);
-    pio_sm_exec(io_pio, observer_sm, pio_encode_jmp(observer_offset));
+    pio_sm_restart(clock_pio, observer_sm);
+    pio_sm_exec(clock_pio, observer_sm, pio_encode_jmp(observer_offset));
 
     pio_sm_set_enabled(frontend_pio, frontend0_sm, true);
     pio_sm_set_enabled(frontend_pio, frontend1_sm, true);
     pio_sm_set_enabled(io_pio, responder_sm, true);
-    pio_sm_set_enabled(io_pio, observer_sm, true);
+    pio_sm_set_enabled(clock_pio, observer_sm, true);
 
     init_clock(clock_pio, clock_sm, clock_offset);
 
