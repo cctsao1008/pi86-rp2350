@@ -1,0 +1,82 @@
+.pio_version rp2350
+
+.program issue112_c6_addr_frontend
+; Continuous C5C-style address frontend.
+;
+; Two instances capture GPIO0..13 and GPIO14..27. TX preload is the
+; corresponding 64 KiB-aligned LUT base >> 16. One absolute LUT pointer is
+; emitted for every physical ASTB/T1 cycle.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16             ; RESET deasserted
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+.program issue112_c6_responder
+; Continuous response sink.
+;
+; One pre-encoded GPIO word is consumed for every bus cycle. BUFRW is the jmp
+; pin: LOW=read, HIGH=write. Read cycles drive AD during the proven C5 window.
+; Write cycles discard the speculative read value and keep AD high-Z.
+.wrap_target
+    pull block
+    wait 0 gpio 9
+    jmp pin write_cycle
+
+read_cycle:
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    mov pindirs, null
+    jmp next_response
+
+write_cycle:
+    mov pindirs, null
+
+next_response:
+.wrap
+
+
+.program issue112_c6_observer
+; Finite evidence stream for consecutive cycles.
+;
+; RX per cycle:
+;   [0] T1 raw GPIO snapshot
+;   [1] R2 raw GPIO snapshot
+;
+; R2 is used as the first write-data witness. The C harness classifies the T1
+; control/address and checks whether a physical write to 10800h carries 1234h.
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9              ; AF
+    wait 1 gpio 21             ; R1
+    wait 0 gpio 21             ; F1
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block
+    jmp observer_next
+.wrap
