@@ -7,6 +7,10 @@
  * T1 (ISSUE106_TAIL_MODE=1):
  *   T1-qualified known SRAM pointer -> control DMA -> SRAM DMA -> responder.
  *
+ * T2 (ISSUE106_TAIL_MODE=2):
+ *   T1-qualified known LUT pointer -> control DMA -> one dynamic LUT read
+ *   -> SRAM pointer control DMA -> SRAM DMA -> responder.
+ *
  * These probes keep the same RESET/T1 qualification, physical observer, and
  * responder as C5A/B. They isolate how much of the 6 MHz R3 miss belongs to
  * the tail versus the address-translation front half.
@@ -37,8 +41,9 @@
 #define ISSUE106_TAIL_MODE 0
 #endif
 
-#if ISSUE106_TAIL_MODE != 0 && ISSUE106_TAIL_MODE != 1
-#error "ISSUE106_TAIL_MODE must be 0 (direct data) or 1 (fixed SRAM pointer)"
+#if ISSUE106_TAIL_MODE != 0 && ISSUE106_TAIL_MODE != 1 && \
+    ISSUE106_TAIL_MODE != 2
+#error "ISSUE106_TAIL_MODE must be 0 (direct data), 1 (fixed SRAM pointer), or 2 (single LUT)"
 #endif
 
 #define ISSUE106_TIMEOUT_US 100000u
@@ -47,6 +52,7 @@
 #define ISSUE106_RESET_WORD 0xfeeBu
 
 static uint32_t encoded_word;
+static uint32_t lookup_cell;
 static uint32_t observer_words[ISSUE106_OBSERVER_WORDS];
 
 static const uint8_t ad_gpio[16] = {
@@ -200,14 +206,17 @@ int main(void) {
     sleep_ms(50);
 
     encoded_word = encode_word(ISSUE106_RESET_WORD);
+    lookup_cell = (uint32_t)(uintptr_t)&encoded_word;
     for (uint i = 0u; i < ISSUE106_OBSERVER_WORDS; ++i)
         observer_words[i] = 0u;
 
     printf("issue106 C5-T%u tail latency lab\n", ISSUE106_TAIL_MODE);
 #if ISSUE106_TAIL_MODE == 0
     printf("scope: T1 -> direct encoded-data DMA -> responder\n");
-#else
+#elif ISSUE106_TAIL_MODE == 1
     printf("scope: T1 -> fixed pointer control DMA -> SRAM DMA -> responder\n");
+#else
+    printf("scope: T1 -> one dynamic LUT -> SRAM DMA -> responder\n");
 #endif
     printf("processor clock: %u Hz (empirical; Intel compliance not claimed)\n",
            ISSUE106_PROCESSOR_HZ);
@@ -221,8 +230,10 @@ int main(void) {
 
 #if ISSUE106_TAIL_MODE == 0
     const uint32_t trigger_value = encoded_word;
-#else
+#elif ISSUE106_TAIL_MODE == 1
     const uint32_t trigger_value = (uint32_t)(uintptr_t)&encoded_word;
+#else
+    const uint32_t trigger_value = (uint32_t)(uintptr_t)&lookup_cell;
 #endif
     init_trigger(trigger_pio, trigger_sm, trigger_offset, trigger_value);
 
@@ -242,7 +253,10 @@ int main(void) {
         pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
 
     const uint trigger_dma = dma_claim_unused_channel(true);
-#if ISSUE106_TAIL_MODE == 1
+#if ISSUE106_TAIL_MODE == 2
+    const uint lookup_dma = dma_claim_unused_channel(true);
+#endif
+#if ISSUE106_TAIL_MODE == 1 || ISSUE106_TAIL_MODE == 2
     const uint raw_data_dma = dma_claim_unused_channel(true);
 #endif
     const uint observer_dma = dma_claim_unused_channel(true);
@@ -273,6 +287,20 @@ int main(void) {
         raw_data_dma, &raw_cfg,
         &io_pio->txf[responder_sm], &encoded_word, 1u, false);
 
+#if ISSUE106_TAIL_MODE == 2
+    dma_channel_config lookup_cfg =
+        dma_channel_get_default_config(lookup_dma);
+    channel_config_set_transfer_data_size(&lookup_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&lookup_cfg, false);
+    channel_config_set_write_increment(&lookup_cfg, false);
+    channel_config_set_dreq(&lookup_cfg, DREQ_FORCE);
+    channel_config_set_high_priority(&lookup_cfg, true);
+    dma_channel_configure(
+        lookup_dma, &lookup_cfg,
+        &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
+        &lookup_cell, 1u, false);
+#endif
+
     dma_channel_config trigger_cfg =
         dma_channel_get_default_config(trigger_dma);
     channel_config_set_transfer_data_size(&trigger_cfg, DMA_SIZE_32);
@@ -281,10 +309,17 @@ int main(void) {
     channel_config_set_dreq(
         &trigger_cfg, pio_get_dreq(trigger_pio, trigger_sm, false));
     channel_config_set_high_priority(&trigger_cfg, true);
+#if ISSUE106_TAIL_MODE == 1
     dma_channel_configure(
         trigger_dma, &trigger_cfg,
         &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
         &trigger_pio->rxf[trigger_sm], 1u, false);
+#else
+    dma_channel_configure(
+        trigger_dma, &trigger_cfg,
+        &dma_channel_hw_addr(lookup_dma)->al3_read_addr_trig,
+        &trigger_pio->rxf[trigger_sm], 1u, false);
+#endif
 #endif
 
     dma_channel_config observer_cfg =
@@ -323,7 +358,10 @@ int main(void) {
 
     const uint64_t settle_deadline = time_us_64() + ISSUE106_TIMEOUT_US;
     const bool trigger_done = wait_dma_idle(trigger_dma, settle_deadline);
-#if ISSUE106_TAIL_MODE == 1
+#if ISSUE106_TAIL_MODE == 2
+    const bool lookup_done = wait_dma_idle(lookup_dma, settle_deadline);
+#endif
+#if ISSUE106_TAIL_MODE == 1 || ISSUE106_TAIL_MODE == 2
     const bool raw_done = wait_dma_idle(raw_data_dma, settle_deadline);
 #endif
 
@@ -382,11 +420,21 @@ int main(void) {
            lane_ok && read_ok ? "PASS" : "FAIL");
 #if ISSUE106_TAIL_MODE == 0
     printf("PIPELINE: trigger=%s\n", trigger_done ? "DONE" : "TIMEOUT");
-#else
+#elif ISSUE106_TAIL_MODE == 1
     printf("PIPELINE: ptrctl=%s sram=%s\n",
            trigger_done ? "DONE" : "TIMEOUT",
            raw_done ? "DONE" : "TIMEOUT");
     printf("FIXED SRAM PTR: actual=%08" PRIx32 " expected=%08" PRIx32 "\n",
+           dma_channel_hw_addr(raw_data_dma)->read_addr,
+           (uint32_t)(uintptr_t)&encoded_word);
+#else
+    printf("PIPELINE: lutctl=%s lookup=%s sram=%s\n",
+           trigger_done ? "DONE" : "TIMEOUT",
+           lookup_done ? "DONE" : "TIMEOUT",
+           raw_done ? "DONE" : "TIMEOUT");
+    printf("LOOKUP CELL: addr=%08" PRIx32 " value=%08" PRIx32 "\n",
+           (uint32_t)(uintptr_t)&lookup_cell, lookup_cell);
+    printf("SRAM PTR: actual=%08" PRIx32 " expected=%08" PRIx32 "\n",
            dma_channel_hw_addr(raw_data_dma)->read_addr,
            (uint32_t)(uintptr_t)&encoded_word);
 #endif
@@ -408,6 +456,8 @@ int main(void) {
         read_ok && trigger_done && first_valid_phase >= 0;
 #if ISSUE106_TAIL_MODE == 1
     pass = pass && raw_done;
+#elif ISSUE106_TAIL_MODE == 2
+    pass = pass && lookup_done && raw_done;
 #endif
 
     printf("RESULT: %s (expected data=%04x, valid matches=%u)\n",
