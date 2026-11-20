@@ -41,7 +41,7 @@
 #define ISSUE106_FRONTEND_BITS 16u
 #define ISSUE106_FRONTEND_WORDS (1u + ISSUE106_FRONTEND_BITS + 1u)
 #define ISSUE106_FRONTEND_FINISH_REL 19u
-#define ISSUE106_OBSERVER_WORDS 5u
+#define ISSUE106_OBSERVER_WORDS 18u
 #define ISSUE106_RESET_WORD 0xfeeBu
 #define ISSUE106_DMA_SNIFF_SUM_MODE 0x0fu
 
@@ -255,7 +255,9 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 
 static const char *phase_name(uint index) {
     static const char *const names[ISSUE106_OBSERVER_WORDS] = {
-        "T1", "AF", "R1", "F1", "R2"
+        "T1", "AF",
+        "R1", "F1", "R2", "F2", "R3", "F3", "R4", "F4",
+        "R5", "F5", "R6", "F6", "R7", "F7", "R8", "F8"
     };
     return index < ISSUE106_OBSERVER_WORDS ? names[index] : "?";
 }
