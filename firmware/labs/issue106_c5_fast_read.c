@@ -48,6 +48,10 @@
 #define ISSUE106_PARALLEL_LOOKUPS 0
 #endif
 
+#ifndef ISSUE106_FUSED_SUM
+#define ISSUE106_FUSED_SUM 0
+#endif
+
 #define ISSUE106_TIMEOUT_US 100000u
 #define ISSUE106_ADDR_LUT_ENTRIES 16384u
 #define ISSUE106_ENCODED_WORDS 32768u
@@ -270,7 +274,8 @@ int main(void) {
     sleep_ms(50);
 
     printf("issue106 C5%s fast one-shot WORD-read timing lab\n",
-           ISSUE106_PARALLEL_LOOKUPS ? "B" : "A");
+           ISSUE106_FUSED_SUM ? "C" :
+           (ISSUE106_PARALLEL_LOOKUPS ? "B" : "A"));
     printf("scope: parallel 14b LUT frontend -> SRAM -> preencoded AD drive\n");
     printf("processor clock: %u Hz (empirical; Intel compliance not claimed)\n",
            ISSUE106_PROCESSOR_HZ);
@@ -337,8 +342,19 @@ int main(void) {
     channel_config_set_chain_to(&low_lookup_cfg, high_control_dma);
     channel_config_set_high_priority(&low_lookup_cfg, true);
 #endif
+#if ISSUE106_FUSED_SUM
+    /*
+     * C5C: the low lookup writes its contribution directly into the DMA
+     * sniffer accumulator. The following high lookup is the only sniffed
+     * channel and adds its contribution in SUM mode. This removes the
+     * separate two-transfer combine DMA from the realtime tail.
+     */
+    dma_channel_configure(low_lookup_dma, &low_lookup_cfg,
+                          &dma_hw->sniff_data, &addr_lut[0][0], 1u, false);
+#else
     dma_channel_configure(low_lookup_dma, &low_lookup_cfg,
                           &address_parts[0], &addr_lut[0][0], 1u, false);
+#endif
 
     dma_channel_config low_control_cfg =
         dma_channel_get_default_config(low_control_dma);
@@ -361,7 +377,12 @@ int main(void) {
     channel_config_set_read_increment(&high_lookup_cfg, false);
     channel_config_set_write_increment(&high_lookup_cfg, false);
     channel_config_set_dreq(&high_lookup_cfg, DREQ_FORCE);
+#if ISSUE106_FUSED_SUM
+    channel_config_set_chain_to(&high_lookup_cfg, pointer_dma);
+    channel_config_set_sniff_enable(&high_lookup_cfg, true);
+#else
     channel_config_set_chain_to(&high_lookup_cfg, combine_dma);
+#endif
 #if ISSUE106_PARALLEL_LOOKUPS
     channel_config_set_high_priority(&high_lookup_cfg, false);
 #else
@@ -413,6 +434,7 @@ int main(void) {
         &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
         &dma_hw->sniff_data, 1u, false);
 
+#if !ISSUE106_FUSED_SUM
     dma_channel_config combine_cfg =
         dma_channel_get_default_config(combine_dma);
     channel_config_set_transfer_data_size(&combine_cfg, DMA_SIZE_32);
@@ -424,6 +446,7 @@ int main(void) {
     channel_config_set_high_priority(&combine_cfg, true);
     dma_channel_configure(combine_dma, &combine_cfg,
                           &sniff_sink, address_parts, 2u, false);
+#endif
 
     dma_channel_config observer_cfg =
         dma_channel_get_default_config(observer_dma);
@@ -438,7 +461,11 @@ int main(void) {
                           ISSUE106_OBSERVER_WORDS, false);
 
     dma_sniffer_set_data_accumulator(0u);
+#if ISSUE106_FUSED_SUM
+    dma_sniffer_enable(high_lookup_dma, ISSUE106_DMA_SNIFF_SUM_MODE, false);
+#else
     dma_sniffer_enable(combine_dma, ISSUE106_DMA_SNIFF_SUM_MODE, false);
+#endif
 
 #if ISSUE106_PARALLEL_LOOKUPS
     /*
@@ -490,8 +517,12 @@ int main(void) {
         wait_dma_idle(high_control_dma, settle_deadline);
     const bool high_lookup_done =
         wait_dma_idle(high_lookup_dma, settle_deadline);
+#if ISSUE106_FUSED_SUM
+    const bool combine_done = true;
+#else
     const bool combine_done =
         wait_dma_idle(combine_dma, settle_deadline);
+#endif
     const bool pointer_done =
         wait_dma_idle(pointer_dma, settle_deadline);
     const bool raw_done =
@@ -566,8 +597,13 @@ int main(void) {
            combine_done ? "DONE" : "TIMEOUT",
            pointer_done ? "DONE" : "TIMEOUT",
            raw_done ? "DONE" : "TIMEOUT");
+#if ISSUE106_FUSED_SUM
+    printf("ADDR PARTS: low=fused-to-sniffer high=%08" PRIx32 "\n",
+           address_parts[1]);
+#else
     printf("ADDR PARTS: low=%08" PRIx32 " high=%08" PRIx32 "\n",
            address_parts[0], address_parts[1]);
+#endif
     printf("SRAM PTR: actual=%08" PRIx32 " expected=%08" PRIxPTR "\n",
            final_pointer, expected_pointer);
 
@@ -594,7 +630,8 @@ int main(void) {
     printf("RESULT: %s (expected data=%04x, valid matches=%u)\n",
            pass ? "PASS" : "FAIL", ISSUE106_RESET_WORD, valid_matches);
     printf("NOTE: C5%s speed-first representation; not canonical memory format.\n",
-           ISSUE106_PARALLEL_LOOKUPS ? "B" : "A");
+           ISSUE106_FUSED_SUM ? "C" :
+           (ISSUE106_PARALLEL_LOOKUPS ? "B" : "A"));
 
     while (true) tight_loop_contents();
 }
