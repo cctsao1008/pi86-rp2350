@@ -463,6 +463,47 @@ foreach(_mode IN ITEMS 0 1)
 endforeach()
 
 
+# Phase C5C fused-sum latency probe.
+# Keeps the C5A serialized lookup ordering, but removes the separate two-word
+# combine DMA: low_lookup writes the low contribution directly to SNIFF_DATA,
+# high_lookup is sniffed in SUM mode and chains directly to pointer_dma.
+foreach(_mhz IN ITEMS 4 6)
+    set(_target rp86_issue106_c5c_fused_read_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c5_fast_read.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+        ISSUE106_FUSED_SUM=1
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_fast_read.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
