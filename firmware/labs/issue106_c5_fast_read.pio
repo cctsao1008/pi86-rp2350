@@ -1,0 +1,89 @@
+.pio_version rp2350
+
+.program issue106_c5_addr_frontend
+; C5 speed-first frontend.
+;
+; Two instances of this same program capture GPIO0..13 and GPIO14..27.
+; Each 14-bit raw GPIO chunk directly indexes one 16K-entry LUT. The LUT base
+; is 64 KiB aligned, so the absolute uint32_t entry pointer is:
+;
+;   (lut_base >> 16) : raw_chunk[13:0] : 00
+;
+; This removes the C4 per-address-bit DMA-fed microinstruction loop from the
+; realtime path.
+;
+; TX preload: LUT base >> 16
+; RX result: absolute LUT entry pointer
+
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16             ; RESET deasserted
+    wait 1 gpio 21             ; clean post-reset clock phase
+    wait 0 gpio 21
+    wait 0 gpio 9              ; reject reset-release ASTB transient
+    wait 1 gpio 9              ; first real T1 / ASTB rise
+    nop [7]
+
+    mov isr, null
+    in y, 16                   ; pointer bits 31:16
+    in pins, 14                ; table index bits 15:2
+    in null, 2                 ; sizeof(uint32_t)
+    push block
+
+frontend_park:
+    jmp frontend_park
+
+
+.program issue106_c5_responder
+; One-shot scattered-AD response. TX receives one pre-encoded GPIO0..27 word.
+; The response is released after two post-drive falling CLK edges.
+
+    pull block
+    wait 0 gpio 9
+    out pins, 28
+    mov pindirs, ~null
+
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+
+    mov pindirs, null
+responder_park:
+    jmp responder_park
+
+
+.program issue106_c5_observer
+; Independent physical timing observer.
+;
+; RX:
+;   [0] T1
+;   [1] AF
+;   [2..17] R1/F1 through R8/F8
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9
+    mov isr, pins
+    push block
+
+    set x, 7
+phase_loop:
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+    jmp x-- phase_loop
+
+observer_park:
+    jmp observer_park
