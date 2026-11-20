@@ -44,6 +44,10 @@
 #define ISSUE106_PROCESSOR_HZ 6000000u
 #endif
 
+#ifndef ISSUE106_PARALLEL_LOOKUPS
+#define ISSUE106_PARALLEL_LOOKUPS 0
+#endif
+
 #define ISSUE106_TIMEOUT_US 100000u
 #define ISSUE106_ADDR_LUT_ENTRIES 16384u
 #define ISSUE106_ENCODED_WORDS 32768u
@@ -265,7 +269,8 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
-    printf("issue106 C5A fast one-shot WORD-read timing lab\n");
+    printf("issue106 C5%s fast one-shot WORD-read timing lab\n",
+           ISSUE106_PARALLEL_LOOKUPS ? "B" : "A");
     printf("scope: parallel 14b LUT frontend -> SRAM -> preencoded AD drive\n");
     printf("processor clock: %u Hz (empirical; Intel compliance not claimed)\n",
            ISSUE106_PROCESSOR_HZ);
@@ -319,8 +324,19 @@ int main(void) {
     channel_config_set_read_increment(&low_lookup_cfg, false);
     channel_config_set_write_increment(&low_lookup_cfg, false);
     channel_config_set_dreq(&low_lookup_cfg, DREQ_FORCE);
+#if ISSUE106_PARALLEL_LOOKUPS
+    /*
+     * C5B: both frontend legs are armed before RESET release. Keep the low
+     * leg high-priority and the high leg low-priority; high_lookup remains
+     * the combine trigger, so the low leg is expected to have committed its
+     * address contribution first. This is an experimental latency probe, not
+     * yet the production rendezvous contract.
+     */
+    channel_config_set_high_priority(&low_lookup_cfg, true);
+#else
     channel_config_set_chain_to(&low_lookup_cfg, high_control_dma);
     channel_config_set_high_priority(&low_lookup_cfg, true);
+#endif
     dma_channel_configure(low_lookup_dma, &low_lookup_cfg,
                           &address_parts[0], &addr_lut[0][0], 1u, false);
 
@@ -346,7 +362,11 @@ int main(void) {
     channel_config_set_write_increment(&high_lookup_cfg, false);
     channel_config_set_dreq(&high_lookup_cfg, DREQ_FORCE);
     channel_config_set_chain_to(&high_lookup_cfg, combine_dma);
+#if ISSUE106_PARALLEL_LOOKUPS
+    channel_config_set_high_priority(&high_lookup_cfg, false);
+#else
     channel_config_set_high_priority(&high_lookup_cfg, true);
+#endif
     dma_channel_configure(high_lookup_dma, &high_lookup_cfg,
                           &address_parts[1], &addr_lut[1][0], 1u, false);
 
@@ -359,7 +379,11 @@ int main(void) {
         &high_control_cfg,
         pio_get_dreq(frontend_pio, frontend1_sm, false));
     channel_config_set_chain_to(&high_control_cfg, high_lookup_dma);
+#if ISSUE106_PARALLEL_LOOKUPS
+    channel_config_set_high_priority(&high_control_cfg, false);
+#else
     channel_config_set_high_priority(&high_control_cfg, true);
+#endif
     dma_channel_configure(
         high_control_dma, &high_control_cfg,
         &dma_channel_hw_addr(high_lookup_dma)->read_addr,
@@ -416,12 +440,21 @@ int main(void) {
     dma_sniffer_set_data_accumulator(0u);
     dma_sniffer_enable(combine_dma, ISSUE106_DMA_SNIFF_SUM_MODE, false);
 
+#if ISSUE106_PARALLEL_LOOKUPS
     /*
-     * The chained sequence starts at low_control. high_control is started by
-     * low_lookup, and the remaining address/read path advances entirely by
-     * DMA chaining or the dynamic read-address trigger.
+     * C5B latency probe: arm both frontend-control channels before RESET
+     * release. They wait independently on their PIO RX DREQs. The low leg is
+     * high-priority; the high leg is low-priority and its lookup completion
+     * triggers the combine stage.
      */
     dma_channel_start(low_control_dma);
+    dma_channel_start(high_control_dma);
+#else
+    /*
+     * C5A baseline: serialize low lookup -> high control -> high lookup.
+     */
+    dma_channel_start(low_control_dma);
+#endif
     dma_channel_start(observer_dma);
 
     pio_sm_restart(frontend_pio, frontend0_sm);
@@ -560,7 +593,8 @@ int main(void) {
 
     printf("RESULT: %s (expected data=%04x, valid matches=%u)\n",
            pass ? "PASS" : "FAIL", ISSUE106_RESET_WORD, valid_matches);
-    printf("NOTE: C5A speed-first representation; not canonical memory format.\n");
+    printf("NOTE: C5%s speed-first representation; not canonical memory format.\n",
+           ISSUE106_PARALLEL_LOOKUPS ? "B" : "A");
 
     while (true) tight_loop_contents();
 }
