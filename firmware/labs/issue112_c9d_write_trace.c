@@ -221,12 +221,13 @@ static void prepare_memory(void) {
         0xe9u, 0xa0u, 0xfeu,                 /* jmp 0x0 */
 #else
         0xe9u, 0xd3u, 0xfeu,         /* jmp near 0000h */
+        0x90u                        /* pad to a complete backing word */
 #endif
-        0x90u
 #else
         0xe9u, 0xf4u, 0xfeu          /* jmp near 0000h from next IP 010Ch */
 #endif
     };
+    _Static_assert(sizeof stack_init % 2u == 0u, "stack_init must contain complete words");
     load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
     load_bytes(0x0100u, stack_init, sizeof stack_init);
 #else
