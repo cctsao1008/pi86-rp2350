@@ -1008,6 +1008,7 @@ target_include_directories(rp86_issue112_c9u_single_responder_witness_4mhz_lab P
 target_compile_definitions(rp86_issue112_c9u_single_responder_witness_4mhz_lab PRIVATE
     ISSUE112_STACK_PROBE=1
     ISSUE112_READ_ADDRESS_WITNESS=1
+    ISSUE112_SINGLE_RESPONDER_WITNESS=1
     ISSUE112_READ_HOLD_CYCLES=4
     ISSUE112_FRONTEND_DELAY_CYCLES=3
     ISSUE112_PROCESSOR_HZ=4000000u
