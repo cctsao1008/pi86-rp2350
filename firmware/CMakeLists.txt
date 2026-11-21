@@ -769,7 +769,7 @@ pico_enable_stdio_uart(rp86_issue112_c9d_write_trace_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c9d_write_trace_4mhz_lab)
 
 # Issue #112: compare stack setup in the reset vector and ordinary RAM.
-foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init c9g_sp_paths c9h_read_hold c9i_read_setup c9j_read_window)
+foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init c9g_sp_paths c9h_read_hold c9i_read_setup c9j_read_window c9k_register_controls)
     set(_target rp86_issue112_${_probe}_4mhz_lab)
     add_executable(${_target} EXCLUDE_FROM_ALL
         labs/issue112_c9d_write_trace.c
@@ -784,16 +784,19 @@ foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init c9g_sp_paths c9h_read
         target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_INIT_IN_RAM=1)
     endif()
 
-    if(_probe MATCHES "^c9[g-j]_")
+    if(_probe MATCHES "^c9[g-k]_")
         target_compile_definitions(${_target} PRIVATE ISSUE112_SP_PATHS=1)
     endif()
-    if(_probe MATCHES "^c9[h-j]_")
+    if(_probe MATCHES "^c9[h-k]_")
         target_compile_definitions(${_target} PRIVATE ISSUE112_READ_HOLD_CYCLES=4)
     endif()
-    if(_probe MATCHES "^c9[i-j]_")
+    if(_probe MATCHES "^c9[i-k]_")
         target_compile_definitions(${_target} PRIVATE ISSUE112_FRONTEND_DELAY_CYCLES=3)
     endif()
-    if(_probe STREQUAL "c9j_read_window")
+    if(_probe STREQUAL "c9k_register_controls")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_REGISTER_CONTROLS=1)
+    endif()
+    if(_probe MATCHES "^c9[j-k]_")
         target_compile_definitions(${_target} PRIVATE ISSUE112_READ_WINDOW_TRACE=1)
     endif()
 
