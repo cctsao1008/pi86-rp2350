@@ -37,7 +37,14 @@
 #include "intel_8086_clock.pio.h"
 #ifdef ISSUE112_STACK_PROBE
 #include "issue112_c8c_read_latch.pio.h"
+#ifdef ISSUE112_READ_ECHO_STRESS
+#include "issue112_read_echo_stress.h"
+#define issue112_stack_probe_data issue112_read_echo_stress_data
+#define issue112_stack_probe_size issue112_read_echo_stress_size
+#define issue112_stack_probe_sha256 issue112_read_echo_stress_sha256
+#else
 #include "issue112_stack_probe.h"
+#endif
 #ifdef ISSUE112_MEMORY_STACK
 #include "issue112_mem_stack_init.h"
 #endif
@@ -62,7 +69,10 @@
 #define ISSUE112_TIMEOUT_US 250000u
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_ALE_PHASE
+#ifdef ISSUE112_READ_ECHO_STRESS
+#define ISSUE112_TRACE_CYCLE_LIMIT 512u
+#define ISSUE112_READ_ECHO_ITERATIONS 8u
+#elif defined(ISSUE112_ALE_PHASE)
 #define ISSUE112_TRACE_CYCLE_LIMIT 224u
 #else
 #define ISSUE112_TRACE_CYCLE_LIMIT 128u
@@ -231,7 +241,16 @@ static void prepare_memory(void) {
     for (uint i = 0u; i < ISSUE112_ENCODED_WORDS * ISSUE112_SLOTS_PER_WORD; ++i)
         encoded_backing[i] = encode_word(0x9090u);
 
-#ifdef ISSUE112_STACK_INIT_IN_RAM
+#ifdef ISSUE112_READ_ECHO_STRESS
+    /*
+     * C9R intentionally avoids SS/SP and all stack operations. RESET performs
+     * only a far transfer into the repeated read->echo workload.
+     */
+    static const uint8_t reset_stub[] = {
+        0xeau, 0x00u, 0x00u, 0x00u, 0x10u, 0x90u
+    };
+    load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
+#elif defined(ISSUE112_STACK_INIT_IN_RAM)
     /* Keep the stack values and witness identical to C9E. Only move the
      * initialization instructions to 1000:0100, then jump to the witness. */
     static const uint8_t reset_stub[] = {
@@ -331,7 +350,7 @@ static void prepare_memory(void) {
     hard_assert(issue112_stack_probe_size <= 0x0800u);
 #endif
     load_bytes(0x0000u, issue112_stack_probe_data, issue112_stack_probe_size);
-#ifdef ISSUE112_ALE_PHASE
+#if defined(ISSUE112_ALE_PHASE) && !defined(ISSUE112_READ_ECHO_STRESS)
     /* After the RET marker, write an odd word between two distinct guards,
      * then have the CPU read both affected words and store the observations. */
     static const uint8_t lane_probe[] = {
@@ -632,6 +651,98 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 }
 
 #ifdef ISSUE112_STACK_PROBE
+#ifdef ISSUE112_READ_ECHO_STRESS
+static bool report_read_echo_stress(uint32_t cycles) {
+    static const uint32_t src_addr[4] = {
+        0x10100u, 0x10102u, 0x10104u, 0x10106u
+    };
+    static const uint32_t echo_addr[4] = {
+        0x10900u, 0x10902u, 0x10904u, 0x10906u
+    };
+    static const uint16_t expected[4] = {
+        0x1000u, 0xfffeu, 0xd08eu, 0xa55au
+    };
+
+    uint32_t read_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t echo_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t bus_errors = 0u;
+    uint32_t echo_errors = 0u;
+    uint32_t printed_errors = 0u;
+    uint32_t done_hits = 0u;
+
+    for (uint32_t i = 0u; i < cycles; ++i) {
+        const uint32_t *sample = &trace_words[i * ISSUE112_TRACE_STRIDE];
+        const uint32_t t1 = sample[0];
+        const uint32_t addr = decode_address(t1);
+        const bool write = is_memory_write(t1);
+        const bool word =
+            sample_bit(t1, RP86_PROCESSOR_PIN_AD0) == 0u &&
+            sample_bit(t1, RP86_PROCESSOR_PIN_UBE) == 0u;
+
+        for (uint j = 0u; j < 4u; ++j) {
+            if (!write && word && addr == src_addr[j]) {
+                ++read_hits[j];
+                const uint16_t t3 =
+                    decode_ad(sample[ISSUE112_TRACE_R2_INDEX]);
+                const uint16_t t4 =
+                    decode_ad(sample[ISSUE112_TRACE_R2_INDEX + 1u]);
+                if (t3 != expected[j] || t4 != expected[j]) {
+                    ++bus_errors;
+                    if (printed_errors++ < 12u)
+                        printf("BUS MISMATCH C[%03" PRIu32
+                               "] src=%05" PRIx32
+                               " T3=%04x T4=%04x expected=%04x\n",
+                               i, addr, t3, t4, expected[j]);
+                }
+            }
+            if (write && word && addr == echo_addr[j]) {
+                ++echo_hits[j];
+                const uint16_t data =
+                    decode_ad(sample[ISSUE112_TRACE_R2_INDEX]);
+                if (data != expected[j]) {
+                    ++echo_errors;
+                    if (printed_errors++ < 12u)
+                        printf("CPU ECHO MISMATCH C[%03" PRIu32
+                               "] dst=%05" PRIx32
+                               " data=%04x expected=%04x\n",
+                               i, addr, data, expected[j]);
+                }
+            }
+        }
+
+        if (write && word && addr == 0x10908u) {
+            const uint16_t data =
+                decode_ad(sample[ISSUE112_TRACE_R2_INDEX]);
+            if (data == 0xc9a5u) ++done_hits;
+            else {
+                ++echo_errors;
+                if (printed_errors++ < 12u)
+                    printf("DONE MISMATCH C[%03" PRIu32
+                           "] data=%04x expected=c9a5\n", i, data);
+            }
+        }
+    }
+
+    bool counts_ok = done_hits == 1u;
+    for (uint j = 0u; j < 4u; ++j) {
+        printf("READ[%u]  %05" PRIx32 " expected=%04x hits=%" PRIu32 "\n",
+               j, src_addr[j], expected[j], read_hits[j]);
+        printf("ECHO[%u]  %05" PRIx32 " expected=%04x hits=%" PRIu32 "\n",
+               j, echo_addr[j], expected[j], echo_hits[j]);
+        counts_ok = counts_ok &&
+            read_hits[j] == ISSUE112_READ_ECHO_ITERATIONS &&
+            echo_hits[j] == ISSUE112_READ_ECHO_ITERATIONS;
+    }
+
+    printf("READ BUS ERRORS: %" PRIu32 "\n", bus_errors);
+    printf("CPU ECHO ERRORS: %" PRIu32 "\n", echo_errors);
+    printf("DONE MARKER: %" PRIu32 " %s\n",
+           done_hits, done_hits == 1u ? "PASS" : "FAIL");
+
+    return counts_ok && bus_errors == 0u && echo_errors == 0u;
+}
+#endif
+
 static bool report_stack_probe(uint32_t cycles) {
 #ifdef ISSUE112_ALE_PHASE
     unsigned split_high = 0u, split_low = 0u;
@@ -805,7 +916,10 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-#if defined(ISSUE112_READ_HOLD_CYCLES)
+#ifdef ISSUE112_READ_ECHO_STRESS
+    printf("issue112 C9R repeated CPU read-echo discriminator @ 4MHz\n");
+    printf("scope: aligned CS reads -> AX -> aligned echo writes; no stack\n");
+#elif defined(ISSUE112_READ_HOLD_CYCLES)
     const uint32_t sys_hz = clock_get_hz(clk_sys);
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
@@ -851,6 +965,7 @@ int main(void) {
 #else
     printf("issue112 C9E reset fetch and stack probe @ 4MHz\n");
 #endif
+#endif /* ISSUE112_READ_ECHO_STRESS / stack-probe banner */
 #else
     printf("issue112 C9D PI-STRESS write-routing discriminator @ 4MHz\n");
     printf("scope: trace physical MEMW address/data vs final backing corruption\n");
@@ -858,11 +973,16 @@ int main(void) {
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
 #ifdef ISSUE112_STACK_PROBE
+#ifdef ISSUE112_READ_ECHO_STRESS
+    printf("Read-echo image: %u bytes sha256=%s\n",
+           (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
+#else
 #ifdef ISSUE112_ALE_PHASE
     printf("C9O overlays: idle jump 0040 -> 0050, 26-byte lane test at 0050\n");
 #endif
     printf("Stack probe image: %u bytes sha256=%s\n",
            (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
+#endif
 #else
     printf("PI image: %u bytes sha256=%s\n",
            (unsigned)pi_stress_workload_size, pi_stress_workload_sha256);
@@ -1174,13 +1294,22 @@ int main(void) {
     printf("BUS TRACE: %s (%" PRIu32 "/%u cycles)\n",
            trace_complete ? "COMPLETE" : "TIMEOUT",
            cycles, ISSUE112_TRACE_CYCLE_LIMIT);
+#ifdef ISSUE112_READ_ECHO_STRESS
+    const bool stack_ok = report_read_echo_stress(cycles);
+#else
     bool stack_ok = report_stack_probe(cycles);
 #ifdef ISSUE112_ADDRESS_AUDIT
     stack_ok &= report_address_audit(audit_count, cycles);
 #endif
+#endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
+#ifdef ISSUE112_READ_ECHO_STRESS
+    printf("READ-ECHO RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#else
     printf("STACK PROBE RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#endif
 #else
     const uint32_t captured_writes = (ISSUE112_TRACE_WORDS - trace_remaining) / 2u;
     printf("WRITE TRACE: %s (%" PRIu32 "/%u writes)\n",
