@@ -1,0 +1,96 @@
+.pio_version rp2350
+
+.program issue112_c9d_addr_frontend
+; Continuous C5C-style read address frontend.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+.program issue112_c9d_responder
+; Read response + write-data capture.
+; BUFRW is jmp pin: LOW=read, HIGH=write.
+.wrap_target
+response_loop:
+    pull block
+    wait 0 gpio 9
+    jmp pin write_cycle
+
+read_cycle:
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    mov pindirs, null
+    jmp response_loop
+
+write_cycle:
+    mov pindirs, null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block                 ; write data only
+    jmp response_loop
+.wrap
+
+
+.program issue112_c9d_pointer_router
+; TX receives the current backing pointer only AFTER the SRAM read DMA has
+; completed for that bus cycle. BUFRW is jmp pin.
+;
+; Reads discard the pointer. Writes publish it to RX, providing a write-only
+; pointer FIFO independent from the responder's write-data FIFO.
+.wrap_target
+router_loop:
+    pull block
+    mov y, osr
+    wait 0 gpio 9
+    jmp pin publish_write
+    jmp router_loop
+
+publish_write:
+    mov isr, y
+    push block
+    jmp router_loop
+.wrap
+
+
+.program issue112_c9d_observer
+; Diagnostic observer: one T1 sample plus one R2 sample per physical bus cycle.
+; This is intentionally compact so a long trace fits in SRAM.
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9              ; AF
+    wait 1 gpio 21             ; R1
+    wait 0 gpio 21             ; F1
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block
+
+    jmp observer_next
+.wrap
