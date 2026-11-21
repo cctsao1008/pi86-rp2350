@@ -1,0 +1,76 @@
+.pio_version rp2350
+
+.program issue106_intel_clock_reset
+.side_set 1
+; Intel 8086-2 clock + deterministic RESET release.
+; PIO0 owns CLK (side-set GPIO21) and RESET (SET GPIO16).
+
+    set pins, 1                side 0
+
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+
+    set pins, 0                side 0
+
+.wrap_target
+    nop                        side 1 [1]
+    nop                        side 0 [2]
+.wrap
+
+
+.program issue106_post_reset_t1_observer
+; First-cycle T1 aperture scan.
+;
+; Run on a different PIO block from the clock/reset SM. The observer is enabled
+; before clock start and waits on physical RESET deassertion, then on the first
+; ASTB rise. Twelve full-bank snapshots are taken every two PIO cycles:
+;   2 / 150 MHz ~= 13.3 ns between samples.
+;
+; This directly exposes the interval in which A19..A16 and AD15..AD0 are valid
+; as address before the multiplexed pins transition into T2/status/data.
+
+    wait 0 gpio 16
+    wait 0 gpio 9
+    wait 1 gpio 9
+
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+    mov isr, pins
+    push noblock
+
+observer_park:
+    jmp observer_park

@@ -1,0 +1,88 @@
+.pio_version rp2350
+
+.program issue112_c6b_addr_frontend
+; Continuous C5C-style address frontend. Two instances capture GPIO0..13 and
+; GPIO14..27 and publish one absolute LUT-entry pointer per ASTB/T1 cycle.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+.program issue112_c6b_responder
+; Continuous speculative read responder. BUFRW is jmp pin:
+; LOW=read, HIGH=write. Every cycle consumes one pre-encoded backing word to
+; keep DMA/PIO cycle ownership aligned; write cycles keep AD high-Z.
+.wrap_target
+response_loop:
+    pull block
+    wait 0 gpio 9
+    jmp pin write_cycle
+
+read_cycle:
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    mov pindirs, null
+    jmp response_loop
+
+write_cycle:
+    mov pindirs, null
+    jmp response_loop
+.wrap
+
+
+.program issue112_c6b_observer
+; Per-cycle evidence:
+;   [0] T1
+;   [1] R2
+;   [2] F2
+;   [3] R3
+;   [4] F3
+;
+; This removes the C6 assumption that write data must already be valid at R2.
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9              ; AF
+    wait 1 gpio 21             ; R1
+    wait 0 gpio 21             ; F1
+
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block
+    wait 0 gpio 21             ; F2
+    mov isr, pins
+    push block
+    wait 1 gpio 21             ; R3
+    mov isr, pins
+    push block
+    wait 0 gpio 21             ; F3
+    mov isr, pins
+    push block
+
+    jmp observer_next
+.wrap

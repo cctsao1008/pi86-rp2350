@@ -1,0 +1,88 @@
+.pio_version rp2350
+
+.program issue112_c7_addr_frontend
+; Continuous C5C-style address frontend.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+.program issue112_c7_responder
+; Continuous read responder plus write-data capture.
+; BUFRW is the jmp pin: LOW=read, HIGH=write.
+;
+; For a write cycle the CPU's scattered AD data is sampled at R2 and pushed
+; to RX. C7 consumes only the first write sample with DMA and commits it to
+; the dynamic backing address. Later writes remain observer-only.
+.wrap_target
+response_loop:
+    pull block
+    wait 0 gpio 9
+    jmp pin write_cycle
+
+read_cycle:
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    mov pindirs, null
+    jmp response_loop
+
+write_cycle:
+    mov pindirs, null
+    wait 1 gpio 21             ; R1
+    wait 0 gpio 21             ; F1
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block
+    jmp response_loop
+.wrap
+
+
+.program issue112_c7_observer
+; Per-cycle evidence: T1 + R2/F2/R3/F3.
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9
+    wait 1 gpio 21
+    wait 0 gpio 21
+
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+    wait 0 gpio 21
+    mov isr, pins
+    push block
+
+    jmp observer_next
+.wrap

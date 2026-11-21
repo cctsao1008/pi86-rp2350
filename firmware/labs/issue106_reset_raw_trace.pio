@@ -1,0 +1,22 @@
+.pio_version rp2350
+
+.program issue106_reset_raw_trace
+; Passive high-speed reset/T1 trace.
+;
+; The SM is armed while RESET is already asserted and before the processor
+; clock starts. ASTB must be inactive-low in this bounded reset state, so the
+; first ASTB rising edge observed after clock/reset release is the first formal
+; processor bus cycle. This avoids RESET-readback latency in the capture path.
+;
+; Capture one settled full-bank GPIO snapshot per ASTB pulse. No address repack
+; and no pin driving occur in the realtime path.
+
+    wait 0 gpio 9              ; establish inactive ASTB baseline under RESET
+
+.wrap_target
+    wait 1 gpio 9              ; first/next formal T1
+    nop [3]                    ; ~26.7 ns settle at 150 MHz PIO clock
+    mov isr, pins
+    push block
+    wait 0 gpio 9
+.wrap
