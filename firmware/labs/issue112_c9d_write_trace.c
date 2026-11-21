@@ -49,10 +49,18 @@
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
 #ifdef ISSUE112_STACK_PROBE
 #define ISSUE112_TRACE_CYCLE_LIMIT 128u
+#ifdef ISSUE112_READ_WINDOW_TRACE
+#define ISSUE112_TRACE_STRIDE 8u
+#define ISSUE112_TRACE_R2_INDEX 5u
+#define ISSUE112_OBSERVER_PROGRAM issue112_c9j_window_observer_program
+#define ISSUE112_OBSERVER_CONFIG issue112_c9j_window_observer_program_get_default_config
+#else
 #define ISSUE112_TRACE_STRIDE 5u
-#define ISSUE112_TRACE_WORDS (ISSUE112_TRACE_CYCLE_LIMIT * ISSUE112_TRACE_STRIDE)
+#define ISSUE112_TRACE_R2_INDEX 4u
 #define ISSUE112_OBSERVER_PROGRAM issue112_c8c_observer_program
 #define ISSUE112_OBSERVER_CONFIG issue112_c8c_observer_program_get_default_config
+#endif
+#define ISSUE112_TRACE_WORDS (ISSUE112_TRACE_CYCLE_LIMIT * ISSUE112_TRACE_STRIDE)
 #else
 #define ISSUE112_TRACE_WORDS (ISSUE112_TRACE_WRITE_LIMIT * 2u)
 #define ISSUE112_OBSERVER_PROGRAM issue112_c9d_observer_program
@@ -418,10 +426,15 @@ static bool report_stack_probe(uint32_t cycles) {
         if (write) ++captured_writes;
         if (i < 72u || write) {
             printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s"
-                   " rawT1=%08" PRIx32 " AF=%04x R1=%04x F1=%04x R2=%04x\n",
+                   " rawT1=%08" PRIx32 " AF=%04x R1=%04x F1=%04x R2=%04x",
                    i, write ? "MEMW" : "BUS ", decode_address(t1),
                    lane_name(t1), t1, decode_ad(sample[1]), decode_ad(sample[2]),
-                   decode_ad(sample[3]), decode_ad(sample[4]));
+                   decode_ad(sample[3]), decode_ad(sample[ISSUE112_TRACE_R2_INDEX]));
+#ifdef ISSUE112_READ_WINDOW_TRACE
+            printf(" F1_LATE=%04x R2_LATE=%04x F2=%04x",
+                   decode_ad(sample[4]), decode_ad(sample[6]), decode_ad(sample[7]));
+#endif
+            printf("\n");
         }
     }
 
@@ -469,7 +482,7 @@ static bool report_stack_probe(uint32_t cycles) {
         bool trace_ok = false;
         if (cycle < cycles) {
             const uint16_t data =
-                decode_ad(trace_words[cycle * ISSUE112_TRACE_STRIDE + 4u]);
+                decode_ad(trace_words[cycle * ISSUE112_TRACE_STRIDE + ISSUE112_TRACE_R2_INDEX]);
             trace_ok = data == writes[i].expected;
             printf("%s: addr=%05" PRIx32 " data=%04x expected=%04x %s\n",
                    writes[i].step, writes[i].address, data, writes[i].expected,
@@ -503,7 +516,11 @@ int main(void) {
     const uint32_t sys_hz = clock_get_hz(clk_sys);
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
+#ifdef ISSUE112_READ_WINDOW_TRACE
+    printf("issue112 C9J read window probe @ 4MHz\n");
+#else
     printf("issue112 C9I earlier read response probe @ 4MHz\n");
+#endif
     printf("ADDRESS SETTLE: %u delay cycles (baseline 7)\n",
            (unsigned)ISSUE112_FRONTEND_DELAY_CYCLES);
 #else

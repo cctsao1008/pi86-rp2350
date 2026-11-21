@@ -103,3 +103,45 @@ capture_write:
     push block
     jmp observer_next
 .wrap
+
+
+.program issue112_c9j_window_observer
+; T1 + AF/R1/F1/F1_LATE/R2/R2_LATE/F2 GPIO samples.
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9              ; AF
+    mov isr, pins
+    push block
+
+    wait 1 gpio 21             ; R1
+    mov isr, pins
+    push block
+
+    wait 0 gpio 21             ; F1
+    mov isr, pins
+    push block
+
+    nop [11]
+    mov isr, pins               ; F1_LATE
+    push block
+
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block
+
+    nop [5]
+    mov isr, pins               ; R2_LATE
+    push block
+
+    wait 0 gpio 21              ; F2
+    mov isr, pins
+    push block
+
+    jmp observer_next
+.wrap
