@@ -1173,6 +1173,53 @@ pico_enable_stdio_uart(rp86_issue112_c9x_early_preload_word_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c9x_early_preload_word_4mhz_lab)
 
 
+# Issue #112 C9Y: front-end latency repair for aligned WORD reads.
+# Reuses the exact C9W workload/checker and C9X early-preload responder, but
+# removes the remaining address-front-end latency: PIO input synchronisers are
+# bypassed for GPIO0..27 and the address-settle delay is reduced from 3 to 0.
+add_executable(rp86_issue112_c9y_fast_frontend_word_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9y_fast_frontend_word_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9y_fast_frontend_word_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_INDIRECT_WORD_WITNESS=1
+    ISSUE112_EARLY_READ_PRELOAD=1
+    ISSUE112_FRONTEND_SYNC_BYPASS=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=0
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_indirect_word_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9y_fast_frontend_word_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9y_fast_frontend_word_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9y_fast_frontend_word_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
