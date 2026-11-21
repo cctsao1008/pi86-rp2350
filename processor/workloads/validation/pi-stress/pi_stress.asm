@@ -116,8 +116,8 @@ compute_pi_q8_24:
     shl ax, 1
     rcl dx, 1
     loop .scale16
-    mov [pi_tmp_lo - $], ax
-    mov [pi_tmp_hi - $], dx
+    mov [pi_tmp_lo], ax
+    mov [pi_tmp_hi], dx
 
     mov bx, 239
     call atan_recip_q8_24             ; DX:AX = atan(1/239)
@@ -130,8 +130,8 @@ compute_pi_q8_24:
     mov si, ax
     mov di, dx
 
-    mov ax, [pi_tmp_lo - $]
-    mov dx, [pi_tmp_hi - $]
+    mov ax, [pi_tmp_lo]
+    mov dx, [pi_tmp_hi]
     sub ax, si
     sbb dx, di
 
@@ -163,58 +163,58 @@ atan_recip_q8_24:
     ; x^2 fits in 16 bits for x = 5 and x = 239.
     mov ax, bx
     mul bx
-    mov [atan_square - $], ax
+    mov [atan_square], ax
 
     ; power = 1.0 / x, where Q8.24 1.0 = 01000000h.
     xor ax, ax
     mov dx, 0100h
     call udiv32_u16
-    mov [atan_power_lo - $], ax
-    mov [atan_power_hi - $], dx
+    mov [atan_power_lo], ax
+    mov [atan_power_hi], dx
 
-    mov word [atan_sum_lo - $], 0
-    mov word [atan_sum_hi - $], 0
-    mov word [atan_odd - $], 1
-    mov word [atan_negative - $], 0
+    mov word [atan_sum_lo], 0
+    mov word [atan_sum_hi], 0
+    mov word [atan_odd], 1
+    mov word [atan_negative], 0
 
 .series:
     ; term = power / odd
-    mov ax, [atan_power_lo - $]
-    mov dx, [atan_power_hi - $]
-    mov bx, [atan_odd - $]
+    mov ax, [atan_power_lo]
+    mov dx, [atan_power_hi]
+    mov bx, [atan_odd]
     call udiv32_u16
 
     mov cx, ax
     or cx, dx
     jz .done
 
-    cmp word [atan_negative - $], 0
+    cmp word [atan_negative], 0
     jne .subtract
 
-    add [atan_sum_lo - $], ax
-    adc [atan_sum_hi - $], dx
+    add [atan_sum_lo], ax
+    adc [atan_sum_hi], dx
     jmp short .advance
 
 .subtract:
-    sub [atan_sum_lo - $], ax
-    sbb [atan_sum_hi - $], dx
+    sub [atan_sum_lo], ax
+    sbb [atan_sum_hi], dx
 
 .advance:
     ; power /= x^2
-    mov ax, [atan_power_lo - $]
-    mov dx, [atan_power_hi - $]
-    mov bx, [atan_square - $]
+    mov ax, [atan_power_lo]
+    mov dx, [atan_power_hi]
+    mov bx, [atan_square]
     call udiv32_u16
-    mov [atan_power_lo - $], ax
-    mov [atan_power_hi - $], dx
+    mov [atan_power_lo], ax
+    mov [atan_power_hi], dx
 
-    add word [atan_odd - $], 2
-    xor word [atan_negative - $], 1
+    add word [atan_odd], 2
+    xor word [atan_negative], 1
     jmp .series
 
 .done:
-    mov ax, [atan_sum_lo - $]
-    mov dx, [atan_sum_hi - $]
+    mov ax, [atan_sum_lo]
+    mov dx, [atan_sum_hi]
 
     pop bp
     pop di
