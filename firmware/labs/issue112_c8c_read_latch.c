@@ -183,7 +183,8 @@ static void prepare_memory(void) {
         0x2eu, 0xa1u, 0x06u, 0x08u,
         0x2eu, 0xa3u, 0x16u, 0x08u,
 
-        0xebu, 0xfeu
+        0xebu, 0xfeu,
+        0x90u                       /* even-length backing padding */
     };
     load_bytes(0x0000u, program, sizeof program);
 
