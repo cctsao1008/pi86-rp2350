@@ -900,6 +900,53 @@ pico_enable_stdio_uart(rp86_issue112_c9r_read_echo_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c9r_read_echo_4mhz_lab)
 
 
+# Issue #112 C9S: deterministic read-drive phase repair at 4 MHz.
+# Reuses the C9R read-echo workload and split-lane backing, but replaces the
+# responder's level-sensitive CLK drive-start wait with a latched per-cycle
+# phase event generated independently from DMA completion timing.
+add_executable(rp86_issue112_c9s_deterministic_read_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9s_deterministic_read_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9s_deterministic_read_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_READ_ECHO_STRESS=1
+    ISSUE112_ALE_PHASE=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_DETERMINISTIC_READ_PHASE=1
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_read_echo_stress
+)
+
+pico_generate_pio_header(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9s_deterministic_read_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9s_deterministic_read_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9s_deterministic_read_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
