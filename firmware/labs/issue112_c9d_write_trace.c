@@ -37,7 +37,12 @@
 #include "intel_8086_clock.pio.h"
 #ifdef ISSUE112_STACK_PROBE
 #include "issue112_c8c_read_latch.pio.h"
-#ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#include "issue112_read_address_witness.h"
+#define issue112_stack_probe_data issue112_read_address_witness_data
+#define issue112_stack_probe_size issue112_read_address_witness_size
+#define issue112_stack_probe_sha256 issue112_read_address_witness_sha256
+#elif defined(ISSUE112_READ_ECHO_STRESS)
 #include "issue112_read_echo_stress.h"
 #define issue112_stack_probe_data issue112_read_echo_stress_data
 #define issue112_stack_probe_size issue112_read_echo_stress_size
@@ -69,7 +74,7 @@
 #define ISSUE112_TIMEOUT_US 250000u
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ECHO_STRESS
+#if defined(ISSUE112_READ_ECHO_STRESS) || defined(ISSUE112_READ_ADDRESS_WITNESS)
 #define ISSUE112_TRACE_CYCLE_LIMIT 512u
 #define ISSUE112_READ_ECHO_ITERATIONS 8u
 #elif defined(ISSUE112_ALE_PHASE)
@@ -241,10 +246,10 @@ static void prepare_memory(void) {
     for (uint i = 0u; i < ISSUE112_ENCODED_WORDS * ISSUE112_SLOTS_PER_WORD; ++i)
         encoded_backing[i] = encode_word(0x9090u);
 
-#ifdef ISSUE112_READ_ECHO_STRESS
+#if defined(ISSUE112_READ_ECHO_STRESS) || defined(ISSUE112_READ_ADDRESS_WITNESS)
     /*
-     * C9R intentionally avoids SS/SP and all stack operations. RESET performs
-     * only a far transfer into the repeated read->echo workload.
+     * C9R/C9T intentionally avoid SS/SP and all stack operations. RESET
+     * performs only a far transfer into the selected read discriminator.
      */
     static const uint8_t reset_stub[] = {
         0xeau, 0x00u, 0x00u, 0x00u, 0x10u, 0x90u
@@ -350,7 +355,9 @@ static void prepare_memory(void) {
     hard_assert(issue112_stack_probe_size <= 0x0800u);
 #endif
     load_bytes(0x0000u, issue112_stack_probe_data, issue112_stack_probe_size);
-#if defined(ISSUE112_ALE_PHASE) && !defined(ISSUE112_READ_ECHO_STRESS)
+#if defined(ISSUE112_ALE_PHASE) && \
+    !defined(ISSUE112_READ_ECHO_STRESS) && \
+    !defined(ISSUE112_READ_ADDRESS_WITNESS)
     /* After the RET marker, write an odd word between two distinct guards,
      * then have the CPU read both affected words and store the observations. */
     static const uint8_t lane_probe[] = {
@@ -667,7 +674,94 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 }
 
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_READ_ADDRESS_WITNESS
+static bool report_read_address_witness(uint32_t cycles) {
+    static const uint32_t src_addr[4] = {
+        0x10100u, 0x10102u, 0x10104u, 0x10106u
+    };
+    static const uint16_t expected_data[4] = {
+        0x1000u, 0xfffeu, 0xd08eu, 0xa55au
+    };
+    static const uint32_t witness_addr[4] = {
+        0x13000u, 0x11ffeu, 0x1f08eu, 0x1c55au
+    };
+
+    uint32_t read_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t witness_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t bus_errors = 0u;
+    uint32_t unexpected_writes = 0u;
+    uint32_t done_hits = 0u;
+    uint32_t printed = 0u;
+
+    for (uint32_t i = 0u; i < cycles; ++i) {
+        const uint32_t *sample = &trace_words[i * ISSUE112_TRACE_STRIDE];
+        const uint32_t t1 = sample[0];
+        const uint32_t addr = decode_address(t1);
+        const bool write = is_memory_write(t1);
+        const bool word =
+            sample_bit(t1, RP86_PROCESSOR_PIN_AD0) == 0u &&
+            sample_bit(t1, RP86_PROCESSOR_PIN_UBE) == 0u;
+
+        for (uint j = 0u; j < 4u; ++j) {
+            if (!write && word && addr == src_addr[j]) {
+                ++read_hits[j];
+                const uint16_t t3 =
+                    decode_ad(sample[ISSUE112_TRACE_R2_INDEX]);
+                const uint16_t t4 =
+                    decode_ad(sample[ISSUE112_TRACE_R2_INDEX + 1u]);
+                if (t3 != expected_data[j] || t4 != expected_data[j]) {
+                    ++bus_errors;
+                    if (printed++ < 12u)
+                        printf("BUS MISMATCH C[%03" PRIu32
+                               "] src=%05" PRIx32
+                               " T3=%04x T4=%04x expected=%04x\n",
+                               i, addr, t3, t4, expected_data[j]);
+                }
+            }
+            if (write && word && addr == witness_addr[j])
+                ++witness_hits[j];
+        }
+
+        if (write && word && addr == 0x10908u) {
+            ++done_hits;
+            continue;
+        }
+
+        if (write && word) {
+            bool expected_write = false;
+            for (uint j = 0u; j < 4u; ++j)
+                expected_write |= addr == witness_addr[j];
+            if (!expected_write) {
+                ++unexpected_writes;
+                if (printed++ < 12u)
+                    printf("UNEXPECTED AX-ADDRESS C[%03" PRIu32
+                           "] addr=%05" PRIx32 "\n", i, addr);
+            }
+        }
+    }
+
+    bool counts_ok = done_hits == 1u;
+    for (uint j = 0u; j < 4u; ++j) {
+        printf("READ[%u]    %05" PRIx32
+               " expected=%04x hits=%" PRIu32 "\n",
+               j, src_addr[j], expected_data[j], read_hits[j]);
+        printf("AXADDR[%u]  %05" PRIx32
+               " hits=%" PRIu32 " expected=%u\n",
+               j, witness_addr[j], witness_hits[j],
+               ISSUE112_READ_ECHO_ITERATIONS);
+        counts_ok = counts_ok &&
+            read_hits[j] == ISSUE112_READ_ECHO_ITERATIONS &&
+            witness_hits[j] == ISSUE112_READ_ECHO_ITERATIONS;
+    }
+
+    printf("READ BUS ERRORS: %" PRIu32 "\n", bus_errors);
+    printf("UNEXPECTED AX ADDRESSES: %" PRIu32 "\n", unexpected_writes);
+    printf("DONE ADDRESS: %" PRIu32 " %s\n",
+           done_hits, done_hits == 1u ? "PASS" : "FAIL");
+
+    return counts_ok && bus_errors == 0u && unexpected_writes == 0u;
+}
+#elif defined(ISSUE112_READ_ECHO_STRESS)
 static bool report_read_echo_stress(uint32_t cycles) {
     static const uint32_t src_addr[4] = {
         0x10100u, 0x10102u, 0x10104u, 0x10106u
@@ -932,7 +1026,10 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_READ_ADDRESS_WITNESS
+    printf("issue112 C9T CPU read address-witness discriminator @ 4MHz\n");
+    printf("scope: CPU-latched AX -> BX -> physical write address; ignore write data\n");
+#elif defined(ISSUE112_READ_ECHO_STRESS)
 #ifdef ISSUE112_DETERMINISTIC_READ_PHASE
     printf("issue112 C9S deterministic read-drive phase @ 4MHz\n");
     printf("scope: C9R read-echo workload with latched fixed drive event\n");
@@ -993,7 +1090,10 @@ int main(void) {
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_READ_ADDRESS_WITNESS
+    printf("Address-witness image: %u bytes sha256=%s\n",
+           (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
+#elif defined(ISSUE112_READ_ECHO_STRESS)
     printf("Read-echo image: %u bytes sha256=%s\n",
            (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
 #else
@@ -1314,7 +1414,9 @@ int main(void) {
     printf("BUS TRACE: %s (%" PRIu32 "/%u cycles)\n",
            trace_complete ? "COMPLETE" : "TIMEOUT",
            cycles, ISSUE112_TRACE_CYCLE_LIMIT);
-#ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_READ_ADDRESS_WITNESS
+    const bool stack_ok = report_read_address_witness(cycles);
+#elif defined(ISSUE112_READ_ECHO_STRESS)
     const bool stack_ok = report_read_echo_stress(cycles);
 #else
     bool stack_ok = report_stack_probe(cycles);
@@ -1323,7 +1425,10 @@ int main(void) {
 #endif
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
-#ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_READ_ADDRESS_WITNESS
+    printf("ADDRESS-WITNESS RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#elif defined(ISSUE112_READ_ECHO_STRESS)
     printf("READ-ECHO RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
 #ifdef ISSUE112_DETERMINISTIC_READ_PHASE
