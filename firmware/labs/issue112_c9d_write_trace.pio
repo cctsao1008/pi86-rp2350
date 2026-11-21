@@ -145,3 +145,70 @@ observer_next:
 
     jmp observer_next
 .wrap
+
+; Each byte lane uses a separate PIO block. Its phase SM raises local IRQ 0
+; at the rising edge in T3. Reads hold through the following falling edge.
+.program issue112_c9o_phase
+.wrap_target
+    wait 1 gpio 9
+    irq clear 0
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    irq 0
+.wrap
+
+.program issue112_c9o_responder
+; TX = lane backing value, then its address. Active writes publish an
+; address/data pair on RX. Reads drive only this PIO block's eight AD pins.
+.wrap_target
+next_cycle:
+    wait 1 gpio 9
+    nop [7]
+    mov osr, pins
+public select_bit:
+    out null, 26                ; low: A0, patched to UBE# for high
+    out x, 1                    ; 0 means selected
+    pull block
+    wait 0 gpio 9
+    jmp pin write_cycle
+    out pins, 28
+    jmp x-- skip_drive
+    wait 0 gpio 21
+    mov pindirs, ~null
+skip_drive:
+    pull block                  ; discard backing address
+    wait 1 irq 0
+    wait 0 gpio 21 [4]          ; start T4, then hold
+    mov pindirs, null
+    jmp next_cycle
+write_cycle:
+    pull block                  ; backing address
+    jmp x-- next_cycle
+    mov isr, osr
+    push block
+    wait 1 irq 0
+    mov isr, pins
+    push block
+.wrap
+
+.program issue112_c9o_observer
+; Compact observer shares instruction memory with address lookup and CLK.
+.wrap_target
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    mov isr, pins               ; T3 rising
+    push block
+    wait 0 gpio 21
+    mov isr, pins               ; T4 entry
+    push block
+.wrap

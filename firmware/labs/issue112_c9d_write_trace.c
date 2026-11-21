@@ -59,8 +59,17 @@
 #define ISSUE112_TIMEOUT_US 250000u
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
 #ifdef ISSUE112_STACK_PROBE
+#ifdef ISSUE112_ALE_PHASE
+#define ISSUE112_TRACE_CYCLE_LIMIT 224u
+#else
 #define ISSUE112_TRACE_CYCLE_LIMIT 128u
-#ifdef ISSUE112_READ_WINDOW_TRACE
+#endif
+#if defined(ISSUE112_ALE_PHASE)
+#define ISSUE112_TRACE_STRIDE 3u
+#define ISSUE112_TRACE_R2_INDEX 1u
+#define ISSUE112_OBSERVER_PROGRAM issue112_c9o_observer_program
+#define ISSUE112_OBSERVER_CONFIG issue112_c9o_observer_program_get_default_config
+#elif defined(ISSUE112_READ_WINDOW_TRACE)
 #define ISSUE112_TRACE_STRIDE 8u
 #define ISSUE112_TRACE_R2_INDEX 5u
 #define ISSUE112_OBSERVER_PROGRAM issue112_c9j_window_observer_program
@@ -107,7 +116,17 @@
 
 static uint32_t addr_lut[2][ISSUE112_ADDR_LUT_ENTRIES]
     __attribute__((aligned(65536)));
-static uint32_t encoded_backing[ISSUE112_ENCODED_WORDS];
+#ifdef ISSUE112_ALE_PHASE
+#define ISSUE112_SLOTS_PER_WORD 2u
+#else
+#define ISSUE112_SLOTS_PER_WORD 1u
+#endif
+static uint32_t encoded_backing[ISSUE112_ENCODED_WORDS * ISSUE112_SLOTS_PER_WORD];
+#ifdef ISSUE112_ALE_PHASE
+/* The reset stub and code are immutable throughout this probe. */
+static uint16_t initial_code[0x160u / 2u];
+static uint16_t reset_words[8];
+#endif
 static uint32_t address_high_part;
 static uint32_t trace_words[ISSUE112_TRACE_WORDS];
 
@@ -167,7 +186,9 @@ static uint32_t encode_word(uint16_t value) {
 
 static void set_encoded_word(uint16_t byte_address, uint16_t value) {
     hard_assert((byte_address & 1u) == 0u);
-    encoded_backing[byte_address >> 1u] = encode_word(value);
+    const uint32_t encoded = encode_word(value);
+    for (uint lane = 0; lane < ISSUE112_SLOTS_PER_WORD; ++lane)
+        encoded_backing[(byte_address >> 1u) * ISSUE112_SLOTS_PER_WORD + lane] = encoded;
 }
 
 static void load_bytes(uint16_t byte_address,
@@ -184,13 +205,18 @@ static void load_bytes(uint16_t byte_address,
 
 static uint16_t backing_word(uint16_t byte_address) {
     hard_assert((byte_address & 1u) == 0u);
+#ifdef ISSUE112_ALE_PHASE
+    return (decode_ad(encoded_backing[byte_address]) & 0x00ffu) |
+           (decode_ad(encoded_backing[byte_address + 1u]) & 0xff00u);
+#else
     return decode_ad(encoded_backing[byte_address >> 1u]);
+#endif
 }
 
 static void prepare_memory(void) {
     const uintptr_t backing_base = (uintptr_t)encoded_backing;
 
-    for (uint i = 0u; i < ISSUE112_ENCODED_WORDS; ++i)
+    for (uint i = 0u; i < ISSUE112_ENCODED_WORDS * ISSUE112_SLOTS_PER_WORD; ++i)
         encoded_backing[i] = encode_word(0x9090u);
 
 #ifdef ISSUE112_STACK_INIT_IN_RAM
@@ -288,6 +314,24 @@ static void prepare_memory(void) {
     hard_assert(issue112_stack_probe_size <= 0x0800u);
 #endif
     load_bytes(0x0000u, issue112_stack_probe_data, issue112_stack_probe_size);
+#ifdef ISSUE112_ALE_PHASE
+    /* After the RET marker, write an odd word between two distinct guards,
+     * then have the CPU read both affected words and store the observations. */
+    static const uint8_t lane_probe[] = {
+        0x2e, 0xc7, 0x06, 0x61, 0x08, 0x5a, 0xa5, /* mov word [cs:0861],a55a */
+        0x2e, 0xa1, 0x60, 0x08,                   /* mov ax,[cs:0860] */
+        0x2e, 0xa3, 0x64, 0x08,                   /* mov [cs:0864],ax */
+        0x2e, 0xa1, 0x62, 0x08,                   /* mov ax,[cs:0862] */
+        0x2e, 0xa3, 0x66, 0x08,                   /* mov [cs:0866],ax */
+        0xeb, 0xfe, 0x90
+    };
+    _Static_assert(sizeof lane_probe == 26u, "lane probe bounds");
+    hard_assert(issue112_stack_probe_size <= 0x50u && backing_word(0x0040u) == 0xfeebu);
+    set_encoded_word(0x0040u, 0x0eebu); /* short jump from 0042 to 0050 */
+    load_bytes(0x0050u, lane_probe, sizeof lane_probe);
+    set_encoded_word(0x0860u, 0x1122u);
+    set_encoded_word(0x0862u, 0x3344u);
+#endif
 #else
     hard_assert((pi_stress_workload_size & 1u) == 0u);
     hard_assert(pi_stress_workload_size <= 0xfff0u);
@@ -304,9 +348,9 @@ static void prepare_memory(void) {
         const uint16_t addr_lo = decode_ad(raw_lo);
         const uint16_t addr_hi = decode_ad(raw_hi);
         const uint32_t offset_lo =
-            ((uint32_t)(addr_lo & 0xfffeu)) << 1u;
+            (uint32_t)(addr_lo & 0xfffeu) * (2u * ISSUE112_SLOTS_PER_WORD);
         const uint32_t offset_hi =
-            ((uint32_t)(addr_hi & 0xfffeu)) << 1u;
+            (uint32_t)(addr_hi & 0xfffeu) * (2u * ISSUE112_SLOTS_PER_WORD);
         addr_lut[0][index] = (uint32_t)backing_base + offset_lo;
         addr_lut[1][index] = offset_hi;
     }
@@ -375,6 +419,7 @@ static uint add_frontend_program(PIO pio) {
 #endif
 }
 
+#ifndef ISSUE112_ALE_PHASE
 static uint add_responder_program(PIO pio) {
 #ifdef ISSUE112_READ_HOLD_CYCLES
     const uint wait_f2 = pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_CLK);
@@ -411,6 +456,61 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
     pio_sm_clear_fifos(pio, sm);
     pio_sm_set_enabled(pio, sm, false);
 }
+
+#endif
+
+#ifdef ISSUE112_ALE_PHASE
+static uint init_lane(PIO pio, uint first_bit, uint select_gpio) {
+    const uint sm = pio_claim_unused_sm(pio, true);
+    const uint phase_sm = pio_claim_unused_sm(pio, true);
+    const uint phase_offset = pio_add_program(pio, &issue112_c9o_phase_program);
+    pio_sm_config phase = issue112_c9o_phase_program_get_default_config(phase_offset);
+    hard_assert(pio_sm_init(pio, phase_sm, phase_offset, &phase) == PICO_OK);
+    pio_interrupt_clear(pio, 0u);
+
+    const uint offset = add_program_with_replacement(
+        pio, &issue112_c9o_responder_program, issue112_c9o_responder_offset_select_bit,
+        pio_encode_out(pio_null, 26u), pio_encode_out(pio_null, select_gpio));
+    pio_sm_config responder = issue112_c9o_responder_program_get_default_config(offset);
+    sm_config_set_out_pins(&responder, 0u, 28u);
+    sm_config_set_in_pins(&responder, 0u);
+    sm_config_set_out_shift(&responder, true, false, 32u);
+    sm_config_set_jmp_pin(&responder, RP86_PROCESSOR_PIN_BUFRW);
+    hard_assert(pio_sm_init(pio, sm, offset, &responder) == PICO_OK);
+    for (uint i = first_bit; i < first_bit + 8u; ++i)
+        pio_gpio_init(pio, ad_gpio[i]);
+    pio_sm_set_consecutive_pindirs(pio, sm, 0u, 28u, false);
+    pio_sm_exec(pio, sm, pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_RESET));
+    pio_sm_exec(pio, phase_sm, pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_RESET));
+    pio_set_sm_mask_enabled(pio, (1u << sm) | (1u << phase_sm), true);
+    return sm;
+}
+
+/* Single-transfer channels reload their count when triggered by the previous
+ * channel. The last TX restarts address lookup only after both pointers have
+ * been delivered, so the sniffer cannot be overwritten by a later cycle. */
+static void lane_dma(uint chan, volatile void *dst, const volatile void *src,
+                     uint dreq, bool increment_src, uint next) {
+    dma_channel_config cfg = dma_channel_get_default_config(chan);
+    channel_config_set_transfer_data_size(&cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&cfg, increment_src);
+    channel_config_set_write_increment(&cfg, false);
+    channel_config_set_high_priority(&cfg, true);
+    channel_config_set_dreq(&cfg, dreq);
+    channel_config_set_chain_to(&cfg, next);
+    dma_channel_configure(chan, &cfg, dst, src, 1u, false);
+}
+
+static void start_lane_writer(PIO pio, uint sm) {
+    const uint addr = dma_claim_unused_channel(true);
+    const uint data = dma_claim_unused_channel(true);
+    const uint rx = pio_get_dreq(pio, sm, false);
+    lane_dma(addr, &dma_channel_hw_addr(data)->al2_write_addr_trig,
+             &pio->rxf[sm], rx, false, addr);
+    lane_dma(data, encoded_backing, &pio->rxf[sm], rx, false, addr);
+    dma_channel_start(addr);
+}
+#endif
 
 static void init_observer(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
@@ -461,13 +561,42 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 
 #ifdef ISSUE112_STACK_PROBE
 static bool report_stack_probe(uint32_t cycles) {
+#ifdef ISSUE112_ALE_PHASE
+    unsigned split_high = 0u, split_low = 0u;
+    uint32_t code_reads = 0u, t3_errors = 0u, t4_errors = 0u;
+#endif
     uint32_t captured_writes = 0u;
     for (uint32_t i = 0u; i < cycles; ++i) {
         const uint32_t *sample = &trace_words[i * ISSUE112_TRACE_STRIDE];
         const uint32_t t1 = sample[0];
         const bool write = is_memory_write(t1);
+#ifdef ISSUE112_ALE_PHASE
+        const uint32_t addr = decode_address(t1);
+        if (write) {
+            const uint16_t data = decode_ad(sample[1]);
+            const bool upper = !sample_bit(t1, RP86_PROCESSOR_PIN_UBE);
+            split_high += addr == 0x10861u && upper && (data >> 8) == 0x5au;
+            split_low += addr == 0x10862u && !upper && (data & 0xffu) == 0xa5u;
+        }
+        const bool reset_fetch = addr >= 0xffff0u;
+        const bool probe_fetch = addr >= 0x10000u && addr < 0x10000u + issue112_stack_probe_size;
+        const bool init_fetch = addr >= 0x10100u && addr < 0x10160u;
+        if (!write && (addr & 1u) == 0u && !sample_bit(t1, RP86_PROCESSOR_PIN_UBE) &&
+            (reset_fetch || probe_fetch || init_fetch || (addr >= 0x10050u && addr < 0x1006au))) {
+            const uint16_t expected = reset_fetch ? reset_words[(addr - 0xffff0u) / 2u] :
+                                                    initial_code[(addr - 0x10000u) / 2u];
+            ++code_reads;
+            t3_errors += decode_ad(sample[1]) != expected;
+            t4_errors += decode_ad(sample[2]) != expected;
+        }
+#endif
         if (write) ++captured_writes;
         if (i < 72u || write) {
+#ifdef ISSUE112_ALE_PHASE
+            printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s T3rise=%04x T4=%04x",
+                   i, write ? "MEMW" : "BUS ", decode_address(t1), lane_name(t1),
+                   decode_ad(sample[1]), decode_ad(sample[2]));
+#else
             printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s"
                    " rawT1=%08" PRIx32 " AF=%04x R1=%04x F1=%04x R2=%04x",
                    i, write ? "MEMW" : "BUS ", decode_address(t1),
@@ -476,6 +605,7 @@ static bool report_stack_probe(uint32_t cycles) {
 #ifdef ISSUE112_READ_WINDOW_TRACE
             printf(" F1_LATE=%04x R2_LATE=%04x F2=%04x",
                    decode_ad(sample[4]), decode_ad(sample[6]), decode_ad(sample[7]));
+#endif
 #endif
             printf("\n");
         }
@@ -517,12 +647,32 @@ static bool report_stack_probe(uint32_t cycles) {
         {"SP inside CALL",   0x1080au, 0xfffcu},
         {"SP after RET",     0x1080cu, 0xfffeu},
         {"RET marker",       0x1080eu, 0xc9e1u},
+#ifdef ISSUE112_ALE_PHASE
+        {"Low guard echo",   0x10864u, 0x5a22u},
+        {"High guard echo",  0x10866u, 0x33a5u},
+#endif
     };
     const uint32_t count = sizeof writes / sizeof writes[0];
-    const bool count_ok = captured_writes == count;
+#ifdef ISSUE112_ALE_PHASE
+    const uint32_t expected_cycles = count + 2u; /* explicit HIGH and LOW */
+#else
+    const uint32_t expected_cycles = count;
+#endif
+    const bool count_ok = captured_writes == expected_cycles;
     bool pass = count_ok;
+#ifdef ISSUE112_ALE_PHASE
+    printf("CODE WORDS: %" PRIu32 " checked, T3rise mismatches=%" PRIu32
+           " T4 mismatches=%" PRIu32 "\n", code_reads, t3_errors, t4_errors);
+    const uint16_t left = backing_word(0x0860u), right = backing_word(0x0862u);
+    const bool lanes_ok = split_high == 1u && split_low == 1u &&
+                          left == 0x5a22u && right == 0x33a5u;
+    printf("BYTE LANES: HIGH=%u LOW=%u backing=%04x/%04x %s\n",
+           split_high, split_low, left, right, lanes_ok ? "PASS" : "FAIL");
+    pass = pass && lanes_ok;
+    pass = pass && code_reads != 0u && t4_errors == 0u;
+#endif
     printf("CAPTURED WRITES: %" PRIu32 " expected=%" PRIu32 " %s\n",
-           captured_writes, count, count_ok ? "PASS" : "FAIL");
+           captured_writes, expected_cycles, count_ok ? "PASS" : "FAIL");
 
     uint32_t next_cycle = 0u;
     for (uint32_t i = 0u; i < count; ++i) {
@@ -573,7 +723,9 @@ int main(void) {
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
 #if defined(ISSUE112_REGISTER_CONTROLS)
-#if defined(ISSUE112_AX_BEFORE_TRANSFER)
+#if defined(ISSUE112_ALE_PHASE)
+    printf("issue112 C9O ALE-synchronized read and byte lanes @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
+#elif defined(ISSUE112_AX_BEFORE_TRANSFER)
     printf("issue112 C9N AX before final transfer @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
 #elif defined(ISSUE112_AX_WITNESS)
     printf("issue112 C9M AX witness @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
@@ -592,8 +744,12 @@ int main(void) {
 #else
     printf("issue112 C9H read hold probe @ 4MHz\n");
 #endif
+#ifdef ISSUE112_ALE_PHASE
+    printf("READ HOLD: ALE-clocked T4 entry +4 PIO cycles, clk_sys=%" PRIu32 " Hz\n", sys_hz);
+#else
     printf("READ HOLD: +%u PIO cycles after F2, clk_sys=%" PRIu32 " Hz\n",
            (unsigned)ISSUE112_READ_HOLD_CYCLES, sys_hz);
+#endif
 #elif defined(ISSUE112_SP_PATHS)
     printf("issue112 C9G SP load and readback paths @ 4MHz\n");
 #elif defined(ISSUE112_STACK_INIT_IN_RAM)
@@ -608,6 +764,9 @@ int main(void) {
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
 #ifdef ISSUE112_STACK_PROBE
+#ifdef ISSUE112_ALE_PHASE
+    printf("C9O overlays: idle jump 0040 -> 0050, 26-byte lane test at 0050\n");
+#endif
     printf("Stack probe image: %u bytes sha256=%s\n",
            (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
 #else
@@ -623,9 +782,19 @@ int main(void) {
     hard_assert(lut1_base - lut0_base == 65536u);
 
     prepare_memory();
+#ifdef ISSUE112_ALE_PHASE
+    for (uint i = 0; i < sizeof initial_code / sizeof initial_code[0]; ++i)
+        initial_code[i] = backing_word((uint16_t)(2u * i));
+    for (uint i = 0; i < 8u; ++i)
+        reset_words[i] = backing_word((uint16_t)(0xfff0u + 2u * i));
+#endif
     prepare_header_safe();
 
+#ifdef ISSUE112_ALE_PHASE
+    PIO frontend_pio = pio1;
+#else
     PIO frontend_pio = pio0;
+#endif
     const uint frontend0_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend1_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend_offset =
@@ -633,6 +802,11 @@ int main(void) {
     init_frontend(frontend_pio, frontend0_sm, frontend_offset, 0u, lut0_base);
     init_frontend(frontend_pio, frontend1_sm, frontend_offset, 14u, lut1_base);
 
+#ifdef ISSUE112_ALE_PHASE
+    PIO low_pio = pio2, high_pio = pio0;
+    const uint low_sm = init_lane(low_pio, 0u, RP86_PROCESSOR_PIN_AD0);
+    const uint high_sm = init_lane(high_pio, 8u, RP86_PROCESSOR_PIN_UBE);
+#else
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
     const uint pointer_router_sm = pio_claim_unused_sm(io_pio, true);
@@ -643,6 +817,7 @@ int main(void) {
     init_responder(io_pio, responder_sm, responder_offset);
     init_pointer_router(io_pio, pointer_router_sm, pointer_router_offset);
 
+#endif
     PIO clock_pio = pio1;
     const uint observer_sm = pio_claim_unused_sm(clock_pio, true);
     const uint clock_sm = pio_claim_unused_sm(clock_pio, true);
@@ -658,9 +833,11 @@ int main(void) {
     const uint high_lookup_dma = dma_claim_unused_channel(true);
     const uint pointer_dma = dma_claim_unused_channel(true);
     const uint raw_data_dma = dma_claim_unused_channel(true);
+#ifndef ISSUE112_ALE_PHASE
     const uint pointer_echo_dma = dma_claim_unused_channel(true);
     const uint write_control_dma = dma_claim_unused_channel(true);
     const uint write_data_dma = dma_claim_unused_channel(true);
+#endif
     const uint observer_dma = dma_claim_unused_channel(true);
 
     dma_channel_config low_lookup_cfg =
@@ -687,7 +864,11 @@ int main(void) {
         low_control_dma, &low_control_cfg,
         &dma_channel_hw_addr(low_lookup_dma)->al3_read_addr_trig,
         &frontend_pio->rxf[frontend0_sm],
+#ifdef ISSUE112_ALE_PHASE
+        1u, false);
+#else
         ISSUE112_BUS_CYCLE_BUDGET, false);
+#endif
 
     dma_channel_config high_lookup_cfg =
         dma_channel_get_default_config(high_lookup_dma);
@@ -715,6 +896,30 @@ int main(void) {
         &dma_channel_hw_addr(high_lookup_dma)->al3_read_addr_trig,
         &frontend_pio->rxf[frontend1_sm], 1u, false);
 
+#ifdef ISSUE112_ALE_PHASE
+    const uint high_read_control = dma_claim_unused_channel(true);
+    const uint high_read = dma_claim_unused_channel(true);
+    const uint low_pointer = dma_claim_unused_channel(true);
+    const uint high_pointer = dma_claim_unused_channel(true);
+    const uint low_tx = pio_get_dreq(low_pio, low_sm, true);
+    const uint high_tx = pio_get_dreq(high_pio, high_sm, true);
+
+    /* P is the low slot. One incrementing read leaves P+4 in READ_ADDR. */
+    lane_dma(pointer_dma, &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
+             &dma_hw->sniff_data, DREQ_FORCE, false, pointer_dma);
+    lane_dma(raw_data_dma, &low_pio->txf[low_sm], encoded_backing,
+             low_tx, true, high_read_control);
+    lane_dma(high_read_control, &dma_channel_hw_addr(high_read)->al3_read_addr_trig,
+             &dma_channel_hw_addr(raw_data_dma)->read_addr, DREQ_FORCE, false, high_read_control);
+    lane_dma(high_read, &high_pio->txf[high_sm], encoded_backing + 1,
+             high_tx, false, low_pointer);
+    lane_dma(low_pointer, &low_pio->txf[low_sm], &dma_hw->sniff_data,
+             low_tx, false, high_pointer);
+    lane_dma(high_pointer, &high_pio->txf[high_sm], &dma_channel_hw_addr(high_read)->read_addr,
+             high_tx, false, low_control_dma);
+    start_lane_writer(low_pio, low_sm);
+    start_lane_writer(high_pio, high_sm);
+#else
     dma_channel_config raw_cfg =
         dma_channel_get_default_config(raw_data_dma);
     channel_config_set_transfer_data_size(&raw_cfg, DMA_SIZE_32);
@@ -783,6 +988,7 @@ int main(void) {
         &io_pio->rxf[pointer_router_sm],
         ISSUE112_WRITE_BUDGET, false);
 
+#endif
     dma_channel_config observer_cfg =
         dma_channel_get_default_config(observer_dma);
     channel_config_set_transfer_data_size(&observer_cfg, DMA_SIZE_32);
@@ -800,26 +1006,35 @@ int main(void) {
     dma_sniffer_enable(high_lookup_dma, ISSUE112_DMA_SNIFF_SUM_MODE, false);
 
     dma_channel_start(low_control_dma);
+#ifndef ISSUE112_ALE_PHASE
     dma_channel_start(write_control_dma);
+#endif
     dma_channel_start(observer_dma);
 
     pio_sm_restart(frontend_pio, frontend0_sm);
     pio_sm_exec(frontend_pio, frontend0_sm, pio_encode_jmp(frontend_offset));
     pio_sm_restart(frontend_pio, frontend1_sm);
     pio_sm_exec(frontend_pio, frontend1_sm, pio_encode_jmp(frontend_offset));
+#ifndef ISSUE112_ALE_PHASE
     pio_sm_restart(io_pio, responder_sm);
     pio_sm_exec(io_pio, responder_sm, pio_encode_jmp(responder_offset));
     pio_sm_restart(io_pio, pointer_router_sm);
     pio_sm_exec(
         io_pio, pointer_router_sm, pio_encode_jmp(pointer_router_offset));
+#endif
     pio_sm_restart(clock_pio, observer_sm);
     pio_sm_exec(
         clock_pio, observer_sm, pio_encode_jmp(observer_offset));
 
     pio_sm_set_enabled(frontend_pio, frontend0_sm, true);
     pio_sm_set_enabled(frontend_pio, frontend1_sm, true);
+#ifndef ISSUE112_ALE_PHASE
     pio_sm_set_enabled(io_pio, responder_sm, true);
     pio_sm_set_enabled(io_pio, pointer_router_sm, true);
+#endif
+#ifdef ISSUE112_ALE_PHASE
+    pio_sm_exec(clock_pio, observer_sm, pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_RESET));
+#endif
     pio_sm_set_enabled(clock_pio, observer_sm, true);
 
     init_clock(clock_pio, clock_sm, clock_offset);
