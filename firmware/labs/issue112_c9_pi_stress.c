@@ -35,7 +35,7 @@
 #include "hardware/structs/sio.h"
 #include "issue112_c8c_read_latch.pio.h"
 #include "intel_8086_clock.pio.h"
-#include "pi_stress_workload.h"
+#include "pi_stress.h"
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
