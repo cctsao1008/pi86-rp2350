@@ -44,7 +44,9 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
+#ifndef ISSUE112_PROCESSOR_HZ
 #define ISSUE112_PROCESSOR_HZ 4000000u
+#endif
 #define ISSUE112_TIMEOUT_US 250000u
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
 #ifdef ISSUE112_STACK_PROBE
@@ -545,7 +547,7 @@ int main(void) {
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
 #if defined(ISSUE112_REGISTER_CONTROLS)
-    printf("issue112 C9K register controls @ 4MHz\n");
+    printf("issue112 C9K register controls @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
 #elif defined(ISSUE112_READ_WINDOW_TRACE)
     printf("issue112 C9J read window probe @ 4MHz\n");
 #else
