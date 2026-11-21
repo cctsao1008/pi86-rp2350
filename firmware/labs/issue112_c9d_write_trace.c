@@ -688,6 +688,27 @@ static bool report_read_address_witness(uint32_t cycles) {
 
     uint32_t read_hits[4] = {0u, 0u, 0u, 0u};
     uint32_t witness_hits[4] = {0u, 0u, 0u, 0u};
+    /*
+     * If the CPU internally sees each 16-bit source with its bytes exchanged,
+     * AX-derived physical witness addresses become:
+     *   1000 -> 0010 -> 12010
+     *   FFFE -> FEFF -> 11EFF/11F00 (odd WORD split)
+     *   D08E -> 8ED0 -> 1AED0
+     *   A55A -> 5AA5 -> 17AA5/17AA6 (odd WORD split)
+     */
+    static const uint32_t swapped_even_addr[4] = {
+        0x12010u, 0u, 0x1aed0u, 0u
+    };
+    static const uint32_t swapped_odd_first[4] = {
+        0u, 0x11effu, 0u, 0x17aa5u
+    };
+    static const uint32_t swapped_odd_second[4] = {
+        0u, 0x11f00u, 0u, 0x17aa6u
+    };
+    uint32_t swapped_even_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t swapped_odd_first_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t swapped_odd_second_hits[4] = {0u, 0u, 0u, 0u};
+    uint32_t zero_ax_hits = 0u;
     uint32_t bus_errors = 0u;
     uint32_t unexpected_writes = 0u;
     uint32_t done_hits = 0u;
@@ -720,7 +741,25 @@ static bool report_read_address_witness(uint32_t cycles) {
             }
             if (write && word && addr == witness_addr[j])
                 ++witness_hits[j];
+
+            if (write && swapped_even_addr[j] != 0u &&
+                addr == swapped_even_addr[j])
+                ++swapped_even_hits[j];
+
+            if (write && swapped_odd_first[j] != 0u &&
+                addr == swapped_odd_first[j])
+                ++swapped_odd_first_hits[j];
+
+            if (write && swapped_odd_second[j] != 0u &&
+                addr == swapped_odd_second[j])
+                ++swapped_odd_second_hits[j];
         }
+
+        /* BX=0000 produces CS:(2000h) = physical 12000h.  C9T's first
+         * source currently shows this once, so report it explicitly instead
+         * of burying it in the generic unexpected count. */
+        if (write && word && addr == 0x12000u)
+            ++zero_ax_hits;
 
         if (write && word && addr == 0x10908u) {
             ++done_hits;
@@ -728,10 +767,13 @@ static bool report_read_address_witness(uint32_t cycles) {
         }
 
         if (write && word) {
-            bool expected_write = false;
-            for (uint j = 0u; j < 4u; ++j)
-                expected_write |= addr == witness_addr[j];
-            if (!expected_write) {
+            bool recognized_write = addr == 0x12000u || addr == 0x10908u;
+            for (uint j = 0u; j < 4u; ++j) {
+                recognized_write |= addr == witness_addr[j];
+                recognized_write |= swapped_even_addr[j] != 0u &&
+                                    addr == swapped_even_addr[j];
+            }
+            if (!recognized_write) {
                 ++unexpected_writes;
                 if (printed++ < 12u)
                     printf("UNEXPECTED AX-ADDRESS C[%03" PRIu32
@@ -754,10 +796,29 @@ static bool report_read_address_witness(uint32_t cycles) {
             witness_hits[j] == ISSUE112_READ_ECHO_ITERATIONS;
     }
 
+    printf("BYTE-SWAP AXADDR[0] 12010 hits=%" PRIu32 "\n",
+           swapped_even_hits[0]);
+    printf("BYTE-SWAP AXADDR[1] 11eff/11f00 hits=%" PRIu32 "/%" PRIu32 "\n",
+           swapped_odd_first_hits[1], swapped_odd_second_hits[1]);
+    printf("BYTE-SWAP AXADDR[2] 1aed0 hits=%" PRIu32 "\n",
+           swapped_even_hits[2]);
+    printf("BYTE-SWAP AXADDR[3] 17aa5/17aa6 hits=%" PRIu32 "/%" PRIu32 "\n",
+           swapped_odd_first_hits[3], swapped_odd_second_hits[3]);
+    printf("ZERO-AX ADDRESS 12000 hits=%" PRIu32 "\n", zero_ax_hits);
     printf("READ BUS ERRORS: %" PRIu32 "\n", bus_errors);
     printf("UNEXPECTED AX ADDRESSES: %" PRIu32 "\n", unexpected_writes);
     printf("DONE ADDRESS: %" PRIu32 " %s\n",
            done_hits, done_hits == 1u ? "PASS" : "FAIL");
+
+    const bool byte_swap_signature =
+        swapped_even_hits[0] + zero_ax_hits == ISSUE112_READ_ECHO_ITERATIONS &&
+        swapped_odd_first_hits[1] == ISSUE112_READ_ECHO_ITERATIONS &&
+        swapped_odd_second_hits[1] == ISSUE112_READ_ECHO_ITERATIONS &&
+        swapped_even_hits[2] == ISSUE112_READ_ECHO_ITERATIONS &&
+        swapped_odd_first_hits[3] == ISSUE112_READ_ECHO_ITERATIONS &&
+        swapped_odd_second_hits[3] == ISSUE112_READ_ECHO_ITERATIONS;
+    printf("BYTE-SWAP SIGNATURE: %s\n",
+           byte_swap_signature ? "MATCH" : "NO MATCH");
 
     return counts_ok && bus_errors == 0u && unexpected_writes == 0u;
 }
