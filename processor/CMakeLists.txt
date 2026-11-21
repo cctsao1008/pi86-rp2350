@@ -76,6 +76,14 @@ rp86_add_processor_image(issue112_read_echo_stress
     SYMBOL issue112_read_echo_stress
 )
 
+# Issue #112 C9T: use the CPU-latched read value as a memory-write address.
+# This avoids depending on the write-data sampling path when distinguishing a
+# CPU read-latch error from a write-observer error.
+rp86_add_processor_image(issue112_read_address_witness
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_read_address_witness.asm"
+    SYMBOL issue112_read_address_witness
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
