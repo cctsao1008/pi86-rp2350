@@ -296,6 +296,26 @@ static void init_frontend(PIO pio, uint sm, uint offset,
     pio_sm_set_enabled(pio, sm, false);
 }
 
+static uint add_responder_program(PIO pio) {
+#ifdef ISSUE112_READ_HOLD_CYCLES
+    /* C9H keeps the C9G instruction sequence and adds delay after F2. */
+    struct pio_program program = issue112_c9d_responder_program;
+    uint16_t instructions[sizeof issue112_c9d_responder_program_instructions /
+                          sizeof issue112_c9d_responder_program_instructions[0]];
+    for (uint i = 0u; i < program.length; ++i)
+        instructions[i] = program.instructions[i];
+
+    const uint f2 = issue112_c9d_responder_offset_read_f2;
+    hard_assert(f2 < program.length);
+    hard_assert(instructions[f2] == pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_CLK));
+    instructions[f2] |= (uint16_t)pio_encode_delay(ISSUE112_READ_HOLD_CYCLES);
+    program.instructions = instructions;
+    return pio_add_program(pio, &program);
+#else
+    return pio_add_program(pio, &issue112_c9d_responder_program);
+#endif
+}
+
 static void init_responder(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
         issue112_c9d_responder_program_get_default_config(offset);
@@ -459,7 +479,13 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-#if defined(ISSUE112_SP_PATHS)
+#if defined(ISSUE112_READ_HOLD_CYCLES)
+    const uint32_t sys_hz = clock_get_hz(clk_sys);
+    hard_assert(sys_hz >= 100000000u);
+    printf("issue112 C9H read hold probe @ 4MHz\n");
+    printf("READ HOLD: +%u PIO cycles after F2, clk_sys=%" PRIu32 " Hz\n",
+           (unsigned)ISSUE112_READ_HOLD_CYCLES, sys_hz);
+#elif defined(ISSUE112_SP_PATHS)
     printf("issue112 C9G SP load and readback paths @ 4MHz\n");
 #elif defined(ISSUE112_STACK_INIT_IN_RAM)
     printf("issue112 C9F RAM stack initialization probe @ 4MHz\n");
@@ -502,7 +528,7 @@ int main(void) {
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
     const uint pointer_router_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
-        pio_add_program(io_pio, &issue112_c9d_responder_program);
+        add_responder_program(io_pio);
     const uint pointer_router_offset =
         pio_add_program(io_pio, &issue112_c9d_pointer_router_program);
     init_responder(io_pio, responder_sm, responder_offset);

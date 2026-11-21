@@ -38,6 +38,7 @@ read_cycle:
     wait 1 gpio 21
     wait 0 gpio 21
     wait 1 gpio 21
+public read_f2:
     wait 0 gpio 21
     mov pindirs, null
     jmp response_loop
