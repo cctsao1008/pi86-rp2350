@@ -67,7 +67,12 @@
 #else
 #define ISSUE112_TRACE_CYCLE_LIMIT 128u
 #endif
-#if defined(ISSUE112_ALE_PHASE)
+#if defined(ISSUE112_ADDRESS_AUDIT)
+#define ISSUE112_TRACE_STRIDE 4u
+#define ISSUE112_TRACE_R2_INDEX 2u
+#define ISSUE112_OBSERVER_PROGRAM issue112_c9q_window_observer_program
+#define ISSUE112_OBSERVER_CONFIG issue112_c9q_window_observer_program_get_default_config
+#elif defined(ISSUE112_ALE_PHASE)
 #define ISSUE112_TRACE_STRIDE 3u
 #define ISSUE112_TRACE_R2_INDEX 1u
 #define ISSUE112_OBSERVER_PROGRAM issue112_c9o_observer_program
@@ -480,10 +485,18 @@ static uint init_lane(PIO pio, uint first_bit, uint select_gpio) {
     hard_assert(pio_sm_init(pio, phase_sm, phase_offset, &phase) == PICO_OK);
     pio_interrupt_clear(pio, 0u);
 
+#ifdef ISSUE112_ADDRESS_AUDIT
+    const uint offset = add_program_with_replacement(
+        pio, &issue112_c9q_responder_program, issue112_c9q_responder_offset_select_bit,
+        pio_encode_out(pio_null, 26u), pio_encode_out(pio_null, select_gpio));
+    pio_sm_config responder = issue112_c9q_responder_program_get_default_config(offset);
+    sm_config_set_in_shift(&responder, false, true, 32u);
+#else
     const uint offset = add_program_with_replacement(
         pio, &issue112_c9o_responder_program, issue112_c9o_responder_offset_select_bit,
         pio_encode_out(pio_null, 26u), pio_encode_out(pio_null, select_gpio));
     pio_sm_config responder = issue112_c9o_responder_program_get_default_config(offset);
+#endif
     sm_config_set_out_pins(&responder, 0u, 28u);
     sm_config_set_in_pins(&responder, 0u);
     sm_config_set_out_shift(&responder, true, false, 32u);
@@ -521,6 +534,53 @@ static void start_lane_writer(PIO pio, uint sm) {
              &pio->rxf[sm], rx, false, addr);
     lane_dma(data, encoded_backing, &pio->rxf[sm], rx, false, addr);
     dma_channel_start(addr);
+}
+#endif
+
+#ifdef ISSUE112_ADDRESS_AUDIT
+_Static_assert(issue112_c9o_phase_wrap + issue112_c9q_responder_wrap +
+               issue112_c9q_address_observer_wrap + 3u <= 32u, "lane PIO instruction budget");
+_Static_assert(issue112_c9d_addr_frontend_wrap + issue112_c9q_window_observer_wrap +
+               rp86_intel_8086_clock_wrap + 3u <= 32u, "clock PIO instruction budget");
+static uint32_t audit_t1[ISSUE112_TRACE_CYCLE_LIMIT];
+
+static void arm_address_audit(PIO pio, uint dma) {
+    const uint sm = pio_claim_unused_sm(pio, true);
+    const uint offset = pio_add_program(pio, &issue112_c9q_address_observer_program);
+    pio_sm_config cfg = issue112_c9q_address_observer_program_get_default_config(offset);
+    sm_config_set_in_pins(&cfg, 0u);
+    sm_config_set_in_shift(&cfg, false, true, 32u);
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
+    hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
+    dma_channel_config transfer = dma_channel_get_default_config(dma);
+    channel_config_set_transfer_data_size(&transfer, DMA_SIZE_32);
+    channel_config_set_read_increment(&transfer, false);
+    channel_config_set_write_increment(&transfer, true);
+    channel_config_set_dreq(&transfer, pio_get_dreq(pio, sm, false));
+    dma_channel_configure(dma, &transfer, audit_t1, &pio->rxf[sm],
+                          ISSUE112_TRACE_CYCLE_LIMIT, true);
+    pio_sm_exec(pio, sm, pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_RESET));
+    pio_sm_set_enabled(pio, sm, true);
+}
+
+static bool report_address_audit(uint32_t count, uint32_t cycles) {
+    uint32_t mismatches = 0u, primary_mask = 0u, audit_mask = 0u;
+    for (uint32_t i = 0; i < count || i < cycles; ++i) {
+        const uint32_t primary = i < cycles ? decode_address(trace_words[i * ISSUE112_TRACE_STRIDE]) : UINT32_MAX;
+        const uint32_t audit = i < count ? decode_address(audit_t1[i]) : UINT32_MAX;
+        if (primary != audit && mismatches++ < 6u)
+            printf("T1[%03" PRIu32 "] phase=%08" PRIx32 " ALE=%08" PRIx32 "\n", i, primary, audit);
+        if (primary >= 0x10230u && primary <= 0x10238u && !(primary & 1u))
+            primary_mask |= 1u << ((primary - 0x10230u) / 2u);
+        if (audit >= 0x10230u && audit <= 0x10238u && !(audit & 1u))
+            audit_mask |= 1u << ((audit - 0x10230u) / 2u);
+    }
+    printf("T1 audit: ALE=%" PRIu32 " phase=%" PRIu32 " mismatches=%" PRIu32 "\n",
+           count, cycles, mismatches);
+    printf("Initializer coverage 10230..10238: phase=%02" PRIx32 " ALE=%02" PRIx32 " expected=1f\n",
+           primary_mask, audit_mask);
+    return count == ISSUE112_TRACE_CYCLE_LIMIT && cycles == count && !mismatches &&
+           primary_mask == 0x1fu && audit_mask == 0x1fu;
 }
 #endif
 
@@ -585,7 +645,7 @@ static bool report_stack_probe(uint32_t cycles) {
 #ifdef ISSUE112_ALE_PHASE
         const uint32_t addr = decode_address(t1);
         if (write) {
-            const uint16_t data = decode_ad(sample[1]);
+            const uint16_t data = decode_ad(sample[ISSUE112_TRACE_R2_INDEX]);
             const bool upper = !sample_bit(t1, RP86_PROCESSOR_PIN_UBE);
             split_high += addr == 0x10861u && upper && (data >> 8) == 0x5au;
             split_low += addr == 0x10862u && !upper && (data & 0xffu) == 0xa5u;
@@ -601,8 +661,8 @@ static bool report_stack_probe(uint32_t cycles) {
             const uint16_t expected = reset_fetch ? reset_words[(addr - 0xffff0u) / 2u] :
                                                     initial_code[(addr - 0x10000u) / 2u];
             ++code_reads;
-            t3_errors += decode_ad(sample[1]) != expected;
-            t4_errors += decode_ad(sample[2]) != expected;
+            t3_errors += decode_ad(sample[ISSUE112_TRACE_R2_INDEX]) != expected;
+            t4_errors += decode_ad(sample[ISSUE112_TRACE_R2_INDEX + 1u]) != expected;
         }
 #endif
         if (write) ++captured_writes;
@@ -610,7 +670,10 @@ static bool report_stack_probe(uint32_t cycles) {
 #ifdef ISSUE112_ALE_PHASE
             printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s T3rise=%04x T4=%04x",
                    i, write ? "MEMW" : "BUS ", decode_address(t1), lane_name(t1),
-                   decode_ad(sample[1]), decode_ad(sample[2]));
+                   decode_ad(sample[ISSUE112_TRACE_R2_INDEX]), decode_ad(sample[ISSUE112_TRACE_R2_INDEX + 1u]));
+#ifdef ISSUE112_ADDRESS_AUDIT
+            printf(" T3entry=%04x", decode_ad(sample[1]));
+#endif
 #else
             printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s"
                    " rawT1=%08" PRIx32 " AF=%04x R1=%04x F1=%04x R2=%04x",
@@ -748,7 +811,11 @@ int main(void) {
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
 #if defined(ISSUE112_REGISTER_CONTROLS)
 #if defined(ISSUE112_MEMORY_STACK)
+#ifdef ISSUE112_ADDRESS_AUDIT
+    printf("issue112 C9Q independent ALE address audit @ 4MHz\n");
+#else
     printf("issue112 C9P memory stack initialization @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
+#endif
     printf("Memory initializer: %u bytes sha256=%s\n", (unsigned)issue112_mem_stack_init_size, issue112_mem_stack_init_sha256);
 #elif defined(ISSUE112_ALE_PHASE)
     printf("issue112 C9O ALE-synchronized read and byte lanes @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
@@ -1064,6 +1131,10 @@ int main(void) {
 #endif
     pio_sm_set_enabled(clock_pio, observer_sm, true);
 
+#ifdef ISSUE112_ADDRESS_AUDIT
+    const uint audit_dma = dma_claim_unused_channel(true);
+    arm_address_audit(low_pio, audit_dma);
+#endif
     init_clock(clock_pio, clock_sm, clock_offset);
 
     const bool reset_clock_ok = wait_reset_clocks(8u);
@@ -1078,6 +1149,12 @@ int main(void) {
     const uint32_t trace_remaining =
         dma_channel_hw_addr(observer_dma)->transfer_count & 0x0fffffffu;
 
+#ifdef ISSUE112_ADDRESS_AUDIT
+    // Freeze the independent count before reset can generate another event.
+    const uint32_t audit_count = ISSUE112_TRACE_CYCLE_LIMIT -
+        (dma_channel_hw_addr(audit_dma)->transfer_count & 0x0fffffffu);
+    dma_channel_abort(audit_dma);
+#endif
     gpio_put(RP86_PROCESSOR_PIN_RESET, true);
     (void)wait_reset_clocks(8u);
     sleep_us(100u);
@@ -1097,7 +1174,10 @@ int main(void) {
     printf("BUS TRACE: %s (%" PRIu32 "/%u cycles)\n",
            trace_complete ? "COMPLETE" : "TIMEOUT",
            cycles, ISSUE112_TRACE_CYCLE_LIMIT);
-    const bool stack_ok = report_stack_probe(cycles);
+    bool stack_ok = report_stack_probe(cycles);
+#ifdef ISSUE112_ADDRESS_AUDIT
+    stack_ok &= report_address_audit(audit_count, cycles);
+#endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
     printf("STACK PROBE RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
