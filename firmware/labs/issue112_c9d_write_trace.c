@@ -965,7 +965,6 @@ int main(void) {
 #else
     printf("issue112 C9E reset fetch and stack probe @ 4MHz\n");
 #endif
-#endif /* ISSUE112_READ_ECHO_STRESS / stack-probe banner */
 #else
     printf("issue112 C9D PI-STRESS write-routing discriminator @ 4MHz\n");
     printf("scope: trace physical MEMW address/data vs final backing corruption\n");
