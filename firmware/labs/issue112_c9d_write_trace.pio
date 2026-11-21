@@ -273,3 +273,63 @@ write_cycle:
     mov isr, pins               ; T4 entry
     push block
 .wrap
+
+
+; C9S: deterministic read-drive phase.
+;
+; The phase SM latches two one-shot events per bus cycle:
+;   IRQ1 = fixed drive-enable phase (first CLK falling edge after ALE/T1)
+;   IRQ0 = fixed write-sample/read-release reference (T3 rising)
+;
+; The responder no longer chooses a drive edge with a level-sensitive
+; 'wait 0 gpio CLK' after a potentially variable-duration DMA pull.  IRQ1
+; remains asserted until consumed, so a slightly late pull cannot slip to the
+; next falling edge.  READY remains fixed asserted; a genuinely missed
+; deadline will still surface as a CPU-echo failure rather than being hidden.
+.program issue112_c9s_phase
+.wrap_target
+    wait 1 gpio 9
+    wait 1 gpio 21
+    wait 0 gpio 21
+    irq 1
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    irq 0
+.wrap
+
+.program issue112_c9s_responder
+; TX order per lane remains: encoded backing data, then backing pointer.
+; C9S is intentionally an aligned-WORD timing repair probe; both byte-lane
+; responders are active for every C9R access.
+.wrap_target
+next_cycle:
+    wait 1 gpio 9
+    pull block                  ; encoded lane data; may complete variably
+    wait 0 gpio 9
+    jmp pin write_cycle
+
+read_cycle:
+    out pins, 28                ; preload output latch without driving
+    wait 1 irq 1                ; fixed drive-enable event
+    irq clear 1
+    mov pindirs, ~null
+    pull block                  ; discard backing pointer
+    wait 1 irq 0
+    irq clear 0
+    wait 0 gpio 21 [4]          ; retain C9O/Q T4 hold policy
+    mov pindirs, null
+    jmp next_cycle
+
+write_cycle:
+    pull block                  ; backing pointer
+    mov isr, osr
+    push block
+    wait 1 irq 1                ; consume the per-cycle drive event
+    irq clear 1
+    wait 1 irq 0                ; sample write data at fixed reference
+    irq clear 0
+    mov isr, pins
+    push block
+    jmp next_cycle
+.wrap
