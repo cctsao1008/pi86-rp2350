@@ -91,6 +91,13 @@ rp86_add_processor_image(issue112_byte_reconstruct_witness
     SYMBOL issue112_byte_reconstruct_witness
 )
 
+# Issue #112 C9W: aligned WORD reads through register-indirect addressing.
+# Keeps the C9T address-witness method while avoiding the A1/moffs16 load.
+rp86_add_processor_image(issue112_indirect_word_witness
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_indirect_word_witness.asm"
+    SYMBOL issue112_indirect_word_witness
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
