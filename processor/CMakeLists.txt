@@ -68,6 +68,14 @@ rp86_add_processor_image(issue112_mem_stack_init
     SYMBOL issue112_mem_stack_init
 )
 
+# Issue #112 C9R: repeated aligned memory-read -> CPU-echo discriminator.
+# Deliberately avoids stack and call/return traffic so CPU-visible read
+# correctness can be isolated from SS/SP and byte-lane behavior.
+rp86_add_processor_image(issue112_read_echo_stress
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_read_echo_stress.asm"
+    SYMBOL issue112_read_echo_stress
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
