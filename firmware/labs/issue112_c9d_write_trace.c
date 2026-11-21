@@ -37,7 +37,12 @@
 #include "intel_8086_clock.pio.h"
 #ifdef ISSUE112_STACK_PROBE
 #include "issue112_c8c_read_latch.pio.h"
-#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+#ifdef ISSUE112_INDIRECT_WORD_WITNESS
+#include "issue112_indirect_word_witness.h"
+#define issue112_stack_probe_data issue112_indirect_word_witness_data
+#define issue112_stack_probe_size issue112_indirect_word_witness_size
+#define issue112_stack_probe_sha256 issue112_indirect_word_witness_sha256
+#elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
 #include "issue112_byte_reconstruct_witness.h"
 #define issue112_stack_probe_data issue112_byte_reconstruct_witness_data
 #define issue112_stack_probe_size issue112_byte_reconstruct_witness_size
@@ -81,7 +86,8 @@
 #ifdef ISSUE112_STACK_PROBE
 #if defined(ISSUE112_READ_ECHO_STRESS) || \
     defined(ISSUE112_READ_ADDRESS_WITNESS) || \
-    defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
+    defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS) || \
+    defined(ISSUE112_INDIRECT_WORD_WITNESS)
 #define ISSUE112_TRACE_CYCLE_LIMIT 512u
 #define ISSUE112_READ_ECHO_ITERATIONS 8u
 #elif defined(ISSUE112_ALE_PHASE)
@@ -255,7 +261,8 @@ static void prepare_memory(void) {
 
 #if defined(ISSUE112_READ_ECHO_STRESS) || \
     defined(ISSUE112_READ_ADDRESS_WITNESS) || \
-    defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
+    defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS) || \
+    defined(ISSUE112_INDIRECT_WORD_WITNESS)
     /*
      * C9R/C9T/C9V intentionally avoid SS/SP and all stack operations. RESET
      * performs only a far transfer into the selected read discriminator.
@@ -367,7 +374,8 @@ static void prepare_memory(void) {
 #if defined(ISSUE112_ALE_PHASE) && \
     !defined(ISSUE112_READ_ECHO_STRESS) && \
     !defined(ISSUE112_READ_ADDRESS_WITNESS) && \
-    !defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
+    !defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS) && \
+    !defined(ISSUE112_INDIRECT_WORD_WITNESS)
     /* After the RET marker, write an odd word between two distinct guards,
      * then have the CPU read both affected words and store the observations. */
     static const uint8_t lane_probe[] = {
@@ -1200,7 +1208,10 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+#ifdef ISSUE112_INDIRECT_WORD_WITNESS
+    printf("issue112 C9W indirect WORD address witness @ 4MHz\n");
+    printf("scope: MOV BX,[CS:SI] aligned WORD loads -> physical write address\n");
+#elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     printf("issue112 C9V byte-reconstruct AX address witness @ 4MHz\n");
     printf("scope: LOW byte + HIGH byte reads -> AX -> physical write address\n");
 #elif defined(ISSUE112_READ_ADDRESS_WITNESS)
@@ -1272,7 +1283,10 @@ int main(void) {
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+#ifdef ISSUE112_INDIRECT_WORD_WITNESS
+    printf("Indirect-WORD image: %u bytes sha256=%s\n",
+           (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
+#elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     printf("Byte-reconstruct image: %u bytes sha256=%s\n",
            (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
 #elif defined(ISSUE112_READ_ADDRESS_WITNESS)
@@ -1599,7 +1613,9 @@ int main(void) {
     printf("BUS TRACE: %s (%" PRIu32 "/%u cycles)\n",
            trace_complete ? "COMPLETE" : "TIMEOUT",
            cycles, ISSUE112_TRACE_CYCLE_LIMIT);
-#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+#ifdef ISSUE112_INDIRECT_WORD_WITNESS
+    const bool stack_ok = report_read_address_witness(cycles);
+#elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     const bool stack_ok = report_byte_reconstruct_witness(cycles);
 #elif defined(ISSUE112_READ_ADDRESS_WITNESS)
     const bool stack_ok = report_read_address_witness(cycles);
@@ -1612,7 +1628,10 @@ int main(void) {
 #endif
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
-#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+#ifdef ISSUE112_INDIRECT_WORD_WITNESS
+    printf("INDIRECT-WORD RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     printf("BYTE-RECONSTRUCT RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
 #elif defined(ISSUE112_READ_ADDRESS_WITNESS)
