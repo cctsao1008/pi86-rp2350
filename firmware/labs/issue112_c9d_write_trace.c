@@ -114,6 +114,16 @@ static bool is_memory_write(uint32_t raw) {
            sample_bit(raw, RP86_PROCESSOR_PIN_INTAK) != 0u;
 }
 
+static const char *lane_name(uint32_t raw) {
+    const bool a0 = sample_bit(raw, RP86_PROCESSOR_PIN_AD0) != 0u;
+    const bool ube_n = sample_bit(raw, RP86_PROCESSOR_PIN_UBE) != 0u;
+
+    if (!a0 && !ube_n) return "WORD";
+    if (!a0 &&  ube_n) return "LOW";
+    if ( a0 && !ube_n) return "HIGH";
+    return "NONE";
+}
+
 static uint32_t encode_word(uint16_t value) {
     uint32_t encoded = 0u;
     for (uint bit = 0u; bit < 16u; ++bit)
@@ -581,8 +591,11 @@ int main(void) {
 
         if (i < 64u || telemetry || data1000) {
             printf("W[%04" PRIu32 "] addr=%05" PRIx32
-                   " low=%04x data=%04x%s%s\n",
-                   i, address, low, data,
+                   " low=%04x lane=%s A0=%u UBE#=%u data=%04x%s%s\n",
+                   i, address, low, lane_name(t1),
+                   (unsigned)sample_bit(t1, RP86_PROCESSOR_PIN_AD0),
+                   (unsigned)sample_bit(t1, RP86_PROCESSOR_PIN_UBE),
+                   data,
                    telemetry ? " <TELEMETRY>" : "",
                    data1000 ? " <DATA-1000>" : "");
         }
