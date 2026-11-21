@@ -671,6 +671,38 @@ pico_enable_stdio_uart(rp86_issue112_c8b_postread_write_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c8b_postread_write_4mhz_lab)
 
 
+# Issue #112 C8C: CPU read-latch discriminator at 4 MHz.
+# Reuses the C8B dataplane, but replaces the checksum with four independent
+# load->echo stores and samples AF/R1/F1/R2 so CPU-latched values can be
+# compared with the physical data-valid window.
+add_executable(rp86_issue112_c8c_read_latch_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c8c_read_latch.c
+)
+
+target_include_directories(rp86_issue112_c8c_read_latch_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c8c_read_latch_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8c_read_latch_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8c_read_latch_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c8c_read_latch_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c8c_read_latch_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c8c_read_latch_4mhz_lab)
+
+
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
 add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
     labs/issue106_physical_t1_repack.c
