@@ -84,6 +84,13 @@ rp86_add_processor_image(issue112_read_address_witness
     SYMBOL issue112_read_address_witness
 )
 
+# Issue #112 C9V: reconstruct WORD operands via explicit LOW/HIGH byte reads,
+# then encode the CPU-visible AX value into a physical write address.
+rp86_add_processor_image(issue112_byte_reconstruct_witness
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_byte_reconstruct_witness.asm"
+    SYMBOL issue112_byte_reconstruct_witness
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
