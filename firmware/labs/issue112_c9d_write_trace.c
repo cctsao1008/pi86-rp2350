@@ -44,6 +44,15 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
+/* CS:disp16 stores use the same length and address for either source. */
+#ifdef ISSUE112_AX_WITNESS
+#define ISSUE112_WITNESS_MODRM 0x06u
+#define ISSUE112_WITNESS_REG "AX"
+#else
+#define ISSUE112_WITNESS_MODRM 0x26u
+#define ISSUE112_WITNESS_REG "SP"
+#endif
+
 #ifndef ISSUE112_PROCESSOR_HZ
 #define ISSUE112_PROCESSOR_HZ 4000000u
 #endif
@@ -216,7 +225,7 @@ static void prepare_memory(void) {
 #else
         0x89u, 0xc4u,                        /* mov sp,ax */
 #endif
-        0x2eu, 0x89u, 0x26u, 0x30u, 0x08u,   /* mov WORD PTR cs:0x830,sp */
+        0x2eu, 0x89u, ISSUE112_WITNESS_MODRM, 0x30u, 0x08u, /* witness at 0830h */
         0xbcu, 0xa8u, 0x36u,                 /* mov sp,0x36a8 */
         0x2eu, 0x89u, 0x26u, 0x36u, 0x08u,   /* mov WORD PTR cs:0x836,sp */
 #ifdef ISSUE112_SWAP_SP_ENCODINGS
@@ -224,10 +233,10 @@ static void prepare_memory(void) {
 #else
         0x8bu, 0xe0u,                        /* mov sp,ax */
 #endif
-        0x2eu, 0x89u, 0x26u, 0x34u, 0x08u,   /* mov WORD PTR cs:0x834,sp */
+        0x2eu, 0x89u, ISSUE112_WITNESS_MODRM, 0x34u, 0x08u, /* witness at 0834h */
         0xb8u, 0xfeu, 0xffu,                 /* mov ax,0xfffe */
         0x8bu, 0xe0u,                        /* mov sp,ax */
-        0x2eu, 0x89u, 0x26u, 0x32u, 0x08u,   /* mov WORD PTR cs:0x832,sp */
+        0x2eu, 0x89u, ISSUE112_WITNESS_MODRM, 0x32u, 0x08u, /* witness at 0832h */
         0xe9u, 0xa0u, 0xfeu,                 /* jmp 0x0 */
 #else
         0xe9u, 0xd3u, 0xfeu,         /* jmp near 0000h */
@@ -484,10 +493,10 @@ static bool report_stack_probe(uint32_t cycles) {
         {"SS direct", 0x1082au, 0x1000u},
         {"AX pattern", 0x1082cu, 0x5ac3u},
         {"BX from AX (89 C3)", 0x1082eu, 0x5ac3u},
-        {"SP from AX at 013D", 0x10830u, 0x5ac3u},
+        {ISSUE112_WITNESS_REG " after 013D", 0x10830u, 0x5ac3u},
         {"SP reseed", 0x10836u, 0x36a8u},
-        {"SP from AX at 014C", 0x10834u, 0x5ac3u},
-        {"SP restored", 0x10832u, 0xfffeu},
+        {ISSUE112_WITNESS_REG " after 014C", 0x10834u, 0x5ac3u},
+        {ISSUE112_WITNESS_REG " after 0156", 0x10832u, 0xfffeu},
 #endif
         {"SS at entry",      0x10800u, 0x1000u},
         {"SP before PUSH",   0x10802u, 0xfffeu},
@@ -555,7 +564,9 @@ int main(void) {
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
 #if defined(ISSUE112_REGISTER_CONTROLS)
-#ifdef ISSUE112_SWAP_SP_ENCODINGS
+#if defined(ISSUE112_AX_WITNESS)
+    printf("issue112 C9M AX witness @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
+#elif defined(ISSUE112_SWAP_SP_ENCODINGS)
     printf("issue112 C9L encoding swap @ %uMHz (013D=8B E0, 014C=89 C4)\n", ISSUE112_PROCESSOR_HZ / 1000000u);
 #else
     printf("issue112 C9K register controls @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
