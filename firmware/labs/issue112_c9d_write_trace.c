@@ -235,8 +235,13 @@ static void prepare_memory(void) {
 #endif
         0x2eu, 0x89u, ISSUE112_WITNESS_MODRM, 0x34u, 0x08u, /* witness at 0834h */
         0xb8u, 0xfeu, 0xffu,                 /* mov ax,0xfffe */
+#ifdef ISSUE112_AX_BEFORE_TRANSFER
+        0x2eu, 0x89u, ISSUE112_WITNESS_MODRM, 0x32u, 0x08u, /* witness at 0832h */
+        0x8bu, 0xe0u,                        /* mov sp,ax */
+#else
         0x8bu, 0xe0u,                        /* mov sp,ax */
         0x2eu, 0x89u, ISSUE112_WITNESS_MODRM, 0x32u, 0x08u, /* witness at 0832h */
+#endif
         0xe9u, 0xa0u, 0xfeu,                 /* jmp 0x0 */
 #else
         0xe9u, 0xd3u, 0xfeu,         /* jmp near 0000h */
@@ -496,7 +501,11 @@ static bool report_stack_probe(uint32_t cycles) {
         {ISSUE112_WITNESS_REG " after 013D", 0x10830u, 0x5ac3u},
         {"SP reseed", 0x10836u, 0x36a8u},
         {ISSUE112_WITNESS_REG " after 014C", 0x10834u, 0x5ac3u},
+#ifdef ISSUE112_AX_BEFORE_TRANSFER
+        {"AX before final MOV SP,AX", 0x10832u, 0xfffeu},
+#else
         {ISSUE112_WITNESS_REG " after 0156", 0x10832u, 0xfffeu},
+#endif
 #endif
         {"SS at entry",      0x10800u, 0x1000u},
         {"SP before PUSH",   0x10802u, 0xfffeu},
@@ -564,7 +573,9 @@ int main(void) {
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
 #if defined(ISSUE112_REGISTER_CONTROLS)
-#if defined(ISSUE112_AX_WITNESS)
+#if defined(ISSUE112_AX_BEFORE_TRANSFER)
+    printf("issue112 C9N AX before final transfer @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
+#elif defined(ISSUE112_AX_WITNESS)
     printf("issue112 C9M AX witness @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
 #elif defined(ISSUE112_SWAP_SP_ENCODINGS)
     printf("issue112 C9L encoding swap @ %uMHz (013D=8B E0, 014C=89 C4)\n", ISSUE112_PROCESSOR_HZ / 1000000u);
