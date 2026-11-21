@@ -769,7 +769,7 @@ pico_enable_stdio_uart(rp86_issue112_c9d_write_trace_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c9d_write_trace_4mhz_lab)
 
 # Issue #112: compare stack setup in the reset vector and ordinary RAM.
-foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init)
+foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init c9g_sp_paths)
     set(_target rp86_issue112_${_probe}_4mhz_lab)
     add_executable(${_target} EXCLUDE_FROM_ALL
         labs/issue112_c9d_write_trace.c
@@ -780,8 +780,12 @@ foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init)
     )
 
     target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_PROBE=1)
-    if(_probe STREQUAL "c9f_ram_stack_init")
+    if(NOT _probe STREQUAL "c9e_stack_probe")
         target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_INIT_IN_RAM=1)
+    endif()
+
+    if(_probe STREQUAL "c9g_sp_paths")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_SP_PATHS=1)
     endif()
 
     target_link_libraries(${_target}

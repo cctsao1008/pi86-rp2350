@@ -185,7 +185,21 @@ static void prepare_memory(void) {
         0xb8u, 0x00u, 0x10u,         /* mov ax,1000h */
         0x8eu, 0xd0u,                /* mov ss,ax */
         0xbcu, 0xfeu, 0xffu,         /* mov sp,0fffeh */
+#ifdef ISSUE112_SP_PATHS
+        0x89u, 0xe3u,                /* mov bx,sp */
+        0x2eu, 0x89u, 0x1eu, 0x20u, 0x08u, /* mov [cs:0820h],bx */
+        0x2eu, 0x89u, 0x26u, 0x22u, 0x08u, /* mov [cs:0822h],sp */
+        0xb8u, 0xfeu, 0xffu,         /* mov ax,0fffeh */
+        0x2eu, 0xa3u, 0x24u, 0x08u, /* mov [cs:0824h],ax */
+        0x89u, 0xc4u,                /* mov sp,ax */
+        0x89u, 0xe3u,                /* mov bx,sp */
+        0x2eu, 0x89u, 0x1eu, 0x26u, 0x08u, /* mov [cs:0826h],bx */
+        0x2eu, 0x89u, 0x26u, 0x28u, 0x08u, /* mov [cs:0828h],sp */
+        0xe9u, 0xd3u, 0xfeu,         /* jmp near 0000h */
+        0x90u
+#else
         0xe9u, 0xf4u, 0xfeu          /* jmp near 0000h from next IP 010Ch */
+#endif
     };
     load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
     load_bytes(0x0100u, stack_init, sizeof stack_init);
@@ -377,6 +391,13 @@ static bool report_stack_probe(uint32_t cycles) {
         uint32_t address;
         uint16_t expected;
     } writes[] = {
+#ifdef ISSUE112_SP_PATHS
+        {"Immediate SP via BX", 0x10820u, 0xfffeu},
+        {"Immediate SP direct", 0x10822u, 0xfffeu},
+        {"AX source",           0x10824u, 0xfffeu},
+        {"Register SP via BX",  0x10826u, 0xfffeu},
+        {"Register SP direct",  0x10828u, 0xfffeu},
+#endif
         {"SS at entry",      0x10800u, 0x1000u},
         {"SP before PUSH",   0x10802u, 0xfffeu},
         {"PUSH payload",     0x1fffcu, 0xa55au},
@@ -420,7 +441,7 @@ static bool report_stack_probe(uint32_t cycles) {
         }
 
         /* CALL reuses the PUSH slot, so only validate its final backing value. */
-        if (i != 2u) {
+        if (writes[i].address != 0x1fffcu || writes[i].expected == 0x0034u) {
             const uint16_t backing = backing_word((uint16_t)writes[i].address);
             const bool backing_ok = backing == writes[i].expected;
             printf("  backing=%04x %s\n", backing, backing_ok ? "PASS" : "FAIL");
@@ -438,7 +459,9 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_STACK_INIT_IN_RAM
+#if defined(ISSUE112_SP_PATHS)
+    printf("issue112 C9G SP load and readback paths @ 4MHz\n");
+#elif defined(ISSUE112_STACK_INIT_IN_RAM)
     printf("issue112 C9F RAM stack initialization probe @ 4MHz\n");
 #else
     printf("issue112 C9E reset fetch and stack probe @ 4MHz\n");
