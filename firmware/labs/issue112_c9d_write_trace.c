@@ -1088,8 +1088,13 @@ int main(void) {
 
 #ifdef ISSUE112_STACK_PROBE
 #ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_SINGLE_RESPONDER_WITNESS
+    printf("issue112 C9U single-responder byte-order A/B @ 4MHz\n");
+    printf("scope: exact C9T workload/checker on pre-C9O single 16-bit responder\n");
+#else
     printf("issue112 C9T CPU read address-witness discriminator @ 4MHz\n");
     printf("scope: CPU-latched AX -> BX -> physical write address; ignore write data\n");
+#endif
 #elif defined(ISSUE112_READ_ECHO_STRESS)
 #ifdef ISSUE112_DETERMINISTIC_READ_PHASE
     printf("issue112 C9S deterministic read-drive phase @ 4MHz\n");
@@ -1489,6 +1494,11 @@ int main(void) {
 #ifdef ISSUE112_READ_ADDRESS_WITNESS
     printf("ADDRESS-WITNESS RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#ifdef ISSUE112_SINGLE_RESPONDER_WITNESS
+    printf("READ RESPONDER: single 16-bit C8C/C9D path (C9U)\n");
+#else
+    printf("READ RESPONDER: split-lane C9O path (C9T)\n");
+#endif
 #elif defined(ISSUE112_READ_ECHO_STRESS)
     printf("READ-ECHO RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
