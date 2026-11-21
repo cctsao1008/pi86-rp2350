@@ -333,3 +333,39 @@ write_cycle:
     push block
     jmp next_cycle
 .wrap
+
+
+; C9X: early-preload single 16-bit responder.
+;
+; The SRAM word is copied into the PIO output latch while AD pins remain
+; inputs during T1.  BUFRW is already stable for the bus cycle, so reads wait
+; only for ASTB to fall and then enable PINDIRS immediately.  This removes
+; OUT PINS and direction-branch latency from the T2 read setup window without
+; driving against the CPU address phase.
+.program issue112_c9x_early_responder
+.wrap_target
+response_loop:
+    pull block
+    out pins, 28                ; preload GPIO output latch, still Hi-Z
+    jmp pin write_cycle         ; BUFRW: LOW=read, HIGH=write
+
+read_cycle:
+    wait 0 gpio 9               ; end of T1 / ASTB low
+    mov pindirs, ~null          ; begin driving on the next PIO cycle
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21 [4]          ; retain the proven late-release margin
+    mov pindirs, null
+    jmp response_loop
+
+write_cycle:
+    wait 0 gpio 9
+    mov pindirs, null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21              ; R2 write-data sample
+    mov isr, pins
+    push block
+    jmp response_loop
+.wrap
