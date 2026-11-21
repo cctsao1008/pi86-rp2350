@@ -35,7 +35,11 @@
 #include "hardware/structs/sio.h"
 #include "issue112_c9d_write_trace.pio.h"
 #include "intel_8086_clock.pio.h"
+#ifdef ISSUE112_STACK_PROBE
+#include "issue112_stack_probe.h"
+#else
 #include "pi_stress.h"
+#endif
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
@@ -183,9 +187,15 @@ static void prepare_memory(void) {
     };
     load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
 
+#ifdef ISSUE112_STACK_PROBE
+    hard_assert((issue112_stack_probe_size & 1u) == 0u);
+    hard_assert(issue112_stack_probe_size <= 0x0800u);
+    load_bytes(0x0000u, issue112_stack_probe_data, issue112_stack_probe_size);
+#else
     hard_assert((pi_stress_workload_size & 1u) == 0u);
     hard_assert(pi_stress_workload_size <= 0xfff0u);
     load_bytes(0x0000u, pi_stress_workload_data, pi_stress_workload_size);
+#endif
 
     /*
      * C5/C8 speed-first translation. Each table contributes disjoint pieces
@@ -312,17 +322,77 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
     return true;
 }
 
+#ifdef ISSUE112_STACK_PROBE
+static bool report_stack_probe(uint32_t captured_writes) {
+    static const struct {
+        const char *step;
+        uint32_t address;
+        uint16_t expected;
+    } writes[] = {
+        {"SS at entry",      0x10800u, 0x1000u},
+        {"SP before PUSH",   0x10802u, 0xfffeu},
+        {"PUSH payload",     0x1fffcu, 0xa55au},
+        {"SP after PUSH",    0x10804u, 0xfffcu},
+        {"POP payload",      0x10806u, 0xa55au},
+        {"SP after POP",     0x10808u, 0xfffeu},
+        {"CALL return IP",   0x1fffcu, 0x0034u},
+        {"SP inside CALL",   0x1080au, 0xfffcu},
+        {"SP after RET",     0x1080cu, 0xfffeu},
+        {"RET marker",       0x1080eu, 0xc9e1u},
+    };
+    const uint32_t count = sizeof writes / sizeof writes[0];
+    const bool count_ok = captured_writes == count;
+    bool pass = count_ok;
+    printf("CAPTURED WRITES: %" PRIu32 " expected=%" PRIu32 " %s\n",
+           captured_writes, count, count_ok ? "PASS" : "FAIL");
+
+    for (uint32_t i = 0u; i < count; ++i) {
+        const bool captured = i < captured_writes;
+        const uint32_t t1 = captured ? trace_words[i * 2u] : 0u;
+        const uint32_t r2 = captured ? trace_words[i * 2u + 1u] : 0u;
+        const uint32_t address = decode_address(t1);
+        const uint16_t data = decode_ad(r2);
+        const bool trace_ok = captured && is_memory_write(t1) &&
+            address == writes[i].address && data == writes[i].expected &&
+            sample_bit(t1, RP86_PROCESSOR_PIN_AD0) == 0u &&
+            sample_bit(t1, RP86_PROCESSOR_PIN_UBE) == 0u;
+        printf("%s: addr=%05" PRIx32 " data=%04x expected=%05" PRIx32
+               "/%04x %s\n", writes[i].step, address, data,
+               writes[i].address, writes[i].expected, trace_ok ? "PASS" : "FAIL");
+
+        /* CALL reuses the PUSH slot, so only validate its final backing value. */
+        if (i != 2u) {
+            const uint16_t backing = backing_word((uint16_t)writes[i].address);
+            const bool backing_ok = backing == writes[i].expected;
+            printf("  backing=%04x %s\n", backing, backing_ok ? "PASS" : "FAIL");
+            pass = pass && backing_ok;
+        }
+        pass = pass && trace_ok;
+    }
+    return pass;
+}
+#endif
+
 int main(void) {
     stdio_init_all();
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
+#ifdef ISSUE112_STACK_PROBE
+    printf("issue112 C9E stack probe @ 4MHz\n");
+#else
     printf("issue112 C9D PI-STRESS write-routing discriminator @ 4MHz\n");
     printf("scope: trace physical MEMW address/data vs final backing corruption\n");
+#endif
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
+#ifdef ISSUE112_STACK_PROBE
+    printf("Stack probe image: %u bytes sha256=%s\n",
+           (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
+#else
     printf("PI image: %u bytes sha256=%s\n",
            (unsigned)pi_stress_workload_size, pi_stress_workload_sha256);
+#endif
 
     const uintptr_t lut0_base = (uintptr_t)&addr_lut[0][0];
     const uintptr_t lut1_base = (uintptr_t)&addr_lut[1][0];
@@ -560,14 +630,27 @@ int main(void) {
 
     const uint32_t captured_writes =
         (ISSUE112_TRACE_WORDS - trace_remaining) / 2u;
+    printf("WRITE TRACE: %s (%" PRIu32 "/%u writes)\n",
+           trace_complete ? "COMPLETE" : "TIMEOUT",
+           captured_writes, ISSUE112_TRACE_WRITE_LIMIT);
+#ifdef ISSUE112_STACK_PROBE
+    for (uint32_t i = 0u; i < captured_writes && i < 16u; ++i) {
+        const uint32_t t1 = trace_words[i * 2u];
+        const uint32_t r2 = trace_words[i * 2u + 1u];
+        printf("W[%02" PRIu32 "] addr=%05" PRIx32
+               " lane=%s A0=%u UBE#=%u data=%04x\n",
+               i, decode_address(t1), lane_name(t1),
+               (unsigned)sample_bit(t1, RP86_PROCESSOR_PIN_AD0),
+               (unsigned)sample_bit(t1, RP86_PROCESSOR_PIN_UBE), decode_ad(r2));
+    }
+    const bool stack_ok = report_stack_probe(captured_writes);
+    printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
+    printf("STACK PROBE RESULT: %s\n", reset_clock_ok && stack_ok ? "PASS" : "FAIL");
+#else
     bool saw_10800_1000 = false;
     bool saw_any_10800_after_magic = false;
     uint32_t telemetry_write_count = 0u;
     uint32_t data1000_write_count = 0u;
-
-    printf("WRITE TRACE: %s (%" PRIu32 "/%u writes)\n",
-           trace_complete ? "COMPLETE" : "TIMEOUT",
-           captured_writes, ISSUE112_TRACE_WRITE_LIMIT);
 
     for (uint32_t i = 0u; i < captured_writes; ++i) {
         const uint32_t t1 = trace_words[i * 2u];
@@ -663,6 +746,8 @@ int main(void) {
            pi_value, expected, delta);
     printf("RESULT: %s\n", pass ? "PASS" : "FAIL");
     printf("NOTE: C9D is a routing discriminator; RESULT retains C9 telemetry criteria.\n");
+
+#endif
 
     while (true) tight_loop_contents();
 }

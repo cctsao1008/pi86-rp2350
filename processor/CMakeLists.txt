@@ -57,6 +57,12 @@ rp86_add_processor_image(pi_stress
     PACKAGE_NAME "PI-STRESS.P86W"
 )
 
+# Issue #112 lab-only stack witness.
+rp86_add_processor_image(issue112_stack_probe
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_stack_probe.asm"
+    SYMBOL issue112_stack_probe
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
