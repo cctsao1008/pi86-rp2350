@@ -38,6 +38,9 @@
 #ifdef ISSUE112_STACK_PROBE
 #include "issue112_c8c_read_latch.pio.h"
 #include "issue112_stack_probe.h"
+#ifdef ISSUE112_MEMORY_STACK
+#include "issue112_mem_stack_init.h"
+#endif
 #else
 #include "pi_stress.h"
 #endif
@@ -124,7 +127,11 @@ static uint32_t addr_lut[2][ISSUE112_ADDR_LUT_ENTRIES]
 static uint32_t encoded_backing[ISSUE112_ENCODED_WORDS * ISSUE112_SLOTS_PER_WORD];
 #ifdef ISSUE112_ALE_PHASE
 /* The reset stub and code are immutable throughout this probe. */
+#ifdef ISSUE112_MEMORY_STACK
+static uint16_t initial_code[0x280u / 2u];
+#else
 static uint16_t initial_code[0x160u / 2u];
+#endif
 static uint16_t reset_words[8];
 #endif
 static uint32_t address_high_part;
@@ -280,6 +287,11 @@ static void prepare_memory(void) {
     _Static_assert(sizeof stack_init % 2u == 0u, "stack_init must contain complete words");
     load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
     load_bytes(0x0100u, stack_init, sizeof stack_init);
+#ifdef ISSUE112_MEMORY_STACK
+    hard_assert(issue112_mem_stack_init_size <= 0x80u);
+    set_encoded_word(0xfff2u, 0x0002u); /* RESET transfers to 1000:0200 */
+    load_bytes(0x0200u, issue112_mem_stack_init_data, issue112_mem_stack_init_size);
+#endif
 #else
     /*
      * RESET bootstrap, 16 bytes total:
@@ -580,7 +592,10 @@ static bool report_stack_probe(uint32_t cycles) {
         }
         const bool reset_fetch = addr >= 0xffff0u;
         const bool probe_fetch = addr >= 0x10000u && addr < 0x10000u + issue112_stack_probe_size;
-        const bool init_fetch = addr >= 0x10100u && addr < 0x10160u;
+        bool init_fetch = addr >= 0x10100u && addr < 0x10160u;
+#ifdef ISSUE112_MEMORY_STACK
+        init_fetch |= addr >= 0x10200u && addr < 0x10200u + issue112_mem_stack_init_size;
+#endif
         if (!write && (addr & 1u) == 0u && !sample_bit(t1, RP86_PROCESSOR_PIN_UBE) &&
             (reset_fetch || probe_fetch || init_fetch || (addr >= 0x10050u && addr < 0x1006au))) {
             const uint16_t expected = reset_fetch ? reset_words[(addr - 0xffff0u) / 2u] :
@@ -617,6 +632,14 @@ static bool report_stack_probe(uint32_t cycles) {
         uint32_t address;
         uint16_t expected;
     } writes[] = {
+#ifdef ISSUE112_MEMORY_STACK
+        {"SS operand via AX", 0x10870u, 0x1000u},
+        {"SP operand via AX", 0x10872u, 0xfffeu},
+        {"Aligned code via AX", 0x10874u, 0xd08eu},
+        {"Odd code via AX", 0x10876u, 0xe08bu},
+        {"SS after memory load", 0x10878u, 0x1000u},
+        {"SP after memory load", 0x1087au, 0xfffeu},
+#else
 #ifdef ISSUE112_SP_PATHS
         {"Immediate SP via BX", 0x10820u, 0xfffeu},
         {"Immediate SP direct", 0x10822u, 0xfffeu},
@@ -637,6 +660,7 @@ static bool report_stack_probe(uint32_t cycles) {
         {ISSUE112_WITNESS_REG " after 0156", 0x10832u, 0xfffeu},
 #endif
 #endif
+#endif /* ISSUE112_MEMORY_STACK */
         {"SS at entry",      0x10800u, 0x1000u},
         {"SP before PUSH",   0x10802u, 0xfffeu},
         {"PUSH payload",     0x1fffcu, 0xa55au},
@@ -723,7 +747,10 @@ int main(void) {
     hard_assert(sys_hz >= 100000000u);
 #ifdef ISSUE112_FRONTEND_DELAY_CYCLES
 #if defined(ISSUE112_REGISTER_CONTROLS)
-#if defined(ISSUE112_ALE_PHASE)
+#if defined(ISSUE112_MEMORY_STACK)
+    printf("issue112 C9P memory stack initialization @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
+    printf("Memory initializer: %u bytes sha256=%s\n", (unsigned)issue112_mem_stack_init_size, issue112_mem_stack_init_sha256);
+#elif defined(ISSUE112_ALE_PHASE)
     printf("issue112 C9O ALE-synchronized read and byte lanes @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);
 #elif defined(ISSUE112_AX_BEFORE_TRANSFER)
     printf("issue112 C9N AX before final transfer @ %uMHz\n", ISSUE112_PROCESSOR_HZ / 1000000u);

@@ -63,6 +63,11 @@ rp86_add_processor_image(issue112_stack_probe
     SYMBOL issue112_stack_probe
 )
 
+rp86_add_processor_image(issue112_mem_stack_init
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_mem_stack_init.asm"
+    SYMBOL issue112_mem_stack_init
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
