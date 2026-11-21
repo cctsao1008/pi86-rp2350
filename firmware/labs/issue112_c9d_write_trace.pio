@@ -75,14 +75,22 @@ publish_write:
 
 
 .program issue112_c9d_observer
-; Diagnostic observer: one T1 sample plus one R2 sample per physical bus cycle.
-; This is intentionally compact so a long trace fits in SRAM.
+; Diagnostic write-only observer.
+; jmp pin = BUFRW: LOW=read, HIGH=write.
+; RX publishes two words per physical write:
+;   [0] T1 GPIO snapshot (address/control)
+;   [1] R2 GPIO snapshot (write data)
 .wrap_target
 observer_next:
     wait 0 gpio 9
     wait 1 gpio 9
     nop [7]
-    mov isr, pins
+    mov x, pins
+    jmp pin capture_write
+    jmp observer_next
+
+capture_write:
+    mov isr, x
     push block
 
     wait 0 gpio 9              ; AF
@@ -91,6 +99,5 @@ observer_next:
     wait 1 gpio 21             ; R2
     mov isr, pins
     push block
-
     jmp observer_next
 .wrap
