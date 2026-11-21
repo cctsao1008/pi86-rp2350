@@ -37,7 +37,12 @@
 #include "intel_8086_clock.pio.h"
 #ifdef ISSUE112_STACK_PROBE
 #include "issue112_c8c_read_latch.pio.h"
-#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+#include "issue112_byte_reconstruct_witness.h"
+#define issue112_stack_probe_data issue112_byte_reconstruct_witness_data
+#define issue112_stack_probe_size issue112_byte_reconstruct_witness_size
+#define issue112_stack_probe_sha256 issue112_byte_reconstruct_witness_sha256
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
 #include "issue112_read_address_witness.h"
 #define issue112_stack_probe_data issue112_read_address_witness_data
 #define issue112_stack_probe_size issue112_read_address_witness_size
@@ -74,7 +79,9 @@
 #define ISSUE112_TIMEOUT_US 250000u
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
 #ifdef ISSUE112_STACK_PROBE
-#if defined(ISSUE112_READ_ECHO_STRESS) || defined(ISSUE112_READ_ADDRESS_WITNESS)
+#if defined(ISSUE112_READ_ECHO_STRESS) || \
+    defined(ISSUE112_READ_ADDRESS_WITNESS) || \
+    defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
 #define ISSUE112_TRACE_CYCLE_LIMIT 512u
 #define ISSUE112_READ_ECHO_ITERATIONS 8u
 #elif defined(ISSUE112_ALE_PHASE)
@@ -246,9 +253,11 @@ static void prepare_memory(void) {
     for (uint i = 0u; i < ISSUE112_ENCODED_WORDS * ISSUE112_SLOTS_PER_WORD; ++i)
         encoded_backing[i] = encode_word(0x9090u);
 
-#if defined(ISSUE112_READ_ECHO_STRESS) || defined(ISSUE112_READ_ADDRESS_WITNESS)
+#if defined(ISSUE112_READ_ECHO_STRESS) || \
+    defined(ISSUE112_READ_ADDRESS_WITNESS) || \
+    defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     /*
-     * C9R/C9T intentionally avoid SS/SP and all stack operations. RESET
+     * C9R/C9T/C9V intentionally avoid SS/SP and all stack operations. RESET
      * performs only a far transfer into the selected read discriminator.
      */
     static const uint8_t reset_stub[] = {
@@ -357,7 +366,8 @@ static void prepare_memory(void) {
     load_bytes(0x0000u, issue112_stack_probe_data, issue112_stack_probe_size);
 #if defined(ISSUE112_ALE_PHASE) && \
     !defined(ISSUE112_READ_ECHO_STRESS) && \
-    !defined(ISSUE112_READ_ADDRESS_WITNESS)
+    !defined(ISSUE112_READ_ADDRESS_WITNESS) && \
+    !defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     /* After the RET marker, write an odd word between two distinct guards,
      * then have the CPU read both affected words and store the observations. */
     static const uint8_t lane_probe[] = {
@@ -674,7 +684,110 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 }
 
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+static bool report_byte_reconstruct_witness(uint32_t cycles) {
+    static const uint32_t src_even[4] = {
+        0x10100u, 0x10102u, 0x10104u, 0x10106u
+    };
+    static const uint16_t expected_word[4] = {
+        0x1000u, 0xfffeu, 0xd08eu, 0xa55au
+    };
+    static const uint32_t witness_addr[4] = {
+        0x13000u, 0x11ffeu, 0x1f08eu, 0x1c55au
+    };
+
+    uint32_t low_hits[4] = {0u,0u,0u,0u};
+    uint32_t high_hits[4] = {0u,0u,0u,0u};
+    uint32_t witness_hits[4] = {0u,0u,0u,0u};
+    uint32_t lane_errors = 0u;
+    uint32_t unexpected_writes = 0u;
+    uint32_t done_hits = 0u;
+    uint32_t printed = 0u;
+
+    for (uint32_t i = 0u; i < cycles; ++i) {
+        const uint32_t *sample = &trace_words[i * ISSUE112_TRACE_STRIDE];
+        const uint32_t t1 = sample[0];
+        const uint32_t addr = decode_address(t1);
+        const bool write = is_memory_write(t1);
+        const uint16_t r2 = decode_ad(sample[ISSUE112_TRACE_R2_INDEX]);
+        const bool a0 = sample_bit(t1, RP86_PROCESSOR_PIN_AD0) != 0u;
+        const bool ube_n = sample_bit(t1, RP86_PROCESSOR_PIN_UBE) != 0u;
+
+        for (uint j = 0u; j < 4u; ++j) {
+            if (!write && addr == src_even[j] && !a0 && ube_n) {
+                ++low_hits[j];
+                const uint8_t actual = (uint8_t)r2;
+                const uint8_t expected = (uint8_t)expected_word[j];
+                if (actual != expected) {
+                    ++lane_errors;
+                    if (printed++ < 12u)
+                        printf("LOW BYTE MISMATCH C[%03" PRIu32
+                               "] addr=%05" PRIx32
+                               " data=%02x expected=%02x\n",
+                               i, addr, actual, expected);
+                }
+            }
+            if (!write && addr == src_even[j] + 1u && a0 && !ube_n) {
+                ++high_hits[j];
+                const uint8_t actual = (uint8_t)(r2 >> 8u);
+                const uint8_t expected = (uint8_t)(expected_word[j] >> 8u);
+                if (actual != expected) {
+                    ++lane_errors;
+                    if (printed++ < 12u)
+                        printf("HIGH BYTE MISMATCH C[%03" PRIu32
+                               "] addr=%05" PRIx32
+                               " data=%02x expected=%02x\n",
+                               i, addr, actual, expected);
+                }
+            }
+            if (write && addr == witness_addr[j])
+                ++witness_hits[j];
+        }
+
+        if (write && addr == 0x10908u) {
+            ++done_hits;
+            continue;
+        }
+
+        if (write) {
+            bool recognized = false;
+            for (uint j = 0u; j < 4u; ++j)
+                recognized |= addr == witness_addr[j];
+            if (!recognized) {
+                ++unexpected_writes;
+                if (printed++ < 12u)
+                    printf("UNEXPECTED RECONSTRUCT ADDRESS C[%03" PRIu32
+                           "] addr=%05" PRIx32 "\n", i, addr);
+            }
+        }
+    }
+
+    bool counts_ok = done_hits == 1u;
+    for (uint j = 0u; j < 4u; ++j) {
+        printf("LOW[%u]   %05" PRIx32 " byte=%02x hits=%" PRIu32 "\n",
+               j, src_even[j], (unsigned)(expected_word[j] & 0xffu),
+               low_hits[j]);
+        printf("HIGH[%u]  %05" PRIx32 " byte=%02x hits=%" PRIu32 "\n",
+               j, src_even[j] + 1u,
+               (unsigned)((expected_word[j] >> 8u) & 0xffu), high_hits[j]);
+        printf("AXADDR[%u] %05" PRIx32 " hits=%" PRIu32 " expected=%u\n",
+               j, witness_addr[j], witness_hits[j],
+               ISSUE112_READ_ECHO_ITERATIONS);
+        counts_ok = counts_ok &&
+            low_hits[j] == ISSUE112_READ_ECHO_ITERATIONS &&
+            high_hits[j] == ISSUE112_READ_ECHO_ITERATIONS &&
+            witness_hits[j] == ISSUE112_READ_ECHO_ITERATIONS;
+    }
+
+    printf("BYTE LANE ERRORS: %" PRIu32 "\n", lane_errors);
+    printf("UNEXPECTED RECONSTRUCT ADDRESSES: %" PRIu32 "\n",
+           unexpected_writes);
+    printf("DONE ADDRESS: %" PRIu32 " %s\n",
+           done_hits, done_hits == 1u ? "PASS" : "FAIL");
+
+    return counts_ok && lane_errors == 0u && unexpected_writes == 0u;
+}
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
 static bool report_read_address_witness(uint32_t cycles) {
     static const uint32_t src_addr[4] = {
         0x10100u, 0x10102u, 0x10104u, 0x10106u
@@ -1087,7 +1200,10 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+    printf("issue112 C9V byte-reconstruct AX address witness @ 4MHz\n");
+    printf("scope: LOW byte + HIGH byte reads -> AX -> physical write address\n");
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
 #ifdef ISSUE112_SINGLE_RESPONDER_WITNESS
     printf("issue112 C9U single-responder byte-order A/B @ 4MHz\n");
     printf("scope: exact C9T workload/checker on pre-C9O single 16-bit responder\n");
@@ -1156,7 +1272,10 @@ int main(void) {
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
 #ifdef ISSUE112_STACK_PROBE
-#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+    printf("Byte-reconstruct image: %u bytes sha256=%s\n",
+           (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
     printf("Address-witness image: %u bytes sha256=%s\n",
            (unsigned)issue112_stack_probe_size, issue112_stack_probe_sha256);
 #elif defined(ISSUE112_READ_ECHO_STRESS)
@@ -1480,7 +1599,9 @@ int main(void) {
     printf("BUS TRACE: %s (%" PRIu32 "/%u cycles)\n",
            trace_complete ? "COMPLETE" : "TIMEOUT",
            cycles, ISSUE112_TRACE_CYCLE_LIMIT);
-#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+    const bool stack_ok = report_byte_reconstruct_witness(cycles);
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
     const bool stack_ok = report_read_address_witness(cycles);
 #elif defined(ISSUE112_READ_ECHO_STRESS)
     const bool stack_ok = report_read_echo_stress(cycles);
@@ -1491,7 +1612,10 @@ int main(void) {
 #endif
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
-#ifdef ISSUE112_READ_ADDRESS_WITNESS
+#ifdef ISSUE112_BYTE_RECONSTRUCT_WITNESS
+    printf("BYTE-RECONSTRUCT RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
     printf("ADDRESS-WITNESS RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
 #ifdef ISSUE112_SINGLE_RESPONDER_WITNESS
