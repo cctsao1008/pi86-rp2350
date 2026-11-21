@@ -36,6 +36,7 @@
 #include "issue112_c9d_write_trace.pio.h"
 #include "intel_8086_clock.pio.h"
 #ifdef ISSUE112_STACK_PROBE
+#include "issue112_c8c_read_latch.pio.h"
 #include "issue112_stack_probe.h"
 #else
 #include "pi_stress.h"
@@ -46,7 +47,17 @@
 #define ISSUE112_PROCESSOR_HZ 4000000u
 #define ISSUE112_TIMEOUT_US 250000u
 #define ISSUE112_TRACE_WRITE_LIMIT 8192u
+#ifdef ISSUE112_STACK_PROBE
+#define ISSUE112_TRACE_CYCLE_LIMIT 128u
+#define ISSUE112_TRACE_STRIDE 5u
+#define ISSUE112_TRACE_WORDS (ISSUE112_TRACE_CYCLE_LIMIT * ISSUE112_TRACE_STRIDE)
+#define ISSUE112_OBSERVER_PROGRAM issue112_c8c_observer_program
+#define ISSUE112_OBSERVER_CONFIG issue112_c8c_observer_program_get_default_config
+#else
 #define ISSUE112_TRACE_WORDS (ISSUE112_TRACE_WRITE_LIMIT * 2u)
+#define ISSUE112_OBSERVER_PROGRAM issue112_c9d_observer_program
+#define ISSUE112_OBSERVER_CONFIG issue112_c9d_observer_program_get_default_config
+#endif
 #define ISSUE112_TRACE_TIMEOUT_US 1000000u
 
 /* 28-bit DMA transfer count is ample for the bounded one-second proof. */
@@ -277,7 +288,7 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
 
 static void init_observer(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
-        issue112_c9d_observer_program_get_default_config(offset);
+        ISSUE112_OBSERVER_CONFIG(offset);
     sm_config_set_in_pins(&c, 0u);
     sm_config_set_jmp_pin(&c, RP86_PROCESSOR_PIN_BUFRW);
     sm_config_set_fifo_join(&c, PIO_FIFO_JOIN_RX);
@@ -323,7 +334,23 @@ static bool wait_dma_idle(uint channel, uint64_t deadline) {
 }
 
 #ifdef ISSUE112_STACK_PROBE
-static bool report_stack_probe(uint32_t captured_writes) {
+static bool report_stack_probe(uint32_t cycles) {
+    uint32_t captured_writes = 0u;
+    for (uint32_t i = 0u; i < cycles; ++i) {
+        const uint32_t *sample = &trace_words[i * ISSUE112_TRACE_STRIDE];
+        const uint32_t t1 = sample[0];
+        const bool write = is_memory_write(t1);
+        if (write) ++captured_writes;
+        if (i < 56u || write) {
+            printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s"
+                   " rawT1=%08" PRIx32 " AF=%04x R1=%04x F1=%04x R2=%04x\n",
+                   i, write ? "MEMW" : "BUS ", decode_address(t1),
+                   lane_name(t1), t1, decode_ad(sample[1]), decode_ad(sample[2]),
+                   decode_ad(sample[3]), decode_ad(sample[4]));
+        }
+    }
+
+
     static const struct {
         const char *step;
         uint32_t address;
@@ -346,19 +373,30 @@ static bool report_stack_probe(uint32_t captured_writes) {
     printf("CAPTURED WRITES: %" PRIu32 " expected=%" PRIu32 " %s\n",
            captured_writes, count, count_ok ? "PASS" : "FAIL");
 
+    uint32_t next_cycle = 0u;
     for (uint32_t i = 0u; i < count; ++i) {
-        const bool captured = i < captured_writes;
-        const uint32_t t1 = captured ? trace_words[i * 2u] : 0u;
-        const uint32_t r2 = captured ? trace_words[i * 2u + 1u] : 0u;
-        const uint32_t address = decode_address(t1);
-        const uint16_t data = decode_ad(r2);
-        const bool trace_ok = captured && is_memory_write(t1) &&
-            address == writes[i].address && data == writes[i].expected &&
-            sample_bit(t1, RP86_PROCESSOR_PIN_AD0) == 0u &&
-            sample_bit(t1, RP86_PROCESSOR_PIN_UBE) == 0u;
-        printf("%s: addr=%05" PRIx32 " data=%04x expected=%05" PRIx32
-               "/%04x %s\n", writes[i].step, address, data,
-               writes[i].address, writes[i].expected, trace_ok ? "PASS" : "FAIL");
+        uint32_t cycle = next_cycle;
+        for (; cycle < cycles; ++cycle) {
+            const uint32_t t1 = trace_words[cycle * ISSUE112_TRACE_STRIDE];
+            if (is_memory_write(t1) && decode_address(t1) == writes[i].address &&
+                sample_bit(t1, RP86_PROCESSOR_PIN_AD0) == 0u &&
+                sample_bit(t1, RP86_PROCESSOR_PIN_UBE) == 0u) {
+                break;
+            }
+        }
+        bool trace_ok = false;
+        if (cycle < cycles) {
+            const uint16_t data =
+                decode_ad(trace_words[cycle * ISSUE112_TRACE_STRIDE + 4u]);
+            trace_ok = data == writes[i].expected;
+            printf("%s: addr=%05" PRIx32 " data=%04x expected=%04x %s\n",
+                   writes[i].step, writes[i].address, data, writes[i].expected,
+                   trace_ok ? "PASS" : "FAIL");
+            next_cycle = cycle + 1u;
+        } else {
+            printf("%s: missing WORD write at %05" PRIx32 " FAIL\n",
+                   writes[i].step, writes[i].address);
+        }
 
         /* CALL reuses the PUSH slot, so only validate its final backing value. */
         if (i != 2u) {
@@ -379,7 +417,7 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
-    printf("issue112 C9E stack probe @ 4MHz\n");
+    printf("issue112 C9E reset fetch and stack probe @ 4MHz\n");
 #else
     printf("issue112 C9D PI-STRESS write-routing discriminator @ 4MHz\n");
     printf("scope: trace physical MEMW address/data vs final backing corruption\n");
@@ -426,7 +464,7 @@ int main(void) {
     const uint observer_sm = pio_claim_unused_sm(clock_pio, true);
     const uint clock_sm = pio_claim_unused_sm(clock_pio, true);
     const uint observer_offset =
-        pio_add_program(clock_pio, &issue112_c9d_observer_program);
+        pio_add_program(clock_pio, &ISSUE112_OBSERVER_PROGRAM);
     const uint clock_offset =
         pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
     init_observer(clock_pio, observer_sm, observer_offset);
@@ -608,7 +646,7 @@ int main(void) {
 
     /*
      * M33 does not service bus cycles. It only waits for the autonomous PIO
-     * write observer DMA to fill (or time out) before freezing the epoch.
+     * observer DMA to fill (or time out) before freezing the epoch.
      */
     const uint64_t trace_deadline = time_us_64() + ISSUE112_TRACE_TIMEOUT_US;
     const bool trace_complete = wait_dma_idle(observer_dma, trace_deadline);
@@ -628,25 +666,21 @@ int main(void) {
     gpio_put(RP86_PROCESSOR_PIN_CLK, false);
     gpio_set_dir(RP86_PROCESSOR_PIN_CLK, GPIO_OUT);
 
-    const uint32_t captured_writes =
-        (ISSUE112_TRACE_WORDS - trace_remaining) / 2u;
+#ifdef ISSUE112_STACK_PROBE
+    const uint32_t cycles =
+        (ISSUE112_TRACE_WORDS - trace_remaining) / ISSUE112_TRACE_STRIDE;
+    printf("BUS TRACE: %s (%" PRIu32 "/%u cycles)\n",
+           trace_complete ? "COMPLETE" : "TIMEOUT",
+           cycles, ISSUE112_TRACE_CYCLE_LIMIT);
+    const bool stack_ok = report_stack_probe(cycles);
+    printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
+    printf("STACK PROBE RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#else
+    const uint32_t captured_writes = (ISSUE112_TRACE_WORDS - trace_remaining) / 2u;
     printf("WRITE TRACE: %s (%" PRIu32 "/%u writes)\n",
            trace_complete ? "COMPLETE" : "TIMEOUT",
            captured_writes, ISSUE112_TRACE_WRITE_LIMIT);
-#ifdef ISSUE112_STACK_PROBE
-    for (uint32_t i = 0u; i < captured_writes && i < 16u; ++i) {
-        const uint32_t t1 = trace_words[i * 2u];
-        const uint32_t r2 = trace_words[i * 2u + 1u];
-        printf("W[%02" PRIu32 "] addr=%05" PRIx32
-               " lane=%s A0=%u UBE#=%u data=%04x\n",
-               i, decode_address(t1), lane_name(t1),
-               (unsigned)sample_bit(t1, RP86_PROCESSOR_PIN_AD0),
-               (unsigned)sample_bit(t1, RP86_PROCESSOR_PIN_UBE), decode_ad(r2));
-    }
-    const bool stack_ok = report_stack_probe(captured_writes);
-    printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
-    printf("STACK PROBE RESULT: %s\n", reset_clock_ok && stack_ok ? "PASS" : "FAIL");
-#else
     bool saw_10800_1000 = false;
     bool saw_any_10800_after_magic = false;
     uint32_t telemetry_write_count = 0u;

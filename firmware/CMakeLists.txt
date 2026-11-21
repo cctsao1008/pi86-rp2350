@@ -795,6 +795,10 @@ pico_generate_pio_header(rp86_issue112_c9e_stack_probe_4mhz_lab
     ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
 )
 
+pico_generate_pio_header(rp86_issue112_c9e_stack_probe_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
 pico_enable_stdio_usb(rp86_issue112_c9e_stack_probe_4mhz_lab 1)
 pico_enable_stdio_uart(rp86_issue112_c9e_stack_probe_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c9e_stack_probe_4mhz_lab)
