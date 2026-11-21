@@ -795,7 +795,8 @@ static bool report_byte_reconstruct_witness(uint32_t cycles) {
 
     return counts_ok && lane_errors == 0u && unexpected_writes == 0u;
 }
-#elif defined(ISSUE112_READ_ADDRESS_WITNESS)
+#elif defined(ISSUE112_READ_ADDRESS_WITNESS) || \
+      defined(ISSUE112_INDIRECT_WORD_WITNESS)
 static bool report_read_address_witness(uint32_t cycles) {
     static const uint32_t src_addr[4] = {
         0x10100u, 0x10102u, 0x10104u, 0x10106u
