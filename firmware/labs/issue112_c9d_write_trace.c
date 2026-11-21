@@ -296,21 +296,41 @@ static void init_frontend(PIO pio, uint sm, uint offset,
     pio_sm_set_enabled(pio, sm, false);
 }
 
-static uint add_responder_program(PIO pio) {
 #ifdef ISSUE112_READ_HOLD_CYCLES
-    /* C9H keeps the C9G instruction sequence and adds delay after F2. */
-    struct pio_program program = issue112_c9d_responder_program;
-    uint16_t instructions[sizeof issue112_c9d_responder_program_instructions /
-                          sizeof issue112_c9d_responder_program_instructions[0]];
-    for (uint i = 0u; i < program.length; ++i)
-        instructions[i] = program.instructions[i];
+static uint add_program_with_replacement(PIO pio, const struct pio_program *original,
+                                         uint index, uint expected, uint replacement) {
+    uint16_t instructions[32];
+    hard_assert(original->length <= sizeof instructions / sizeof instructions[0]);
+    hard_assert(index < original->length && original->instructions[index] == expected);
+    for (uint i = 0u; i < original->length; ++i)
+        instructions[i] = original->instructions[i];
 
-    const uint f2 = issue112_c9d_responder_offset_read_f2;
-    hard_assert(f2 < program.length);
-    hard_assert(instructions[f2] == pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_CLK));
-    instructions[f2] |= (uint16_t)pio_encode_delay(ISSUE112_READ_HOLD_CYCLES);
+    struct pio_program program = *original;
+    instructions[index] = (uint16_t)replacement;
     program.instructions = instructions;
     return pio_add_program(pio, &program);
+}
+#endif
+
+static uint add_frontend_program(PIO pio) {
+#ifdef ISSUE112_FRONTEND_DELAY_CYCLES
+    return add_program_with_replacement(
+        pio, &issue112_c9d_addr_frontend_program,
+        issue112_c9d_addr_frontend_offset_address_settle,
+        pio_encode_nop() | pio_encode_delay(7u),
+        pio_encode_nop() | pio_encode_delay(ISSUE112_FRONTEND_DELAY_CYCLES));
+#else
+    return pio_add_program(pio, &issue112_c9d_addr_frontend_program);
+#endif
+}
+
+static uint add_responder_program(PIO pio) {
+#ifdef ISSUE112_READ_HOLD_CYCLES
+    const uint wait_f2 = pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_CLK);
+    return add_program_with_replacement(
+        pio, &issue112_c9d_responder_program,
+        issue112_c9d_responder_offset_read_f2, wait_f2,
+        wait_f2 | pio_encode_delay(ISSUE112_READ_HOLD_CYCLES));
 #else
     return pio_add_program(pio, &issue112_c9d_responder_program);
 #endif
@@ -482,7 +502,13 @@ int main(void) {
 #if defined(ISSUE112_READ_HOLD_CYCLES)
     const uint32_t sys_hz = clock_get_hz(clk_sys);
     hard_assert(sys_hz >= 100000000u);
+#ifdef ISSUE112_FRONTEND_DELAY_CYCLES
+    printf("issue112 C9I earlier read response probe @ 4MHz\n");
+    printf("ADDRESS SETTLE: %u delay cycles (baseline 7)\n",
+           (unsigned)ISSUE112_FRONTEND_DELAY_CYCLES);
+#else
     printf("issue112 C9H read hold probe @ 4MHz\n");
+#endif
     printf("READ HOLD: +%u PIO cycles after F2, clk_sys=%" PRIu32 " Hz\n",
            (unsigned)ISSUE112_READ_HOLD_CYCLES, sys_hz);
 #elif defined(ISSUE112_SP_PATHS)
@@ -520,7 +546,7 @@ int main(void) {
     const uint frontend0_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend1_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend_offset =
-        pio_add_program(frontend_pio, &issue112_c9d_addr_frontend_program);
+        add_frontend_program(frontend_pio);
     init_frontend(frontend_pio, frontend0_sm, frontend_offset, 0u, lut0_base);
     init_frontend(frontend_pio, frontend1_sm, frontend_offset, 14u, lut1_base);
 

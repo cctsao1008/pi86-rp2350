@@ -12,6 +12,7 @@
 next_cycle:
     wait 0 gpio 9
     wait 1 gpio 9
+public address_settle:
     nop [7]
 
     mov isr, null
