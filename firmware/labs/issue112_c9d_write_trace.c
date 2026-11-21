@@ -1217,7 +1217,10 @@ int main(void) {
 
 #ifdef ISSUE112_STACK_PROBE
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
-#ifdef ISSUE112_EARLY_READ_PRELOAD
+#if defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
+    printf("issue112 C9Y fast-front-end aligned WORD repair @ 4MHz\n");
+    printf("scope: C9X responder + sync-bypass address front-end + zero settle delay\n");
+#elif defined(ISSUE112_EARLY_READ_PRELOAD)
     printf("issue112 C9X early-preload aligned WORD repair @ 4MHz\n");
     printf("scope: C9W workload; preload OUT latch in T1, enable drive at ASTB fall\n");
 #else
@@ -1347,6 +1350,17 @@ int main(void) {
         add_frontend_program(frontend_pio);
     init_frontend(frontend_pio, frontend0_sm, frontend_offset, 0u, lut0_base);
     init_frontend(frontend_pio, frontend1_sm, frontend_offset, 14u, lut1_base);
+#ifdef ISSUE112_FRONTEND_SYNC_BYPASS
+    /*
+     * C9Y: the address front-end is purely synchronous to the external CPU
+     * bus and has already been physically audited at 4 MHz. Bypass the PIO
+     * input synchronisers for GPIO0..27 to remove their documented two
+     * clk_sys cycles of latency from both ASTB observation and address bits.
+     */
+    const uint32_t frontend_bypass_mask = (1u << 28u) - 1u;
+    pio_set_input_sync_bypass_with_mask(
+        frontend_pio, frontend_bypass_mask, frontend_bypass_mask);
+#endif
 
 #ifdef ISSUE112_ALE_PHASE
     PIO low_pio = pio2, high_pio = pio0;
@@ -1642,7 +1656,11 @@ int main(void) {
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
-#ifdef ISSUE112_EARLY_READ_PRELOAD
+#if defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
+    printf("FAST-FRONTEND WORD RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+    printf("READ SETUP: C9X early-preload + PIO input sync bypass + settle=0 (C9Y)\n");
+#elif defined(ISSUE112_EARLY_READ_PRELOAD)
     printf("EARLY-PRELOAD WORD RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
     printf("READ SETUP: output latch preloaded before ASTB fall (C9X)\n");
