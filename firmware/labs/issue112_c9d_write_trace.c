@@ -174,6 +174,22 @@ static void prepare_memory(void) {
     for (uint i = 0u; i < ISSUE112_ENCODED_WORDS; ++i)
         encoded_backing[i] = encode_word(0x9090u);
 
+#ifdef ISSUE112_STACK_INIT_IN_RAM
+    /* Keep the stack values and witness identical to C9E. Only move the
+     * initialization instructions to 1000:0100, then jump to the witness. */
+    static const uint8_t reset_stub[] = {
+        0xeau, 0x00u, 0x01u, 0x00u, 0x10u, 0x90u /* jmp far 1000:0100; nop */
+    };
+    static const uint8_t stack_init[] = {
+        0xfau,                       /* cli */
+        0xb8u, 0x00u, 0x10u,         /* mov ax,1000h */
+        0x8eu, 0xd0u,                /* mov ss,ax */
+        0xbcu, 0xfeu, 0xffu,         /* mov sp,0fffeh */
+        0xe9u, 0xf4u, 0xfeu          /* jmp near 0000h from next IP 010Ch */
+    };
+    load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
+    load_bytes(0x0100u, stack_init, sizeof stack_init);
+#else
     /*
      * RESET bootstrap, 16 bytes total:
      *
@@ -197,10 +213,15 @@ static void prepare_memory(void) {
         0x90u, 0x90u
     };
     load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
+#endif
 
 #ifdef ISSUE112_STACK_PROBE
     hard_assert((issue112_stack_probe_size & 1u) == 0u);
+#ifdef ISSUE112_STACK_INIT_IN_RAM
+    hard_assert(issue112_stack_probe_size <= 0x0100u);
+#else
     hard_assert(issue112_stack_probe_size <= 0x0800u);
+#endif
     load_bytes(0x0000u, issue112_stack_probe_data, issue112_stack_probe_size);
 #else
     hard_assert((pi_stress_workload_size & 1u) == 0u);
@@ -341,7 +362,7 @@ static bool report_stack_probe(uint32_t cycles) {
         const uint32_t t1 = sample[0];
         const bool write = is_memory_write(t1);
         if (write) ++captured_writes;
-        if (i < 56u || write) {
+        if (i < 72u || write) {
             printf("C[%03" PRIu32 "] %s addr=%05" PRIx32 " lane=%s"
                    " rawT1=%08" PRIx32 " AF=%04x R1=%04x F1=%04x R2=%04x\n",
                    i, write ? "MEMW" : "BUS ", decode_address(t1),
@@ -417,7 +438,11 @@ int main(void) {
     sleep_ms(50);
 
 #ifdef ISSUE112_STACK_PROBE
+#ifdef ISSUE112_STACK_INIT_IN_RAM
+    printf("issue112 C9F RAM stack initialization probe @ 4MHz\n");
+#else
     printf("issue112 C9E reset fetch and stack probe @ 4MHz\n");
+#endif
 #else
     printf("issue112 C9D PI-STRESS write-routing discriminator @ 4MHz\n");
     printf("scope: trace physical MEMW address/data vs final backing corruption\n");

@@ -768,40 +768,46 @@ pico_enable_stdio_usb(rp86_issue112_c9d_write_trace_4mhz_lab 1)
 pico_enable_stdio_uart(rp86_issue112_c9d_write_trace_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c9d_write_trace_4mhz_lab)
 
-# Issue #112 C9E: exercise the C9D bootstrap and aligned stack operations.
-add_executable(rp86_issue112_c9e_stack_probe_4mhz_lab EXCLUDE_FROM_ALL
-    labs/issue112_c9d_write_trace.c
-)
+# Issue #112: compare stack setup in the reset vector and ordinary RAM.
+foreach(_probe IN ITEMS c9e_stack_probe c9f_ram_stack_init)
+    set(_target rp86_issue112_${_probe}_4mhz_lab)
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue112_c9d_write_trace.c
+    )
 
-target_include_directories(rp86_issue112_c9e_stack_probe_4mhz_lab PRIVATE
-    ${CMAKE_CURRENT_LIST_DIR}
-)
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
 
-target_compile_definitions(rp86_issue112_c9e_stack_probe_4mhz_lab PRIVATE ISSUE112_STACK_PROBE=1)
+    target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_PROBE=1)
+    if(_probe STREQUAL "c9f_ram_stack_init")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_INIT_IN_RAM=1)
+    endif()
 
-target_link_libraries(rp86_issue112_c9e_stack_probe_4mhz_lab
-    pico_stdlib
-    hardware_clocks
-    hardware_dma
-    hardware_pio
-    issue112_stack_probe
-)
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+        issue112_stack_probe
+    )
 
-pico_generate_pio_header(rp86_issue112_c9e_stack_probe_4mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
-)
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+    )
 
-pico_generate_pio_header(rp86_issue112_c9e_stack_probe_4mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
-)
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
 
-pico_generate_pio_header(rp86_issue112_c9e_stack_probe_4mhz_lab
-    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
-)
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+    )
 
-pico_enable_stdio_usb(rp86_issue112_c9e_stack_probe_4mhz_lab 1)
-pico_enable_stdio_uart(rp86_issue112_c9e_stack_probe_4mhz_lab 0)
-pico_add_extra_outputs(rp86_issue112_c9e_stack_probe_4mhz_lab)
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
 
 
 # Passive 8 MHz C1b probe: physical T1 capture/repack only.
