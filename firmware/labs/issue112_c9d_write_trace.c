@@ -499,12 +499,28 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
 static uint init_lane(PIO pio, uint first_bit, uint select_gpio) {
     const uint sm = pio_claim_unused_sm(pio, true);
     const uint phase_sm = pio_claim_unused_sm(pio, true);
-    const uint phase_offset = pio_add_program(pio, &issue112_c9o_phase_program);
-    pio_sm_config phase = issue112_c9o_phase_program_get_default_config(phase_offset);
+#ifdef ISSUE112_DETERMINISTIC_READ_PHASE
+    (void)select_gpio;
+    const uint phase_offset =
+        pio_add_program(pio, &issue112_c9s_phase_program);
+    pio_sm_config phase =
+        issue112_c9s_phase_program_get_default_config(phase_offset);
+#else
+    const uint phase_offset =
+        pio_add_program(pio, &issue112_c9o_phase_program);
+    pio_sm_config phase =
+        issue112_c9o_phase_program_get_default_config(phase_offset);
+#endif
     hard_assert(pio_sm_init(pio, phase_sm, phase_offset, &phase) == PICO_OK);
     pio_interrupt_clear(pio, 0u);
+    pio_interrupt_clear(pio, 1u);
 
-#ifdef ISSUE112_ADDRESS_AUDIT
+#ifdef ISSUE112_DETERMINISTIC_READ_PHASE
+    const uint offset =
+        pio_add_program(pio, &issue112_c9s_responder_program);
+    pio_sm_config responder =
+        issue112_c9s_responder_program_get_default_config(offset);
+#elif defined(ISSUE112_ADDRESS_AUDIT)
     const uint offset = add_program_with_replacement(
         pio, &issue112_c9q_responder_program, issue112_c9q_responder_offset_select_bit,
         pio_encode_out(pio_null, 26u), pio_encode_out(pio_null, select_gpio));
@@ -917,8 +933,13 @@ int main(void) {
 
 #ifdef ISSUE112_STACK_PROBE
 #ifdef ISSUE112_READ_ECHO_STRESS
+#ifdef ISSUE112_DETERMINISTIC_READ_PHASE
+    printf("issue112 C9S deterministic read-drive phase @ 4MHz\n");
+    printf("scope: C9R read-echo workload with latched fixed drive event\n");
+#else
     printf("issue112 C9R repeated CPU read-echo discriminator @ 4MHz\n");
     printf("scope: aligned CS reads -> AX -> aligned echo writes; no stack\n");
+#endif
 #elif defined(ISSUE112_READ_HOLD_CYCLES)
     const uint32_t sys_hz = clock_get_hz(clk_sys);
     hard_assert(sys_hz >= 100000000u);
@@ -1305,6 +1326,11 @@ int main(void) {
 #ifdef ISSUE112_READ_ECHO_STRESS
     printf("READ-ECHO RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#ifdef ISSUE112_DETERMINISTIC_READ_PHASE
+    printf("READ DRIVE: latched fixed-phase IRQ event (C9S)\n");
+#else
+    printf("READ DRIVE: level-sensitive CLK wait (C9R baseline)\n");
+#endif
 #else
     printf("STACK PROBE RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
