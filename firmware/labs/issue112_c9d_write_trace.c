@@ -482,7 +482,9 @@ static uint add_frontend_program(PIO pio) {
 
 #ifndef ISSUE112_ALE_PHASE
 static uint add_responder_program(PIO pio) {
-#ifdef ISSUE112_READ_HOLD_CYCLES
+#ifdef ISSUE112_EARLY_READ_PRELOAD
+    return pio_add_program(pio, &issue112_c9x_early_responder_program);
+#elif defined(ISSUE112_READ_HOLD_CYCLES)
     const uint wait_f2 = pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_CLK);
     return add_program_with_replacement(
         pio, &issue112_c9d_responder_program,
@@ -494,8 +496,13 @@ static uint add_responder_program(PIO pio) {
 }
 
 static void init_responder(PIO pio, uint sm, uint offset) {
+#ifdef ISSUE112_EARLY_READ_PRELOAD
+    pio_sm_config c =
+        issue112_c9x_early_responder_program_get_default_config(offset);
+#else
     pio_sm_config c =
         issue112_c9d_responder_program_get_default_config(offset);
+#endif
     sm_config_set_out_pins(&c, 0u, 28u);
     sm_config_set_out_shift(&c, true, false, 32u);
     sm_config_set_jmp_pin(&c, RP86_PROCESSOR_PIN_BUFRW);
@@ -1210,8 +1217,13 @@ int main(void) {
 
 #ifdef ISSUE112_STACK_PROBE
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
+#ifdef ISSUE112_EARLY_READ_PRELOAD
+    printf("issue112 C9X early-preload aligned WORD repair @ 4MHz\n");
+    printf("scope: C9W workload; preload OUT latch in T1, enable drive at ASTB fall\n");
+#else
     printf("issue112 C9W indirect WORD address witness @ 4MHz\n");
     printf("scope: MOV BX,[CS:SI] aligned WORD loads -> physical write address\n");
+#endif
 #elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     printf("issue112 C9V byte-reconstruct AX address witness @ 4MHz\n");
     printf("scope: LOW byte + HIGH byte reads -> AX -> physical write address\n");
@@ -1630,8 +1642,14 @@ int main(void) {
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
+#ifdef ISSUE112_EARLY_READ_PRELOAD
+    printf("EARLY-PRELOAD WORD RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+    printf("READ SETUP: output latch preloaded before ASTB fall (C9X)\n");
+#else
     printf("INDIRECT-WORD RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+#endif
 #elif defined(ISSUE112_BYTE_RECONSTRUCT_WITNESS)
     printf("BYTE-RECONSTRUCT RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
