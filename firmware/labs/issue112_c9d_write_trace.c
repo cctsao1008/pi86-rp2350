@@ -1281,7 +1281,10 @@ int main(void) {
 
 #ifdef ISSUE112_STACK_PROBE
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
-#ifdef ISSUE112_TURNAROUND_READ
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    printf("issue112 C10 compact-address dataplane @ 4MHz\n");
+    printf("scope: C9W workload; single compact LUT + shortened DMA read chain\n");
+#elif defined(ISSUE112_TURNAROUND_READ)
     printf("issue112 C9Z guaranteed bus-turnaround WORD read @ 4MHz\n");
     printf("scope: C9W workload; drive AD only after one complete CLK after ALE\n");
 #elif defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
@@ -1756,19 +1759,25 @@ int main(void) {
         trace_words, &clock_pio->rxf[observer_sm],
         ISSUE112_TRACE_WORDS, false);
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    dma_channel_start(compact_control_dma);
+    dma_channel_start(write_control_dma);
+#else
     dma_sniffer_set_data_accumulator(0u);
     dma_sniffer_enable(high_lookup_dma, ISSUE112_DMA_SNIFF_SUM_MODE, false);
-
     dma_channel_start(low_control_dma);
 #ifndef ISSUE112_ALE_PHASE
     dma_channel_start(write_control_dma);
+#endif
 #endif
     dma_channel_start(observer_dma);
 
     pio_sm_restart(frontend_pio, frontend0_sm);
     pio_sm_exec(frontend_pio, frontend0_sm, pio_encode_jmp(frontend_offset));
+#ifndef ISSUE112_COMPACT_DATAPLANE
     pio_sm_restart(frontend_pio, frontend1_sm);
     pio_sm_exec(frontend_pio, frontend1_sm, pio_encode_jmp(frontend_offset));
+#endif
 #ifndef ISSUE112_ALE_PHASE
 #ifdef ISSUE112_TURNAROUND_READ
     pio_sm_restart(io_pio, turnaround_phase_sm);
@@ -1786,7 +1795,9 @@ int main(void) {
         clock_pio, observer_sm, pio_encode_jmp(observer_offset));
 
     pio_sm_set_enabled(frontend_pio, frontend0_sm, true);
+#ifndef ISSUE112_COMPACT_DATAPLANE
     pio_sm_set_enabled(frontend_pio, frontend1_sm, true);
+#endif
 #ifndef ISSUE112_ALE_PHASE
 #ifdef ISSUE112_TURNAROUND_READ
     pio_sm_set_enabled(io_pio, turnaround_phase_sm, true);
@@ -1858,7 +1869,11 @@ int main(void) {
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
-#ifdef ISSUE112_TURNAROUND_READ
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    printf("COMPACT-DATAPLANE WORD RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+    printf("READ PATH: compact PIO address -> 1 LUT DMA -> backing DMA (C10)\n");
+#elif defined(ISSUE112_TURNAROUND_READ)
     printf("TURNAROUND WORD RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
     printf("READ DRIVE: one complete CLK after ALE before PINDIRS enable (C9Z)\n");
