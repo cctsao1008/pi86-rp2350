@@ -150,8 +150,14 @@
 #define ISSUE112_MAGIC1 0x3638u
 #define ISSUE112_STATE_PUBLISHED 2u
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+#define ISSUE112_COMPACT_LUT_ENTRIES 65536u
+static uint32_t compact_addr_lut[ISSUE112_COMPACT_LUT_ENTRIES]
+    __attribute__((aligned(262144)));
+#else
 static uint32_t addr_lut[2][ISSUE112_ADDR_LUT_ENTRIES]
     __attribute__((aligned(65536)));
+#endif
 #ifdef ISSUE112_ALE_PHASE
 #define ISSUE112_SLOTS_PER_WORD 2u
 #else
@@ -181,9 +187,30 @@ static const uint8_t ad_gpio[16] = {
     RP86_PROCESSOR_PIN_AD14, RP86_PROCESSOR_PIN_AD15,
 };
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+/*
+ * Must match issue112_c10_compact_frontend's ascending-GPIO gather order.
+ * The first gathered bit becomes compact-index bit 15; the last becomes bit 0.
+ */
+static const uint8_t compact_ad_gpio_order[16] = {
+    0u, 2u, 3u, 4u, 6u, 10u, 11u, 12u,
+    13u, 14u, 15u, 17u, 19u, 22u, 26u, 27u,
+};
+#endif
+
 static inline uint32_t sample_bit(uint32_t raw, uint gpio) {
     return (raw >> gpio) & 1u;
 }
+
+#ifdef ISSUE112_COMPACT_DATAPLANE
+static uint16_t compact_index_from_raw(uint32_t raw) {
+    uint16_t index = 0u;
+    for (uint i = 0u; i < 16u; ++i)
+        index = (uint16_t)((index << 1u) |
+                          sample_bit(raw, compact_ad_gpio_order[i]));
+    return index;
+}
+#endif
 
 static uint16_t decode_ad(uint32_t raw) {
     uint16_t value = 0u;
