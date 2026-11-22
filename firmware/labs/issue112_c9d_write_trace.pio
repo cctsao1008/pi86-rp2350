@@ -419,13 +419,14 @@ write_cycle:
 
 ; C10: one-SM compact 16-bit address frontend for the 64 KiB mirror lab.
 ;
-; AD0..AD15 are scattered over GPIO0..27.  Capture the full GPIO window once,
-; then compact only the sixteen AD bits in ascending GPIO-number order:
-;   0, 2,3,4, 6, 10,11,12,13,14,15, 17, 19, 22, 26,27
+; AD0..AD15 are scattered over GPIO0..27.  A0/AD0 is not required for
+; backing-word lookup because even and odd byte cycles share the same aligned
+; 16-bit backing word. Compact A15..A1 in ascending GPIO-number order:
+;   0, 2,3,4, 6, 10,11,12,13,14,15, 17, 19, 22, 27
 ;
-; Y holds bits 31:18 of a 256 KiB-aligned 64K-entry LUT base.  The final
+; Y holds bits 31:17 of a 128 KiB-aligned 32K-entry LUT base.  The final
 ; autopushed word is:
-;   [ LUT base high 14 ][ compact AD index 16 ][ 00 ]
+;   [ LUT base high 15 ][ compact A15..A1 index 15 ][ 00 ]
 ; which is the byte address of compact_addr_lut[index].
 ;
 ; OUT shifts OSR right; IN shifts ISR left.  The program consumes all GPIO0..27
@@ -440,7 +441,7 @@ write_cycle:
 .wrap_target
     wait 1 gpio 9
     mov osr, pins
-    in y, 14
+    in y, 15
 
     out x, 1                  ; GPIO0  = AD5
     in x, 1
@@ -468,10 +469,10 @@ write_cycle:
 
     out x, 1                 ; GPIO22 = AD9
     in x, 1
-    out null, 3              ; GPIO23..25
+    out null, 4              ; GPIO23..26 (A18,A19,UBE,AD0/A0)
 
-    out x, 2                 ; GPIO26..27 = AD0,AD10
-    in x, 2
+    out x, 1                 ; GPIO27 = AD10
+    in x, 1
 
     in null, 2               ; 32 bits total -> autopush
 .wrap
