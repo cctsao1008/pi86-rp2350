@@ -42,9 +42,9 @@
 #define ISSUE112_PI_IMAGE_SHA256 pi_continuous_stackless_sha256
 #else
 #include "pi_stress.h"
-#define ISSUE112_PI_IMAGE_DATA ISSUE112_PI_IMAGE_DATA
-#define ISSUE112_PI_IMAGE_SIZE ISSUE112_PI_IMAGE_SIZE
-#define ISSUE112_PI_IMAGE_SHA256 ISSUE112_PI_IMAGE_SHA256
+#define ISSUE112_PI_IMAGE_DATA pi_stress_workload_data
+#define ISSUE112_PI_IMAGE_SIZE pi_stress_workload_size
+#define ISSUE112_PI_IMAGE_SHA256 pi_stress_workload_sha256
 #endif
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
