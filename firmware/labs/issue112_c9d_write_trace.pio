@@ -407,7 +407,7 @@ read_cycle:
     jmp next_cycle
 
 write_cycle:
-    mov pindirs, null
+    ; PINDIRS is already Hi-Z at every cycle boundary.
     wait 1 irq 1                ; consume this cycle's turnaround event
     irq clear 1
     wait 1 gpio 21
