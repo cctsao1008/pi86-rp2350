@@ -426,6 +426,20 @@ static void prepare_memory(void) {
     load_bytes(0x0000u, pi_stress_workload_data, pi_stress_workload_size);
 #endif
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    /*
+     * C10: one direct 64K pointer LUT. The compact PIO frontend emits the LUT
+     * entry address directly, so no second lookup, DMA sniffer SUM or pointer
+     * accumulator is required on the read critical path.
+     */
+    for (uint32_t address = 0u; address < 0x10000u; ++address) {
+        const uint32_t raw = encode_word((uint16_t)address);
+        const uint16_t index = compact_index_from_raw(raw);
+        const uint32_t offset =
+            (address & 0xfffeu) * (2u * ISSUE112_SLOTS_PER_WORD);
+        compact_addr_lut[index] = (uint32_t)backing_base + offset;
+    }
+#else
     /*
      * C5/C8 speed-first translation. Each table contributes disjoint pieces
      * of the byte offset of encoded_backing[(A15..A0 & ~1) >> 1].
@@ -444,6 +458,7 @@ static void prepare_memory(void) {
     }
 
     address_high_part = 0u;
+#endif
     for (uint i = 0u; i < ISSUE112_TRACE_WORDS; ++i)
         trace_words[i] = 0u;
 }
@@ -478,6 +493,23 @@ static void init_frontend(PIO pio, uint sm, uint offset,
     pio_sm_put_blocking(pio, sm, (uint32_t)(lut_base >> 16u));
     pio_sm_set_enabled(pio, sm, false);
 }
+
+#ifdef ISSUE112_COMPACT_DATAPLANE
+static void init_compact_frontend(PIO pio, uint sm, uint offset,
+                                  uintptr_t lut_base) {
+    pio_sm_config cfg =
+        issue112_c10_compact_frontend_program_get_default_config(offset);
+    sm_config_set_in_pins(&cfg, 0u);
+    sm_config_set_in_pin_count(&cfg, 28u);
+    sm_config_set_in_shift(&cfg, false, true, 32u);  /* left + autopush */
+    sm_config_set_out_shift(&cfg, true, false, 32u); /* consume GPIO0 first */
+    hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
+    pio_sm_clear_fifos(pio, sm);
+    hard_assert((lut_base & 0x3ffffu) == 0u);
+    pio_sm_put_blocking(pio, sm, (uint32_t)(lut_base >> 18u));
+    pio_sm_set_enabled(pio, sm, false);
+}
+#endif
 
 #ifdef ISSUE112_READ_HOLD_CYCLES
 static uint add_program_with_replacement(PIO pio, const struct pio_program *original,
