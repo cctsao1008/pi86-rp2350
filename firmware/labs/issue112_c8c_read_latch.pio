@@ -107,23 +107,25 @@ observer_next:
 
 .program issue112_pi_out_observer
 ; Passive continuous-PI witness observer.
-; Samples the multiplexed AD address during T1 and publishes only BUFRW=HIGH
-; write cycles. The stackless PI workload performs exactly one OUT DX,AL per
-; completed calculation, so the pushed raw GPIO snapshot carries the computed
-; Q3.13 PI result in the I/O port address. PUSH is non-blocking: observation
-; can never stall the physical processor.
+; Latch AD in T1, then qualify the same cycle at R2. IN base is GPIO0 and
+; OSR shifts right, so the control bits below use physical GPIO numbers.
+    set y, 1                  ; BUFRW=1, IOM=0
 .wrap_target
 observe_next:
     wait 0 gpio 9
     wait 1 gpio 9
     nop [7]
-    mov isr, pins
-    jmp pin publish_write
-    wait 0 gpio 9
-    jmp observe_next
-
-publish_write:
+    mov isr, pins             ; keep the T1 address until the cycle is qualified
+    wait 0 gpio 9             ; ASTB fall
+    wait 1 gpio 21            ; R1
+    wait 0 gpio 21            ; F1
+    wait 1 gpio 21            ; R2
+    mov osr, pins
+    out null, 1
+    out x, 1                  ; GPIO1: INTAK# must be inactive
+    jmp !x observe_next
+    out null, 5
+    out x, 2                  ; GPIO7/8: BUFRW and IOM
+    jmp x!=y observe_next
     push noblock
-    wait 0 gpio 9
-    jmp observe_next
 .wrap

@@ -313,7 +313,7 @@ static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
     pio_sm_config cfg =
         issue112_pi_out_observer_program_get_default_config(offset);
     sm_config_set_in_pins(&cfg, 0u);
-    sm_config_set_jmp_pin(&cfg, RP86_PROCESSOR_PIN_BUFRW);
+    sm_config_set_out_shift(&cfg, true, false, 32u);
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
@@ -598,7 +598,10 @@ int main(void) {
 #ifdef ISSUE112_STACKLESS_PI
     printf("WITNESS: OUT DX,AL; port address carries Q3.13 PI result\n");
     printf("EXPECTED PORT: 6488 (3.1416015625)\n");
+    printf("OUT CAPTURE: T1 address, R2 I/O write qualification\n");
 
+    const uint32_t capture_overrun_mask =
+        1u << (PIO_FDEBUG_RXSTALL_LSB + pi_out_observer_sm);
     uint64_t total_out = 0u;
     uint64_t total_good = 0u;
     uint64_t total_bad = 0u;
@@ -629,10 +632,11 @@ int main(void) {
                    " last=%04x value=",
                    interval_out, interval_good, last_port);
             print_q3_13(last_port);
-            printf(" total=%llu good_total=%llu bad_total=%llu\n",
+            printf(" total=%llu good_total=%llu bad_total=%llu capture_overrun=%u\n",
                    (unsigned long long)total_out,
                    (unsigned long long)total_good,
-                   (unsigned long long)total_bad);
+                   (unsigned long long)total_bad,
+                   (clock_pio->fdebug & capture_overrun_mask) != 0u ? 1u : 0u);
             interval_out = 0u;
             interval_good = 0u;
             next_report += 1000000u;

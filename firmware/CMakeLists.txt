@@ -703,10 +703,9 @@ pico_enable_stdio_uart(rp86_issue112_c8c_read_latch_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c8c_read_latch_4mhz_lab)
 
 
-# Primary project goal: keep the physical 8086/V30 continuously computing
-# PI-STRESS at a conservative 2 MHz. This target does not auto-reset after a
-# proof epoch; RP2350 DMA runs in ENDLESS mode and M33 reports stable seqlock
-# telemetry once per second while the processor remains FREE_RUNNING.
+# The physical 8086/V30 continuously computes stackless PI at 2 MHz.
+# RP2350 DMA runs in ENDLESS mode, and the passive observer reports
+# the I/O write addresses while the processor remains FREE_RUNNING.
 add_executable(rp86_pi_continuous_2mhz EXCLUDE_FROM_ALL
     labs/issue112_c9_pi_stress.c
 )
