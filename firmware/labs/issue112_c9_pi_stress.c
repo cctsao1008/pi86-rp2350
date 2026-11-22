@@ -181,10 +181,10 @@ static bool read_pi_snapshot(issue112_pi_snapshot_t *snapshot) {
 }
 
 static void print_q8_24(uint32_t value) {
-    uint32_t whole = value >> 24u;
-    uint64_t fraction =
-        ((uint64_t)(value & 0x00ffffffu) * 100000000ull) >> 24u;
-    printf("%" PRIu32 ".%08" PRIu64, whole, fraction);
+    const uint32_t whole = value >> 24u;
+    const uint32_t fraction = (uint32_t)(
+        ((uint64_t)(value & 0x00ffffffu) * 100000000ull) >> 24u);
+    printf("%" PRIu32 ".%08" PRIu32, whole, fraction);
 }
 #endif
 
