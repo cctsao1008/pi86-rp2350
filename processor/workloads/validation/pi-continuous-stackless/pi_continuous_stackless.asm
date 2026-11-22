@@ -65,7 +65,7 @@ start:
 
     mov word [cs:T_MAGIC0], 04950h
     mov word [cs:T_MAGIC1], 03638h
-    mov word [cs:T_VERSION], 2
+    mov word [cs:T_VERSION], 1
     mov word [cs:T_SEQ], 0
     mov word [cs:T_EPOCH_LO], 0
     mov word [cs:T_EPOCH_HI], 0
