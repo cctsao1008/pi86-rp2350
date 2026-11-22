@@ -323,8 +323,10 @@ static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
     sm_config_set_in_pins(&cfg, 0u);
     sm_config_set_out_shift(&cfg, true, false, 32u);
     sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
+    sm_config_set_mov_status(&cfg, STATUS_RX_LESSTHAN, 6u);
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
+    pio_interrupt_clear(pio, 0u);
     pio_sm_set_enabled(pio, sm, false);
 }
 
@@ -623,29 +625,43 @@ int main(void) {
 
 #ifdef ISSUE112_STACKLESS_PI
     printf("BUS MODE: ROM reads only, passive I/O witness\n");
-    printf("WITNESS: OUT DX,AL; port address carries Q3.13 PI result\n");
-    printf("EXPECTED PORT: 6488 (3.1416015625)\n");
-    printf("OUT CAPTURE: T1 address, R2 I/O write qualification\n");
+    printf("WITNESS: OUT DX,AX; address and data carry the Q3.13 PI result\n");
+    printf("EXPECTED PORT/DATA: 6488/6488 (3.1416015625)\n");
+    printf("OUT CAPTURE: T1, ASTB fall, R2 write data\n");
 
-    const uint32_t capture_overrun_mask =
-        1u << (PIO_FDEBUG_RXSTALL_LSB + pi_out_observer_sm);
     uint64_t total_out = 0u;
     uint64_t total_good = 0u;
     uint64_t total_bad = 0u;
+    uint64_t address_changes = 0u;
+    uint64_t word_writes = 0u;
+    uint64_t data_good = 0u;
     uint32_t interval_out = 0u;
     uint32_t interval_good = 0u;
     uint16_t last_port = 0u;
+    uint16_t last_af = 0u;
+    uint16_t last_data = 0u;
+    bool last_word = false;
     uint64_t next_report = time_us_64() + 1000000u;
 
     while (true) {
-        while (!pio_sm_is_rx_fifo_empty(clock_pio, pi_out_observer_sm)) {
-            const uint32_t raw =
+        while (pio_sm_get_rx_fifo_level(clock_pio, pi_out_observer_sm) >= 3u) {
+            const uint32_t t1_raw =
                 pio_sm_get(clock_pio, pi_out_observer_sm);
-            const uint16_t port = decode_ad(raw);
-            last_port = port;
+            const uint32_t af_raw =
+                pio_sm_get(clock_pio, pi_out_observer_sm);
+            const uint32_t r2_raw =
+                pio_sm_get(clock_pio, pi_out_observer_sm);
+            last_port = decode_ad(t1_raw);
+            last_af = decode_ad(af_raw);
+            last_data = decode_ad(r2_raw);
+            last_word = (last_port & 1u) == 0u &&
+                        sample_bit(t1_raw, RP86_PROCESSOR_PIN_UBE) == 0u;
             ++total_out;
             ++interval_out;
-            if (port == 0x6488u) {
+            address_changes += last_port != last_af;
+            word_writes += last_word;
+            data_good += last_word && last_data == 0x6488u;
+            if (last_port == 0x6488u) {
                 ++total_good;
                 ++interval_good;
             } else {
@@ -659,11 +675,17 @@ int main(void) {
                    " last=%04x value=",
                    interval_out, interval_good, last_port);
             print_q3_13(last_port);
-            printf(" total=%llu good_total=%llu bad_total=%llu capture_overrun=%u\n",
+            printf(" af=%04x data=%04x word=%u total=%llu good_total=%llu"
+                   " bad_total=%llu af_diff_total=%llu word_total=%llu"
+                   " data_good_total=%llu capture_overrun=%u\n",
+                   last_af, last_data, last_word ? 1u : 0u,
                    (unsigned long long)total_out,
                    (unsigned long long)total_good,
                    (unsigned long long)total_bad,
-                   (clock_pio->fdebug & capture_overrun_mask) != 0u ? 1u : 0u);
+                   (unsigned long long)address_changes,
+                   (unsigned long long)word_writes,
+                   (unsigned long long)data_good,
+                   pio_interrupt_get(clock_pio, 0u) ? 1u : 0u);
             interval_out = 0u;
             interval_good = 0u;
             next_report += 1000000u;

@@ -107,16 +107,17 @@ observer_next:
 
 .program issue112_pi_out_observer
 ; Passive continuous-PI witness observer.
-; Latch AD in T1, then qualify the same cycle at R2. IN base is GPIO0 and
-; OSR shifts right, so the control bits below use physical GPIO numbers.
-    set y, 1                  ; BUFRW=1, IOM=0
+; RX records contain early T1, ASTB fall, and R2 raw GPIO samples, in order.
+; STATUS is all ones when RX has fewer than six of its eight words occupied.
+; This guarantees space for the whole record. IRQ 0 latches any dropped record.
 .wrap_target
 observe_next:
     wait 0 gpio 9
     wait 1 gpio 9
     nop [7]
-    mov isr, pins             ; keep the T1 address until the cycle is qualified
+    mov isr, pins             ; early T1 address
     wait 0 gpio 9             ; ASTB fall
+    mov y, pins               ; address at the end of T1
     wait 1 gpio 21            ; R1
     wait 0 gpio 21            ; F1
     wait 1 gpio 21            ; R2
@@ -125,10 +126,22 @@ observe_next:
     out x, 1                  ; GPIO1: INTAK# must be inactive
     jmp !x observe_next
     out null, 5
-    out x, 2                  ; GPIO7/8: BUFRW and IOM
-    jmp x!=y observe_next
+    out x, 1                  ; GPIO7: BUFRW=1 for write
+    jmp !x observe_next
+    out x, 1                  ; GPIO8: IOM=1 for memory
+    jmp x-- observe_next
+    mov x, status
+    jmp !x drop_record
+    mov x, pins               ; R2 write data
+    push noblock
+    mov isr, y
+    push noblock
+    mov isr, x
     push noblock
 .wrap
+drop_record:
+    irq set 0
+    jmp observe_next
 
 
 .program issue112_pi_rom_responder

@@ -17,10 +17,10 @@ org 0
 ;
 ; After every completed calculation the CPU executes:
 ;
-;   OUT DX, AL
+;   OUT DX, AX
 ;
-; with DX holding that Q3.13 result. The RP2350 observes the physical I/O
-; write ADDRESS only. Write data and SRAM telemetry are deliberately ignored.
+; with both DX and AX holding the Q3.13 result. The RP2350 can observe the
+; same computed word in the address and data phases of one I/O write.
 ;
 ; Constraints:
 ;   - no PUSH/POP
@@ -117,10 +117,10 @@ start:
     shl di, 1
     sub sp, di                 ; SP = Q3.13 pi approximation
 
-    ; Address witness: the I/O port number itself is the computed result.
+    ; Report the computed result on both phases of the same I/O write.
     mov dx, sp
-    mov al, 0a5h
-    out dx, al
+    mov ax, sp
+    out dx, ax
 
     inc bp
     jmp .forever
