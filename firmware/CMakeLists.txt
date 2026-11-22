@@ -717,6 +717,7 @@ target_include_directories(rp86_pi_continuous_2mhz PRIVATE
 
 target_compile_definitions(rp86_pi_continuous_2mhz PRIVATE
     ISSUE112_CONTINUOUS_PI=1
+    ISSUE112_STACKLESS_PI=1
     ISSUE112_PROCESSOR_HZ=2000000u
 )
 
@@ -725,7 +726,7 @@ target_link_libraries(rp86_pi_continuous_2mhz
     hardware_clocks
     hardware_dma
     hardware_pio
-    pi_stress
+    pi_continuous_stackless
 )
 
 pico_generate_pio_header(rp86_pi_continuous_2mhz
