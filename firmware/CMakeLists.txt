@@ -703,6 +703,44 @@ pico_enable_stdio_uart(rp86_issue112_c8c_read_latch_4mhz_lab 0)
 pico_add_extra_outputs(rp86_issue112_c8c_read_latch_4mhz_lab)
 
 
+# Primary project goal: keep the physical 8086/V30 continuously computing
+# PI-STRESS at a conservative 2 MHz. This target does not auto-reset after a
+# proof epoch; RP2350 DMA runs in ENDLESS mode and M33 reports stable seqlock
+# telemetry once per second while the processor remains FREE_RUNNING.
+add_executable(rp86_pi_continuous_2mhz EXCLUDE_FROM_ALL
+    labs/issue112_c9_pi_stress.c
+)
+
+target_include_directories(rp86_pi_continuous_2mhz PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_pi_continuous_2mhz PRIVATE
+    ISSUE112_CONTINUOUS_PI=1
+    ISSUE112_PROCESSOR_HZ=2000000u
+)
+
+target_link_libraries(rp86_pi_continuous_2mhz
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    pi_stress
+)
+
+pico_generate_pio_header(rp86_pi_continuous_2mhz
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_generate_pio_header(rp86_pi_continuous_2mhz
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_pi_continuous_2mhz 1)
+pico_enable_stdio_uart(rp86_pi_continuous_2mhz 0)
+pico_add_extra_outputs(rp86_pi_continuous_2mhz)
+
+
 # Issue #112 C9: first physical PI-STRESS proof at 4 MHz.
 # Reuses the C8C sustained WORD R/W dataplane, embeds the maintained
 # pi_stress_workload image, installs a reset bootstrap for SS:SP=1000:FFFE,
