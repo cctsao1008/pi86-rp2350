@@ -733,6 +733,8 @@ int main(void) {
     uint64_t address_changes = 0u;
     uint64_t word_writes = 0u;
     uint64_t data_good = 0u;
+    uint64_t matched_writes = 0u;
+    uint64_t offset_0110_writes = 0u;
     uint32_t interval_out = 0u;
     uint32_t interval_good = 0u;
     uint16_t last_port = 0u;
@@ -760,6 +762,10 @@ int main(void) {
             address_changes += last_port != last_af;
             word_writes += last_word;
             data_good += last_word && last_data == 0x6488u;
+            matched_writes += last_word && last_port == 0x6488u &&
+                              last_af == 0x6488u && last_data == 0x6488u;
+            offset_0110_writes += last_word &&
+                (uint16_t)(last_port - last_data) == 0x0110u;
             if (last_port == 0x6488u) {
                 ++total_good;
                 ++interval_good;
@@ -784,7 +790,8 @@ int main(void) {
             print_q3_13(last_port);
             printf(" af=%04x data=%04x word=%u total=%llu good_total=%llu"
                    " bad_total=%llu af_diff_total=%llu word_total=%llu"
-                   " data_good_total=%llu capture_overrun=%u\n",
+                   " data_good_total=%llu matched_total=%llu"
+                   " offset_0110_total=%llu capture_overrun=%u\n",
                    last_af, last_data, last_word ? 1u : 0u,
                    (unsigned long long)total_out,
                    (unsigned long long)total_good,
@@ -792,6 +799,8 @@ int main(void) {
                    (unsigned long long)address_changes,
                    (unsigned long long)word_writes,
                    (unsigned long long)data_good,
+                   (unsigned long long)matched_writes,
+                   (unsigned long long)offset_0110_writes,
                    pio_interrupt_get(clock_pio, 0u) ? 1u : 0u);
             interval_out = 0u;
             interval_good = 0u;

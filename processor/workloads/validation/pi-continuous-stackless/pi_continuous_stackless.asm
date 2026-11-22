@@ -35,7 +35,6 @@ org 0
 start:
     cli
     cld
-    xor bp, bp                  ; completed-epoch counter, internal only
 
 .forever:
     ; ---------------------------------------------------------------
@@ -72,12 +71,11 @@ start:
     jmp .atan5
 
 .atan5_done:
-    ; SP is used only as a general register; no stack instruction exists.
-    mov sp, di
-    shl sp, 1
-    shl sp, 1
-    shl sp, 1
-    shl sp, 1                  ; 16*atan(1/5)
+    mov bp, di
+    shl bp, 1
+    shl bp, 1
+    shl bp, 1
+    shl bp, 1                  ; save 16*atan(1/5) across the second series
 
     ; ---------------------------------------------------------------
     ; atan(1/239), Q3.13
@@ -115,14 +113,13 @@ start:
 .atan239_done:
     shl di, 1
     shl di, 1
-    sub sp, di                 ; SP = Q3.13 pi approximation
+    mov ax, bp
+    sub ax, di                 ; AX is the final Q3.13 result
 
-    ; Report the computed result on both phases of the same I/O write.
-    mov dx, sp
-    mov ax, sp
+    ; Copy the final data word directly into the I/O address register.
+    mov dx, ax
     out dx, ax
 
-    inc bp
     jmp .forever
 
 align 2, db 090h
