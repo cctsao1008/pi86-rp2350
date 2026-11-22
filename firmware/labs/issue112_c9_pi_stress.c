@@ -39,13 +39,19 @@
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
+#ifndef ISSUE112_PROCESSOR_HZ
 #define ISSUE112_PROCESSOR_HZ 4000000u
+#endif
 #define ISSUE112_TIMEOUT_US 250000u
+#ifndef ISSUE112_ACTIVE_RUN_MS
 #define ISSUE112_ACTIVE_RUN_MS 1000u
+#endif
 
-/* 28-bit DMA transfer count is ample for the bounded one-second proof. */
+#ifndef ISSUE112_CONTINUOUS_PI
+/* 28-bit DMA transfer count is ample for the bounded proof target. */
 #define ISSUE112_BUS_CYCLE_BUDGET 4000000u
 #define ISSUE112_WRITE_BUDGET     1000000u
+#endif
 
 #define ISSUE112_ADDR_LUT_ENTRIES 16384u
 #define ISSUE112_ENCODED_WORDS 32768u
@@ -124,6 +130,63 @@ static uint16_t backing_word(uint16_t byte_address) {
     hard_assert((byte_address & 1u) == 0u);
     return decode_ad(encoded_backing[byte_address >> 1u]);
 }
+
+#ifdef ISSUE112_CONTINUOUS_PI
+typedef struct {
+    uint16_t seq;
+    uint32_t epoch;
+    uint32_t pi_value;
+    uint32_t expected;
+    int32_t delta;
+    uint16_t state;
+} issue112_pi_snapshot_t;
+
+static bool read_pi_snapshot(issue112_pi_snapshot_t *snapshot) {
+    for (uint attempt = 0u; attempt < 64u; ++attempt) {
+        const uint16_t seq0 = backing_word(ISSUE112_T_SEQ);
+        if (seq0 == 0u || (seq0 & 1u) != 0u)
+            continue;
+
+        const uint16_t magic0 = backing_word(ISSUE112_T_MAGIC0);
+        const uint16_t magic1 = backing_word(ISSUE112_T_MAGIC1);
+        const uint16_t version = backing_word(ISSUE112_T_VERSION);
+        const uint32_t epoch =
+            (uint32_t)backing_word(ISSUE112_T_EPOCH_LO) |
+            ((uint32_t)backing_word(ISSUE112_T_EPOCH_HI) << 16u);
+        const uint32_t pi_value =
+            (uint32_t)backing_word(ISSUE112_T_PI_LO) |
+            ((uint32_t)backing_word(ISSUE112_T_PI_HI) << 16u);
+        const uint32_t expected =
+            (uint32_t)backing_word(ISSUE112_T_EXPECTED_LO) |
+            ((uint32_t)backing_word(ISSUE112_T_EXPECTED_HI) << 16u);
+        const int32_t delta = (int32_t)(
+            (uint32_t)backing_word(ISSUE112_T_DELTA_LO) |
+            ((uint32_t)backing_word(ISSUE112_T_DELTA_HI) << 16u));
+        const uint16_t state = backing_word(ISSUE112_T_STATE);
+        const uint16_t seq1 = backing_word(ISSUE112_T_SEQ);
+
+        if (seq0 == seq1 && (seq1 & 1u) == 0u &&
+            magic0 == ISSUE112_MAGIC0 && magic1 == ISSUE112_MAGIC1 &&
+            version == 1u) {
+            snapshot->seq = seq1;
+            snapshot->epoch = epoch;
+            snapshot->pi_value = pi_value;
+            snapshot->expected = expected;
+            snapshot->delta = delta;
+            snapshot->state = state;
+            return true;
+        }
+    }
+    return false;
+}
+
+static void print_q8_24(uint32_t value) {
+    uint32_t whole = value >> 24u;
+    uint64_t fraction =
+        ((uint64_t)(value & 0x00ffffffu) * 100000000ull) >> 24u;
+    printf("%" PRIu32 ".%08" PRIu64, whole, fraction);
+}
+#endif
 
 static void prepare_memory(void) {
     const uintptr_t backing_base = (uintptr_t)encoded_backing;
@@ -268,8 +331,14 @@ int main(void) {
     while (!stdio_usb_connected()) sleep_ms(10);
     sleep_ms(50);
 
-    printf("issue112 C9 physical PI-STRESS 4MHz lab\n");
-    printf("scope: proven sustained WORD R/W dataplane -> native PI-STRESS\n");
+#ifdef ISSUE112_CONTINUOUS_PI
+    printf("RP86 continuous PI workload @ 2MHz\n");
+    printf("scope: physical 8086/V30 runs PI-STRESS continuously; no auto-reset\n");
+#else
+    printf("issue112 C9 physical PI-STRESS %uMHz lab\n",
+           ISSUE112_PROCESSOR_HZ / 1000000u);
+    printf("scope: sustained WORD R/W dataplane -> native PI-STRESS\n");
+#endif
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
     printf("PI image: %u bytes sha256=%s\n",
@@ -342,7 +411,11 @@ int main(void) {
         low_control_dma, &low_control_cfg,
         &dma_channel_hw_addr(low_lookup_dma)->al3_read_addr_trig,
         &frontend_pio->rxf[frontend0_sm],
+#ifdef ISSUE112_CONTINUOUS_PI
+        dma_encode_endless_transfer_count(), false);
+#else
         ISSUE112_BUS_CYCLE_BUDGET, false);
+#endif
 
     dma_channel_config high_lookup_cfg =
         dma_channel_get_default_config(high_lookup_dma);
@@ -436,7 +509,11 @@ int main(void) {
         write_control_dma, &write_control_cfg,
         &dma_channel_hw_addr(write_data_dma)->al2_write_addr_trig,
         &io_pio->rxf[pointer_router_sm],
+#ifdef ISSUE112_CONTINUOUS_PI
+        dma_encode_endless_transfer_count(), false);
+#else
         ISSUE112_WRITE_BUDGET, false);
+#endif
 
     dma_sniffer_set_data_accumulator(0u);
     dma_sniffer_enable(high_lookup_dma, ISSUE112_DMA_SNIFF_SUM_MODE, false);
@@ -464,6 +541,40 @@ int main(void) {
     const bool reset_clock_ok = wait_reset_clocks(8u);
     gpio_put(RP86_PROCESSOR_PIN_RESET, false);
 
+#ifdef ISSUE112_CONTINUOUS_PI
+    printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
+    printf("RUN MODE: CONTINUOUS\n");
+    printf("DMA MODE: ENDLESS\n");
+    printf("CPU remains FREE_RUNNING until power/reset.\n");
+
+    uint32_t last_epoch = 0xffffffffu;
+    while (true) {
+        sleep_ms(1000u);
+
+        issue112_pi_snapshot_t snapshot;
+        if (!read_pi_snapshot(&snapshot)) {
+            printf("PI: waiting for stable telemetry... seq=%u state=%u\n",
+                   backing_word(ISSUE112_T_SEQ),
+                   backing_word(ISSUE112_T_STATE));
+            continue;
+        }
+
+        if (snapshot.epoch != last_epoch) {
+            printf("PI epoch=%" PRIu32 " seq=%u value=",
+                   snapshot.epoch, snapshot.seq);
+            print_q8_24(snapshot.pi_value);
+            printf(" Q8.24=%08" PRIx32 " delta=%" PRId32
+                   " state=%u%s\n",
+                   snapshot.pi_value, snapshot.delta, snapshot.state,
+                   snapshot.state == ISSUE112_STATE_PUBLISHED
+                       ? " PUBLISHED" : "");
+            last_epoch = snapshot.epoch;
+        } else {
+            printf("PI epoch=%" PRIu32 " (still computing)\n",
+                   snapshot.epoch);
+        }
+    }
+#else
     /*
      * No M33 cycle servicing and no active telemetry polling. Let the physical
      * processor and PIO/DMA dataplane run autonomously for the proof epoch.
@@ -540,4 +651,5 @@ int main(void) {
            "canonical runtime integration remains pending.\n");
 
     while (true) tight_loop_contents();
+#endif
 }
