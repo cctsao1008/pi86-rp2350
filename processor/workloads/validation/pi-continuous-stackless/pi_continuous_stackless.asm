@@ -78,13 +78,10 @@ start:
     mov word [cs:T_STATE], STATE_RUNNING
 
 .forever:
-    ; odd seq = computation in progress
-    mov cx, bp
-    shl cx, 1
-    inc cx
-    mov [cs:T_SEQ], cx
-    mov word [cs:T_STATE], STATE_RUNNING
-
+    ; Keep the last completed snapshot stable while the next PI value is being
+    ; computed.  Only enter the odd seqlock state during the short publication
+    ; window below.  This gives the RP2350 almost the entire compute interval
+    ; to read a stable even snapshot.
     ; ---------------------------------------------------------------
     ; atan(1/5), Q3.13
     ; BX = x^2 = 25
@@ -178,6 +175,15 @@ start:
     rcl dx, 1
     loop .to_q8_24
 
+    ; Begin the short publication window.  BP is the number of already
+    ; completed epochs, so 2*BP+1 is the odd/in-progress sequence number for
+    ; the result that is about to become epoch BP+1.
+    mov cx, bp
+    shl cx, 1
+    inc cx
+    mov [cs:T_SEQ], cx
+    mov word [cs:T_STATE], STATE_RUNNING
+
     mov [cs:T_PI_LO], ax
     mov [cs:T_PI_HI], dx
 
@@ -192,7 +198,8 @@ start:
     mov word [cs:T_EPOCH_HI], 0
     mov word [cs:T_STATE], STATE_PUBLISHED
 
-    ; even seq = stable publication
+    ; even seq = stable publication. This value remains untouched throughout
+    ; the next complete PI calculation.
     mov cx, bp
     shl cx, 1
     mov [cs:T_SEQ], cx
