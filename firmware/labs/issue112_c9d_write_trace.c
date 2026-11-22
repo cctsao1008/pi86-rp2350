@@ -151,9 +151,9 @@
 #define ISSUE112_STATE_PUBLISHED 2u
 
 #ifdef ISSUE112_COMPACT_DATAPLANE
-#define ISSUE112_COMPACT_LUT_ENTRIES 65536u
+#define ISSUE112_COMPACT_LUT_ENTRIES 32768u
 static uint32_t compact_addr_lut[ISSUE112_COMPACT_LUT_ENTRIES]
-    __attribute__((aligned(262144)));
+    __attribute__((aligned(131072)));
 #else
 static uint32_t addr_lut[2][ISSUE112_ADDR_LUT_ENTRIES]
     __attribute__((aligned(65536)));
@@ -192,9 +192,9 @@ static const uint8_t ad_gpio[16] = {
  * Must match issue112_c10_compact_frontend's ascending-GPIO gather order.
  * The first gathered bit becomes compact-index bit 15; the last becomes bit 0.
  */
-static const uint8_t compact_ad_gpio_order[16] = {
+static const uint8_t compact_ad_gpio_order[15] = {
     0u, 2u, 3u, 4u, 6u, 10u, 11u, 12u,
-    13u, 14u, 15u, 17u, 19u, 22u, 26u, 27u,
+    13u, 14u, 15u, 17u, 19u, 22u, 27u,
 };
 #endif
 
@@ -205,7 +205,7 @@ static inline uint32_t sample_bit(uint32_t raw, uint gpio) {
 #ifdef ISSUE112_COMPACT_DATAPLANE
 static uint16_t compact_index_from_raw(uint32_t raw) {
     uint16_t index = 0u;
-    for (uint i = 0u; i < 16u; ++i)
+    for (uint i = 0u; i < 15u; ++i)
         index = (uint16_t)((index << 1u) |
                           sample_bit(raw, compact_ad_gpio_order[i]));
     return index;
@@ -432,11 +432,11 @@ static void prepare_memory(void) {
      * entry address directly, so no second lookup, DMA sniffer SUM or pointer
      * accumulator is required on the read critical path.
      */
-    for (uint32_t address = 0u; address < 0x10000u; ++address) {
+    for (uint32_t address = 0u; address < 0x10000u; address += 2u) {
         const uint32_t raw = encode_word((uint16_t)address);
         const uint16_t index = compact_index_from_raw(raw);
         const uint32_t offset =
-            (address & 0xfffeu) * (2u * ISSUE112_SLOTS_PER_WORD);
+            address * (2u * ISSUE112_SLOTS_PER_WORD);
         compact_addr_lut[index] = (uint32_t)backing_base + offset;
     }
 #else
@@ -505,8 +505,8 @@ static void init_compact_frontend(PIO pio, uint sm, uint offset,
     sm_config_set_out_shift(&cfg, true, false, 32u); /* consume GPIO0 first */
     hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
     pio_sm_clear_fifos(pio, sm);
-    hard_assert((lut_base & 0x3ffffu) == 0u);
-    pio_sm_put_blocking(pio, sm, (uint32_t)(lut_base >> 18u));
+    hard_assert((lut_base & 0x1ffffu) == 0u);
+    pio_sm_put_blocking(pio, sm, (uint32_t)(lut_base >> 17u));
     pio_sm_set_enabled(pio, sm, false);
 }
 #endif
@@ -1396,7 +1396,7 @@ int main(void) {
 #ifdef ISSUE112_COMPACT_DATAPLANE
     const uintptr_t compact_lut_base = (uintptr_t)&compact_addr_lut[0];
     const uintptr_t backing_base = (uintptr_t)encoded_backing;
-    hard_assert((compact_lut_base & 0x3ffffu) == 0u);
+    hard_assert((compact_lut_base & 0x1ffffu) == 0u);
 #else
     const uintptr_t lut0_base = (uintptr_t)&addr_lut[0][0];
     const uintptr_t lut1_base = (uintptr_t)&addr_lut[1][0];
