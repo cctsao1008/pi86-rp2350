@@ -317,6 +317,81 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
 #endif
 
 #ifdef ISSUE112_STACKLESS_PI
+enum {
+    PI_BOOT_TRACE_CYCLES = 4096u,
+    PI_BOOT_TRACE_STRIDE = 5u,  /* C8C observer: T1, AF, R1, F1, R2 */
+    PI_BOOT_TRACE_WORDS = PI_BOOT_TRACE_CYCLES * PI_BOOT_TRACE_STRIDE,
+};
+
+static uint32_t pi_boot_trace[PI_BOOT_TRACE_WORDS];
+
+static void report_pi_boot_trace(uint32_t words) {
+    const uint32_t cycles = words / PI_BOOT_TRACE_STRIDE;
+    uint32_t rom_mismatches = 0u;
+    uint32_t outside_rom = 0u;
+    uint32_t memory_writes = 0u;
+    uint32_t io_writes = 0u;
+
+    printf("BOOT TRACE: %" PRIu32 " bus cycles from reset\n", cycles);
+    for (uint32_t cycle = 0u; cycle < cycles; ++cycle) {
+        const uint32_t *samples = &pi_boot_trace[cycle * PI_BOOT_TRACE_STRIDE];
+        const uint32_t t1 = samples[0];
+        const uint32_t r2 = samples[4];
+        const uint16_t low_address = decode_ad(t1);
+        const uint16_t data = decode_ad(r2);
+        const uint32_t address = (uint32_t)low_address |
+            (sample_bit(t1, RP86_PROCESSOR_PIN_A16) << 16u) |
+            (sample_bit(t1, RP86_PROCESSOR_PIN_A17) << 17u) |
+            (sample_bit(t1, RP86_PROCESSOR_PIN_A18) << 18u) |
+            (sample_bit(t1, RP86_PROCESSOR_PIN_A19) << 19u);
+        const bool memory = sample_bit(r2, RP86_PROCESSOR_PIN_IOM) != 0u;
+        const bool write = sample_bit(r2, RP86_PROCESSOR_PIN_BUFRW) != 0u;
+        const bool ack = sample_bit(r2, RP86_PROCESSOR_PIN_INTAK) == 0u;
+        const bool upper = sample_bit(t1, RP86_PROCESSOR_PIN_UBE) == 0u;
+        const bool lower = (low_address & 1u) == 0u;
+        const unsigned active_mask =
+            (upper ? 0xff00u : 0u) | (lower ? 0x00ffu : 0u);
+        bool show = cycle < 12u;
+        const char *kind = "INTA";
+        if (!ack && memory && !write) {
+            const uint16_t expected = backing_word(low_address & 0xfffeu);
+            const bool mismatch = ((data ^ expected) & active_mask) != 0u;
+            /* Allow a small NOP margin for instruction prefetch past the image. */
+            const bool expected_address = address >= 0xffff0u ||
+                (address >= 0x10000u &&
+                 address < 0x10000u + ISSUE112_PI_IMAGE_SIZE + 16u);
+            if (mismatch && ++rom_mismatches <= 4u) show = true;
+            if (!expected_address && ++outside_rom <= 4u) show = true;
+            if (show) {
+                printf("BOOT[%" PRIu32 "] MEMR addr=%05" PRIx32
+                       " af=%04x f1=%04x r2=%04x expected=%04x mask=%04x\n",
+                       cycle, address, decode_ad(samples[1]),
+                       decode_ad(samples[3]), data, expected, active_mask);
+            }
+            continue;
+        }
+        if (!ack && memory) {
+            kind = "MEMW";
+            if (++memory_writes <= 4u) show = true;
+        } else if (!ack && write) {
+            kind = "IOW";
+            if (++io_writes <= 8u) show = true;
+        } else if (!ack) {
+            kind = "IOR";
+        }
+        if (show) {
+            printf("BOOT[%" PRIu32 "] %s addr=%05" PRIx32
+                   " af=%04x r2=%04x mask=%04x\n",
+                   cycle, kind, address, decode_ad(samples[1]),
+                   data, active_mask);
+        }
+    }
+    printf("BOOT TRACE SUMMARY: r2_mismatch=%" PRIu32
+           " reads_outside_rom=%" PRIu32 " mem_writes=%" PRIu32
+           " io_writes=%" PRIu32 "\n",
+           rom_mismatches, outside_rom, memory_writes, io_writes);
+}
+
 static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
     pio_sm_config cfg =
         issue112_pi_out_observer_program_get_default_config(offset);
@@ -423,6 +498,16 @@ int main(void) {
 
     PIO clock_pio = pio1;
 #ifdef ISSUE112_STACKLESS_PI
+    const uint pi_trace_sm = pio_claim_unused_sm(frontend_pio, true);
+    const uint pi_trace_offset =
+        pio_add_program(frontend_pio, &issue112_c8c_observer_program);
+    pio_sm_config pi_trace_cfg =
+        issue112_c8c_observer_program_get_default_config(pi_trace_offset);
+    sm_config_set_in_pins(&pi_trace_cfg, 0u);
+    sm_config_set_fifo_join(&pi_trace_cfg, PIO_FIFO_JOIN_RX);
+    hard_assert(pio_sm_init(frontend_pio, pi_trace_sm, pi_trace_offset,
+                            &pi_trace_cfg) == PICO_OK);
+
     const uint pi_out_observer_sm = pio_claim_unused_sm(clock_pio, true);
     const uint pi_out_observer_offset =
         pio_add_program(clock_pio, &issue112_pi_out_observer_program);
@@ -584,6 +669,19 @@ int main(void) {
     dma_channel_start(low_control_dma);
 #ifndef ISSUE112_STACKLESS_PI
     dma_channel_start(write_control_dma);
+#else
+    const uint pi_trace_dma = dma_claim_unused_channel(true);
+    dma_channel_config pi_trace_dma_cfg =
+        dma_channel_get_default_config(pi_trace_dma);
+    channel_config_set_transfer_data_size(&pi_trace_dma_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&pi_trace_dma_cfg, false);
+    channel_config_set_write_increment(&pi_trace_dma_cfg, true);
+    channel_config_set_dreq(
+        &pi_trace_dma_cfg, pio_get_dreq(frontend_pio, pi_trace_sm, false));
+    dma_channel_configure(pi_trace_dma, &pi_trace_dma_cfg, pi_boot_trace,
+                          &frontend_pio->rxf[pi_trace_sm], PI_BOOT_TRACE_WORDS,
+                          true);
+    pio_sm_set_enabled(frontend_pio, pi_trace_sm, true);
 #endif
 
     pio_sm_restart(frontend_pio, frontend0_sm);
@@ -641,6 +739,7 @@ int main(void) {
     uint16_t last_af = 0u;
     uint16_t last_data = 0u;
     bool last_word = false;
+    bool boot_trace_reported = false;
     uint64_t next_report = time_us_64() + 1000000u;
 
     while (true) {
@@ -670,6 +769,14 @@ int main(void) {
         }
 
         const uint64_t now = time_us_64();
+        if (!boot_trace_reported && now >= next_report) {
+            pio_sm_set_enabled(frontend_pio, pi_trace_sm, false);
+            dma_channel_abort(pi_trace_dma);
+            const uint32_t remaining =
+                dma_channel_hw_addr(pi_trace_dma)->transfer_count;
+            report_pi_boot_trace(PI_BOOT_TRACE_WORDS - remaining);
+            boot_trace_reported = true;
+        }
         if (now >= next_report) {
             printf("PI OUT/s=%" PRIu32 " good=%" PRIu32
                    " last=%04x value=",
