@@ -190,7 +190,7 @@ static const uint8_t ad_gpio[16] = {
 #ifdef ISSUE112_COMPACT_DATAPLANE
 /*
  * Must match issue112_c10_compact_frontend's ascending-GPIO gather order.
- * The first gathered bit becomes compact-index bit 15; the last becomes bit 0.
+ * The first gathered bit becomes compact-index bit 14; the last becomes bit 0.
  */
 static const uint8_t compact_ad_gpio_order[15] = {
     0u, 2u, 3u, 4u, 6u, 10u, 11u, 12u,
@@ -428,7 +428,7 @@ static void prepare_memory(void) {
 
 #ifdef ISSUE112_COMPACT_DATAPLANE
     /*
-     * C10: one direct 64K pointer LUT. The compact PIO frontend emits the LUT
+     * C10: one direct 32K aligned-word pointer LUT. The compact PIO frontend emits the LUT
      * entry address directly, so no second lookup, DMA sniffer SUM or pointer
      * accumulator is required on the read critical path.
      */
