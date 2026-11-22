@@ -1390,12 +1390,18 @@ int main(void) {
            (unsigned)pi_stress_workload_size, pi_stress_workload_sha256);
 #endif
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    const uintptr_t compact_lut_base = (uintptr_t)&compact_addr_lut[0];
+    const uintptr_t backing_base = (uintptr_t)encoded_backing;
+    hard_assert((compact_lut_base & 0x3ffffu) == 0u);
+#else
     const uintptr_t lut0_base = (uintptr_t)&addr_lut[0][0];
     const uintptr_t lut1_base = (uintptr_t)&addr_lut[1][0];
     const uintptr_t backing_base = (uintptr_t)encoded_backing;
     hard_assert((lut0_base & 0xffffu) == 0u);
     hard_assert((lut1_base & 0xffffu) == 0u);
     hard_assert(lut1_base - lut0_base == 65536u);
+#endif
 
     prepare_memory();
 #ifdef ISSUE112_ALE_PHASE
@@ -1406,6 +1412,19 @@ int main(void) {
 #endif
     prepare_header_safe();
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    PIO frontend_pio = pio0;
+    const uint frontend0_sm = pio_claim_unused_sm(frontend_pio, true);
+    const uint frontend_offset =
+        pio_add_program(frontend_pio, &issue112_c10_compact_frontend_program);
+    init_compact_frontend(
+        frontend_pio, frontend0_sm, frontend_offset, compact_lut_base);
+    /* C10 needs the earliest stable T1 capture; C9Y already established that
+     * bypassing these synchronisers does not create a new failure signature. */
+    const uint32_t compact_bypass_mask = (1u << 28u) - 1u;
+    pio_set_input_sync_bypass_with_mask(
+        frontend_pio, compact_bypass_mask, compact_bypass_mask);
+#else
 #ifdef ISSUE112_ALE_PHASE
     PIO frontend_pio = pio1;
 #else
@@ -1428,6 +1447,7 @@ int main(void) {
     pio_set_input_sync_bypass_with_mask(
         frontend_pio, frontend_bypass_mask, frontend_bypass_mask);
 #endif
+#endif /* ISSUE112_COMPACT_DATAPLANE */
 
 #ifdef ISSUE112_ALE_PHASE
     PIO low_pio = pio2, high_pio = pio0;
