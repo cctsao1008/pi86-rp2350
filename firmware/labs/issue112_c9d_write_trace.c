@@ -482,7 +482,9 @@ static uint add_frontend_program(PIO pio) {
 
 #ifndef ISSUE112_ALE_PHASE
 static uint add_responder_program(PIO pio) {
-#ifdef ISSUE112_EARLY_READ_PRELOAD
+#ifdef ISSUE112_TURNAROUND_READ
+    return pio_add_program(pio, &issue112_c9z_turnaround_responder_program);
+#elif defined(ISSUE112_EARLY_READ_PRELOAD)
     return pio_add_program(pio, &issue112_c9x_early_responder_program);
 #elif defined(ISSUE112_READ_HOLD_CYCLES)
     const uint wait_f2 = pio_encode_wait_gpio(false, RP86_PROCESSOR_PIN_CLK);
@@ -496,7 +498,10 @@ static uint add_responder_program(PIO pio) {
 }
 
 static void init_responder(PIO pio, uint sm, uint offset) {
-#ifdef ISSUE112_EARLY_READ_PRELOAD
+#ifdef ISSUE112_TURNAROUND_READ
+    pio_sm_config c =
+        issue112_c9z_turnaround_responder_program_get_default_config(offset);
+#elif defined(ISSUE112_EARLY_READ_PRELOAD)
     pio_sm_config c =
         issue112_c9x_early_responder_program_get_default_config(offset);
 #else
@@ -1217,7 +1222,10 @@ int main(void) {
 
 #ifdef ISSUE112_STACK_PROBE
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
-#if defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
+#ifdef ISSUE112_TURNAROUND_READ
+    printf("issue112 C9Z guaranteed bus-turnaround WORD read @ 4MHz\n");
+    printf("scope: C9W workload; drive AD only after one complete CLK after ALE\n");
+#elif defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
     printf("issue112 C9Y fast-front-end aligned WORD repair @ 4MHz\n");
     printf("scope: C9X responder + sync-bypass address front-end + zero settle delay\n");
 #elif defined(ISSUE112_EARLY_READ_PRELOAD)
@@ -1370,6 +1378,18 @@ int main(void) {
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
     const uint pointer_router_sm = pio_claim_unused_sm(io_pio, true);
+#ifdef ISSUE112_TURNAROUND_READ
+    const uint turnaround_phase_sm = pio_claim_unused_sm(io_pio, true);
+    const uint turnaround_phase_offset =
+        pio_add_program(io_pio, &issue112_c9z_turnaround_phase_program);
+    pio_sm_config turnaround_phase_cfg =
+        issue112_c9z_turnaround_phase_program_get_default_config(
+            turnaround_phase_offset);
+    hard_assert(pio_sm_init(io_pio, turnaround_phase_sm,
+                            turnaround_phase_offset,
+                            &turnaround_phase_cfg) == PICO_OK);
+    pio_interrupt_clear(io_pio, 1u);
+#endif
     const uint responder_offset =
         add_responder_program(io_pio);
     const uint pointer_router_offset =
@@ -1576,6 +1596,11 @@ int main(void) {
     pio_sm_restart(frontend_pio, frontend1_sm);
     pio_sm_exec(frontend_pio, frontend1_sm, pio_encode_jmp(frontend_offset));
 #ifndef ISSUE112_ALE_PHASE
+#ifdef ISSUE112_TURNAROUND_READ
+    pio_sm_restart(io_pio, turnaround_phase_sm);
+    pio_sm_exec(io_pio, turnaround_phase_sm,
+                pio_encode_jmp(turnaround_phase_offset));
+#endif
     pio_sm_restart(io_pio, responder_sm);
     pio_sm_exec(io_pio, responder_sm, pio_encode_jmp(responder_offset));
     pio_sm_restart(io_pio, pointer_router_sm);
@@ -1589,6 +1614,9 @@ int main(void) {
     pio_sm_set_enabled(frontend_pio, frontend0_sm, true);
     pio_sm_set_enabled(frontend_pio, frontend1_sm, true);
 #ifndef ISSUE112_ALE_PHASE
+#ifdef ISSUE112_TURNAROUND_READ
+    pio_sm_set_enabled(io_pio, turnaround_phase_sm, true);
+#endif
     pio_sm_set_enabled(io_pio, responder_sm, true);
     pio_sm_set_enabled(io_pio, pointer_router_sm, true);
 #endif
@@ -1656,7 +1684,11 @@ int main(void) {
 #endif
     printf("RESET CLOCKS: %s\n", reset_clock_ok ? "PASS" : "FAIL");
 #ifdef ISSUE112_INDIRECT_WORD_WITNESS
-#if defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
+#ifdef ISSUE112_TURNAROUND_READ
+    printf("TURNAROUND WORD RESULT: %s\n",
+           reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
+    printf("READ DRIVE: one complete CLK after ALE before PINDIRS enable (C9Z)\n");
+#elif defined(ISSUE112_EARLY_READ_PRELOAD) && defined(ISSUE112_FRONTEND_SYNC_BYPASS)
     printf("FAST-FRONTEND WORD RESULT: %s\n",
            reset_clock_ok && trace_complete && stack_ok ? "PASS" : "FAIL");
     printf("READ SETUP: C9X early-preload + PIO input sync bypass + settle=0 (C9Y)\n");
