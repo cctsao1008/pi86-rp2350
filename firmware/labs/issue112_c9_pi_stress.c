@@ -308,6 +308,26 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, false);
 }
 
+#ifdef ISSUE112_STACKLESS_PI
+static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
+    pio_sm_config cfg =
+        issue112_pi_out_observer_program_get_default_config(offset);
+    sm_config_set_in_pins(&cfg, 0u);
+    sm_config_set_jmp_pin(&cfg, RP86_PROCESSOR_PIN_BUFRW);
+    sm_config_set_fifo_join(&cfg, PIO_FIFO_JOIN_RX);
+    hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
+    pio_sm_clear_fifos(pio, sm);
+    pio_sm_set_enabled(pio, sm, false);
+}
+
+static void print_q3_13(uint16_t value) {
+    const uint32_t whole = value >> 13u;
+    const uint32_t fraction = (uint32_t)(
+        ((uint64_t)(value & 0x1fffu) * 100000000ull) >> 13u);
+    printf("%" PRIu32 ".%08" PRIu32, whole, fraction);
+}
+#endif
+
 static void init_clock(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
         rp86_intel_8086_clock_program_get_default_config(offset);
@@ -387,6 +407,13 @@ int main(void) {
     init_pointer_router(io_pio, pointer_router_sm, pointer_router_offset);
 
     PIO clock_pio = pio1;
+#ifdef ISSUE112_STACKLESS_PI
+    const uint pi_out_observer_sm = pio_claim_unused_sm(clock_pio, true);
+    const uint pi_out_observer_offset =
+        pio_add_program(clock_pio, &issue112_pi_out_observer_program);
+    init_pi_out_observer(
+        clock_pio, pi_out_observer_sm, pi_out_observer_offset);
+#endif
     const uint clock_sm = pio_claim_unused_sm(clock_pio, true);
     const uint clock_offset =
         pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
@@ -550,6 +577,13 @@ int main(void) {
     pio_sm_set_enabled(io_pio, responder_sm, true);
     pio_sm_set_enabled(io_pio, pointer_router_sm, true);
 
+#ifdef ISSUE112_STACKLESS_PI
+    pio_sm_restart(clock_pio, pi_out_observer_sm);
+    pio_sm_exec(clock_pio, pi_out_observer_sm,
+                pio_encode_jmp(pi_out_observer_offset));
+    pio_sm_set_enabled(clock_pio, pi_out_observer_sm, true);
+#endif
+
     init_clock(clock_pio, clock_sm, clock_offset);
 
     const bool reset_clock_ok = wait_reset_clocks(8u);
@@ -561,6 +595,50 @@ int main(void) {
     printf("DMA MODE: ENDLESS\n");
     printf("CPU remains FREE_RUNNING until power/reset.\n");
 
+#ifdef ISSUE112_STACKLESS_PI
+    printf("WITNESS: OUT DX,AL; port address carries Q3.13 PI result\n");
+    printf("EXPECTED PORT: 6488 (3.1416015625)\n");
+
+    uint64_t total_out = 0u;
+    uint64_t total_good = 0u;
+    uint64_t total_bad = 0u;
+    uint32_t interval_out = 0u;
+    uint32_t interval_good = 0u;
+    uint16_t last_port = 0u;
+    uint64_t next_report = time_us_64() + 1000000u;
+
+    while (true) {
+        while (!pio_sm_is_rx_fifo_empty(clock_pio, pi_out_observer_sm)) {
+            const uint32_t raw =
+                pio_sm_get(clock_pio, pi_out_observer_sm);
+            const uint16_t port = decode_ad(raw);
+            last_port = port;
+            ++total_out;
+            ++interval_out;
+            if (port == 0x6488u) {
+                ++total_good;
+                ++interval_good;
+            } else {
+                ++total_bad;
+            }
+        }
+
+        const uint64_t now = time_us_64();
+        if (now >= next_report) {
+            printf("PI OUT/s=%" PRIu32 " good=%" PRIu32
+                   " last=%04x value=",
+                   interval_out, interval_good, last_port);
+            print_q3_13(last_port);
+            printf(" total=%" PRIu64 " good_total=%" PRIu64
+                   " bad_total=%" PRIu64 "\n",
+                   total_out, total_good, total_bad);
+            interval_out = 0u;
+            interval_good = 0u;
+            next_report += 1000000u;
+        }
+        tight_loop_contents();
+    }
+#else
     uint32_t last_epoch = 0xffffffffu;
     while (true) {
         sleep_ms(1000u);
@@ -588,6 +666,7 @@ int main(void) {
                    snapshot.epoch);
         }
     }
+#endif
 #else
     /*
      * No M33 cycle servicing and no active telemetry polling. Let the physical
