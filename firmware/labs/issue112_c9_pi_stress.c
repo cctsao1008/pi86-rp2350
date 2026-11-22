@@ -318,6 +318,8 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
 
 #ifdef ISSUE112_STACKLESS_PI
 enum {
+    PI_RESULT_PORT = 0x0080u,  /* pi_continuous_stackless.asm */
+    PI_EXPECTED_Q3_13 = 0x6488u,
     PI_BOOT_TRACE_CYCLES = 4096u,
     PI_BOOT_TRACE_STRIDE = 5u,  /* C8C observer: T1, AF, R1, F1, R2 */
     PI_BOOT_TRACE_WORDS = PI_BOOT_TRACE_CYCLES * PI_BOOT_TRACE_STRIDE,
@@ -723,24 +725,25 @@ int main(void) {
 
 #ifdef ISSUE112_STACKLESS_PI
     printf("BUS MODE: ROM reads only, passive I/O witness\n");
-    printf("WITNESS: OUT DX,AX; address and data carry the Q3.13 PI result\n");
-    printf("EXPECTED PORT/DATA: 6488/6488 (3.1416015625)\n");
+    printf("WITNESS: OUT %02xh,AX; AX carries the Q3.13 PI result\n",
+           PI_RESULT_PORT);
+    printf("EXPECTED PORT/DATA: %04x/%04x (3.1416015625)\n",
+           PI_RESULT_PORT, PI_EXPECTED_Q3_13);
     printf("OUT CAPTURE: T1, ASTB fall, R2 write data\n");
 
     uint64_t total_out = 0u;
-    uint64_t total_good = 0u;
-    uint64_t total_bad = 0u;
     uint64_t address_changes = 0u;
     uint64_t word_writes = 0u;
+    uint64_t port_good = 0u;
     uint64_t data_good = 0u;
     uint64_t matched_writes = 0u;
-    uint64_t offset_0110_writes = 0u;
     uint32_t interval_out = 0u;
     uint32_t interval_good = 0u;
     uint16_t last_port = 0u;
     uint16_t last_af = 0u;
     uint16_t last_data = 0u;
     bool last_word = false;
+    bool last_pi_write = false;
     bool boot_trace_reported = false;
     uint64_t next_report = time_us_64() + 1000000u;
 
@@ -757,21 +760,18 @@ int main(void) {
             last_data = decode_ad(r2_raw);
             last_word = (last_port & 1u) == 0u &&
                         sample_bit(t1_raw, RP86_PROCESSOR_PIN_UBE) == 0u;
+            last_pi_write = last_word && last_port == PI_RESULT_PORT &&
+                            last_af == PI_RESULT_PORT;
+            const bool data_matches = last_word && last_data == PI_EXPECTED_Q3_13;
+            const bool matched = last_pi_write && data_matches;
             ++total_out;
             ++interval_out;
             address_changes += last_port != last_af;
             word_writes += last_word;
-            data_good += last_word && last_data == 0x6488u;
-            matched_writes += last_word && last_port == 0x6488u &&
-                              last_af == 0x6488u && last_data == 0x6488u;
-            offset_0110_writes += last_word &&
-                (uint16_t)(last_port - last_data) == 0x0110u;
-            if (last_port == 0x6488u) {
-                ++total_good;
-                ++interval_good;
-            } else {
-                ++total_bad;
-            }
+            port_good += last_pi_write;
+            data_good += data_matches;
+            matched_writes += matched;
+            interval_good += matched;
         }
 
         const uint64_t now = time_us_64();
@@ -787,20 +787,23 @@ int main(void) {
             printf("PI OUT/s=%" PRIu32 " good=%" PRIu32
                    " last=%04x value=",
                    interval_out, interval_good, last_port);
-            print_q3_13(last_port);
-            printf(" af=%04x data=%04x word=%u total=%llu good_total=%llu"
+            if (last_pi_write) {
+                print_q3_13(last_data);
+            } else {
+                printf("--");
+            }
+            printf(" af=%04x data=%04x word=%u total=%llu"
                    " bad_total=%llu af_diff_total=%llu word_total=%llu"
-                   " data_good_total=%llu matched_total=%llu"
-                   " offset_0110_total=%llu capture_overrun=%u\n",
+                   " port_good_total=%llu data_good_total=%llu"
+                   " matched_total=%llu capture_overrun=%u\n",
                    last_af, last_data, last_word ? 1u : 0u,
                    (unsigned long long)total_out,
-                   (unsigned long long)total_good,
-                   (unsigned long long)total_bad,
+                   (unsigned long long)(total_out - matched_writes),
                    (unsigned long long)address_changes,
                    (unsigned long long)word_writes,
+                   (unsigned long long)port_good,
                    (unsigned long long)data_good,
                    (unsigned long long)matched_writes,
-                   (unsigned long long)offset_0110_writes,
                    pio_interrupt_get(clock_pio, 0u) ? 1u : 0u);
             interval_out = 0u;
             interval_good = 0u;

@@ -17,10 +17,10 @@ org 0
 ;
 ; After every completed calculation the CPU executes:
 ;
-;   OUT DX, AX
+;   OUT 80h, AX
 ;
-; with both DX and AX holding the Q3.13 result. The RP2350 can observe the
-; same computed word in the address and data phases of one I/O write.
+; AX contains the calculated Q3.13 result. The immediate, even I/O port
+; identifies the result and keeps each publication in one 16-bit bus cycle.
 ;
 ; Constraints:
 ;   - no PUSH/POP
@@ -31,6 +31,7 @@ org 0
 ;   - one OUT witness per completed PI calculation
 
 %define PI_Q3_13_EXPECTED 06488h
+%define PI_RESULT_PORT    080h
 
 start:
     cli
@@ -116,9 +117,7 @@ start:
     mov ax, bp
     sub ax, di                 ; AX is the final Q3.13 result
 
-    ; Copy the final data word directly into the I/O address register.
-    mov dx, ax
-    out dx, ax
+    out PI_RESULT_PORT, ax
 
     jmp .forever
 
