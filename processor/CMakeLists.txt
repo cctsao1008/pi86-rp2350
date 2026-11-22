@@ -98,6 +98,14 @@ rp86_add_processor_image(issue112_indirect_word_witness
     SYMBOL issue112_indirect_word_witness
 )
 
+# Primary 2 MHz continuous PI workload: stackless, no CALL/RET/PUSH/POP,
+# no scratch-memory reads. Keeps the physical 8086/V30 continuously busy with
+# integer Machin-formula arithmetic and aligned telemetry writes.
+rp86_add_processor_image(pi_continuous_stackless
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-continuous-stackless/pi_continuous_stackless.asm"
+    SYMBOL pi_continuous_stackless
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle
