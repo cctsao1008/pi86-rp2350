@@ -103,3 +103,27 @@ observer_next:
 
     jmp observer_next
 .wrap
+
+
+.program issue112_pi_out_observer
+; Passive continuous-PI witness observer.
+; Samples the multiplexed AD address during T1 and publishes only BUFRW=HIGH
+; write cycles. The stackless PI workload performs exactly one OUT DX,AL per
+; completed calculation, so the pushed raw GPIO snapshot carries the computed
+; Q3.13 PI result in the I/O port address. PUSH is non-blocking: observation
+; can never stall the physical processor.
+.wrap_target
+observe_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    jmp pin publish_write
+    wait 0 gpio 9
+    jmp observe_next
+
+publish_write:
+    push noblock
+    wait 0 gpio 9
+    jmp observe_next
+.wrap
