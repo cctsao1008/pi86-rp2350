@@ -629,9 +629,10 @@ int main(void) {
                    " last=%04x value=",
                    interval_out, interval_good, last_port);
             print_q3_13(last_port);
-            printf(" total=%" PRIu64 " good_total=%" PRIu64
-                   " bad_total=%" PRIu64 "\n",
-                   total_out, total_good, total_bad);
+            printf(" total=%llu good_total=%llu bad_total=%llu\n",
+                   (unsigned long long)total_out,
+                   (unsigned long long)total_good,
+                   (unsigned long long)total_bad);
             interval_out = 0u;
             interval_good = 0u;
             next_report += 1000000u;
