@@ -369,3 +369,49 @@ write_cycle:
     push block
     jmp response_loop
 .wrap
+
+
+; C9Z: guaranteed bus-turnaround phase for single 16-bit reads.
+;
+; Upstream Pi86 samples ALE/address, advances one complete processor CLK, then
+; changes the multiplexed AD bus to output.  C9Z mirrors that policy in PIO:
+; after ASTB is observed high, normalise to a CLK-low boundary, consume one
+; complete rising+falling CLK, then latch IRQ1.  The responder preloads the
+; output latch while Hi-Z and only enables PINDIRS after this event.
+.program issue112_c9z_turnaround_phase
+.wrap_target
+    wait 1 gpio 9
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    irq 1
+.wrap
+
+.program issue112_c9z_turnaround_responder
+.wrap_target
+next_cycle:
+    pull block
+    out pins, 28                ; preload while AD remains Hi-Z
+    wait 0 gpio 9
+    jmp pin write_cycle         ; BUFRW: LOW=read, HIGH=write
+
+read_cycle:
+    wait 1 irq 1
+    irq clear 1
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21 [4]
+    mov pindirs, null
+    jmp next_cycle
+
+write_cycle:
+    mov pindirs, null
+    wait 1 irq 1                ; consume this cycle's turnaround event
+    irq clear 1
+    wait 1 gpio 21
+    mov isr, pins
+    push block
+    jmp next_cycle
+.wrap
