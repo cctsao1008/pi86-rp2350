@@ -129,3 +129,30 @@ observe_next:
     jmp x!=y observe_next
     push noblock
 .wrap
+
+
+.program issue112_pi_rom_responder
+; The address frontends enqueue one backing word per ASTB, including I/O.
+; Consume each word in order and drive AD only for a memory read.
+    set y, 2                  ; BUFRW=0, IOM=1
+.wrap_target
+next_rom_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    pull block
+    out pins, 28              ; preload while AD is Hi-Z
+    wait 0 gpio 9
+    mov osr, pins             ; IN base is GPIO0, OSR shifts right
+    out null, 1
+    out x, 1                  ; INTAK# must be inactive
+    jmp !x next_rom_cycle
+    out null, 5
+    out x, 2                  ; GPIO7/8: BUFRW and IOM
+    jmp x!=y next_rom_cycle
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    mov pindirs, null
+.wrap

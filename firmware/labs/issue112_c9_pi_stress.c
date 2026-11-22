@@ -284,11 +284,17 @@ static void init_frontend(PIO pio, uint sm, uint offset,
 }
 
 static void init_responder(PIO pio, uint sm, uint offset) {
+#ifdef ISSUE112_STACKLESS_PI
+    pio_sm_config c =
+        issue112_pi_rom_responder_program_get_default_config(offset);
+    sm_config_set_in_pins(&c, 0u);
+#else
     pio_sm_config c =
         issue112_c8c_responder_program_get_default_config(offset);
+    sm_config_set_jmp_pin(&c, RP86_PROCESSOR_PIN_BUFRW);
+#endif
     sm_config_set_out_pins(&c, 0u, 28u);
     sm_config_set_out_shift(&c, true, false, 32u);
-    sm_config_set_jmp_pin(&c, RP86_PROCESSOR_PIN_BUFRW);
     hard_assert(pio_sm_init(pio, sm, offset, &c) == PICO_OK);
 
     for (uint bit = 0u; bit < 16u; ++bit)
@@ -299,6 +305,7 @@ static void init_responder(PIO pio, uint sm, uint offset) {
     pio_sm_set_enabled(pio, sm, false);
 }
 
+#ifndef ISSUE112_STACKLESS_PI
 static void init_pointer_router(PIO pio, uint sm, uint offset) {
     pio_sm_config c =
         issue112_c8c_pointer_router_program_get_default_config(offset);
@@ -307,6 +314,7 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
     pio_sm_clear_fifos(pio, sm);
     pio_sm_set_enabled(pio, sm, false);
 }
+#endif
 
 #ifdef ISSUE112_STACKLESS_PI
 static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
@@ -398,13 +406,18 @@ int main(void) {
 
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
+#ifdef ISSUE112_STACKLESS_PI
+    const uint responder_offset =
+        pio_add_program(io_pio, &issue112_pi_rom_responder_program);
+#else
     const uint pointer_router_sm = pio_claim_unused_sm(io_pio, true);
     const uint responder_offset =
         pio_add_program(io_pio, &issue112_c8c_responder_program);
     const uint pointer_router_offset =
         pio_add_program(io_pio, &issue112_c8c_pointer_router_program);
-    init_responder(io_pio, responder_sm, responder_offset);
     init_pointer_router(io_pio, pointer_router_sm, pointer_router_offset);
+#endif
+    init_responder(io_pio, responder_sm, responder_offset);
 
     PIO clock_pio = pio1;
 #ifdef ISSUE112_STACKLESS_PI
@@ -424,9 +437,11 @@ int main(void) {
     const uint high_lookup_dma = dma_claim_unused_channel(true);
     const uint pointer_dma = dma_claim_unused_channel(true);
     const uint raw_data_dma = dma_claim_unused_channel(true);
+#ifndef ISSUE112_STACKLESS_PI
     const uint pointer_echo_dma = dma_claim_unused_channel(true);
     const uint write_control_dma = dma_claim_unused_channel(true);
     const uint write_data_dma = dma_claim_unused_channel(true);
+#endif
 
     dma_channel_config low_lookup_cfg =
         dma_channel_get_default_config(low_lookup_dma);
@@ -491,7 +506,9 @@ int main(void) {
     channel_config_set_write_increment(&raw_cfg, false);
     channel_config_set_dreq(
         &raw_cfg, pio_get_dreq(io_pio, responder_sm, true));
+#ifndef ISSUE112_STACKLESS_PI
     channel_config_set_chain_to(&raw_cfg, pointer_echo_dma);
+#endif
     channel_config_set_high_priority(&raw_cfg, true);
     dma_channel_configure(raw_data_dma, &raw_cfg,
                           &io_pio->txf[responder_sm],
@@ -509,6 +526,8 @@ int main(void) {
         &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
         &dma_hw->sniff_data, 1u, false);
 
+#ifndef ISSUE112_STACKLESS_PI
+    /* SRAM telemetry workloads need the backing write path. */
     dma_channel_config pointer_echo_cfg =
         dma_channel_get_default_config(pointer_echo_dma);
     channel_config_set_transfer_data_size(&pointer_echo_cfg, DMA_SIZE_32);
@@ -555,12 +574,15 @@ int main(void) {
 #else
         ISSUE112_WRITE_BUDGET, false);
 #endif
+#endif
 
     dma_sniffer_set_data_accumulator(0u);
     dma_sniffer_enable(high_lookup_dma, ISSUE112_DMA_SNIFF_SUM_MODE, false);
 
     dma_channel_start(low_control_dma);
+#ifndef ISSUE112_STACKLESS_PI
     dma_channel_start(write_control_dma);
+#endif
 
     pio_sm_restart(frontend_pio, frontend0_sm);
     pio_sm_exec(frontend_pio, frontend0_sm, pio_encode_jmp(frontend_offset));
@@ -568,14 +590,18 @@ int main(void) {
     pio_sm_exec(frontend_pio, frontend1_sm, pio_encode_jmp(frontend_offset));
     pio_sm_restart(io_pio, responder_sm);
     pio_sm_exec(io_pio, responder_sm, pio_encode_jmp(responder_offset));
+#ifndef ISSUE112_STACKLESS_PI
     pio_sm_restart(io_pio, pointer_router_sm);
     pio_sm_exec(
         io_pio, pointer_router_sm, pio_encode_jmp(pointer_router_offset));
+#endif
 
     pio_sm_set_enabled(frontend_pio, frontend0_sm, true);
     pio_sm_set_enabled(frontend_pio, frontend1_sm, true);
     pio_sm_set_enabled(io_pio, responder_sm, true);
+#ifndef ISSUE112_STACKLESS_PI
     pio_sm_set_enabled(io_pio, pointer_router_sm, true);
+#endif
 
 #ifdef ISSUE112_STACKLESS_PI
     pio_sm_restart(clock_pio, pi_out_observer_sm);
@@ -596,6 +622,7 @@ int main(void) {
     printf("CPU remains FREE_RUNNING until power/reset.\n");
 
 #ifdef ISSUE112_STACKLESS_PI
+    printf("BUS MODE: ROM reads only, passive I/O witness\n");
     printf("WITNESS: OUT DX,AL; port address carries Q3.13 PI result\n");
     printf("EXPECTED PORT: 6488 (3.1416015625)\n");
     printf("OUT CAPTURE: T1 address, R2 I/O write qualification\n");
