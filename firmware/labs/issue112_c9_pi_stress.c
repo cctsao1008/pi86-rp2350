@@ -35,7 +35,17 @@
 #include "hardware/structs/sio.h"
 #include "issue112_c8c_read_latch.pio.h"
 #include "intel_8086_clock.pio.h"
+#ifdef ISSUE112_STACKLESS_PI
+#include "pi_continuous_stackless.h"
+#define ISSUE112_PI_IMAGE_DATA pi_continuous_stackless_data
+#define ISSUE112_PI_IMAGE_SIZE pi_continuous_stackless_size
+#define ISSUE112_PI_IMAGE_SHA256 pi_continuous_stackless_sha256
+#else
 #include "pi_stress.h"
+#define ISSUE112_PI_IMAGE_DATA ISSUE112_PI_IMAGE_DATA
+#define ISSUE112_PI_IMAGE_SIZE ISSUE112_PI_IMAGE_SIZE
+#define ISSUE112_PI_IMAGE_SHA256 ISSUE112_PI_IMAGE_SHA256
+#endif
 #include "pico/stdlib.h"
 #include "pico/stdio_usb.h"
 
@@ -218,9 +228,9 @@ static void prepare_memory(void) {
     };
     load_bytes(0xfff0u, reset_stub, sizeof reset_stub);
 
-    hard_assert((pi_stress_workload_size & 1u) == 0u);
-    hard_assert(pi_stress_workload_size <= 0xfff0u);
-    load_bytes(0x0000u, pi_stress_workload_data, pi_stress_workload_size);
+    hard_assert((ISSUE112_PI_IMAGE_SIZE & 1u) == 0u);
+    hard_assert(ISSUE112_PI_IMAGE_SIZE <= 0xfff0u);
+    load_bytes(0x0000u, ISSUE112_PI_IMAGE_DATA, ISSUE112_PI_IMAGE_SIZE);
 
     /*
      * C5/C8 speed-first translation. Each table contributes disjoint pieces
@@ -333,7 +343,11 @@ int main(void) {
 
 #ifdef ISSUE112_CONTINUOUS_PI
     printf("RP86 continuous PI workload @ 2MHz\n");
+#ifdef ISSUE112_STACKLESS_PI
+    printf("scope: physical 8086/V30 runs stackless PI continuously; no auto-reset\n");
+#else
     printf("scope: physical 8086/V30 runs PI-STRESS continuously; no auto-reset\n");
+#endif
 #else
     printf("issue112 C9 physical PI-STRESS %uMHz lab\n",
            ISSUE112_PROCESSOR_HZ / 1000000u);
@@ -342,7 +356,7 @@ int main(void) {
     printf("processor clock: %u Hz (engineering baseline; Intel compliance not claimed)\n",
            ISSUE112_PROCESSOR_HZ);
     printf("PI image: %u bytes sha256=%s\n",
-           (unsigned)pi_stress_workload_size, pi_stress_workload_sha256);
+           (unsigned)ISSUE112_PI_IMAGE_SIZE, ISSUE112_PI_IMAGE_SHA256);
 
     const uintptr_t lut0_base = (uintptr_t)&addr_lut[0][0];
     const uintptr_t lut1_base = (uintptr_t)&addr_lut[1][0];
