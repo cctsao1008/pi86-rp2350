@@ -1486,6 +1486,14 @@ int main(void) {
         pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
     init_observer(clock_pio, observer_sm, observer_offset);
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    const uint compact_control_dma = dma_claim_unused_channel(true);
+    const uint compact_lookup_dma = dma_claim_unused_channel(true);
+    const uint raw_data_dma = dma_claim_unused_channel(true);
+    const uint pointer_echo_dma = dma_claim_unused_channel(true);
+    const uint write_control_dma = dma_claim_unused_channel(true);
+    const uint write_data_dma = dma_claim_unused_channel(true);
+#else
     const uint low_control_dma = dma_claim_unused_channel(true);
     const uint low_lookup_dma = dma_claim_unused_channel(true);
     const uint high_control_dma = dma_claim_unused_channel(true);
@@ -1497,8 +1505,93 @@ int main(void) {
     const uint write_control_dma = dma_claim_unused_channel(true);
     const uint write_data_dma = dma_claim_unused_channel(true);
 #endif
+#endif
     const uint observer_dma = dma_claim_unused_channel(true);
 
+#ifdef ISSUE112_COMPACT_DATAPLANE
+    dma_channel_config compact_lookup_cfg =
+        dma_channel_get_default_config(compact_lookup_dma);
+    channel_config_set_transfer_data_size(&compact_lookup_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&compact_lookup_cfg, false);
+    channel_config_set_write_increment(&compact_lookup_cfg, false);
+    channel_config_set_dreq(&compact_lookup_cfg, DREQ_FORCE);
+    channel_config_set_high_priority(&compact_lookup_cfg, true);
+    dma_channel_configure(
+        compact_lookup_dma, &compact_lookup_cfg,
+        &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
+        &compact_addr_lut[0], 1u, false);
+
+    dma_channel_config compact_control_cfg =
+        dma_channel_get_default_config(compact_control_dma);
+    channel_config_set_transfer_data_size(&compact_control_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&compact_control_cfg, false);
+    channel_config_set_write_increment(&compact_control_cfg, false);
+    channel_config_set_dreq(
+        &compact_control_cfg,
+        pio_get_dreq(frontend_pio, frontend0_sm, false));
+    channel_config_set_high_priority(&compact_control_cfg, true);
+    dma_channel_configure(
+        compact_control_dma, &compact_control_cfg,
+        &dma_channel_hw_addr(compact_lookup_dma)->al3_read_addr_trig,
+        &frontend_pio->rxf[frontend0_sm],
+        ISSUE112_BUS_CYCLE_BUDGET, false);
+
+    dma_channel_config raw_cfg =
+        dma_channel_get_default_config(raw_data_dma);
+    channel_config_set_transfer_data_size(&raw_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&raw_cfg, false);
+    channel_config_set_write_increment(&raw_cfg, false);
+    channel_config_set_dreq(
+        &raw_cfg, pio_get_dreq(io_pio, responder_sm, true));
+    channel_config_set_chain_to(&raw_cfg, pointer_echo_dma);
+    channel_config_set_high_priority(&raw_cfg, true);
+    dma_channel_configure(raw_data_dma, &raw_cfg,
+                          &io_pio->txf[responder_sm],
+                          &encoded_backing[0], 1u, false);
+
+    dma_channel_config pointer_echo_cfg =
+        dma_channel_get_default_config(pointer_echo_dma);
+    channel_config_set_transfer_data_size(&pointer_echo_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&pointer_echo_cfg, false);
+    channel_config_set_write_increment(&pointer_echo_cfg, false);
+    channel_config_set_dreq(
+        &pointer_echo_cfg,
+        pio_get_dreq(io_pio, pointer_router_sm, true));
+    channel_config_set_high_priority(&pointer_echo_cfg, false);
+    dma_channel_configure(
+        pointer_echo_dma, &pointer_echo_cfg,
+        &io_pio->txf[pointer_router_sm],
+        &dma_channel_hw_addr(raw_data_dma)->read_addr,
+        1u, false);
+
+    dma_channel_config write_data_cfg =
+        dma_channel_get_default_config(write_data_dma);
+    channel_config_set_transfer_data_size(&write_data_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&write_data_cfg, false);
+    channel_config_set_write_increment(&write_data_cfg, false);
+    channel_config_set_dreq(
+        &write_data_cfg, pio_get_dreq(io_pio, responder_sm, false));
+    channel_config_set_high_priority(&write_data_cfg, true);
+    dma_channel_configure(
+        write_data_dma, &write_data_cfg,
+        &encoded_backing[0], &io_pio->rxf[responder_sm],
+        1u, false);
+
+    dma_channel_config write_control_cfg =
+        dma_channel_get_default_config(write_control_dma);
+    channel_config_set_transfer_data_size(&write_control_cfg, DMA_SIZE_32);
+    channel_config_set_read_increment(&write_control_cfg, false);
+    channel_config_set_write_increment(&write_control_cfg, false);
+    channel_config_set_dreq(
+        &write_control_cfg,
+        pio_get_dreq(io_pio, pointer_router_sm, false));
+    channel_config_set_high_priority(&write_control_cfg, true);
+    dma_channel_configure(
+        write_control_dma, &write_control_cfg,
+        &dma_channel_hw_addr(write_data_dma)->al2_write_addr_trig,
+        &io_pio->rxf[pointer_router_sm],
+        ISSUE112_WRITE_BUDGET, false);
+#else
     dma_channel_config low_lookup_cfg =
         dma_channel_get_default_config(low_lookup_dma);
     channel_config_set_transfer_data_size(&low_lookup_cfg, DMA_SIZE_32);
@@ -1646,6 +1739,8 @@ int main(void) {
         &dma_channel_hw_addr(write_data_dma)->al2_write_addr_trig,
         &io_pio->rxf[pointer_router_sm],
         ISSUE112_WRITE_BUDGET, false);
+
+#endif
 
 #endif
     dma_channel_config observer_cfg =
