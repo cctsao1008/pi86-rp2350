@@ -57,6 +57,16 @@ rp86_add_processor_image(pi_stress
     PACKAGE_NAME "PI-STRESS.P86W"
 )
 
+# Stage 1 Intel 8086 pi-spigot validation. This requires working CPU RAM
+# read/write, stack and loss-free 16-bit I/O capture before physical deployment.
+# Keep separate from the ROM-only continuous 2 MHz PI timing lab.
+rp86_add_processor_image(pi_spigot_8086
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-spigot-8086/pi_spigot.asm"
+    SYMBOL pi_spigot_8086
+    METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-spigot-8086/workload.json"
+    PACKAGE_NAME "PI-SPIGOT.P86W"
+)
+
 # Issue #112 lab-only stack witness.
 rp86_add_processor_image(issue112_stack_probe
     SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_stack_probe.asm"
