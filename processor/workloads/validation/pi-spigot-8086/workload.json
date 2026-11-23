@@ -1,0 +1,9 @@
+{
+  "format": "p86w-v1",
+  "name": "pi-spigot-8086",
+  "load_address": "0x10000",
+  "entry": "1000:0000",
+  "stack": "1000:7000",
+  "clock": "free-running",
+  "flags": []
+}
