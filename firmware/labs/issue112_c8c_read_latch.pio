@@ -145,28 +145,32 @@ drop_record:
 
 
 .program issue112_pi_rom_responder
-; The address frontends enqueue one backing word per ASTB, including I/O.
-; Consume each word in order and drive AD only for a memory read.
-    set y, 2                  ; BUFRW=0, IOM=1
+; ROM responder: preload with AD Hi-Z, classify I/O vs memory in T1.
+; Enable memory-read data on ASTB fall; hold through R3.
+    set y, 2                  ; BUFRW=0 IOM=1
 .wrap_target
 next_rom_cycle:
     wait 0 gpio 9
-    wait 1 gpio 9
+    wait 1 gpio 9             ; T1
     pull block
-    out pins, 28              ; preload while AD is Hi-Z
-    wait 0 gpio 9
-    mov osr, pins             ; IN base is GPIO0, OSR shifts right
+    out pins, 28              ; preload output latch, AD remains Hi-Z
+    mov osr, pins             ; GPIO0 base, shift right
     out null, 1
-    out x, 1                  ; INTAK# must be inactive
-    jmp !x next_rom_cycle
+    out x, 1                  ; INTAK#
+    jmp !x skip_cycle
     out null, 5
-    out x, 2                  ; GPIO7/8: BUFRW and IOM
+    out x, 2                  ; BUFRW/IOM
+    wait 0 gpio 9             ; T2 / ASTB fall
     jmp x!=y next_rom_cycle
-    mov pindirs, ~null
+    mov pindirs, ~null        ; begin driving memory-read data
     wait 1 gpio 21            ; R1
     wait 0 gpio 21            ; F1
-    wait 1 gpio 21            ; R2 (data observed in earlier trace)
+    wait 1 gpio 21            ; R2
     wait 0 gpio 21            ; F2
-    wait 1 gpio 21            ; R3: retain data through CPU read latch
-    mov pindirs, null         ; release AD during T4, before next T1
+    wait 1 gpio 21            ; R3
+    mov pindirs, null         ; release before next T1
+    jmp next_rom_cycle
+skip_cycle:
+    wait 0 gpio 9             ; synchronize skipped I/O/INTA
+    jmp next_rom_cycle
 .wrap
