@@ -1,0 +1,32 @@
+.program issue106_gpio_repack
+; Issue #106 Phase C1a: PIO scattered-GPIO repack engine.
+;
+; Engineering-only laboratory.  A DMA feeds a finite stream containing one
+; synthetic raw GPIO0..27 snapshot followed by 20 extraction microinstructions
+; and one final jump instruction.  The state machine keeps the raw snapshot in
+; Y, executes one variable OUT NULL,n instruction per address bit, then appends
+; the selected bit into ISR.  The extraction order is A19..A0 so a left-shift
+; ISR produces the canonical linear 20-bit processor address.
+;
+; The final microinstruction is a JMP to the PUSH below.  This keeps the PIO
+; program small enough to fit ordinary instruction memory while allowing the
+; scattered pin positions to remain data-driven.
+;
+; This phase proves the PIO permutation primitive on RP2350.  It does NOT yet
+; prove physical pad capture or Intel bus timing; Phase C1b replaces the first
+; PULL with an actual IN PINS capture at the accepted T1 boundary.
+.wrap_target
+    pull block          ; synthetic raw GPIO0..27 snapshot
+    mov y, osr          ; preserve snapshot
+    mov isr, null       ; packed 20-bit address accumulator
+bit_loop:
+    pull block          ; encoded OUT NULL,n or final JMP
+    mov x, osr
+    mov osr, y          ; restore raw snapshot for this extraction
+    mov exec, x         ; execute variable shift or jump to finish
+    out x, 1            ; selected GPIO bit -> X
+    in x, 1             ; append selected bit into packed address
+    jmp bit_loop
+finish:
+    push block
+.wrap

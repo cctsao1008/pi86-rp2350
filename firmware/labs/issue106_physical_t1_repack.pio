@@ -1,0 +1,36 @@
+.pio_version rp2350
+.program issue106_physical_t1_repack
+; Issue #106 Phase C1b: physical T1 pad capture + scattered-address repack.
+;
+; For each processor bus cycle:
+;   ASTB rise -> accepted settle point -> MOV ISR,PINS raw snapshot
+;             -> PUSH raw snapshot
+;             -> microcoded scattered GPIO extraction
+;             -> PUSH packed A19..A0
+;
+; TX FIFO receives only the extraction microinstructions (20 bits + final JMP)
+; for each cycle. RX FIFO emits two words per cycle: raw GPIO snapshot, then
+; packed 20-bit address. No M33 callback participates in an active cycle.
+
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    mov y, isr
+    push block
+    mov isr, null
+bit_loop:
+    pull block
+    mov x, osr
+    mov osr, y
+    mov exec, x
+    out x, 1
+    in x, 1
+    jmp bit_loop
+finish:
+    push block
+    wait 0 gpio 9
+    jmp next_cycle
+.wrap

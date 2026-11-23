@@ -1,0 +1,201 @@
+.pio_version rp2350
+
+.program issue112_c8c_addr_frontend
+; Continuous C5C-style read address frontend.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+.program issue112_pi_fast_addr_frontend
+; Fast-T1 address frontend for 2 MHz continuous PI only; settle 4 PIO cycles rather than 8.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [3]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+
+.program issue112_c8c_responder
+; Read response + write-data capture.
+; BUFRW is jmp pin: LOW=read, HIGH=write.
+.wrap_target
+response_loop:
+    pull block
+    wait 0 gpio 9
+    jmp pin write_cycle
+
+read_cycle:
+    out pins, 28
+    mov pindirs, ~null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21
+    wait 0 gpio 21
+    mov pindirs, null
+    jmp response_loop
+
+write_cycle:
+    mov pindirs, null
+    wait 1 gpio 21
+    wait 0 gpio 21
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block                 ; write data only
+    jmp response_loop
+.wrap
+
+
+.program issue112_c8c_pointer_router
+; TX receives the current backing pointer only AFTER the SRAM read DMA has
+; completed for that bus cycle. BUFRW is jmp pin.
+;
+; Reads discard the pointer. Writes publish it to RX, providing a write-only
+; pointer FIFO independent from the responder's write-data FIFO.
+.wrap_target
+router_loop:
+    pull block
+    mov y, osr
+    wait 0 gpio 9
+    jmp pin publish_write
+    jmp router_loop
+
+publish_write:
+    mov isr, y
+    push block
+    jmp router_loop
+.wrap
+
+
+.program issue112_c8c_observer
+; Per-cycle evidence: T1 + AF/R1/F1/R2.
+; This measures how early the read value becomes physically valid.
+.wrap_target
+observer_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins
+    push block
+
+    wait 0 gpio 9              ; AF
+    mov isr, pins
+    push block
+
+    wait 1 gpio 21             ; R1
+    mov isr, pins
+    push block
+
+    wait 0 gpio 21             ; F1
+    mov isr, pins
+    push block
+
+    wait 1 gpio 21             ; R2
+    mov isr, pins
+    push block
+
+    jmp observer_next
+.wrap
+
+
+.program issue112_pi_out_observer
+; Passive continuous-PI witness observer.
+; RX records contain early T1, ASTB fall, and R2 raw GPIO samples, in order.
+; STATUS is all ones when RX has fewer than six of its eight words occupied.
+; This guarantees space for the whole record. IRQ 0 latches any dropped record.
+.wrap_target
+observe_next:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [7]
+    mov isr, pins             ; early T1 address
+    wait 0 gpio 9             ; ASTB fall
+    mov y, pins               ; address at the end of T1
+    wait 1 gpio 21            ; R1
+    wait 0 gpio 21            ; F1
+    wait 1 gpio 21            ; R2
+    mov osr, pins
+    out null, 1
+    out x, 1                  ; GPIO1: INTAK# must be inactive
+    jmp !x observe_next
+    out null, 5
+    out x, 1                  ; GPIO7: BUFRW=1 for write
+    jmp !x observe_next
+    out x, 1                  ; GPIO8: IOM=1 for memory
+    jmp x-- observe_next
+    mov x, status
+    jmp !x drop_record
+    mov x, pins               ; R2 write data
+    push noblock
+    mov isr, y
+    push noblock
+    mov isr, x
+    push noblock
+.wrap
+drop_record:
+    irq set 0
+    jmp observe_next
+
+
+.program issue112_pi_rom_responder
+; ROM responder: preload with AD Hi-Z, classify I/O vs memory in T1.
+; Enable memory-read data on ASTB fall; hold through R3.
+    set y, 2                  ; BUFRW=0 IOM=1
+.wrap_target
+next_rom_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9             ; T1
+    pull block
+    out pins, 28              ; preload output latch, AD remains Hi-Z
+    mov osr, pins             ; GPIO0 base, shift right
+    out null, 1
+    out x, 1                  ; INTAK#
+    jmp !x skip_cycle
+    out null, 5
+    out x, 2                  ; BUFRW/IOM
+    wait 0 gpio 9             ; T2 / ASTB fall
+    nop [3]                   ; allow AD bus turnaround before driving
+    jmp x!=y next_rom_cycle
+    mov pindirs, ~null        ; begin driving memory-read data
+    wait 1 gpio 21            ; R1
+    wait 0 gpio 21            ; F1
+    wait 1 gpio 21            ; R2
+    wait 0 gpio 21            ; F2
+    wait 1 gpio 21            ; R3
+    mov pindirs, null         ; release before next T1
+    jmp next_rom_cycle
+skip_cycle:
+    wait 0 gpio 9             ; synchronize skipped I/O/INTA
+    jmp next_rom_cycle
+.wrap

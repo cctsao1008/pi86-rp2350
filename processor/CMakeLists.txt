@@ -48,6 +48,74 @@ rp86_add_processor_image(fast_invsqrt
     PACKAGE_NAME "INVSQRT.P86W"
 )
 
+# Sustained physical-processor arithmetic witness.  This workload continuously
+# recomputes pi with pure 8086 integer arithmetic and publishes RAM telemetry.
+rp86_add_processor_image(pi_stress
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-stress/pi_stress.asm"
+    SYMBOL pi_stress_workload
+    METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-stress/workload.json"
+    PACKAGE_NAME "PI-STRESS.P86W"
+)
+
+# Stage 1 Intel 8086 pi-spigot validation. This requires working CPU RAM
+# read/write, stack and loss-free 16-bit I/O capture before physical deployment.
+# Keep separate from the ROM-only continuous 2 MHz PI timing lab.
+rp86_add_processor_image(pi_spigot_8086
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-spigot-8086/pi_spigot.asm"
+    SYMBOL pi_spigot_8086
+    METADATA "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-spigot-8086/workload.json"
+    PACKAGE_NAME "PI-SPIGOT.P86W"
+)
+
+# Issue #112 lab-only stack witness.
+rp86_add_processor_image(issue112_stack_probe
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_stack_probe.asm"
+    SYMBOL issue112_stack_probe
+)
+
+rp86_add_processor_image(issue112_mem_stack_init
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_mem_stack_init.asm"
+    SYMBOL issue112_mem_stack_init
+)
+
+# Issue #112 C9R: repeated aligned memory-read -> CPU-echo discriminator.
+# Deliberately avoids stack and call/return traffic so CPU-visible read
+# correctness can be isolated from SS/SP and byte-lane behavior.
+rp86_add_processor_image(issue112_read_echo_stress
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_read_echo_stress.asm"
+    SYMBOL issue112_read_echo_stress
+)
+
+# Issue #112 C9T: use the CPU-latched read value as a memory-write address.
+# This avoids depending on the write-data sampling path when distinguishing a
+# CPU read-latch error from a write-observer error.
+rp86_add_processor_image(issue112_read_address_witness
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_read_address_witness.asm"
+    SYMBOL issue112_read_address_witness
+)
+
+# Issue #112 C9V: reconstruct WORD operands via explicit LOW/HIGH byte reads,
+# then encode the CPU-visible AX value into a physical write address.
+rp86_add_processor_image(issue112_byte_reconstruct_witness
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_byte_reconstruct_witness.asm"
+    SYMBOL issue112_byte_reconstruct_witness
+)
+
+# Issue #112 C9W: aligned WORD reads through register-indirect addressing.
+# Keeps the C9T address-witness method while avoiding the A1/moffs16 load.
+rp86_add_processor_image(issue112_indirect_word_witness
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/issue112_indirect_word_witness.asm"
+    SYMBOL issue112_indirect_word_witness
+)
+
+# Primary 2 MHz continuous PI workload: stackless, no CALL/RET/PUSH/POP,
+# no scratch-memory reads. Keeps the physical 8086/V30 continuously busy with
+# integer Machin-formula arithmetic and aligned telemetry writes.
+rp86_add_processor_image(pi_continuous_stackless
+    SOURCE "${CMAKE_CURRENT_LIST_DIR}/workloads/validation/pi-continuous-stackless/pi_continuous_stackless.asm"
+    SYMBOL pi_continuous_stackless
+)
+
 # Physical validation programs remain buildable and packageable, but are not
 # presented as end-user examples or built-in runtime services.
 rp86_add_processor_image(runtime_lifecycle

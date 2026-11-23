@@ -1,0 +1,27 @@
+.program issue106_write_pointer_source
+; Engineering-only source for Issue #106 Phase B3.
+;
+; A feeder DMA places full 32-bit SRAM destination pointers in this SM's TX
+; FIFO. The SM publishes exactly one pointer to RX FIFO, then waits for a
+; hardware acknowledgement that the corresponding data DMA write completed.
+; This prevents a new WRITE_ADDR_TRIG from reaching the data channel while it
+; is still busy.
+.wrap_target
+    pull block
+    mov isr, osr
+    push block
+    wait 1 irq 0
+    irq clear 0
+.wrap
+
+.program issue106_write_ack_sink
+; Engineering-only completion sink for Issue #106 Phase B3.
+;
+; The data DMA chains to a one-word acknowledgement DMA after every completed
+; SRAM write. That DMA places a token in this SM's TX FIFO. Consuming the token
+; proves the data DMA has completed before this SM releases the next pointer by
+; setting PIO IRQ flag 0.
+.wrap_target
+    pull block
+    irq set 0
+.wrap

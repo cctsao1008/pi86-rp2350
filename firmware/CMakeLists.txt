@@ -66,7 +66,7 @@ target_compile_definitions(rp86_rp2350 PRIVATE
     RP86_PROCESSOR_IMAGE_DATA=processor_runtime_image_data
     RP86_PROCESSOR_IMAGE_SIZE=processor_runtime_image_size
     RP86_PROCESSOR_IMAGE_SHA256=processor_runtime_image_sha256
-    RP86_PROCESSOR_HZ=1000000
+    RP86_PROCESSOR_HZ=${RP86_PROCESSOR_HZ}
     RP86_CANONICAL_RUNTIME=1
     RP86_HOST_PROTOCOL_HID_TRANSPORT=1
     PICO_STDIO_USB_USE_DEFAULT_DESCRIPTORS=0
@@ -127,3 +127,1377 @@ add_custom_command(TARGET rp86_rp2350 POST_BUILD
         -P ${PROJECT_SOURCE_DIR}/cmake/CheckFirmwareSize.cmake
     VERBATIM
 )
+
+# Issue #106 engineering laboratories. EXCLUDE_FROM_ALL keeps them out of the
+# production firmware/default build while making the repeated hardware-paced
+# DMA alias experiments reproducible with explicit target builds.
+add_executable(rp86_issue106_dma_alias_read_lab EXCLUDE_FROM_ALL
+    labs/issue106_dma_alias_read.c
+)
+
+target_link_libraries(rp86_issue106_dma_alias_read_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_dma_alias_read_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_dma_alias_read.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_dma_alias_read_lab 1)
+pico_enable_stdio_uart(rp86_issue106_dma_alias_read_lab 0)
+pico_set_binary_type(rp86_issue106_dma_alias_read_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_dma_alias_read_lab)
+
+add_executable(rp86_issue106_dma_alias_write_lab EXCLUDE_FROM_ALL
+    labs/issue106_dma_alias_write.c
+)
+
+target_link_libraries(rp86_issue106_dma_alias_write_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_dma_alias_write_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_dma_alias_write.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_dma_alias_write_lab 1)
+pico_enable_stdio_uart(rp86_issue106_dma_alias_write_lab 0)
+pico_set_binary_type(rp86_issue106_dma_alias_write_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_dma_alias_write_lab)
+
+# Phase C1a proves the PIO scattered-GPIO permutation primitive using synthetic
+# raw GPIO0..27 snapshots. Physical pad capture is intentionally deferred to
+# the next timing-bound front-end experiment.
+add_executable(rp86_issue106_gpio_repack_lab EXCLUDE_FROM_ALL
+    labs/issue106_gpio_repack.c
+)
+
+target_include_directories(rp86_issue106_gpio_repack_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_gpio_repack_lab
+    pico_stdlib
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_gpio_repack_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_gpio_repack.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_gpio_repack_lab 1)
+pico_enable_stdio_uart(rp86_issue106_gpio_repack_lab 0)
+pico_set_binary_type(rp86_issue106_gpio_repack_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_gpio_repack_lab)
+
+
+# Phase C1b replaces the synthetic raw snapshot with a real passive ASTB/T1
+# GPIO-bank capture, then runs the same proven scattered-address permutation.
+add_executable(rp86_issue106_physical_t1_repack_lab EXCLUDE_FROM_ALL
+    labs/issue106_physical_t1_repack.c
+)
+
+target_include_directories(rp86_issue106_physical_t1_repack_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_physical_t1_repack_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_physical_t1_repack_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_physical_t1_repack.pio
+)
+
+pico_generate_pio_header(rp86_issue106_physical_t1_repack_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_lab 1)
+pico_enable_stdio_uart(rp86_issue106_physical_t1_repack_lab 0)
+pico_set_binary_type(rp86_issue106_physical_t1_repack_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_physical_t1_repack_lab)
+
+
+# Phase C2+C3 integrates the real T1 frontend with hardware lane
+# classification and a 64 KiB mirrored internal-SRAM DMA read path.
+add_executable(rp86_issue106_c23_integration_lab EXCLUDE_FROM_ALL
+    labs/issue106_c23_integration.c
+)
+
+target_include_directories(rp86_issue106_c23_integration_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_c23_integration_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_c23_integration_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c23_integration.pio
+)
+
+pico_generate_pio_header(rp86_issue106_c23_integration_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/free_running_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_c23_integration_lab 1)
+pico_enable_stdio_uart(rp86_issue106_c23_integration_lab 0)
+pico_set_binary_type(rp86_issue106_c23_integration_lab copy_to_ram)
+pico_add_extra_outputs(rp86_issue106_c23_integration_lab)
+
+
+# Phase C4 one-shot end-to-end read-response timing experiment.
+# Services only the first reset-vector WORD read and records physical
+# T1/AF/R1/F1/R2/F2/R3 evidence.
+add_executable(rp86_issue106_c4_response_timing_lab EXCLUDE_FROM_ALL
+    labs/issue106_c4_response_timing.c
+)
+
+target_include_directories(rp86_issue106_c4_response_timing_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue106_c4_response_timing_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_c4_response_timing_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c4_response_timing.pio
+)
+
+pico_generate_pio_header(rp86_issue106_c4_response_timing_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_c4_response_timing_lab 1)
+pico_enable_stdio_uart(rp86_issue106_c4_response_timing_lab 0)
+
+# C4 intentionally keeps M33 code in XIP flash. The measured active path is
+# entirely PIO+DMA; the 64 KiB backing window and 256 KiB data->GPIO LUT stay
+# in internal SRAM. Copying the whole executable into SRAM would consume the
+# same bounded-memory resource being measured and overcommit RP2350 SRAM.
+pico_add_extra_outputs(rp86_issue106_c4_response_timing_lab)
+
+
+# C4 frequency variants for Intel P8086-2 fixed-READY timing characterization.
+# The 1 MHz target remains the empirical baseline. These variants keep the
+# dataplane identical and only change the free-running processor clock.
+foreach(_mhz IN ITEMS 2 4 6 8)
+    set(_target rp86_issue106_c4_response_timing_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c4_response_timing.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c4_response_timing.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
+# Phase C5A speed-first dynamic WORD-read timing experiment.
+# Replaces the C4 serial address repack with two parallel 14-bit raw-GPIO LUT
+# frontends. The backing stores pre-encoded scattered-GPIO response words so
+# this gate isolates address translation + SRAM + physical response latency.
+foreach(_mhz IN ITEMS 4 6)
+    set(_target rp86_issue106_c5_fast_read_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c5_fast_read.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_fast_read.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+
+    # Keep code in XIP: C5A intentionally spends SRAM on two 64 KiB address
+    # LUTs plus a 128 KiB pre-encoded WORD backing for the speed feasibility
+    # gate. This representation is not the final canonical memory format.
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
+# Phase C5B parallel-lookup latency probe.
+# Same C5 speed-first data representation, but both 14-bit lookup legs are
+# armed before RESET release. Low leg is high-priority; high leg is
+# low-priority and triggers combine when it completes. This intentionally
+# probes whether removing the C5A low->high chain recovers the missing
+# half-cycle at 6 MHz.
+foreach(_mhz IN ITEMS 4 6)
+    set(_target rp86_issue106_c5b_parallel_read_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c5_fast_read.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+        ISSUE106_PARALLEL_LOOKUPS=1
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_fast_read.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
+# C5 tail-latency decomposition probes.
+# T0: T1 -> direct encoded-data DMA -> responder.
+# T1: T1 -> fixed SRAM pointer control DMA -> SRAM DMA -> responder.
+# These keep the same physical timing observer and R2 acceptance boundary.
+foreach(_mode IN ITEMS 0 1 2)
+    foreach(_mhz IN ITEMS 4 6)
+        set(_target rp86_issue106_c5_tail_t${_mode}_${_mhz}mhz_lab)
+
+        add_executable(${_target} EXCLUDE_FROM_ALL
+            labs/issue106_c5_tail_timing.c
+        )
+
+        target_include_directories(${_target} PRIVATE
+            ${CMAKE_CURRENT_LIST_DIR}
+        )
+
+        target_compile_definitions(${_target} PRIVATE
+            ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+            ISSUE106_TAIL_MODE=${_mode}
+        )
+
+        target_link_libraries(${_target}
+            pico_stdlib
+            hardware_clocks
+            hardware_dma
+            hardware_pio
+        )
+
+        pico_generate_pio_header(${_target}
+            ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_tail_timing.pio
+        )
+
+        pico_generate_pio_header(${_target}
+            ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+        )
+
+        pico_enable_stdio_usb(${_target} 1)
+        pico_enable_stdio_uart(${_target} 0)
+        pico_add_extra_outputs(${_target})
+    endforeach()
+endforeach()
+
+
+# Phase C5C fused-sum latency probe.
+# Keeps the C5A serialized lookup ordering, but removes the separate two-word
+# combine DMA: low_lookup writes the low contribution directly to SNIFF_DATA,
+# high_lookup is sniffed in SUM mode and chains directly to pointer_dma.
+foreach(_mhz IN ITEMS 4 6)
+    set(_target rp86_issue106_c5c_fused_read_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_c5_fast_read.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_mhz}000000u
+        ISSUE106_FUSED_SUM=1
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_c5_fast_read.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
+# Issue #112 C6: 4 MHz workload-oriented continuous bus proof.
+# Extends the C5C one-shot read dataplane into a finite consecutive-cycle
+# experiment. The physical 8086 executes a tiny native program from a 64 KiB
+# mirrored, pre-encoded backing and must produce WORD MEM_WRITE 10800h=1234h.
+# The write is observed only in C6; C7 will connect the repeated B3 SRAM-write
+# primitive before PI-STRESS is attempted.
+add_executable(rp86_issue112_c6_continuous_rw_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c6_continuous_rw.c
+)
+
+target_include_directories(rp86_issue112_c6_continuous_rw_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c6_continuous_rw_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6_continuous_rw_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c6_continuous_rw.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6_continuous_rw_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c6_continuous_rw_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c6_continuous_rw_4mhz_lab 0)
+
+# Keep C6 code in XIP. SRAM is intentionally reserved for the two 64 KiB
+# address LUTs plus the 128 KiB pre-encoded mirrored backing.
+pico_add_extra_outputs(rp86_issue112_c6_continuous_rw_4mhz_lab)
+
+
+# Issue #112 C6B: deterministic 4 MHz write-phase discriminator.
+# Uses a CS-relative immediate WORD store so the expected physical write
+# address is fixed at 10800h once entry 1000:0000 has been reached. Captures
+# R2/F2/R3/F3 to measure the physical CPU write-data phase instead of assuming
+# R2. The write remains observe-only in this gate.
+add_executable(rp86_issue112_c6b_write_phase_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c6b_write_phase.c
+)
+
+target_include_directories(rp86_issue112_c6b_write_phase_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c6b_write_phase_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6b_write_phase_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c6b_write_phase.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c6b_write_phase_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c6b_write_phase_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c6b_write_phase_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c6b_write_phase_4mhz_lab)
+
+
+# Issue #112 C7: first physical 4 MHz SRAM write commit + CPU readback.
+# The first WORD write to 10800h is sampled at R2, committed by DMA into the
+# mirrored pre-encoded backing, then the physical 8086 reads it back and echoes
+# the value with an observer-only write to 10802h.
+add_executable(rp86_issue112_c7_write_commit_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c7_write_commit.c
+)
+
+target_include_directories(rp86_issue112_c7_write_commit_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c7_write_commit_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c7_write_commit_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c7_write_commit.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c7_write_commit_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c7_write_commit_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c7_write_commit_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c7_write_commit_4mhz_lab)
+
+
+# Issue #112 C8: sustained 4 MHz WORD read/write proof.
+# Reuses the proven C7 PIO dataplane. A long-running write-data DMA is paced
+# directly by physical write samples, while a per-cycle pointer updater refreshes
+# its WRITE_ADDR before R2. Five stores/readbacks are checked end-to-end.
+add_executable(rp86_issue112_c8_sustained_rw_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c8_sustained_rw.c
+)
+
+target_include_directories(rp86_issue112_c8_sustained_rw_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c8_sustained_rw_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8_sustained_rw_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c7_write_commit.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8_sustained_rw_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c8_sustained_rw_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c8_sustained_rw_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c8_sustained_rw_4mhz_lab)
+
+
+# Issue #112 C8B: post-read write sidecar at 4 MHz.
+# The proven read critical path is unchanged through raw_data_dma. Only after
+# the SRAM read completes is the current backing pointer echoed into a separate
+# PIO router. Read cycles discard it; write cycles publish it to a write-only
+# pointer FIFO that drives AL2_WRITE_ADDR_TRIG for the reusable write DMA.
+add_executable(rp86_issue112_c8b_postread_write_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c8b_postread_write.c
+)
+
+target_include_directories(rp86_issue112_c8b_postread_write_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c8b_postread_write_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8b_postread_write_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8b_postread_write.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8b_postread_write_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c8b_postread_write_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c8b_postread_write_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c8b_postread_write_4mhz_lab)
+
+
+# Issue #112 C8C: CPU read-latch discriminator at 4 MHz.
+# Reuses the C8B dataplane, but replaces the checksum with four independent
+# load->echo stores and samples AF/R1/F1/R2 so CPU-latched values can be
+# compared with the physical data-valid window.
+add_executable(rp86_issue112_c8c_read_latch_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c8c_read_latch.c
+)
+
+target_include_directories(rp86_issue112_c8c_read_latch_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c8c_read_latch_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8c_read_latch_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c8c_read_latch_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c8c_read_latch_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c8c_read_latch_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c8c_read_latch_4mhz_lab)
+
+
+# The physical 8086/V30 continuously computes stackless PI at 2 MHz.
+# RP2350 DMA runs in ENDLESS mode, and the passive observer reports
+# the I/O write addresses while the processor remains FREE_RUNNING.
+add_executable(rp86_pi_continuous_2mhz EXCLUDE_FROM_ALL
+    labs/issue112_c9_pi_stress.c
+)
+
+target_include_directories(rp86_pi_continuous_2mhz PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_pi_continuous_2mhz PRIVATE
+    ISSUE112_CONTINUOUS_PI=1
+    ISSUE112_STACKLESS_PI=1
+    ISSUE112_PROCESSOR_HZ=2000000u
+)
+
+target_link_libraries(rp86_pi_continuous_2mhz
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    pi_continuous_stackless
+)
+
+pico_generate_pio_header(rp86_pi_continuous_2mhz
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_generate_pio_header(rp86_pi_continuous_2mhz
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_pi_continuous_2mhz 1)
+pico_enable_stdio_uart(rp86_pi_continuous_2mhz 0)
+pico_add_extra_outputs(rp86_pi_continuous_2mhz)
+
+
+# Issue #112 C9: first physical PI-STRESS proof at 4 MHz.
+# Reuses the C8C sustained WORD R/W dataplane, embeds the maintained
+# pi_stress_workload image, installs a reset bootstrap for SS:SP=1000:FFFE,
+# runs a bounded autonomous FREE_RUNNING epoch, then decodes telemetry.
+add_executable(rp86_issue112_c9_pi_stress_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9_pi_stress.c
+)
+
+target_include_directories(rp86_issue112_c9_pi_stress_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c9_pi_stress_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    pi_stress
+)
+
+pico_generate_pio_header(rp86_issue112_c9_pi_stress_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9_pi_stress_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9_pi_stress_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9_pi_stress_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9_pi_stress_4mhz_lab)
+
+
+# Issue #112 C9D: PI-STRESS write-routing discriminator at 4 MHz.
+# Captures only physical MEM_WRITE cycles (T1 address + R2 data) while the
+# C9 dataplane runs autonomously. Used to distinguish a genuine CPU write to
+# telemetry offset 0800h from a long-run pointer/data routing mismatch.
+add_executable(rp86_issue112_c9d_write_trace_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9d_write_trace_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_link_libraries(rp86_issue112_c9d_write_trace_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    pi_stress
+)
+
+pico_generate_pio_header(rp86_issue112_c9d_write_trace_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9d_write_trace_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9d_write_trace_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9d_write_trace_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9d_write_trace_4mhz_lab)
+
+# Issue #112: compare stack setup in the reset vector and ordinary RAM.
+foreach(_variant IN ITEMS c9e_stack_probe c9f_ram_stack_init c9g_sp_paths c9h_read_hold c9i_read_setup c9j_read_window c9k_register_controls c9k_register_controls_2mhz c9l_encoding_swap c9m_ax_witness c9n_ax_before_transfer c9o_t4_release c9p_memory_stack c9q_address_audit)
+    set(_probe ${_variant})
+    set(_mhz 4)
+    if(_variant STREQUAL "c9k_register_controls_2mhz")
+        set(_probe c9k_register_controls)
+        set(_mhz 2)
+    endif()
+    if(_variant MATCHES "^c9[l-n]_")
+        set(_mhz 2)
+    endif()
+    set(_target rp86_issue112_${_probe}_${_mhz}mhz_lab)
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue112_c9d_write_trace.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_PROBE=1 ISSUE112_PROCESSOR_HZ=${_mhz}000000u)
+    if(NOT _probe STREQUAL "c9e_stack_probe")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_STACK_INIT_IN_RAM=1)
+    endif()
+
+    if(_probe MATCHES "^c9[g-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_SP_PATHS=1)
+    endif()
+    if(_probe MATCHES "^c9[h-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_READ_HOLD_CYCLES=4)
+    endif()
+    if(_probe MATCHES "^c9[i-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_FRONTEND_DELAY_CYCLES=3)
+    endif()
+    if(_probe STREQUAL "c9q_address_audit")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_ADDRESS_AUDIT=1)
+    endif()
+    if(_probe MATCHES "^c9[p-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_MEMORY_STACK=1)
+        target_link_libraries(${_target} issue112_mem_stack_init)
+    endif()
+    if(_probe MATCHES "^c9[o-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_ALE_PHASE=1)
+    endif()
+    if(_probe MATCHES "^c9[n-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_AX_BEFORE_TRANSFER=1)
+    endif()
+    if(_probe MATCHES "^c9[m-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_AX_WITNESS=1)
+    endif()
+    if(_probe MATCHES "^c9[l-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_SWAP_SP_ENCODINGS=1)
+    endif()
+    if(_probe MATCHES "^c9[k-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_REGISTER_CONTROLS=1)
+    endif()
+    if(_probe MATCHES "^c9[j-q]_")
+        target_compile_definitions(${_target} PRIVATE ISSUE112_READ_WINDOW_TRACE=1)
+    endif()
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+        issue112_stack_probe
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
+# Issue #112 C9R: repeated aligned memory read -> CPU echo discriminator.
+# Uses the C9O split-lane/T4-hold dataplane but deliberately avoids SS/SP,
+# PUSH/POP and CALL/RET. Eight iterations read four immutable WORD operands
+# and immediately echo the CPU-latched AX value to fixed memory locations.
+add_executable(rp86_issue112_c9r_read_echo_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9r_read_echo_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9r_read_echo_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_READ_ECHO_STRESS=1
+    ISSUE112_ALE_PHASE=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9r_read_echo_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_read_echo_stress
+)
+
+pico_generate_pio_header(rp86_issue112_c9r_read_echo_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9r_read_echo_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9r_read_echo_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9r_read_echo_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9r_read_echo_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9r_read_echo_4mhz_lab)
+
+
+# Issue #112 C9S: deterministic read-drive phase repair at 4 MHz.
+# Reuses the C9R read-echo workload and split-lane backing, but replaces the
+# responder's level-sensitive CLK drive-start wait with a latched per-cycle
+# phase event generated independently from DMA completion timing.
+add_executable(rp86_issue112_c9s_deterministic_read_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9s_deterministic_read_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9s_deterministic_read_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_READ_ECHO_STRESS=1
+    ISSUE112_ALE_PHASE=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_DETERMINISTIC_READ_PHASE=1
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_read_echo_stress
+)
+
+pico_generate_pio_header(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9s_deterministic_read_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9s_deterministic_read_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9s_deterministic_read_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9s_deterministic_read_4mhz_lab)
+
+
+# Issue #112 C9T: CPU-latched read value encoded as a memory-write address.
+# Uses the C9R/C9O baseline dataplane. The checker ignores write data and
+# validates only source-read bus values plus the physical T1 write addresses
+# derived from AX via BX.
+add_executable(rp86_issue112_c9t_address_witness_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9t_address_witness_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9t_address_witness_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_READ_ADDRESS_WITNESS=1
+    ISSUE112_ALE_PHASE=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9t_address_witness_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_read_address_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9t_address_witness_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9t_address_witness_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9t_address_witness_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9t_address_witness_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9t_address_witness_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9t_address_witness_4mhz_lab)
+
+
+# Issue #112 C9U: localize byte swap to split-lane vs common dataplane.
+# Reuses the exact C9T processor image and address-witness checker, but removes
+# ISSUE112_ALE_PHASE so reads use the earlier single 16-bit C8C/C9D responder.
+# No workload or expected-value change is permitted in this A/B.
+add_executable(rp86_issue112_c9u_single_responder_witness_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9u_single_responder_witness_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9u_single_responder_witness_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_READ_ADDRESS_WITNESS=1
+    ISSUE112_SINGLE_RESPONDER_WITNESS=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9u_single_responder_witness_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_read_address_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9u_single_responder_witness_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9u_single_responder_witness_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9u_single_responder_witness_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9u_single_responder_witness_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9u_single_responder_witness_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9u_single_responder_witness_4mhz_lab)
+
+
+# Issue #112 C9V: reconstruct the same four 16-bit operands with two explicit
+# byte reads, then encode AX into a physical write address. Uses the single
+# 16-bit responder so only the CPU bus-width behavior changes from C9U.
+add_executable(rp86_issue112_c9v_byte_reconstruct_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9v_byte_reconstruct_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9v_byte_reconstruct_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_BYTE_RECONSTRUCT_WITNESS=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9v_byte_reconstruct_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_byte_reconstruct_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9v_byte_reconstruct_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9v_byte_reconstruct_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9v_byte_reconstruct_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9v_byte_reconstruct_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9v_byte_reconstruct_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9v_byte_reconstruct_4mhz_lab)
+
+
+# Issue #112 C9W: aligned WORD reads via register-indirect MOV BX,[CS:SI].
+# Same address-witness checker as C9T, but avoids the A1/moffs16 instruction
+# encoding. Uses the same single 16-bit responder as C9U/C9V.
+add_executable(rp86_issue112_c9w_indirect_word_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9w_indirect_word_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9w_indirect_word_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_INDIRECT_WORD_WITNESS=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9w_indirect_word_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_indirect_word_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9w_indirect_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9w_indirect_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9w_indirect_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9w_indirect_word_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9w_indirect_word_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9w_indirect_word_4mhz_lab)
+
+
+# Issue #112 C9X: 4 MHz aligned-WORD early-preload timing repair.
+# Reuses the exact C9W x86 workload/checker. The SRAM word is loaded into the
+# PIO output latch during T1 while AD remains Hi-Z; the responder only enables
+# PINDIRS at ASTB fall, removing OUT/branch latency from the T2 setup window.
+add_executable(rp86_issue112_c9x_early_preload_word_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9x_early_preload_word_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9x_early_preload_word_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_INDIRECT_WORD_WITNESS=1
+    ISSUE112_EARLY_READ_PRELOAD=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9x_early_preload_word_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_indirect_word_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9x_early_preload_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9x_early_preload_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9x_early_preload_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9x_early_preload_word_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9x_early_preload_word_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9x_early_preload_word_4mhz_lab)
+
+
+# Issue #112 C9Y: front-end latency repair for aligned WORD reads.
+# Reuses the exact C9W workload/checker and C9X early-preload responder, but
+# removes the remaining address-front-end latency: PIO input synchronisers are
+# bypassed for GPIO0..27 and the address-settle delay is reduced from 3 to 0.
+add_executable(rp86_issue112_c9y_fast_frontend_word_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9y_fast_frontend_word_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9y_fast_frontend_word_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_INDIRECT_WORD_WITNESS=1
+    ISSUE112_EARLY_READ_PRELOAD=1
+    ISSUE112_FRONTEND_SYNC_BYPASS=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=0
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_indirect_word_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9y_fast_frontend_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9y_fast_frontend_word_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9y_fast_frontend_word_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9y_fast_frontend_word_4mhz_lab)
+
+
+# Issue #112 C9Z: guaranteed bus-turnaround WORD-read timing A/B.
+# Exact C9W workload/checker and baseline frontend. The read responder keeps
+# AD Hi-Z through one complete processor CLK after ALE before enabling PINDIRS,
+# matching the original Pi86 read-turnaround policy more closely.
+add_executable(rp86_issue112_c9z_turnaround_word_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c9z_turnaround_word_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c9z_turnaround_word_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_INDIRECT_WORD_WITNESS=1
+    ISSUE112_TURNAROUND_READ=1
+    ISSUE112_READ_HOLD_CYCLES=4
+    ISSUE112_FRONTEND_DELAY_CYCLES=3
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c9z_turnaround_word_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_indirect_word_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c9z_turnaround_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9z_turnaround_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c9z_turnaround_word_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c9z_turnaround_word_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c9z_turnaround_word_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c9z_turnaround_word_4mhz_lab)
+
+
+# Issue #112 C10: compact-address 4 MHz dataplane.
+# Reuses the exact C9W indirect-WORD witness image/checker. The old dual-LUT
+# + sniffer-SUM + pointer-DMA read chain is replaced by one PIO-compressed
+# A15..A1 index, one 32K pointer LUT lookup, then one backing-data DMA.
+add_executable(rp86_issue112_c10_compact_dataplane_4mhz_lab EXCLUDE_FROM_ALL
+    labs/issue112_c9d_write_trace.c
+)
+
+target_include_directories(rp86_issue112_c10_compact_dataplane_4mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue112_c10_compact_dataplane_4mhz_lab PRIVATE
+    ISSUE112_STACK_PROBE=1
+    ISSUE112_INDIRECT_WORD_WITNESS=1
+    ISSUE112_COMPACT_DATAPLANE=1
+    ISSUE112_EARLY_READ_PRELOAD=1
+    ISSUE112_PROCESSOR_HZ=4000000u
+)
+
+target_link_libraries(rp86_issue112_c10_compact_dataplane_4mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+    issue112_indirect_word_witness
+)
+
+pico_generate_pio_header(rp86_issue112_c10_compact_dataplane_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c9d_write_trace.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c10_compact_dataplane_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_generate_pio_header(rp86_issue112_c10_compact_dataplane_4mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue112_c8c_read_latch.pio
+)
+
+pico_enable_stdio_usb(rp86_issue112_c10_compact_dataplane_4mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue112_c10_compact_dataplane_4mhz_lab 0)
+pico_add_extra_outputs(rp86_issue112_c10_compact_dataplane_4mhz_lab)
+
+
+# Passive 8 MHz C1b probe: physical T1 capture/repack only.
+add_executable(rp86_issue106_physical_t1_repack_8mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_physical_t1_repack.c
+)
+
+target_include_directories(rp86_issue106_physical_t1_repack_8mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_physical_t1_repack_8mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=8000000u
+)
+
+target_link_libraries(rp86_issue106_physical_t1_repack_8mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_physical_t1_repack_8mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_physical_t1_repack.pio
+)
+
+pico_generate_pio_header(rp86_issue106_physical_t1_repack_8mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/runtime/intel_8086_clock.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_physical_t1_repack_8mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_physical_t1_repack_8mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_physical_t1_repack_8mhz_lab)
+
+
+# Hardware-synchronous Intel RESET + first-T1 aperture diagnostics.
+# Keep the probe identical across the sweep so frequency is the only variable.
+foreach(_mhz IN ITEMS 2 4 6 7 8)
+    set(_target rp86_issue106_reset_raw_trace_${_mhz}mhz_lab)
+
+    add_executable(${_target} EXCLUDE_FROM_ALL
+        labs/issue106_reset_raw_trace.c
+    )
+
+    target_include_directories(${_target} PRIVATE
+        ${CMAKE_CURRENT_LIST_DIR}
+    )
+
+    math(EXPR _processor_hz "${_mhz} * 1000000")
+    target_compile_definitions(${_target} PRIVATE
+        ISSUE106_PROCESSOR_HZ=${_processor_hz}u
+    )
+
+    target_link_libraries(${_target}
+        pico_stdlib
+        hardware_clocks
+        hardware_dma
+        hardware_pio
+    )
+
+    pico_generate_pio_header(${_target}
+        ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+    )
+
+    pico_enable_stdio_usb(${_target} 1)
+    pico_enable_stdio_uart(${_target} 0)
+    pico_add_extra_outputs(${_target})
+endforeach()
+
+
+
+
+
+# Eighth-point discriminator between 7.0 MHz PASS and 7.25 MHz FAIL.
+add_executable(rp86_issue106_reset_raw_trace_7_125mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_reset_raw_trace.c
+)
+
+target_include_directories(rp86_issue106_reset_raw_trace_7_125mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_reset_raw_trace_7_125mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=7125000u
+)
+
+target_link_libraries(rp86_issue106_reset_raw_trace_7_125mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_7_125mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_7_125mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_7_125mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_reset_raw_trace_7_125mhz_lab)
+# Quarter-point discriminator between 7.0 MHz PASS and 7.5 MHz FAIL.
+add_executable(rp86_issue106_reset_raw_trace_7_25mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_reset_raw_trace.c
+)
+
+target_include_directories(rp86_issue106_reset_raw_trace_7_25mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_reset_raw_trace_7_25mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=7250000u
+)
+
+target_link_libraries(rp86_issue106_reset_raw_trace_7_25mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_7_25mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_7_25mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_7_25mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_reset_raw_trace_7_25mhz_lab)
+# Midpoint discriminator between 7 MHz PASS and 8 MHz FAIL.
+add_executable(rp86_issue106_reset_raw_trace_7_5mhz_lab EXCLUDE_FROM_ALL
+    labs/issue106_reset_raw_trace.c
+)
+
+target_include_directories(rp86_issue106_reset_raw_trace_7_5mhz_lab PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)
+
+target_compile_definitions(rp86_issue106_reset_raw_trace_7_5mhz_lab PRIVATE
+    ISSUE106_PROCESSOR_HZ=7500000u
+)
+
+target_link_libraries(rp86_issue106_reset_raw_trace_7_5mhz_lab
+    pico_stdlib
+    hardware_clocks
+    hardware_dma
+    hardware_pio
+)
+
+pico_generate_pio_header(rp86_issue106_reset_raw_trace_7_5mhz_lab
+    ${CMAKE_CURRENT_LIST_DIR}/labs/issue106_intel_clock_trace.pio
+)
+
+pico_enable_stdio_usb(rp86_issue106_reset_raw_trace_7_5mhz_lab 1)
+pico_enable_stdio_uart(rp86_issue106_reset_raw_trace_7_5mhz_lab 0)
+pico_add_extra_outputs(rp86_issue106_reset_raw_trace_7_5mhz_lab)
