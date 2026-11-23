@@ -330,6 +330,8 @@ static uint32_t pi_boot_trace[PI_BOOT_TRACE_WORDS];
 static void report_pi_boot_trace(uint32_t words) {
     const uint32_t cycles = words / PI_BOOT_TRACE_STRIDE;
     uint32_t rom_mismatches = 0u;
+    uint32_t r1_mismatches = 0u;
+    uint32_t f1_mismatches = 0u;
     uint32_t outside_rom = 0u;
     uint32_t memory_writes = 0u;
     uint32_t io_writes = 0u;
@@ -357,18 +359,24 @@ static void report_pi_boot_trace(uint32_t words) {
         const char *kind = "INTA";
         if (!ack && memory && !write) {
             const uint16_t expected = backing_word(low_address & 0xfffeu);
+            const uint16_t r1_data = decode_ad(samples[2]);
+            const uint16_t f1_data = decode_ad(samples[3]);
+            const bool r1_bad = ((r1_data ^ expected) & active_mask) != 0u;
+            const bool f1_bad = ((f1_data ^ expected) & active_mask) != 0u;
             const bool mismatch = ((data ^ expected) & active_mask) != 0u;
             /* Allow a small NOP margin for instruction prefetch past the image. */
             const bool expected_address = address >= 0xffff0u ||
                 (address >= 0x10000u &&
                  address < 0x10000u + ISSUE112_PI_IMAGE_SIZE + 16u);
+            if (r1_bad && ++r1_mismatches <= 4u) show = true;
+            if (f1_bad && ++f1_mismatches <= 4u) show = true;
             if (mismatch && ++rom_mismatches <= 4u) show = true;
             if (!expected_address && ++outside_rom <= 4u) show = true;
             if (show) {
                 printf("BOOT[%" PRIu32 "] MEMR addr=%05" PRIx32
-                       " af=%04x f1=%04x r2=%04x expected=%04x mask=%04x\n",
+                       " af=%04x r1=%04x f1=%04x r2=%04x expected=%04x mask=%04x\n",
                        cycle, address, decode_ad(samples[1]),
-                       decode_ad(samples[3]), data, expected, active_mask);
+                       r1_data, f1_data, data, expected, active_mask);
             }
             continue;
         }
@@ -388,10 +396,12 @@ static void report_pi_boot_trace(uint32_t words) {
                    data, active_mask);
         }
     }
-    printf("BOOT TRACE SUMMARY: r2_mismatch=%" PRIu32
+    printf("BOOT TRACE SUMMARY: r1_mismatch=%" PRIu32
+           " f1_mismatch=%" PRIu32 " r2_mismatch=%" PRIu32
            " reads_outside_rom=%" PRIu32 " mem_writes=%" PRIu32
            " io_writes=%" PRIu32 "\n",
-           rom_mismatches, outside_rom, memory_writes, io_writes);
+           r1_mismatches, f1_mismatches, rom_mismatches,
+           outside_rom, memory_writes, io_writes);
 }
 
 static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
@@ -725,6 +735,7 @@ int main(void) {
 
 #ifdef ISSUE112_STACKLESS_PI
     printf("BUS MODE: ROM reads only, passive I/O witness\n");
+    printf("ROM READ HOLD: AD driven through R3, released in T4\n");
     printf("WITNESS: OUT %02xh,AX; AX carries the Q3.13 PI result\n",
            PI_RESULT_PORT);
     printf("EXPECTED PORT/DATA: %04x/%04x (3.1416015625)\n",
