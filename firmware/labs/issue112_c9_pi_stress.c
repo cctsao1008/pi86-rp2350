@@ -85,19 +85,10 @@
 #define ISSUE112_MAGIC1 0x3638u
 #define ISSUE112_STATE_PUBLISHED 2u
 
-#ifdef ISSUE112_STACKLESS_PI
-/* One direct A15..A1 lookup (32K x 4 bytes), 128 KiB-aligned. */
-static uint32_t compact_addr_lut[32768u] __attribute__((aligned(131072)));
-static const uint8_t compact_ad_gpio_order[15] = {
-    0u, 2u, 3u, 4u, 6u, 10u, 11u, 12u,
-    13u, 14u, 15u, 17u, 19u, 22u, 27u,
-};
-#else
 static uint32_t addr_lut[2][ISSUE112_ADDR_LUT_ENTRIES]
     __attribute__((aligned(65536)));
-static uint32_t address_high_part;
-#endif
 static uint32_t encoded_backing[ISSUE112_ENCODED_WORDS];
+static uint32_t address_high_part;
 
 static const uint8_t ad_gpio[16] = {
     RP86_PROCESSOR_PIN_AD0, RP86_PROCESSOR_PIN_AD1,
@@ -120,16 +111,6 @@ static uint16_t decode_ad(uint32_t raw) {
         value |= (uint16_t)(sample_bit(raw, ad_gpio[bit]) << bit);
     return value;
 }
-
-#ifdef ISSUE112_STACKLESS_PI
-static uint16_t compact_index_from_raw(uint32_t raw) {
-    uint16_t index = 0u;
-    for (uint i = 0u; i < 15u; ++i)
-        index = (uint16_t)((index << 1u) |
-                           sample_bit(raw, compact_ad_gpio_order[i]));
-    return index;
-}
-#endif
 
 static uint32_t encode_word(uint16_t value) {
     uint32_t encoded = 0u;
@@ -219,9 +200,6 @@ static void print_q8_24(uint32_t value) {
 
 static void prepare_memory(void) {
     const uintptr_t backing_base = (uintptr_t)encoded_backing;
-#ifndef ISSUE112_STACKLESS_PI
-    (void)backing_base;
-#endif
 
     for (uint i = 0u; i < ISSUE112_ENCODED_WORDS; ++i)
         encoded_backing[i] = encode_word(0x9090u);
@@ -258,17 +236,6 @@ static void prepare_memory(void) {
      * C5/C8 speed-first translation. Each table contributes disjoint pieces
      * of the byte offset of encoded_backing[(A15..A0 & ~1) >> 1].
      */
-#ifdef ISSUE112_STACKLESS_PI
-    /*
-     * Short critical path: compact PIO -> LUT pointer DMA -> backing DMA
-     * -> ROM responder. Do not run the DMA sniffer in this target.
-     */
-    for (uint32_t addr = 0u; addr < 65536u; addr += 2u) {
-        const uint16_t index =
-            compact_index_from_raw(encode_word((uint16_t)addr));
-        compact_addr_lut[index] = (uint32_t)backing_base + (addr << 1u);
-    }
-#else
     for (uint index = 0u; index < ISSUE112_ADDR_LUT_ENTRIES; ++index) {
         const uint32_t raw_lo = index;
         const uint32_t raw_hi = index << 14u;
@@ -283,7 +250,6 @@ static void prepare_memory(void) {
     }
 
     address_high_part = 0u;
-#endif
 }
 
 static void prepare_header_safe(void) {
@@ -306,8 +272,13 @@ static void prepare_header_safe(void) {
 
 static void init_frontend(PIO pio, uint sm, uint offset,
                           uint in_base, uintptr_t lut_base) {
+#ifdef ISSUE112_STACKLESS_PI
+    pio_sm_config c =
+        issue112_pi_fast_addr_frontend_program_get_default_config(offset);
+#else
     pio_sm_config c =
         issue112_c8c_addr_frontend_program_get_default_config(offset);
+#endif
     sm_config_set_in_pins(&c, in_base);
     sm_config_set_in_shift(&c, false, false, 32u);
     hard_assert(pio_sm_init(pio, sm, offset, &c) == PICO_OK);
@@ -316,23 +287,6 @@ static void init_frontend(PIO pio, uint sm, uint offset,
     pio_sm_put_blocking(pio, sm, (uint32_t)(lut_base >> 16u));
     pio_sm_set_enabled(pio, sm, false);
 }
-
-#ifdef ISSUE112_STACKLESS_PI
-static void init_compact_frontend(PIO pio, uint sm, uint offset,
-                                  uintptr_t lut_base) {
-    pio_sm_config cfg =
-        issue112_pi_compact_frontend_program_get_default_config(offset);
-    sm_config_set_in_pins(&cfg, 0u);
-    sm_config_set_in_pin_count(&cfg, 28u);
-    sm_config_set_in_shift(&cfg, false, true, 32u);
-    sm_config_set_out_shift(&cfg, true, false, 32u);
-    hard_assert(pio_sm_init(pio, sm, offset, &cfg) == PICO_OK);
-    pio_sm_clear_fifos(pio, sm);
-    hard_assert((lut_base & 0x1ffffu) == 0u);
-    pio_sm_put_blocking(pio, sm, (uint32_t)(lut_base >> 17u));
-    pio_sm_set_enabled(pio, sm, false);
-}
-#endif
 
 static void init_responder(PIO pio, uint sm, uint offset) {
 #ifdef ISSUE112_STACKLESS_PI
@@ -373,7 +327,6 @@ enum {
     PI_EXPECTED_Q3_13 = 0x6488u,
 };
 #ifdef ISSUE112_PI_BOOT_TRACE
-#error "Boot trace cannot share PIO0 with full-width 32-instruction compact ROM frontend"
 enum {
     PI_BOOT_TRACE_CYCLES = 4096u,
     PI_BOOT_TRACE_STRIDE = 5u,  /* C8C observer: T1, AF, R1, F1, R2 */
@@ -532,34 +485,28 @@ int main(void) {
     printf("PI image: %u bytes sha256=%s\n",
            (unsigned)ISSUE112_PI_IMAGE_SIZE, ISSUE112_PI_IMAGE_SHA256);
 
-#ifdef ISSUE112_STACKLESS_PI
-    const uintptr_t compact_lut_base = (uintptr_t)&compact_addr_lut[0];
-    hard_assert((compact_lut_base & 0x1ffffu) == 0u);
-#else
     const uintptr_t lut0_base = (uintptr_t)&addr_lut[0][0];
     const uintptr_t lut1_base = (uintptr_t)&addr_lut[1][0];
+    const uintptr_t backing_base = (uintptr_t)encoded_backing;
     hard_assert((lut0_base & 0xffffu) == 0u);
     hard_assert((lut1_base & 0xffffu) == 0u);
     hard_assert(lut1_base - lut0_base == 65536u);
-#endif
 
     prepare_memory();
     prepare_header_safe();
 
     PIO frontend_pio = pio0;
     const uint frontend0_sm = pio_claim_unused_sm(frontend_pio, true);
+    const uint frontend1_sm = pio_claim_unused_sm(frontend_pio, true);
 #ifdef ISSUE112_STACKLESS_PI
     const uint frontend_offset =
-        pio_add_program(frontend_pio, &issue112_pi_compact_frontend_program);
-    init_compact_frontend(
-        frontend_pio, frontend0_sm, frontend_offset, compact_lut_base);
+        pio_add_program(frontend_pio, &issue112_pi_fast_addr_frontend_program);
 #else
-    const uint frontend1_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint frontend_offset =
         pio_add_program(frontend_pio, &issue112_c8c_addr_frontend_program);
+#endif
     init_frontend(frontend_pio, frontend0_sm, frontend_offset, 0u, lut0_base);
     init_frontend(frontend_pio, frontend1_sm, frontend_offset, 14u, lut1_base);
-#endif
 
     PIO io_pio = pio2;
     const uint responder_sm = pio_claim_unused_sm(io_pio, true);
@@ -600,52 +547,18 @@ int main(void) {
     const uint clock_offset =
         pio_add_program(clock_pio, &rp86_intel_8086_clock_program);
 
-#ifdef ISSUE112_STACKLESS_PI
-    const uint compact_control_dma = dma_claim_unused_channel(true);
-    const uint compact_lookup_dma = dma_claim_unused_channel(true);
-    const uint raw_data_dma = dma_claim_unused_channel(true);
-#else
     const uint low_control_dma = dma_claim_unused_channel(true);
     const uint low_lookup_dma = dma_claim_unused_channel(true);
     const uint high_control_dma = dma_claim_unused_channel(true);
     const uint high_lookup_dma = dma_claim_unused_channel(true);
     const uint pointer_dma = dma_claim_unused_channel(true);
     const uint raw_data_dma = dma_claim_unused_channel(true);
-#endif
 #ifndef ISSUE112_STACKLESS_PI
     const uint pointer_echo_dma = dma_claim_unused_channel(true);
     const uint write_control_dma = dma_claim_unused_channel(true);
     const uint write_data_dma = dma_claim_unused_channel(true);
 #endif
 
-#ifdef ISSUE112_STACKLESS_PI
-    dma_channel_config compact_lookup_cfg =
-        dma_channel_get_default_config(compact_lookup_dma);
-    channel_config_set_transfer_data_size(&compact_lookup_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&compact_lookup_cfg, false);
-    channel_config_set_write_increment(&compact_lookup_cfg, false);
-    channel_config_set_dreq(&compact_lookup_cfg, DREQ_FORCE);
-    channel_config_set_high_priority(&compact_lookup_cfg, true);
-    dma_channel_configure(
-        compact_lookup_dma, &compact_lookup_cfg,
-        &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
-        &compact_addr_lut[0], 1u, false);
-
-    dma_channel_config compact_control_cfg =
-        dma_channel_get_default_config(compact_control_dma);
-    channel_config_set_transfer_data_size(&compact_control_cfg, DMA_SIZE_32);
-    channel_config_set_read_increment(&compact_control_cfg, false);
-    channel_config_set_write_increment(&compact_control_cfg, false);
-    channel_config_set_dreq(
-        &compact_control_cfg, pio_get_dreq(frontend_pio, frontend0_sm, false));
-    channel_config_set_high_priority(&compact_control_cfg, true);
-    dma_channel_configure(
-        compact_control_dma, &compact_control_cfg,
-        &dma_channel_hw_addr(compact_lookup_dma)->al3_read_addr_trig,
-        &frontend_pio->rxf[frontend0_sm],
-        dma_encode_endless_transfer_count(), false);
-
-#else
     dma_channel_config low_lookup_cfg =
         dma_channel_get_default_config(low_lookup_dma);
     channel_config_set_transfer_data_size(&low_lookup_cfg, DMA_SIZE_32);
@@ -702,7 +615,6 @@ int main(void) {
         &dma_channel_hw_addr(high_lookup_dma)->al3_read_addr_trig,
         &frontend_pio->rxf[frontend1_sm], 1u, false);
 
-#endif
     dma_channel_config raw_cfg =
         dma_channel_get_default_config(raw_data_dma);
     channel_config_set_transfer_data_size(&raw_cfg, DMA_SIZE_32);
@@ -718,7 +630,6 @@ int main(void) {
                           &io_pio->txf[responder_sm],
                           &encoded_backing[0], 1u, false);
 
-#ifndef ISSUE112_STACKLESS_PI
     dma_channel_config pointer_cfg =
         dma_channel_get_default_config(pointer_dma);
     channel_config_set_transfer_data_size(&pointer_cfg, DMA_SIZE_32);
@@ -731,6 +642,7 @@ int main(void) {
         &dma_channel_hw_addr(raw_data_dma)->al3_read_addr_trig,
         &dma_hw->sniff_data, 1u, false);
 
+#ifndef ISSUE112_STACKLESS_PI
     /* SRAM telemetry workloads need the backing write path. */
     dma_channel_config pointer_echo_cfg =
         dma_channel_get_default_config(pointer_echo_dma);
@@ -780,15 +692,13 @@ int main(void) {
 #endif
 #endif
 
-#ifdef ISSUE112_STACKLESS_PI
-    dma_channel_start(compact_control_dma);
-#else
     dma_sniffer_set_data_accumulator(0u);
     dma_sniffer_enable(high_lookup_dma, ISSUE112_DMA_SNIFF_SUM_MODE, false);
+
     dma_channel_start(low_control_dma);
+#ifndef ISSUE112_STACKLESS_PI
     dma_channel_start(write_control_dma);
-#endif
-#if defined(ISSUE112_STACKLESS_PI) && defined(ISSUE112_PI_BOOT_TRACE)
+#elif defined(ISSUE112_PI_BOOT_TRACE)
     const uint pi_trace_dma = dma_claim_unused_channel(true);
     dma_channel_config pi_trace_dma_cfg =
         dma_channel_get_default_config(pi_trace_dma);
@@ -805,10 +715,8 @@ int main(void) {
 
     pio_sm_restart(frontend_pio, frontend0_sm);
     pio_sm_exec(frontend_pio, frontend0_sm, pio_encode_jmp(frontend_offset));
-#ifndef ISSUE112_STACKLESS_PI
     pio_sm_restart(frontend_pio, frontend1_sm);
     pio_sm_exec(frontend_pio, frontend1_sm, pio_encode_jmp(frontend_offset));
-#endif
     pio_sm_restart(io_pio, responder_sm);
     pio_sm_exec(io_pio, responder_sm, pio_encode_jmp(responder_offset));
 #ifndef ISSUE112_STACKLESS_PI
@@ -818,9 +726,7 @@ int main(void) {
 #endif
 
     pio_sm_set_enabled(frontend_pio, frontend0_sm, true);
-#ifndef ISSUE112_STACKLESS_PI
     pio_sm_set_enabled(frontend_pio, frontend1_sm, true);
-#endif
     pio_sm_set_enabled(io_pio, responder_sm, true);
 #ifndef ISSUE112_STACKLESS_PI
     pio_sm_set_enabled(io_pio, pointer_router_sm, true);
@@ -845,7 +751,8 @@ int main(void) {
     printf("CPU remains FREE_RUNNING until power/reset.\n");
 
 #ifdef ISSUE112_STACKLESS_PI
-    printf("BUS MODE: ROM reads only, compact 3-channel read DMA, passive I/O witness\n");
+    printf("BUS MODE: ROM reads only, dual-LUT DMA, passive I/O witness\n");
+    printf("ADDRESS FRONTEND: T1 4-PIO-cycle settle (PI only)\n");
     printf("ROM READ HOLD: AD driven through R3, released in T4\n");
 #ifdef ISSUE112_PI_BOOT_TRACE
     printf("BOOT TRACE: DMA capture enabled (diagnostic)\n");

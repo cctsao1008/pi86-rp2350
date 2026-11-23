@@ -23,6 +23,30 @@ next_cycle:
 .wrap
 
 
+.program issue112_pi_fast_addr_frontend
+; Fast-T1 address frontend for 2 MHz continuous PI only; settle 4 PIO cycles rather than 8.
+    pull block
+    mov y, osr
+
+    wait 0 gpio 16
+    wait 1 gpio 21
+    wait 0 gpio 21
+.wrap_target
+next_cycle:
+    wait 0 gpio 9
+    wait 1 gpio 9
+    nop [3]
+
+    mov isr, null
+    in y, 16
+    in pins, 14
+    in null, 2
+    push block
+    jmp next_cycle
+.wrap
+
+
+
 .program issue112_c8c_responder
 ; Read response + write-data capture.
 ; BUFRW is jmp pin: LOW=read, HIGH=write.
@@ -174,44 +198,4 @@ next_rom_cycle:
 skip_cycle:
     wait 0 gpio 9             ; synchronize skipped I/O/INTA
     jmp next_rom_cycle
-.wrap
-
-; Fast compact address frontend for the 2 MHz read-only PI run.
-; Identical A15..A1 GPIO gather sequence to the already maintained C10 lab.
-; Generates a direct address into 128 KiB-aligned compact_addr_lut[].
-.program issue112_pi_compact_frontend
-    pull block
-    mov y, osr
-    wait 0 gpio 16
-    wait 1 gpio 21
-    wait 0 gpio 21
-.wrap_target
-    wait 1 gpio 9
-    mov osr, pins
-    in y, 15
-
-    out x, 1                  ; GPIO0 AD5
-    in x, 1
-    out null, 1              ; GPIO1
-    out x, 3                  ; GPIO2..4
-    in x, 3
-    out null, 1              ; GPIO5
-    out x, 1                  ; GPIO6
-    in x, 1
-    out null, 3              ; GPIO7..9
-    out x, 6                  ; GPIO10..15
-    in x, 6
-    out null, 1              ; GPIO16
-    out x, 1                  ; GPIO17
-    in x, 1
-    out null, 1              ; GPIO18
-    out x, 1                  ; GPIO19
-    in x, 1
-    out null, 2              ; GPIO20..21
-    out x, 1                  ; GPIO22
-    in x, 1
-    out null, 4              ; GPIO23..26
-    out x, 1                  ; GPIO27
-    in x, 1
-    in null, 2               ; 32-bit autopush
 .wrap
