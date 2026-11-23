@@ -320,6 +320,9 @@ static void init_pointer_router(PIO pio, uint sm, uint offset) {
 enum {
     PI_RESULT_PORT = 0x0080u,  /* pi_continuous_stackless.asm */
     PI_EXPECTED_Q3_13 = 0x6488u,
+};
+#ifdef ISSUE112_PI_BOOT_TRACE
+enum {
     PI_BOOT_TRACE_CYCLES = 4096u,
     PI_BOOT_TRACE_STRIDE = 5u,  /* C8C observer: T1, AF, R1, F1, R2 */
     PI_BOOT_TRACE_WORDS = PI_BOOT_TRACE_CYCLES * PI_BOOT_TRACE_STRIDE,
@@ -403,6 +406,8 @@ static void report_pi_boot_trace(uint32_t words) {
            r1_mismatches, f1_mismatches, rom_mismatches,
            outside_rom, memory_writes, io_writes);
 }
+
+#endif /* ISSUE112_PI_BOOT_TRACE */
 
 static void init_pi_out_observer(PIO pio, uint sm, uint offset) {
     pio_sm_config cfg =
@@ -510,6 +515,7 @@ int main(void) {
 
     PIO clock_pio = pio1;
 #ifdef ISSUE112_STACKLESS_PI
+#ifdef ISSUE112_PI_BOOT_TRACE
     const uint pi_trace_sm = pio_claim_unused_sm(frontend_pio, true);
     const uint pi_trace_offset =
         pio_add_program(frontend_pio, &issue112_c8c_observer_program);
@@ -519,6 +525,7 @@ int main(void) {
     sm_config_set_fifo_join(&pi_trace_cfg, PIO_FIFO_JOIN_RX);
     hard_assert(pio_sm_init(frontend_pio, pi_trace_sm, pi_trace_offset,
                             &pi_trace_cfg) == PICO_OK);
+#endif
 
     const uint pi_out_observer_sm = pio_claim_unused_sm(clock_pio, true);
     const uint pi_out_observer_offset =
@@ -681,7 +688,7 @@ int main(void) {
     dma_channel_start(low_control_dma);
 #ifndef ISSUE112_STACKLESS_PI
     dma_channel_start(write_control_dma);
-#else
+#elif defined(ISSUE112_PI_BOOT_TRACE)
     const uint pi_trace_dma = dma_claim_unused_channel(true);
     dma_channel_config pi_trace_dma_cfg =
         dma_channel_get_default_config(pi_trace_dma);
@@ -736,6 +743,11 @@ int main(void) {
 #ifdef ISSUE112_STACKLESS_PI
     printf("BUS MODE: ROM reads only, passive I/O witness\n");
     printf("ROM READ HOLD: AD driven through R3, released in T4\n");
+#ifdef ISSUE112_PI_BOOT_TRACE
+    printf("BOOT TRACE: DMA capture enabled (diagnostic)\n");
+#else
+    printf("BOOT TRACE: OFF (continuous-run dataplane)\n");
+#endif
     printf("WITNESS: OUT %02xh,AX; AX carries the Q3.13 PI result\n",
            PI_RESULT_PORT);
     printf("EXPECTED PORT/DATA: %04x/%04x (3.1416015625)\n",
@@ -755,7 +767,9 @@ int main(void) {
     uint16_t last_data = 0u;
     bool last_word = false;
     bool last_pi_write = false;
+#ifdef ISSUE112_PI_BOOT_TRACE
     bool boot_trace_reported = false;
+#endif
     uint64_t next_report = time_us_64() + 1000000u;
 
     while (true) {
@@ -786,6 +800,7 @@ int main(void) {
         }
 
         const uint64_t now = time_us_64();
+#ifdef ISSUE112_PI_BOOT_TRACE
         if (!boot_trace_reported && now >= next_report) {
             pio_sm_set_enabled(frontend_pio, pi_trace_sm, false);
             dma_channel_abort(pi_trace_dma);
@@ -794,6 +809,7 @@ int main(void) {
             report_pi_boot_trace(PI_BOOT_TRACE_WORDS - remaining);
             boot_trace_reported = true;
         }
+#endif
         if (now >= next_report) {
             printf("PI OUT/s=%" PRIu32 " good=%" PRIu32
                    " last=%04x value=",
