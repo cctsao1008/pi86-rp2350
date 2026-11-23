@@ -161,6 +161,7 @@ next_rom_cycle:
     out null, 5
     out x, 2                  ; BUFRW/IOM
     wait 0 gpio 9             ; T2 / ASTB fall
+    nop [3]                   ; allow AD bus turnaround before driving
     jmp x!=y next_rom_cycle
     mov pindirs, ~null        ; begin driving memory-read data
     wait 1 gpio 21            ; R1
